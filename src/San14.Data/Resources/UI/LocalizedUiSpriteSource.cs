@@ -53,7 +53,7 @@ public sealed class LocalizedUiSpriteSource
     {
         if (baseName is not ("000_cmn_txt_decision_kettei" or "000_cmn_txt_decision_modoru" or
             "000_cmn_txt_decision_yes" or "000_cmn_txt_decision_no" or
-            "000_cmn_txt_decision_next" or "000_cmn_txt_decision_shoudaku" or "000_cmn_txt_decision_kyohi" or
+            "000_cmn_txt_decision_next" or "000_cmn_txt_decision_shoudaku" or "000_cmn_txt_decision_jyudaku" or "000_cmn_txt_decision_kyohi" or
             "000_cmn_txt_decision_konin" or "000_cmn_txt_decision_gikyoudai"))
             throw new ArgumentException("Not an audited common round-button caption.", nameof(baseName));
         string language = Language(locale);

@@ -18,8 +18,8 @@ internal static class BaseCapturePublicationSource
         var areas = new Dictionary<int, AreaState>(working.Areas);
         foreach (var area in working.Areas.Values)
         {
-            int city = K(current.ReadAreaCitySlot(new(area.Id)), "Area35");
-            if (city is < 1 or > 51 || !working.Cities.ContainsKey(city)) throw Missing("ordinary_Area35_city");
+            int? city = AreaCityProjection.FromNative(K(current.ReadAreaCitySlot(new(area.Id)), "Area35"));
+            if (city is int receivingCity && !working.Cities.ContainsKey(receivingCity)) throw Missing("ordinary_Area35_city");
             int force = K(current.ReadAreaCurrentForceSlot(new(area.Id)), "Area_Hex14");
             areas[area.Id] = area with { CityId = city, ForceId = force == 0 ? null : force };
         }

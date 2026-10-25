@@ -102,11 +102,11 @@ public sealed partial class ArmyOperationContext
         foreach ((int id, AreaState area) in state.Areas)
         {
             if (id != area.Id || id is < 1 or > 500 || area.CityId is < 1 or > 51 ||
-                !state.Cities.TryGetValue(area.CityId, out CityState? receivingCity) || receivingCity.Id != area.CityId ||
+                area.CityId is int cityId && (!state.Cities.TryGetValue(cityId, out CityState? receivingCity) || receivingCity.Id != cityId) ||
                 native.ReadAreaTableReference(id)?.PhysicalSlot != id ||
                 native.ReadAreaNativeValidity(new(id)) != true || native.ReadAreaHexIndex(new(id)) != area.HexId)
                 return null;
-            native.SetAreaCitySlot(id, (byte)area.CityId);
+            native.SetAreaCitySlot(id, AreaCityProjection.ToNative(area.CityId));
         }
         foreach ((int id, TerritoryState cell) in state.Territory)
         {

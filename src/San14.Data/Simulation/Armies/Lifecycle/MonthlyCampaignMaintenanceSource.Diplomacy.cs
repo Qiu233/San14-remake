@@ -205,7 +205,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //292BA0's185D00 flags1,1,0, on the same current and pool. Presentation
         //requests describe source work; they never claim animation or sound ACK.
-        private void RestoreMonthlyOccupation(HexReference hex, int force, int cityId)
+        private void RestoreMonthlyOccupation(HexReference hex, int force, int cityId, bool enqueueEncirclement = true)
         {
             if (!hex.PhysicalSlot.HasValue || !GateCaptureTerritorySource.Eligible(state, current, hex, force, false)) return;
             if (Need(current.ReadHexForceSlot(hex), "restore_Hex14") == force) return;
@@ -223,7 +223,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     //This existing leaf retains240AA0's Person home writes,
                     //native HomeArmy key30 notices and the encirclement seed.
-                    state = PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: true);
+                    state = PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: enqueueEncirclement);
                     changedArea = rawArea;
                 }
                 else if (force is >= 46 and <= 51)
@@ -294,13 +294,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 bool moved = owner.Id == changedArea;
                 if (!moved && owner.HexId != physical) continue;
-                int city = moved ? Need(current.ReadAreaCitySlot(new(owner.Id)), "restore_published_Area35") : owner.CityId;
+                int? city = moved ? AreaCityProjection.FromNative(Need(current.ReadAreaCitySlot(new(owner.Id)), "restore_published_Area35")) : owner.CityId;
                 areas[owner.Id] = owner with { CityId = city, ForceId = force == 0 ? null : force };
                 if (owner.CityId == city) continue;
-                var previous = cities.GetValueOrDefault(owner.CityId) ?? throw Missing("restore_previous_City_owner");
-                var next = cities.GetValueOrDefault(city) ?? throw Missing("restore_new_City_owner");
-                cities[owner.CityId] = previous with { AreaIds = previous.AreaIds.Where(id => id != owner.Id).ToArray() };
-                cities[city] = next with { AreaIds = next.AreaIds.Where(id => id != owner.Id).Append(owner.Id).Order().ToArray() };
+                if (owner.CityId is int previousId)
+                {
+                    var previous = cities.GetValueOrDefault(previousId) ?? throw Missing("restore_previous_City_owner");
+                    cities[previousId] = previous with { AreaIds = previous.AreaIds.Where(id => id != owner.Id).ToArray() };
+                }
+                if (city is int receivingId)
+                {
+                    var next = cities.GetValueOrDefault(receivingId) ?? throw Missing("restore_new_City_owner");
+                    cities[receivingId] = next with { AreaIds = next.AreaIds.Where(id => id != owner.Id).Append(owner.Id).Order().ToArray() };
+                }
             }
             state = state with { Territory = new(state.Territory) { [physical] = tile with { ForceId = force == 0 ? null : force } },
                 Areas = areas, Cities = cities };

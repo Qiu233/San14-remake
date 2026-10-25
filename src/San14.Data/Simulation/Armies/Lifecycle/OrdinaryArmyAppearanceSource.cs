@@ -9,7 +9,7 @@ public sealed record OrdinaryArmyAppearanceResult(GameState? State,
 
 /// <summary>The ordinary owned-territory branch of 25C4F0. Appearance chooses
 /// a Base exit; it is not an adjacent movement edge and consumes no credit.</summary>
-internal static class OrdinaryArmyAppearanceSource
+internal static partial class OrdinaryArmyAppearanceSource
 {
     private static readonly (int X, int Y)[][] CityOffsets =
     [

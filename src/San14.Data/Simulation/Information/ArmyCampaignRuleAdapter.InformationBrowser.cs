@@ -292,7 +292,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         if (own && force != actualPlayer) return;
                         var area = state.Areas.GetValueOrDefault(p) ?? throw Missing("area.domain_owner");
                         var cells = Cells(area.Name); cells["force"] = ForceName(force);
-                        cells["location"] = new(state.Cities.GetValueOrDefault(area.CityId)?.Name, Number: area.CityId);
+                        cells["location"] = new(area.CityId is int city ? state.Cities.GetValueOrDefault(city)?.Name : null, Number: area.CityId);
                         cells["overseer"] = Person(area.Administration?.OverseerId); Add(p, area.Name, cells);
                     }); break;
                 case InformationListKind.Officers:

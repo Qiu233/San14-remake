@@ -9,12 +9,13 @@ public static partial class CityCaptureTerritorySource
     /// treating a Gate's representative Area as an ordinary region.</summary>
     internal static void ApplyAbsorptionTerritoryCurrent(GameState state, SourceWorldContext current,
         CityCaptureAreaScope scope, int districtPhysical, IEffectiveOfficerAbilities abilities,
-        ArmyReturnDistrictOperationQueries operation)
+        ArmyReturnDistrictOperationQueries operation, bool fullCentralRadius = true)
     {
         int cityId = CheckCity(current, scope.City);
         var center = CurrentGateMapQueries.FindHex(scope.City, current);
         Rings(state, current, center, unchecked(K(BaseCaptureResourceInputs.ReadCurrent(state,
-            SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "absorption_center_radius") + 1), scope.NewForcePhysical, eagerAdvice: false);
+            SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "absorption_center_radius") +
+            (fullCentralRadius ? 1 : 0)), scope.NewForcePhysical, eagerAdvice: false);
         var changed = new List<int>();
         foreach (var hex in Footprint(current, scope.City)) Raw(current, hex, scope.NewForcePhysical, changed);
         int radius = ReadAreaRadius(operation.Latest(), current, districtPhysical, scope.NewForcePhysical, abilities);

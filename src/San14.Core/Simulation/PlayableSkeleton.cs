@@ -121,6 +121,9 @@ public static class PlayableSkeleton
         commands = new DistrictCommandOrders(commands, armyCreationRules as IDistrictCommandRules);
         commands = new DoctrineResearchOrders(commands, armyCreationRules as IDoctrineResearchCommandRules);
         commands = new StrategicCommandOrders(commands, armyCreationRules as IStrategicCommandRules);
+        commands = new SelfRecommendationOrders(commands, nativePeriodContinuationRules as INormalTurnSelfRecommendationRules);
+        commands = new CoalitionInvitationOrders(commands, nativePeriodContinuationRules as INormalTurnCoalitionInvitationRules);
+        commands = new OfficerPriorityOrders(commands, armyCreationRules as IOfficerPriorityRules);
         commands = new PlayableDiplomaticOfficerGuard(commands);
         if (armyCreationRules is IPlayableArmyCreationPreparationRules preparationRules)
             commands = new PlayableArmyCreationPreparationGuard(commands, preparationRules);
@@ -473,16 +476,20 @@ public static class PlayableSkeleton
                 // provisional start quote must not decide later admission.
                 tacticState = tacticState with { NativePeriodContinuation = resumedPeriod ?? new(
                     new(personnelReports, reports.ToArray(), tacticReports, possibleArrivalOfficers), null) };
-                nativeState = sourceArmyPeriod.CompleteArmyPeriod(tacticState with
-                {
-                    PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
-                    PeriodReports = resumedPeriod is null ? [] : tacticState.PeriodReports
-                }, nativeSubdayRules ?? throw new InvalidDataException("Native Army waiting rules are unavailable."));
+                if (tacticState.NativeNormalTurnContinuation is not null)
+                    nativeState = tacticState; //The actual forty blocks and their route prefix already completed.
+                else
+                    nativeState = sourceArmyPeriod.CompleteArmyPeriod(tacticState with
+                    {
+                        PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
+                        PeriodReports = resumedPeriod is null ? [] : tacticState.PeriodReports
+                    }, nativeSubdayRules ?? throw new InvalidDataException("Native Army waiting rules are unavailable."));
                 if (nativeState.NativePeriodContinuation?.Cursor is not null) return nativeState;
-                nativeState = nativeState with { NativePeriodContinuation = null };
                 var normalTurn = nativePeriodContinuationRules as IPlayableNativeNormalTurnRules
                     ?? throw new InvalidDataException("Native normal Turn rules are unavailable after completed Army Progress.");
                 nativeState = normalTurn.CompleteNormalTurn(nativeState);
+                if (nativeState.NativeNormalTurnContinuation is not null) return nativeState;
+                nativeState = nativeState with { NativePeriodContinuation = null };
                 if (nativeState.CampaignTurnStop is not null || nativeState.NativePlayableTerminal is not null)
                 {
                     reports.AddRange(nativeState.PeriodReports);

@@ -15,6 +15,7 @@ public partial class Main
 
     private void RefreshDiplomaticNegotiation()
     {
+        if (RefreshNormalTurnContinuation()) return;
         if (_diplomacyNegotiation is not null || _advancingPeriod || _failed || _shuttingDown ||
             _session is not { PlayerForceId: int player, PendingNormalPeriod: { } pending } session ||
             _campaignComposition is not { } composition || _repository is null) return;
@@ -47,7 +48,7 @@ public partial class Main
                 request.Negotiation?.Proposal??request.InitialOffer,accepted);
             CloseDiplomaticNegotiation();
             _advancingPeriod = true;
-            _periodAdvanceTask = AdvancePlayableAsync(session, composition, diplomaticChoice: choice);
+            _periodAdvanceTask = AdvancePlayableAsync(session, composition, campaignChoice: choice);
         });
         if(draft is not null)
             view.ConfigureTerms(_repository,pending.Candidate,draft,player,

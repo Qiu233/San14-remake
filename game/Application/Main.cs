@@ -166,6 +166,10 @@ public partial class Main : Control
             or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
         { GetViewport().SetInputAsHandled(); RunUiAction(policyQuestion.RequestCancel); return; }
         if((HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition)&&!HasEnvironmentSettings&&!HasCampaignSavePage&&!HasMapSystemMenu)return;
+        if (_coalitionInvitation is { } invitationQuestion && (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false }
+            or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
+        { GetViewport().SetInputAsHandled(); RunUiAction(invitationQuestion.RequestCancel); return; }
+        if (HasSelfRecommendation || HasCoalitionInvitation) return;
         if (_diplomacyNegotiation is not null) { HandleDiplomaticNegotiationInput(input); return; }
         if(_consumeBackRelease&&input is InputEventMouseButton { ButtonIndex:MouseButton.Right,Pressed:false })
         { GetViewport().SetInputAsHandled();_consumeBackRelease=false;return; }
@@ -1041,7 +1045,7 @@ public partial class Main : Control
     {
         if (_world is not GameState world || _playerForceId is not int player ||
             !world.Areas.TryGetValue(areaId, out AreaState? area) || area.ForceId != player ||
-            !world.Cities.TryGetValue(area.CityId, out CityState? city) || city.ForceId != player ||
+            area.CityId is not int cityId || !world.Cities.TryGetValue(cityId, out CityState? city) || city.ForceId != player ||
             !city.AreaIds.Contains(areaId))
             return;
         int cityIndex = _playCity.GetItemIndex(city.Id);
@@ -1090,9 +1094,13 @@ public partial class Main : Control
         CloseTalentOrders();
         CloseTalentAutoSearch();
         CloseDiplomacyOrders();
+        CloseSelfRecommendation();
+        CloseCoalitionInvitation();
+        _automaticNormalTurnAttempt = null;
         CloseDiplomaticNegotiation();
         CloseForcePresentation();
         ClosePersonnelPresentation();
+        CloseDisasterScene();
         CloseUnitRetarget();
         CloseTransportSetup();
         CloseCommandWorkspace();

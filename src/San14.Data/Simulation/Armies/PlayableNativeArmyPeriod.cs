@@ -7,6 +7,17 @@ internal sealed record NativeArmyPeriodCompletion(GameState State,
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    //Normal Turn resumes after all forty blocks. Restore only the saved
+    //operation's grouping; do not enter Progress or its changed-route prefix.
+    internal IPlayableNativeArmyProgressStageRules RestoreCompletedNormalTurnArmyStages(
+        GameState state, CampaignGroupingCheckpoint grouping)
+    {
+        var stages = new OrdinaryArmyCombatStages(this, new NativePeriodRemainder(),
+            new NormalArmyForceResultDefinitions(CaptureWritableTransportRouteCurrent(state)));
+        stages.RestoreCheckpoint(grouping);
+        return stages;
+    }
+
     /// <summary>Consumes an already private period transaction. Every source
     /// stage runs at its actual pre-writer date; there is no period-end world
     /// replay, reusable stage-ready flag or per-cut full-world copy.</summary>

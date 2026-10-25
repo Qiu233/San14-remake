@@ -218,14 +218,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.AssignHexForce(hex, force); PublishHex(hex);
             if (centerBefore is not null)
             {
-                int assigned = DNeed(current.ReadAreaCitySlot(new(areaId)), "cancel_center_Area35");
+                int? assigned = AreaCityProjection.FromNative(DNeed(current.ReadAreaCitySlot(new(areaId)), "cancel_center_Area35"));
                 var cities = new Dictionary<int, CityState>(working.Cities);
                 if (centerBefore.CityId != assigned)
                 {
-                    var oldCity = cities.GetValueOrDefault(centerBefore.CityId) ?? throw DiplomacyNumericMissing("cancel_center_old_City");
-                    var newCity = cities.GetValueOrDefault(assigned) ?? throw DiplomacyNumericMissing("cancel_center_new_City");
-                    cities[oldCity.Id] = oldCity with { AreaIds = oldCity.AreaIds.Where(value => value != areaId).ToArray() };
-                    cities[newCity.Id] = newCity with { AreaIds = newCity.AreaIds.Where(value => value != areaId).Append(areaId).Order().ToArray() };
+                    if (centerBefore.CityId is int previousId)
+                    {
+                        var oldCity = cities.GetValueOrDefault(previousId) ?? throw DiplomacyNumericMissing("cancel_center_old_City");
+                        cities[previousId] = oldCity with { AreaIds = oldCity.AreaIds.Where(value => value != areaId).ToArray() };
+                    }
+                    if (assigned is int receivingId)
+                    {
+                        var newCity = cities.GetValueOrDefault(receivingId) ?? throw DiplomacyNumericMissing("cancel_center_new_City");
+                        cities[receivingId] = newCity with { AreaIds = newCity.AreaIds.Where(value => value != areaId).Append(areaId).Order().ToArray() };
+                    }
                 }
                 working = working with { Cities = cities, Areas = new(working.Areas)
                 { [areaId] = centerBefore with { CityId = assigned, ForceId = force == 0 ? null : force } } };

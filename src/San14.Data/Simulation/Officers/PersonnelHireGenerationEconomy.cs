@@ -82,15 +82,19 @@ public sealed partial class ArmyCampaignRuleAdapter
     //2BD250, the actual Area income scalar used by22D9E0. No draft selection
     //or UI preview context supplies the appointed officer or its task count.
     private int ReadHireAreaGoldIncomeCurrent(GameState state, SourceWorldContext current,
-        AreaReference area, BaseReference city, IEffectiveOfficerAbilities abilities, Func<int, int> assignmentCount)
+        AreaReference area, BaseReference city, IEffectiveOfficerAbilities abilities, Func<int, int> assignmentCount,
+        int? personOverride = null)
     {
         if (!HireEconomyK(current.ReadBaseNativeValidity(city), "gold_City_validity")) return 0;
         int physical = HireEconomyK(area.PhysicalSlot, "gold_Area_identity");
         int forceId = HireEconomyK(current.ReadBaseForceSlot(city), "gold_City_Force");
         if (HireEconomyK(current.ReadAreaCurrentForceSlot(area), "gold_Area_Force") != forceId) return 0;
+        if (current.ReadSpecialBaseCapacity(city))
+            return unchecked(BasePostLoad.ReadGoldCapacity(city, current)
+                - HireEconomyK(current.ReadBaseResource(city, BaseResourceKind.Gold), "gold_special_City_stock"));
         var force = current.ReadForceTableReference(forceId <= 51 ? forceId : 0)
             ?? throw HireEconomyMissing("gold_Force_pointer");
-        int person = PersonAreaAppointmentSource.Resolve(current,
+        int person = personOverride ?? PersonAreaAppointmentSource.Resolve(current,
             HireEconomyK(current.ReadAssignmentArea36(physical), "gold_Area36"));
         var owner = state.Areas.GetValueOrDefault(physical) ?? throw HireEconomyMissing("gold_Area_owner");
         var basis = owner.EconomySource ?? throw HireEconomyMissing("gold_Area_fixed_income");

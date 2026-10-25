@@ -20,7 +20,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     private PersonAppearanceTurnResult TryAdvanceNormalTurnPrefix(GameState state,
         PeriodDate startDate, int startPeriodNumber, ICampaignAppRandomBinding? appRandom,
         TransferServiceState? transferService, TransferModeState? transferMode,
-        Action<string, GameState>? observe = null)
+        Action<string, GameState>? observe = null, CampaignGroupingCheckpoint? grouping = null)
     {
         uint? saved = null;
         int next = 0;
@@ -167,8 +167,26 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             else Observe("turn.index15.skipped");
             next = 16;
+            if (monthStart)
+            {
+                state = ApplyNormalTurnSelfRecommendationsCurrent(state, current, pool,
+                    saved ?? throw AppearanceTurnMissing("saved_App32"), grouping);
+                if (state.NativeNormalTurnContinuation is not null)
+                {
+                    Observe("turn.index16.waiting-for-player");
+                    return new(state, null, next, saved);
+                }
+                Observe("turn.index16.completed");
+            }
+            else Observe("turn.index16.skipped");
+            state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
+                saved ?? throw AppearanceTurnMissing("saved_App32"), grouping,
+                reached: action => next = action,
+                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)));
+            if (state.NativeNormalTurnContinuation is not null) return new(state, null, next, saved);
+            next = 31;
             //Do not finalize or pull research51/hire52/53 ahead of this frontier.
-            throw AppearanceTurnMissing("action.16");
+            throw AppearanceTurnMissing("action.31");
 
             void Observe(string point)
             {

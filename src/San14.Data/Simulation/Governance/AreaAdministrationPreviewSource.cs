@@ -132,13 +132,13 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         return source.RawField46 is >= 0 and <= 65535 ? (ushort)source.RawField46 : throw Missing("food_basis_domain");
     }
 
-    internal AreaAdministrationQuery<int?> Soldiers(int area) => Read(() =>
+    internal AreaAdministrationQuery<int?> Soldiers(int area, ushort? recruiterOverride = null) => Read(() =>
     {
         //7826E0 reads CURRENT CityCA before entering the scalar, including before.
         byte citySlot = K(current.ReadAreaCitySlot(new(area)), "troops_area_city");
         var city = current.ReadCityTableReference(citySlot <= 51 ? citySlot : 0) ?? throw Missing("troops_city_pointer");
         int cityPhysical = K(city.PhysicalSlot, "troops_city_identity");
-        ushort rawRecruiter = K(current.ReadAssignmentCityCA(cityPhysical), "troops_city_recruiter");
+        ushort rawRecruiter = recruiterOverride ?? K(current.ReadAssignmentCityCA(cityPhysical), "troops_city_recruiter");
         if (!K(current.ReadBaseNativeValidity(city), "troops_city_validity")) return 0;
         int cityForce = K(current.ReadBaseForceSlot(city), "troops_city_force");
         int hex = K(current.ReadAreaHexIndex(new(area)), "troops_area_hex");

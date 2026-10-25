@@ -14,11 +14,23 @@ public sealed partial class ArmyCampaignRuleAdapter
         => ApplyForceBaseTransferCurrent(state, current, pool, target, destination, ruler,
             operationDate, effects, preserveResources: true, suppressMaintenance: true);
 
+    /// <summary>NormalTurn13's 26DA10(Base,District,executor,0,0,0,1,0,1,0).
+    /// The caller supplies its actual resident-transfer District writer.</summary>
+    internal GameState ApplyNeutralBaseTransferCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, BaseReference target,
+        DistrictReference destination, TransferPersonReference ruler,
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
+        Action<ArmyReturnDistrictOperationQueries> transferDistrict)
+        => ApplyForceBaseTransferCurrent(state, current, pool, target, destination, ruler,
+            operationDate, effects, preserveResources: false, suppressMaintenance: false,
+            fullCentralRadius: false, transferDistrict: transferDistrict);
+
     private GameState ApplyForceBaseTransferCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, BaseReference target,
         DistrictReference destination, TransferPersonReference ruler,
         NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
-        bool preserveResources, bool suppressMaintenance)
+        bool preserveResources, bool suppressMaintenance, bool fullCentralRadius = true,
+        Action<ArmyReturnDistrictOperationQueries>? transferDistrict = null)
     {
         if (!AbsorptionBaseNeed(current.ReadBaseNativeValidity(target), "Base_validity")) return state;
         int location = AbsorptionBaseNeed(current.ReadBaseObjectLink(target), "Base4E");
@@ -28,7 +40,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int newForce = AbsorptionBaseNeed(current.ReadDistrictForceSlot(destination), "destination_Force");
         int oldForce = AbsorptionBaseNeed(current.ReadBaseForceSlot(target), "old_Force");
         var oldDistrict = current.ReadBaseDistrictReference(target) ?? throw AbsorptionBaseMissing("old_District");
-        if (newForce is < 1 or > 45 || oldForce is < 1 or > 45)
+        if (newForce is < 1 or > 45 || oldForce is < 0 or > 45 || preserveResources && oldForce == 0)
             throw AbsorptionBaseMissing("nonordinary_Force");
         var force = current.ReadForceTableReference(newForce) ?? throw AbsorptionBaseMissing("new_Force_pointer");
         var working = state;
@@ -42,7 +54,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             //26D2E0 receives (Base,District,ruler,1,0): param7=0 skips
             //the resident list, then param6=1 skips Gate repair/old 2E9140.
-            TransferForceAbsorptionBaseDistrictCurrent(current, target, destination, ruler, operation, suppressMaintenance);
+            if (transferDistrict is not null) transferDistrict(operation);
+            else TransferForceAbsorptionBaseDistrictCurrent(current, target, destination, ruler, operation, suppressMaintenance);
             current.SetObjectForceSlot13(location, (byte)newForce);
             current.CurrentSceneryLayout = new(null);
             current.TransferModeStateReader = () => current.ArmyReturnTransferMode;
@@ -92,11 +105,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (areas is not null)
             {
                 CityCaptureTerritorySource.ApplyAbsorptionTerritoryCurrent(working, current, areas,
-                    AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), CreateArmyDestructionAbilities(current), operation);
+                    AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), CreateArmyDestructionAbilities(current), operation,
+                    fullCentralRadius);
                 CityCaptureTerritorySource.RequireNoReachedAreaObjectService(current, areas);
             }
             else GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
-                0, AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), eagerAdvice: false);
+                0, AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), eagerAdvice: false,
+                centralRadiusAdjustment: fullCentralRadius ? 0 : -1);
 
             int bound = AbsorptionBaseNeed(ArmyDestructionParameterSeed.ReadCurrent(working,
                 SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480");

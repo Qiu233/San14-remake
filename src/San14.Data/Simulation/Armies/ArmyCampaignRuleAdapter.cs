@@ -261,7 +261,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         GameState capturedItems = _personCaptureInputs.InstallFresh(lifecycle, commandWorld.Context);
         GameState bases = BaseCaptureCurrentInputs.InstallFresh(ForceUnregisterInputs.InstallFresh(
             PersonReturnCommands.InstallFresh(capturedItems, commandWorld.Context), _scenario), _scenario);
-        GameState cityCapture = _cityCaptureTerritoryInputs.InstallFresh(BaseReturnCaptivesInputs.InstallFresh(bases), _scenario);
+        GameState cityCapture = _cityCaptureTerritoryInputs.InstallFresh(
+            BaseSupplyExpenseAccumulatorSource.InstallFresh(BaseReturnCaptivesInputs.InstallFresh(bases)), _scenario);
         var completed = CityCaptureFoodWarningSource.InstallFreshInputs(cityCapture, _repository);
         var initialized = ArmyChangedListsSource.InstallFresh(completed, CaptureOwnedArmyReturnWorld(completed).Context);
         InitializeMapArmyGroupsKnownReset(Enumerable.Range(0, 501));
@@ -269,6 +270,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             HexFireParameters.InstallFresh(BaseWoundedRecoveryParameters.InstallFresh(initialized)))))) with { RegionOccupationFollowups = new([], []) };
         ready = MonthlyCampaignMaintenanceRules.InstallFresh(ready);
         ready = InstallFreshNormalTurnForeignRelations(ready);
+        ready = InstallFreshForeignTradeProgress(ready);
         ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
         ready = PersonnelCommandParameters.InstallFresh(ready);
         ready = GovernanceRosterParameters.InstallFresh(ready);

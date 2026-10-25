@@ -88,68 +88,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             return result;
         }
 
-        //Reports are called at their native write point, before the following
-        //person/Force transfer changes the formatter's current operands.
-        private GameState IndependenceReport(GameState input, int root, int person)
-        {
-            State = input;
-            var city = current.ReadCityTableReference(Target) ?? throw StrategyMissing("independence_report_City");
-            int rebel = _independenceRebel ?? throw StrategyMissing("independence_source_rebel");
-            int sourceForce = StrategyNeed(current.ReadBaseForceSlot(city), "independence_report_Force");
-            //The old Force must remain the original task target's source even
-            //after the City has already transferred to the new faction.
-            if (_independenceOriginalForce is int retained) sourceForce = retained;
-            int home = StrategyNeed(current.ReadPersonFirstLocation(rebel), "independence_report_Home");
-            HistoryMessageOperands operands = root switch
-            {
-                0x5E43 => new(Person0: Id(rebel), Force0: sourceForce),
-                0x5E49 or 0x5E4A => new(Person0: Id(rebel), Force0: sourceForce, Base0: (ushort)home),
-                0x5E4B or 0x5E59 => new(Person0: Id(person), Person1: Id(rebel)),
-                0x5E58 => new(Person0: Id(person), Person1: Id(rebel), Force0: ForceId(Force(person))),
-                0x5E6F => new(Person0: Id(person), Person1: Id(Ruler(Force(person))), Person2: Id(rebel)),
-                _ => throw StrategyMissing("independence_report_root")
-            };
-            if (root == 0x5E4B)
-                Effects.Add(new(null, null) { TalentCommandPresentation = new(TalentCommandPresentationOperation.SoundCue, 6, null, null, null, null) });
-            var source = State;
-            var formatted = package.FormatStrategicCommandReportCurrent(State, current, root, operands);
-            State = formatted.State;
-            if (root == 0x5E49)
-                Effects.Add(new(null, null) { TalentCommandPresentation = new(TalentCommandPresentationOperation.Announcement,
-                    null, null, null, null, formatted.Text) });
-            else if (root is not (0x5E4A or 0x5E58))
-                Effects.Add(CreateStrategicCommandPresentation(current, source, Id(person), formatted));
-            if (root is 0x5E4A or 0x5E58)
-                IndependenceHistory(root, person, rebel, sourceForce, home, formatted.Text);
-            return State;
-        }
+        //Keep source identities while the generic operation changes the City.
         private int? _independenceOriginalForce;
         private int? _independenceRebel;
-
-        private void IndependenceHistory(int introRoot, int person, int rebel, int sourceForce, int home, string introduction)
+        private GameState IndependenceReport(GameState input,int root,int person)
         {
-            var player = OwnedCurrentPlayerForce.ReadCurrentReference(State, current) ?? throw StrategyMissing("independence_history_player");
-            int ruler = Ruler(player);
-            if (!StrategyNeed(current.ReadPersonNativeValidity(ruler), "independence_history_player_validity")) return;
-            int speaker = 5012;
-            if (introRoot == 0x5E4A)
-            {
-                int rawAdvisor = StrategyNeed(current.ReadAssignmentForceAdvisor52(ForceId(player)), "independence_history_advisor");
-                int advisor = Person(rawAdvisor);
-                if (StrategyNeed(current.ReadPersonNativeValidity(advisor), "independence_history_advisor_validity")) speaker = Id(advisor);
-            }
-            int root = introRoot == 0x5E4A ? 0x525B : 0x526C;
-            var operands = introRoot == 0x5E4A
-                ? new HistoryMessageOperands(Person0: speaker, Person1: Id(ruler), Person2: Id(rebel), Base0: (ushort)home, Force0: sourceForce)
-                : new HistoryMessageOperands(Person0: 5012, Person1: Id(ruler), Person2: Id(person), Person3: Id(rebel), Force0: ForceId(Force(person)));
-            var text = package.FormatStrategicCommandReportCurrent(State, current, root, operands); State = text.State;
-            int day = (package.ReadArmyDestructionSampler(State, current) ?? throw StrategyMissing("independence_history_day")).Day450;
-            var date = State.NativeMapSeason?.ThirdDate ?? throw StrategyMissing("independence_history_date");
-            int hex = StrategyNeed(PersonReturnCommands.ResolvePersonPosition(State,current,rebel,date).PhysicalSlot, "independence_history_Hex");
-            if (current.ReadOwnedPersonCommandManager() is { } commands) State = State with { PersonnelCommands = commands };
-            int district = Primary(ForceAt(sourceForce));
-            State = package.WriteHistory(State, current, new(1, district, hex, day, introduction, text.Text,
-                introRoot == 0x5E4A ? speaker : 5012, MarkBit0: 1, MarkBit4: 0), Effects);
+            State = package.ApplyForceIndependenceReportCurrent(input,current,
+                _independenceOriginalForce ?? throw StrategyMissing("independence_source_Force"),
+                _independenceRebel ?? throw StrategyMissing("independence_source_rebel"),root,person,Effects,normalTurn:false);
+            return State;
         }
     }
 
@@ -176,7 +123,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             IsIndependencePlayer(working, current, original) ? 7 : 8, null, null, null, null) });
         working = reportAtSource(working, 0x5E43, rebel);
         effects.Add(new(null, null) { TalentCommandPresentation = new(TalentCommandPresentationOperation.SoundCue, 21, null, null, null, null) });
-        effects.Add(new(null, null) { ForceCoalitionVisual = new(ForceCoalitionVisualOperation.NarrationEnter, null) });
+        effects.Add(new(null, null) { ForceCoalitionVisual = new(ForceCoalitionVisualOperation.NarrationEnter, null) { SceneKind = 24 } });
         working = reportAtSource(working, 0x5E49, rebel);
         effects.Add(new(null, null) { ForceCoalitionVisual = new(ForceCoalitionVisualOperation.NarrationExit, null) });
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current) ?? throw StrategyMissing("independence_source_player");

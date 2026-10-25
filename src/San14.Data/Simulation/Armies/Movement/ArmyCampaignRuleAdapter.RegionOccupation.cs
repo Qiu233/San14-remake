@@ -74,9 +74,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             int id = OccupationKnown(current.ReadHexAreaSlot(new(hex)), "published_center_Area");
             if (!areas.TryGetValue(id, out var before)) throw OccupationMissing("published_Area_owner");
-            int city = OccupationKnown(current.ReadAreaCitySlot(new(id)), "published_Area_City");
+            int? city = AreaCityProjection.FromNative(OccupationKnown(current.ReadAreaCitySlot(new(id)), "published_Area_City"));
             int force = OccupationKnown(current.ReadAreaCurrentForceSlot(new(id)), "published_Area_force");
-            if (!state.Cities.ContainsKey(city)) throw OccupationMissing("published_City_owner");
+            if (city is int receivingCity && !state.Cities.ContainsKey(receivingCity)) throw OccupationMissing("published_City_owner");
             areas[id] = before with { CityId = city, ForceId = force == 0 ? null : force };
             //2FFC30's player log (5365, optional local-district title5F6B).
             //Store semantic references; localization is a presentation concern.

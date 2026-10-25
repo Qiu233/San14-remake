@@ -40,7 +40,8 @@ public abstract partial class DetailsView : Control
         int? portraitAppearanceCode, string selectionCaption, Action close, bool mapBackdrop = false,
         IReadOnlyDictionary<string, int>? valueTextPresets = null, string? selectionIcon = null,
         DetailForceAppearance? forceAppearance = null, IReadOnlyList<DetailForceAppearance?>? neighborFlags = null,
-        DetailMiniMapValues? miniMap = null, DetailForceNameplate? rulerNameplate = null)
+        DetailMiniMapValues? miniMap = null, DetailForceNameplate? rulerNameplate = null,
+        bool showReturnButton = true, bool showHeader = true)
     {
         Name = viewName;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -103,13 +104,13 @@ public abstract partial class DetailsView : Control
             sourceFrame.Art(_canvas, frameNode.Index, frameRectangle, Assets, _sourceShader!);
         else
             DrawSprite(frame.Layout, frameNode, frameRectangle, Vector2.One);
-        if (sourceShell)
+        if (showHeader && sourceShell)
         {
             _sourceHeader = new UiSourceHeader { Name = "DetailsTitle" };
             _canvas.AddChild(_sourceHeader);
             _sourceHeader.Configure(repository, Assets, _sourceShader!, _sourceFont!, text.Get(titleKey));
         }
-        else
+        else if (showHeader)
         {
             AddPicture(Assets.Sprite("000_cmn_base_title").Texture, new Rect2(0, 0, 540, 88));
             AddLabel(text.Get(titleKey), new Rect2(120, 25, 330, 50), 32,
@@ -432,8 +433,8 @@ public abstract partial class DetailsView : Control
             AddLabel(selectionCaption, new Rect2(selection[0].GetSingle(), selection[1].GetSingle(),
                 selection[2].GetSingle(), selection[3].GetSingle()), 28, HorizontalAlignment.Center,
                 new Color("#efdd8e"));
-        TextureButton back;
-        if (sourceShell)
+        TextureButton? back = null;
+        if (showReturnButton && sourceShell)
         {
             var footer = new UiSourceLayout(repository, 0xD8913AB2);
             Vector2 footerMount = new(0, 1080 - footer.Nodes[0].Value46);
@@ -444,7 +445,7 @@ public abstract partial class DetailsView : Control
             sourceBack.FocusMode = FocusModeEnum.All;
             back = sourceBack;
         }
-        else
+        else if (showReturnButton)
         {
             back = new TextureButton
             {
@@ -461,7 +462,7 @@ public abstract partial class DetailsView : Control
                 32, HorizontalAlignment.Center, new Color("#35261b"));
             returnLabel.MouseFilter = MouseFilterEnum.Ignore;
         }
-        _close = close;
+        _close = showReturnButton ? close : null;
         _returnButton = back;
         if (partiallyRenderedText.Count != 0)
         {

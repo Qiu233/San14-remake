@@ -31,7 +31,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw Missing("shared_current_pool");
             if (package.Seed.Language != "TC") throw Missing("locale_rules");
-            int difficulty = Need(BattleRemakeCurrentSettings.ReadInt32(state, 0x28), "difficulty");
+            int settings = Need(BattleRemakeCurrentSettings.ReadSelectorE58(state), "difficulty_settings");
+            int difficulty = Need(BattleRemakeCurrentSettings.ReadInt32(state, settings == 0 ? 0x134 : 0x28), "difficulty");
             var season = state.NativeMapSeason ?? throw Missing("calendar");
             int elapsed = unchecked((state.CampaignEventWorld ?? throw Missing("elapsed_owner")).ElapsedPeriodOffset +
                 (int)season.AdvancedPeriods);

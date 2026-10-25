@@ -56,8 +56,9 @@ public static class CityFoodIncomeSource
         return sum;
     }
 
-    private static int ReadArea(GameState state, SourceWorldContext current, AreaReference area,
-        BaseReference city, ForceReference force, int month, IEffectiveOfficerAbilities? abilities)
+    internal static int ReadArea(GameState state, SourceWorldContext current, AreaReference area,
+        BaseReference city, ForceReference force, int month, IEffectiveOfficerAbilities? abilities,
+        int? personOverride = null)
     {
         if (!K(current.ReadBaseNativeValidity(city), "Area_City_validity")) return 0;
         if (current.ReadSpecialBaseCapacity(city))
@@ -65,7 +66,7 @@ public static class CityFoodIncomeSource
                 - K(current.ReadBaseResource(city, BaseResourceKind.Supplies), "special_City_food"));
 
         int physical = K(area.PhysicalSlot, "Area_identity");
-        int person = PersonAreaAppointmentSource.Resolve(current,
+        int person = personOverride ?? PersonAreaAppointmentSource.Resolve(current,
             K(current.ReadAssignmentArea36(physical), "Area36"));
         var owner = state.Areas.GetValueOrDefault(physical) ?? throw Missing("Area_saved_owner");
         var basis = owner.EconomySource ?? throw Missing("Area_fixed_income");

@@ -79,14 +79,14 @@ public static class GateCaptureTerritorySource
 
     public static GateCaptureHexTransfer ApplyTerritoryAfterResources(
         GameState state, SourceWorldContext current, BaseReference gate,
-        int newForce, int oldDistrict, int newDistrict, bool eagerAdvice = true)
+        int newForce, int oldDistrict, int newDistrict, bool eagerAdvice = true, int centralRadiusAdjustment = 0)
     {
         CheckGate(current, gate); CheckForce(newForce);
         //Capture's ordinary source contract has both presentation flags1;
         //their messages have no original native receiver in this client.
         _ = oldDistrict; _ = newDistrict;
         var center = CurrentGateMapQueries.FindHex(gate, current);
-        int radius = K(BaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "current_Gate_radiusA7A8");
+        int radius = unchecked(K(BaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "current_Gate_radiusA7A8") + centralRadiusAdjustment);
         var visited = new List<int>(); var cleared = new List<int>();
         var changed = new List<int>(); var dirty = new List<int>();
         var temporary = current.CreateNearbyTemporary(); //2DFA7B, before advice query.

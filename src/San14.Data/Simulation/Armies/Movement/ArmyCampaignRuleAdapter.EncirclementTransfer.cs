@@ -109,7 +109,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         foreach (int id in changedCenters.Distinct())
         {
             if (!updatedAreas.TryGetValue(id, out var area)) throw OccupationMissing("encirclement_Area_owner");
-            updatedAreas[id] = area with { CityId = OccupationKnown(current.ReadAreaCitySlot(new(id)), "encirclement_published_City"),
+            updatedAreas[id] = area with { CityId = AreaCityProjection.FromNative(OccupationKnown(current.ReadAreaCitySlot(new(id)), "encirclement_published_City")),
                 ForceId = force };
         }
         var cities = new Dictionary<int, CityState>(working.Cities);

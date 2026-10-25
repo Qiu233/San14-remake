@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace San14.Core;
 
 /// <summary>Current parameters owned by this remake session. Source-created
@@ -14,6 +16,7 @@ public sealed record NativeArmyForceState(byte? Flags193)
     /// receiver for a newly independent force. This is separate from its ruler.</summary>
     public int? FactionOfficerId { get; init; }
     public int? PopulationTotal { get; init; }
+    public ForeignTradeProgressState? ForeignTradeProgress { get; init; }
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
     public ushort? DiplomacyFlags178 { get; init; }
@@ -21,6 +24,9 @@ public sealed record NativeArmyForceState(byte? Flags193)
     public byte[]? RelationsEA { get; init; }
     public NativeNormalArmyForceAftermath? NormalAftermath { get; init; }
 }
+/// <summary>Five foreign countries' current friendship progress and acquired technology levels.</summary>
+public sealed record ForeignTradeProgressState(ImmutableArray<ushort> FriendshipPoints,
+    ImmutableArray<byte> AcquiredTechnologyLevels);
 public sealed record NativeArmyWorldState
 {
     //The actual coalition-event deadline. Missing old knowledge stays null;
@@ -54,7 +60,9 @@ internal static class NativeArmySimulationStateValidation
                 .Any(string.IsNullOrWhiteSpace) || parameters.Float32Values.Values.Any(value => !float.IsFinite(value)) ||
             simulation.Forces.Any(pair => pair.Value is null || !state.Forces.ContainsKey(pair.Key) ||
                   pair.Value.RelationsEA is { Length: not 52 } || pair.Value.FactionOfficerId is < 0 or > ushort.MaxValue ||
-                  pair.Value.PopulationTotal < 0))
+                  pair.Value.PopulationTotal < 0 || pair.Value.ForeignTradeProgress is { } trade &&
+                  (trade.FriendshipPoints.IsDefault || trade.FriendshipPoints.Length != 5 ||
+                   trade.AcquiredTechnologyLevels.IsDefault || trade.AcquiredTechnologyLevels.Length != 5)))
             throw new InvalidDataException("Owned native Army simulation inputs are incomplete or inconsistent.");
         foreach (UnitState army in state.Units.Values)
             if (army.NativeArmyOrigin is { } origin &&

@@ -52,8 +52,22 @@ public sealed partial class CampaignComposition
         Action<GameState>? periodStep = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep);
 
+    /// <summary>Apply the player's response to the saved self-recommendation
+    /// and continue its existing normal-turn candidate on the worker.</summary>
+    public Task<CampaignPeriodAdvanceResult> ConfirmSelfRecommendationAsync(GameplaySession sourceSession,
+        ConfirmSelfRecommendationOrder order, CancellationToken cancellationToken = default,
+        CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
+        Action<GameState>? periodStep = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep);
+
+    public Task<CampaignPeriodAdvanceResult> ConfirmCoalitionInvitationAsync(GameplaySession sourceSession,
+        ConfirmCoalitionInvitationOrder order, CancellationToken cancellationToken = default,
+        CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
+        Action<GameState>? periodStep = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep);
+
     private Task<CampaignPeriodAdvanceResult> AdvanceNormalPeriodAsync(GameplaySession sourceSession,
-        ConfirmDiplomaticNegotiationOrder? confirmation, CancellationToken cancellationToken,
+        GameOrder? confirmation, CancellationToken cancellationToken,
         CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Action<GameState>? periodStep)
     {
         ArgumentNullException.ThrowIfNull(sourceSession);
@@ -94,11 +108,11 @@ public sealed partial class CampaignComposition
                 {
                     var confirmed = session.Issue(confirmation);
                     if (!confirmed.Accepted)
-                        throw new InvalidOperationException(confirmed.Error ?? "The diplomatic negotiation was rejected.");
+                        throw new InvalidOperationException(confirmed.Error ?? "The campaign decision was rejected.");
                 }
-                bool stillNegotiating = confirmation is not null &&
+                bool stillNegotiating = confirmation is ConfirmDiplomaticNegotiationOrder diplomatic &&
                     session.PendingNormalPeriod?.Candidate.PersonnelCommands?.Diplomacies?
-                        .GetValueOrDefault(confirmation.TaskId)?.AwaitingNegotiation == true;
+                        .GetValueOrDefault(diplomatic.TaskId)?.AwaitingNegotiation == true;
                 bool hasResponse = confirmation is not null && session.PendingNormalPeriod is {} waiting &&
                     PersonnelPresentationQueue.Next(waiting.Candidate) is not null;
                 if (!stillNegotiating && !hasResponse && !session.AdvancePeriod())

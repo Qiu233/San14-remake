@@ -3,7 +3,8 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter campaign)
-    : IPlayableNativePeriodContinuationRules, IPlayableNativeArmyPeriodRules, IPlayableNativeNormalTurnRules
+    : IPlayableNativePeriodContinuationRules, IPlayableNativeArmyPeriodRules, IPlayableNativeNormalTurnRules,
+      INormalTurnSelfRecommendationRules, INormalTurnCoalitionInvitationRules
 {
     private IPlayableNativeArmyProgressStageRules? completedArmyStages;
     private NativeArmyFoodTurnResult? completedFoodTurn;
@@ -23,6 +24,12 @@ public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter cam
 
     public GameState CompleteNormalTurn(GameState completed)
     {
+        if (completed.NativeNormalTurnContinuation is { } suspended)
+        {
+            completedArmyStages = campaign.RestoreCompletedNormalTurnArmyStages(completed, suspended.Grouping);
+            completedFoodTurn = null;
+            completedNormalTurn = false;
+        }
         if (completedArmyStages is not { } stages || completed.NativePeriodContinuation?.Cursor is not null)
             throw new InvalidDataException("Native normal Turn requires completed Army Progress.");
         if (completedNormalTurn)
@@ -30,7 +37,9 @@ public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter cam
         //Progress can itself reach the saved native terminal at an earlier
         //cycle. Its real stop does not execute the later normal Turn prefix.
         var result = completed.NativePlayableTerminal is not null ? completed
-            : campaign.CompleteNormalTurnAfterArmyPeriodCurrent(completed);
+            : campaign.CompleteNormalTurnAfterArmyPeriodCurrent(completed,
+                (stages as ICampaignStageOperation)?.CaptureCheckpoint()
+                ?? throw new InvalidDataException("Normal Turn requires its actual Army grouping checkpoint."));
         if (result.CampaignTurnStop is not null || result.NativePlayableTerminal is not null)
         {
             //The real stop keeps its reached source fields. It does not
@@ -39,9 +48,17 @@ public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter cam
             completedArmyStages = null;
             completedFoodTurn = null;
         }
-        completedNormalTurn = true;
+        completedNormalTurn = result.NativeNormalTurnContinuation is null;
         return result;
     }
+
+    public CommandResult ConfirmNormalTurnSelfRecommendation(GameState state,
+        ConfirmSelfRecommendationOrder order, CommandContext context)
+        => campaign.ConfirmNormalTurnSelfRecommendation(state, order, context);
+
+    public CommandResult ConfirmNormalTurnCoalitionInvitation(GameState state,
+        ConfirmCoalitionInvitationOrder order, CommandContext context)
+        => campaign.ConfirmNormalTurnCoalitionInvitation(state, order, context);
 
     public GameState CompleteArmyFoodTurn(GameState state)
     {
@@ -75,7 +92,9 @@ public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter cam
             //CTurn60 (42F7A0) observes completed Progress membership, once
             //per Turn. It is not an Army-cycle or calendar-tick callback.
             state = campaign.CompleteCampaignExpeditionsTurn(state);
-            var completed = campaign.CompletePlayableGovernanceTurn(state);
+            //Normal Turn30 already consumed3029A0/27AA40/2FF6C0 in its
+            //original position. Do not reduce pending personnel words twice.
+            var completed = state;
             stages.PublishDerivedState(completed);
             if (completedFoodTurn is not { } food) throw new InvalidDataException("Native food Turn has not completed.");
             campaign.PublishNativeFoodTurnGroups(food);

@@ -12,7 +12,7 @@ public sealed partial class GameSimulation
         var pending = _normalPeriod;
         var owner = pending?.Candidate ?? State;
         if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
-            pending is not null && pending.Candidate.NativePeriodContinuation?.Cursor is null)
+            pending is not null && !NormalPeriodOperation.HasContinuation(pending.Candidate))
             return false;
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(rules);
@@ -34,7 +34,7 @@ public sealed partial class GameSimulation
         var pending = _normalPeriod;
         var owner = pending?.Candidate ?? State;
         if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
-            pending is not null && pending.Candidate.NativePeriodContinuation?.Cursor is null)
+            pending is not null && !NormalPeriodOperation.HasContinuation(pending.Candidate))
             return false;
         ArgumentNullException.ThrowIfNull(snapshot);
         int index = -1;

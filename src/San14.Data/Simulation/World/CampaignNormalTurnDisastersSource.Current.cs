@@ -96,9 +96,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             int governor = N(current.ReadArmyReturnBaseGovernor2E(city), "sample_City2E");
             int food = N(current.ReadBaseResource(city, BaseResourceKind.Supplies), "sample_City_food");
             int gold = N(current.ReadBaseResource(city, BaseResourceKind.Gold), "sample_City_gold");
-            int morale = N(current.ReadBaseMorale44(city), "sample_City_morale");
+            int rawObject = N(current.ReadBaseObjectLink(city), "sample_City4E");
+            var obj = current.ReadObjectTableReference(rawObject < 3001 ? rawObject : 0) ?? throw Missing("sample_Object_pointer");
+            //22C800: the linked Object's current14, or the actual invalid
+            //receiver result6000. This is independent of Base morale44.
+            int durability = N(current.ReadObjectNativeValidity(obj), "sample_Object_validity")
+                ? N(current.ReadObjectRawField14(obj), "sample_Object14") : 6000;
             return Sample(bound, DateSalt, Physical(city), governor,
-                unchecked(food + gold + morale + wounded + troops));
+                unchecked(food + gold + durability + wounded + troops));
         }
         private int Sample(int bound, int first = 0, int second = 0, int third = 0, int fourth = 0)
         {

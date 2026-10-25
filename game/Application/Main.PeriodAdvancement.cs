@@ -57,7 +57,7 @@ public partial class Main
     }
 
     private async Task AdvancePlayableAsync(GameplaySession source, CampaignComposition composition,
-        string? automaticSaveNotice = null, ConfirmDiplomaticNegotiationOrder? diplomaticChoice = null)
+        string? automaticSaveNotice = null, GameOrder? campaignChoice = null)
     {
         var cancellation = new CancellationTokenSource();
         _periodAdvanceCancellation = cancellation;
@@ -79,10 +79,18 @@ public partial class Main
             playback.SetSpeed(_periodPlaybackSpeed);
             overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
-            var result = diplomaticChoice is null
-                ? await composition.AdvancePeriodAsync(source, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint)
-                : await composition.ConfirmDiplomaticNegotiationAsync(source, diplomaticChoice, cancellation.Token,
-                    new(_presentationRandom.State), voice, playback.Checkpoint);
+            var result = campaignChoice switch
+            {
+                null => await composition.AdvancePeriodAsync(source, cancellation.Token,
+                    new(_presentationRandom.State), voice, playback.Checkpoint),
+                ConfirmDiplomaticNegotiationOrder diplomatic => await composition.ConfirmDiplomaticNegotiationAsync(
+                    source, diplomatic, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                ConfirmSelfRecommendationOrder recommendation => await composition.ConfirmSelfRecommendationAsync(
+                    source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                ConfirmCoalitionInvitationOrder invitation => await composition.ConfirmCoalitionInvitationAsync(
+                    source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                _ => throw new InvalidOperationException("Unsupported campaign decision.")
+            };
             if (_failed || _shuttingDown || !GodotObject.IsInstanceValid(this) || !IsInsideTree() ||
                 !result.IsCurrent(_session)) return;
 
@@ -104,7 +112,8 @@ public partial class Main
         {
             if (!_shuttingDown && GodotObject.IsInstanceValid(this) && IsInsideTree() && ReferenceEquals(_session, source))
             {
-                if (diplomaticChoice is not null) _diplomacyNegotiationNotice = _ui.Get("play_diplomacy_offer_failed");
+                if (campaignChoice is ConfirmDiplomaticNegotiationOrder)
+                    _diplomacyNegotiationNotice = _ui.Get("play_diplomacy_offer_failed");
                 ReportPlayFailure(error);
             }
         }

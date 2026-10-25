@@ -143,7 +143,9 @@ public sealed partial record OfficerState(int Id, string Name, int? ForceId, int
 }
 /// <summary>A present record makes the appointment known; null focus retains legacy uncertainty.</summary>
 public sealed record AreaAdministrationState(int? OverseerId, AreaDevelopmentFocus? DevelopmentFocus);
-public sealed partial record AreaState(int Id, int CityId)
+/// <summary>CityId null is a known area without an assigned city. Native
+/// source knowledge that has not been read must remain unresolved at its boundary.</summary>
+public sealed partial record AreaState(int Id, int? CityId)
 {
     // Null is unresolved administration, not a verified vacant appointment.
     public AreaAdministrationState? Administration { get; init; }
@@ -510,7 +512,7 @@ public static class StateValidator
                     (tactics.Distinct().Count() != tactics.Length || tactics.Any(t => !state.Tactics.ContainsKey(t)))))
                 throw new InvalidDataException($"Officer {id} is invalid.");
         foreach ((int id, AreaState area) in state.Areas)
-            if (id != area.Id || !state.Cities.ContainsKey(area.CityId) ||
+            if (id != area.Id || area.CityId is int areaCity && !state.Cities.ContainsKey(areaCity) ||
                 !KnownForce(area.ForceId) || (area.HexId is int hex && (hex < 0 || hex >= mapSize)) ||
                 (area.Administration?.OverseerId is int officerId && !state.Officers.ContainsKey(officerId)) ||
                 (area.Administration?.DevelopmentFocus is AreaDevelopmentFocus focus && !Enum.IsDefined(focus)) ||
@@ -687,6 +689,8 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         CampaignTurnStopValidation.Validate(state);
+        if (state.ActiveDisasterScene is { EventKind: not (14 or 15 or 16) })
+            throw new InvalidDataException("The admitted disaster scene is invalid.");
         EconomyReportStateValidation.Validate(state);
         CampaignHistoryValidation.Validate(state);
         CampaignChronicleValidation.Validate(state);

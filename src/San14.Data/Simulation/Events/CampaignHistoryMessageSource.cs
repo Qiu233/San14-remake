@@ -131,7 +131,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal HistoryTextResult FormatNormalTurnReport(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands, Action<GameState>? publishAfterDraw = null) =>
-        FormatReportMessage(state, current, root, operands, ReportMessageOrigin.NormalTurn, publishAfterDraw);
+        FormatReportMessage(state, current, root, operands, ReportMessageOrigin.NormalTurn, publishAfterDraw,
+            _personnelNarrationVoice);
 
     private HistoryTextResult FormatReportMessage(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands, ReportMessageOrigin origin, Action<GameState>? publishReached,

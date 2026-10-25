@@ -34,11 +34,12 @@ public sealed partial class GameSimulation
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
             CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
-                { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText } ||
+                { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText or
+                    MonthlyMaintenanceOperation.DisasterSceneEnter or MonthlyMaintenanceOperation.DisasterSceneExit } ||
                 request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.ControllerQueueEvent, EventKind: 6 or 8 } ||
                 request.TalentCommandPresentation is
-                { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText },
+                { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText },
             _ => false
         };
         // Controller events 6/8 enqueue actual SE audio. History, discovery
@@ -62,7 +63,18 @@ public sealed partial class GameSimulation
             batches = (CampaignEffectBatch[])effects.PendingBatches.Clone();
             batches[batchIndex] = batch with { Requests = requests };
         }
-        var completedOwner = owner with { CampaignEffectRequests = effects with { PendingBatches = batches } };
+        var activeDisaster = request.MonthlyMaintenance?.Operation switch
+        {
+            MonthlyMaintenanceOperation.DisasterSceneEnter => request.MonthlyMaintenance.EventKind is 14 or 15 or 16
+                ? new DisasterSceneState(request.MonthlyMaintenance.EventKind.Value) : owner.ActiveDisasterScene,
+            MonthlyMaintenanceOperation.DisasterSceneExit => null,
+            _ => owner.ActiveDisasterScene
+        };
+        var completedOwner = owner with
+        {
+            CampaignEffectRequests = effects with { PendingBatches = batches },
+            ActiveDisasterScene = activeDisaster
+        };
         if (pending is not null) _normalPeriod = pending with { Candidate = completedOwner };
         else State = completedOwner;
         return true;

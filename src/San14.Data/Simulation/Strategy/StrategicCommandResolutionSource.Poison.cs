@@ -35,7 +35,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                     {[PersonAssignmentPrecallInputs.AreaFieldKey(area,0x6D)]=0};
                 State=State with{NativeArmySimulation=native with{Parameters=native.Parameters with{Int32Values=parameters}}};
                 if(capital || port)
-                    throw StrategyMissing("resolution_poison_neutral_Base_26DA10");
+                {
+                    int link=StrategyNeed(current.ReadHexObjectLink(center),"poison_neutral_Hex1A");
+                    var target=BaseLookup.Find(link<62?link:0,current);
+                    State=package.ApplyStrategicPoisonNeutralBaseTransferCurrent(State,current,target,own,executor,
+                        State.NativeMapSeason?.ThirdDate ?? throw StrategyMissing("poison_neutral_source_date"),Effects);
+                }
+                else
+                {
                 int force=ForceId(own);
                 var changed=new HashSet<int>();
                 PoisonTransferHex(center,force,changed);
@@ -75,6 +82,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     areas[id]=row with{ForceId=owner==0?null:owner};
                 }
                 State=State with{Areas=areas};
+                }
             }
             else if(result==0)
             {

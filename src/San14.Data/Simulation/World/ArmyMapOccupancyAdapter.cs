@@ -88,6 +88,14 @@ internal sealed class ArmyMapOccupancyAdapter
             ?? throw new InvalidDataException("Current retiring occupancy binding is unavailable.");
     }
 
+    internal void AssignReceiver(int receiver, int unitId)
+    {
+        if (State is null || !_bindingByReceiver.TryGetValue(receiver, out int binding))
+            throw new InvalidDataException("Current creating occupancy receiver binding is unknown.");
+        State = ArmyMapOccupancyRules.AssignBinding(State, binding, unitId)
+            ?? throw new InvalidDataException("Current creating occupancy receiver is unavailable.");
+    }
+
     internal static GameState InstallFresh(GameState state, ArmyLifecycleSourceView lifecycle)
     {
         var occupancy = new ArmyMapOccupancyState { DefaultCellKnowledge = ArmyMapDefaultCellKnowledge.Empty };
@@ -115,6 +123,8 @@ public sealed partial class SourceWorldContext
     internal ArmyMapOccupancyState? ExportArmyMapOccupancy() => _armyMapOccupancy?.State;
     internal void ReleaseArmyOccupancyReceiver(int receiver) =>
         (_armyMapOccupancy ?? throw new InvalidDataException("Current map occupancy view is unknown.")).ReleaseReceiver(receiver);
+    internal void AssignArmyOccupancyReceiver(int receiver, int unitId) =>
+        (_armyMapOccupancy ?? throw new InvalidDataException("Current map occupancy view is unknown.")).AssignReceiver(receiver, unitId);
     internal bool TryApplyArmyOccupancyTraversal(int receiver, int from, int to, out ArmyMapOccupancyWrite[] writes)
     {
         writes = [];

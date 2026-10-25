@@ -32,10 +32,18 @@ public partial class Main
             (session.HasPendingOperation&&session.PendingNormalPeriod is null)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=PersonnelPresentationOwner(session);
+        RefreshDisasterScene(session,owner,map);
         RefreshArmyMapSpeechBinding(session,owner,map);
         if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if(entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.DisasterSceneEnter or
+                MonthlyMaintenanceOperation.DisasterSceneExit)
+            {
+                if(!TryPresentDisasterScene(entry,session,owner,map))return false;
+                owner=PersonnelPresentationOwner(session);
+                continue;
+            }
             if(entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.TerritoryOccupation)
                 return TryPresentMonthlyTerritory(entry,session,owner,map);
             var payload=PersonnelPresentationQueue.Message(entry);

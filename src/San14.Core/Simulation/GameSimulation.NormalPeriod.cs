@@ -3,7 +3,7 @@ namespace San14.Core;
 public sealed partial class GameSimulation
 {
     private NormalPeriodOperation? _normalPeriod;
-    /// <summary>Borrowed read-only candidate for the actual negotiation UI.</summary>
+    /// <summary>Borrowed read-only candidate for the actual player decision UI.</summary>
     public NormalPeriodOperation? PendingNormalPeriod => _normalPeriod;
 
     public void RestoreNormalPeriod(NormalPeriodOperation? pending)
@@ -17,6 +17,25 @@ public sealed partial class GameSimulation
         CommandContext context, IOrderAuthority authority, CampaignAppRandomState? appRandomSnapshot)
     {
         var pending = _normalPeriod!;
+        if (pending.Candidate.NativeNormalTurnContinuation is { } turn)
+        {
+            if (turn.PendingCoalitionInvitation is { } invitation)
+            {
+                if (order is not ConfirmCoalitionInvitationOrder coalition || coalition.ForceId != invitation.PlayerForceId ||
+                    coalition.TargetForceId != invitation.TargetForceId)
+                    return CommandResult.Reject("The campaign is awaiting this coalition invitation.", "command.pending_coalition_invitation");
+                var answered = GameEngine.ApplyCandidate(pending.Candidate, order, rules, context, authority);
+                if (answered.Accepted) _normalPeriod = new(answered.State!);
+                return answered;
+            }
+            if (turn.PendingSelfRecommendation is not { } offer ||
+                order is not ConfirmSelfRecommendationOrder recommendation ||
+                recommendation.OfficerId != offer.OfficerId || recommendation.ForceId != offer.ForceId)
+                return CommandResult.Reject("The campaign is awaiting this officer recommendation.", "command.pending_recommendation");
+            var decided = GameEngine.ApplyCandidate(pending.Candidate, order, rules, context, authority);
+            if (decided.Accepted) _normalPeriod = new(decided.State!);
+            return decided;
+        }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor
             ?? throw new InvalidOperationException("The normal period has no waiting cursor.");
         if (order is not ConfirmDiplomaticNegotiationOrder confirm || confirm.TaskId != cursor.AwaitingDiplomacyTaskId)
@@ -35,6 +54,12 @@ public sealed partial class GameSimulation
 
     private static void RequireNormalPeriodConfirmed(NormalPeriodOperation pending)
     {
+        if (pending.Candidate.NativeNormalTurnContinuation is { } turn)
+        {
+            if (turn.PendingSelfRecommendation is not null || turn.PendingCoalitionInvitation is not null)
+                throw new InvalidOperationException("The normal Turn requires a player decision.");
+            return;
+        }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor
             ?? throw new InvalidOperationException("The normal period has no continuation cursor.");
         if (pending.Candidate.PersonnelCommands?.Diplomacies?.GetValueOrDefault(cursor.AwaitingDiplomacyTaskId)

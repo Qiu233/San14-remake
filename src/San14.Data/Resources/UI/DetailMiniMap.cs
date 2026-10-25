@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-public enum DetailMiniMapIconKind { City, Gate, Area, Force }
+public enum DetailMiniMapIconKind { City, Gate, Area, Force, Person }
 
 public sealed record DetailMiniMapMarker(DetailMiniMapIconKind Kind, int Identity,
     int HexId, int X, int Y, byte ColorIndex);

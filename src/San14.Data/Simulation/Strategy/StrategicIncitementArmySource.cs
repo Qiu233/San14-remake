@@ -14,16 +14,34 @@ public sealed partial class ArmyCampaignRuleAdapter
         var source = new StrategicIncitementArmyCurrent(this, state, current, areaPhysical);
         int district = source.SelectDistrict(executorPhysical);
         int bandForce = source.DistrictForce(district);
-        if (!source.HasSpawnCell()) return new(state, false, bandForce);
-        if (!source.HasArmyReceiver()) return new(state, false, bandForce);
+        var candidates = current.CreateTemporaryHexList() ?? throw StrategyMissing("incitement_spawn_temporary_list");
+        try
+        {
+            if (!source.PopulateSpawnCells(candidates)) return new(state, false, bandForce);
+            return CreateSpecialIncursionArmyCurrent(state, current, areaPhysical, 1, candidates, district);
+        }
+        finally { current.ClearTemporaryHexList(candidates); current.ReleaseTemporaryHexList(candidates); }
+    }
 
-        // The next original operation generates a special Person, including
-        // its first App draw, before shuffling cells or configuring the Army.
-        // Ordinary ArmyConstruction would require an existing serving Person
-        // and would publish different status, formation, route and group data.
-        // Keep the unsupported producer at its actual reached boundary; neither
-        // downgrade a real success nor consume an invented random sequence.
-        throw StrategyMissing("incitement_special_Person_creation_4033_4100_and_Army_registry_route_group_admission");
+    //Shared2D3410 receiver. Ordinary monthly incursions pass their actual
+    //one-to-three level and an enclosing City's live aggregate candidates.
+    //The strategic great-success caller above retains its literal level one.
+    internal StrategicIncitementArmyResult CreateSpecialIncursionArmyCurrent(GameState state,
+        SourceWorldContext current, int areaPhysical, int level, HexListHandle candidates, int district)
+    {
+        var source = new StrategicIncitementArmyCurrent(this, state, current, areaPhysical);
+        int bandForce = source.DistrictForce(district);
+        if (source.FindArmyReceiver() is not int receiver) return new(state, false, bandForce);
+        var generated = CreateStrategicIncitementPersonCurrent(state, current, district);
+        state = generated.State;
+        if (generated.PersonPhysical is not int person ||
+            !StrategyNeed(current.ReadPersonNativeValidity(person), "incitement_generated_Person_validity"))
+            return new(state, false, bandForce);
+        var placement = SelectStrategicIncitementPlacementCurrent(state, current, areaPhysical, candidates);
+        if (placement.Spawn is not int spawn || placement.Target is not int target)
+            return new(ResetStrategicIncitementPersonCurrent(state, current, person), false, bandForce);
+        var created = CreateStrategicIncitementArmyCurrent(state, current, receiver, person, spawn, target, bandForce, level);
+        return new(created.State, created.Created, bandForce);
     }
 
     private sealed class StrategicIncitementArmyCurrent(ArmyCampaignRuleAdapter package,
@@ -82,12 +100,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         // 2A8C30 appends through the current temporary-list allocator. A failed
         // append really leaves no node, so allocation suppression can yield an
         // empty list even when geometric eligibility succeeds.
-        internal bool HasSpawnCell()
+        internal bool PopulateSpawnCells(HexListHandle list)
         {
-            var list = current.CreateTemporaryHexList() ?? throw StrategyMissing("incitement_spawn_temporary_list");
             bool any = false;
-            try
-            {
                 for (int cursor = AreaHexIterator.FindNextIndex(0, area, current); cursor < 48400;
                     cursor = AreaHexIterator.FindNextIndex(cursor + 1, area, current))
                 {
@@ -123,14 +138,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                     current.WriteCurrentListPayload(identity, cursor);
                     any = true;
                 }
-                return any;
-            }
-            finally { current.ClearTemporaryHexList(list); current.ReleaseTemporaryHexList(list); }
+            return any;
         }
 
         // 2D3410 scans all 501 table pointers, including inactive receivers;
         // registry-only enumeration cannot find a free receiver.
-        internal bool HasArmyReceiver()
+        internal int? FindArmyReceiver()
         {
             ArmyUnitReference? first = null;
             int count = 0;
@@ -144,7 +157,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (StrategyNeed(current.ReadForcePhysicalSlot(force), "incitement_Army_Force_physical") is >= 46 and <= 51) count++;
             }
             return count < StrategicParameter(state, "incitement.special-army-capacity", 10) && first is not null &&
-                !StrategyNeed(current.ReadArmyUnitNativeValidity(first), "incitement_free_Army_validity");
+                !StrategyNeed(current.ReadArmyUnitNativeValidity(first), "incitement_free_Army_validity") ? first.PhysicalSlot : null;
         }
 
         private int Trait(int person, int effect) => StrategyNeed(TacticRemakeCurrentTraits.PersonContribution(current, person, effect), "incitement_Person_trait_" + effect);

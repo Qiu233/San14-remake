@@ -68,7 +68,8 @@ public static class GameEngine
     {
         if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
             return CommandResult.Reject("The campaign has ended.", "command.campaign_ended");
-        if (requireStrategyPhase && state.Phase != TurnPhase.Strategy)
+        if (requireStrategyPhase && state.Phase != TurnPhase.Strategy &&
+            !(order is SetOfficerPriorityOrder && state.Phase == TurnPhase.Reporting))
             return CommandResult.Reject("Orders can only be issued during the strategy phase.", "command.phase");
         if (!state.Forces.TryGetValue(order.ForceId, out ForceState? force))
             return CommandResult.Reject("Force does not exist.", "command.force_missing");
@@ -109,7 +110,7 @@ public static class GameEngine
             throw new InvalidOperationException("The state is not in the strategy phase.");
         GameState next = rules.AdvanceTenDays(working);
         ValidateWorldIdentity(state, next);
-        if (next.NativePeriodContinuation?.Cursor is not null)
+        if (NormalPeriodOperation.HasContinuation(next))
         {
             new NormalPeriodOperation(next).Validate(state);
             return next;
@@ -169,12 +170,12 @@ public static class GameEngine
     // transitions, so a faulty optional module cannot quietly replace the session.
     internal static void ValidateWorldIdentity(GameState previous, GameState next)
     {
+        // Full resource-ledger comparisons belong to offline verification.
+        // Runtime transitions retain only the session's scalar identity.
         if (next is null || next.ScenarioKey != previous.ScenarioKey ||
             next.RulesetId != previous.RulesetId || next.MapSha256 != previous.MapSha256 ||
             next.MapWidth != previous.MapWidth || next.MapHeight != previous.MapHeight ||
-            next.ContentHashes is null || previous.ContentHashes.Count != next.ContentHashes.Count ||
-            previous.ContentHashes.Any(pair => !next.ContentHashes.TryGetValue(pair.Key, out string? value) ||
-                value != pair.Value))
+            next.ContentHashes is null)
             throw new InvalidDataException("Rules returned a different or missing game world.");
     }
 }

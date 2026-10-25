@@ -220,7 +220,7 @@ internal partial class D3D11MapMarkers : Control
             {
                 Update(Kind.Area, area.Id, hex, area.Name, area.ForceId, 0);
                 var marker = _markers[(Kind.Area, area.Id)];
-                DistrictState? district = world.Cities.TryGetValue(area.CityId, out var city) &&
+                DistrictState? district = area.CityId is int cityId && world.Cities.TryGetValue(cityId, out var city) &&
                     city.DistrictId is int id && world.Districts.TryGetValue(id, out var current) ? current : null;
                 marker.DistrictForce = district?.ForceId;
                 marker.DistrictTint = district is not null ? CanvasColor(_areaSources!.DistrictColor(district.Number)) : Colors.White;

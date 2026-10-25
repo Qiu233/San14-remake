@@ -38,7 +38,7 @@ public sealed class MapSelection
                 .Select(gate => new MapSelectionLocation(gate.Id, gate.Name))).ToArray();
         MapSelectionLocation? areaCommand = territory.AreaId is int areaId &&
             world.Areas.TryGetValue(areaId, out AreaState? area) && area.ForceId == playerForceId &&
-            world.Cities.TryGetValue(area.CityId, out CityState? areaCity) &&
+            area.CityId is int areaCityId && world.Cities.TryGetValue(areaCityId, out CityState? areaCity) &&
             areaCity.ForceId == playerForceId && areaCity.AreaIds.Contains(areaId)
                 ? new(areaId, area.Name) : null;
         var ownUnits = PlayerUnits(world, hexId, playerForceId);

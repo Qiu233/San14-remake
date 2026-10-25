@@ -11,7 +11,7 @@ public partial class Main
     private CommandWorkspaceView? _personnelConfirmationParent;
     private PersonnelItemPage? _personnelConfirmationItemParent;
     private ProcessModeEnum _personnelConfirmationBrowserMode;
-    private bool HasPersonnelConfirmation => _personnelConfirmation is not null;
+    private bool HasPersonnelConfirmation => _personnelConfirmation is not null || HasSelfRecommendation || HasCoalitionInvitation;
 
     private void RequestPersonnelOrder(GameOrder order, PersonnelItemPage? itemPage = null)
     {

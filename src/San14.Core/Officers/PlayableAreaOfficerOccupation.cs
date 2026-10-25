@@ -13,7 +13,7 @@ public static class PlayableAreaOfficerOccupation
         {
             if (area.ForceId is not int forceId || area.HexId is not int center ||
                 area.Administration?.OverseerId is not int officerId ||
-                !cities.TryGetValue(area.CityId, out CityState? city) || city.ForceId != forceId ||
+                area.CityId is not int cityId || !cities.TryGetValue(cityId, out CityState? city) || city.ForceId != forceId ||
                 !officers.TryGetValue(officerId, out OfficerState? officer) ||
                 officer.ForceId != forceId || officer.LocationId != city.Id ||
                 officer.Presence != OfficerPresence.Present || officer.Deployed ||

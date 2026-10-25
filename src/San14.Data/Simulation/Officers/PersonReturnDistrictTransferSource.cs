@@ -9,10 +9,10 @@ internal static class PersonReturnDistrictTransferSource
     internal static void ApplyRulerCurrent(SourceWorldContext current, int person, BaseReference target,
         IArmyReturnGovernorCurrentQueries queries, Action<int, PersonAssignmentPrecallResult> receiveAssignment,
         List<ArmyReturnGovernorPacket> governors, HashSet<int> changedAreas, HashSet<int> changedGates,
-        Action<string> observe)
+        Action<string> observe, DistrictReference? requestedDistrict = null)
     {
         var force = current.ReadPersonForce(person) ?? throw Missing("ruler_Force");
-        var primary = ForcePrimaryDistrictSource.Resolve(current, force);
+        var primary = requestedDistrict ?? ForcePrimaryDistrictSource.Resolve(current, force);
         int requested = K(current.ReadDistrictPhysicalSlot(primary), "primary_District_physical");
         if (requested is < 1 or > 51) throw Missing("26D2E0_primary_District_validity");
         var oldDistrict = current.ReadBaseDistrictReference(target) ?? throw Missing("old_target_District");
@@ -157,9 +157,13 @@ internal static class PersonReturnDistrictTransferSource
         foreach (int id in changed)
         {
             var old = areas.GetValueOrDefault(id) ?? throw Missing("saved_changed_Area");
-            int city = K(current.ReadAreaCitySlot(new(id)), "published_Area35");
-            if (!cities.ContainsKey(city)) throw Missing("published_Area_City");
-            touchedCities.Add(old.CityId); touchedCities.Add(city);
+            int? city = AreaCityProjection.FromNative(K(current.ReadAreaCitySlot(new(id)), "published_Area35"));
+            if (city is int receivingCity)
+            {
+                if (!cities.ContainsKey(receivingCity)) throw Missing("published_Area_City");
+                touchedCities.Add(receivingCity);
+            }
+            if (old.CityId is int previousCity) touchedCities.Add(previousCity);
             areas[id] = old with { CityId = city };
         }
         foreach (int city in touchedCities)

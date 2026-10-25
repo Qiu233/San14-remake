@@ -19,7 +19,7 @@ internal sealed record AreaDetailView(DetailContent Content, int AreaId, AreaOwn
         IReadOnlyDictionary<int, DetailForceAppearance?>? forceAppearances = null, DetailMiniMapValues? miniMap = null)
     {
         AreaState area = world.Areas[areaId];
-        CityState city = world.Cities[area.CityId];
+        CityState? city = area.CityId is int cityId ? world.Cities[cityId] : null;
         string unknown = text.Get("detail_unknown");
         int? overseer = area.Administration?.OverseerId;
         CeAreaDetailValues? current = queries.Read(world, areaId);
@@ -28,10 +28,11 @@ internal sealed record AreaDetailView(DetailContent Content, int AreaId, AreaOwn
         var neighborFlags = new DetailForceAppearance?[8];
         var values = new Dictionary<string, string>
         {
-            ["area"] = area.Name, ["city"] = city.Name,
+            ["area"] = area.Name, ["city"] = city?.Name ?? "",
             ["force"] = forceAppearance?.DisplayText ?? unknown,
             ["overseer"] = overseer is int person ? world.Officers[person].Name : area.Administration is null ? unknown : "",
-            ["district"] = city.DistrictId is int districtId ? text.DistrictNumber(world.Districts[districtId].Number) : unknown,
+            ["district"] = city is null ? "" : city.DistrictId is int districtId
+                ? text.DistrictNumber(world.Districts[districtId].Number) : unknown,
             ["security"] = area.Security?.ToString(CultureInfo.InvariantCulture) ?? unknown,
             ["securityCapacity"] = "100",
             ["population"] = Number(current?.Population), ["goldIncome"] = unknown, ["suppliesIncome"] = unknown,

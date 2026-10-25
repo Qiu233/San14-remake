@@ -9,7 +9,7 @@ public sealed partial class GameSimulation
 {
     public GameSimulation(GameState initialState)
     {
-        if (initialState.NativePeriodContinuation is not null)
+        if (initialState.NativePeriodContinuation is not null || initialState.NativeNormalTurnContinuation is not null)
             throw new InvalidDataException("A normal period candidate requires its session continuation owner.");
         StateValidator.Validate(initialState);
         State = GameStateCopy.Copy(initialState);
@@ -54,7 +54,7 @@ public sealed partial class GameSimulation
             CheckAuxiliaryTransition(State, prepared);
         }
         GameState advanced = GameEngine.AdvancePeriodOwned(State, prepared, rules);
-        if (advanced.NativePeriodContinuation?.Cursor is not null)
+        if (NormalPeriodOperation.HasContinuation(advanced))
         {
             _normalPeriod = new(advanced);
             return State;

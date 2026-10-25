@@ -32,11 +32,14 @@ public static class PlayablePrefectureControl
             throw new InvalidDataException("Prefecture destination city belongs to another force.");
         if (area.CityId != cityId)
         {
-            CityState previous = cities[area.CityId];
-            cities[previous.Id] = previous with
+            if (area.CityId is int previousCityId)
             {
-                AreaIds = previous.AreaIds.Where(id => id != areaId).ToArray()
-            };
+                CityState previous = cities[previousCityId];
+                cities[previous.Id] = previous with
+                {
+                    AreaIds = previous.AreaIds.Where(id => id != areaId).ToArray()
+                };
+            }
             cities[target.Id] = target with
             {
                 AreaIds = target.AreaIds.Contains(areaId)

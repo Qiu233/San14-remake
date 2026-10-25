@@ -78,6 +78,16 @@ internal partial class UiSourceRoundButton : UiSourceButton
         SetMeta("source_style", accepted ? 6 : 8);
     }
 
+    internal void ConfigureSelfRecommendationReply(GameResourceRepository repository, UiAssets assets, Shader shader,
+        string locale, bool accepted, Action pressed)
+    {
+        var declared = new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale,
+            accepted ? "000_cmn_txt_decision_jyudaku" : "000_cmn_txt_decision_kyohi");
+        ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed,
+            accepted ? UiAudioCue.ButtonSelect : UiAudioCue.Cancel);
+        SetMeta("source_style", accepted ? 7 : 8);
+    }
+
     private void ConfigureSource(GameResourceRepository repository, UiAssets assets, Shader shader,
         uint file, LoadedSprite declared, Action? pressed, UiAudioCue cue, int captionNode=16)
     {

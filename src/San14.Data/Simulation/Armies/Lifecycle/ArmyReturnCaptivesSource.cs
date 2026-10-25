@@ -171,7 +171,7 @@ public sealed class ArmyReturnCaptivesSource(ArmyCampaignRuleAdapter package,
         return people.ToArray();
     }
 
-    private static int ReadGuard(GameState state, SourceWorldContext current, int person)
+    internal static int ReadGuard(GameState state, SourceWorldContext current, int person)
     {
         if (!K(current.ReadPersonNativeValidity(person), "2B4DE0 Person validity")) return 0;
         byte post = K(OwnedArmyMoraleWaveInputs.ReadPersonPostE7(state, current, person), "2B4DE0 PostE7");

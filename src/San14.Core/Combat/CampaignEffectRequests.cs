@@ -207,7 +207,8 @@ public sealed record DiplomacyArrivalAudioRequest(int Variant);
 public enum MonthlyMaintenanceOperation
 {
     ControllerQueueEvent, NarrationText, ConditionalSpeakerText, TerritoryOccupation, SceneryControlFeedback,
-    DisasterSceneEnter, DisasterSceneExit
+    DisasterSceneEnter, DisasterSceneExit, PersonnelSceneEnter, PersonnelSceneExit,
+    EmperorSceneEnter, EmperorSceneExit
 }
 /// <summary>Source-time monthly controller and territory presentation intent.
 /// Numerical completion never acknowledges any display, sound or animation.</summary>
@@ -220,20 +221,37 @@ public sealed record MonthlyMaintenanceRequest(MonthlyMaintenanceOperation Opera
     public int? ArmyId { get; init; }
 }
 
-public enum ForceCoalitionVisualOperation { CameraFocus, CameraRestore, NarrationEnter, NarrationExit }
+public enum ForceCoalitionVisualOperation { CameraFocus, CameraRestore, NarrationEnter, NarrationExit, CityRelationIndicatorsRefresh }
 /// <summary>The source coalition scene's unconsumed camera/narration scope.
 /// Camera focus uses the actual source Hex, transition1000 and zoom band4.
 /// Camera state is captured by the presentation host only when it really plays.</summary>
-public sealed record ForceCoalitionVisualRequest(ForceCoalitionVisualOperation Operation, int? TargetHexId);
+public sealed record ForceCoalitionVisualRequest(ForceCoalitionVisualOperation Operation, int? TargetHexId)
+{
+    public int? SceneKind { get; init; }
+}
 /// <summary>The actual independence cutscene queued before force creation.
 /// Keeping the request does not imply that its scene has played.</summary>
 public sealed record ForceIndependenceSceneRequest(int OriginalForceId, int RulerOfficerId,
     int HomeLocationId, int SourceDay);
+/// <summary>The emergence scene queued after the new force's followers have
+/// migrated. It is distinct from the pre-creation independence scene.</summary>
+public sealed record ForceEmergenceSceneRequest(int ForceId, int RulerOfficerId,
+    int HomeLocationId, int SourceDay);
+public enum MonthlyDisasterConsequenceOperation { CameraFocus, AreaOrBaseEffect, ArmyLossNumber, Summary, CameraRestore }
+/// <summary>Ordered, unconsumed epidemic or locust feedback. Closing a real
+/// message can suppress later display while numerical settlement still runs.</summary>
+public sealed record MonthlyDisasterConsequenceRequest(MonthlyDisasterConsequenceOperation Operation,
+    int DisasterKind, int CityId, int HexId, string? TextAtSource = null, int? Amount = null, int? ArmyReceiverId = null)
+{
+    public int? BaseLocationId { get; init; }
+}
 
 public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, CampaignReportRequest? Report)
 {
     public ForceCoalitionVisualRequest? ForceCoalitionVisual { get; init; }
     public ForceIndependenceSceneRequest? ForceIndependenceScene { get; init; }
+    public ForceEmergenceSceneRequest? ForceEmergenceScene { get; init; }
+    public MonthlyDisasterConsequenceRequest? MonthlyDisasterConsequence { get; init; }
     public MonthlyMaintenanceRequest? MonthlyMaintenance { get; init; }
     public ArmyFalseReportVisualRequest? ArmyFalseReportVisual { get; init; }
     public DuelCaptureAnnouncementRequest? DuelCaptureAnnouncement { get; init; }
@@ -332,7 +350,9 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.DuelCaptureAnnouncement is null ? 0 : 1) +
                     (request.MonthlyMaintenance is null ? 0 : 1) +
                     (request.ForceCoalitionVisual is null ? 0 : 1) +
-                    (request.ForceIndependenceScene is null ? 0 : 1) != 1)
+                    (request.ForceIndependenceScene is null ? 0 : 1) +
+                    (request.ForceEmergenceScene is null ? 0 : 1) +
+                    (request.MonthlyDisasterConsequence is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
                 if (request.DuelCaptureAnnouncement is { } captured &&
                     (batch.Source != CampaignEffectSource.ArmyBattleDefeat || captured.OfficerId is < 1 or > 6000 ||
@@ -396,6 +416,14 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                             monthly.SpeakerId is null && monthly.TextAtSource is null,
                         MonthlyMaintenanceOperation.DisasterSceneExit => noSite && monthly.EventKind is null &&
                             monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.PersonnelSceneEnter => noSite && monthly.EventKind == 9 &&
+                            monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.PersonnelSceneExit => noSite && monthly.EventKind is null &&
+                            monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.EmperorSceneEnter => noSite && monthly.EventKind is 6 or 45 or 55 &&
+                            monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.EmperorSceneExit => noSite && monthly.EventKind is null &&
+                            monthly.SpeakerId is null && monthly.TextAtSource is null,
                         _ => false
                     };
                     if (batch.Source != CampaignEffectSource.MonthlyMaintenance || !valid)
@@ -411,14 +439,43 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 if (request.ForceCoalitionVisual is { } coalitionVisual &&
                     (batch.Source is not (CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands) || !Enum.IsDefined(coalitionVisual.Operation) ||
                      (coalitionVisual.Operation == ForceCoalitionVisualOperation.CameraFocus
-                        ? coalitionVisual.TargetHexId is null or < 0 or > 48400 : coalitionVisual.TargetHexId is not null)))
+                        ? coalitionVisual.TargetHexId is null or < 0 or > 48400 : coalitionVisual.TargetHexId is not null) ||
+                     (coalitionVisual.Operation == ForceCoalitionVisualOperation.NarrationEnter
+                        ? coalitionVisual.SceneKind is not (null or 24 or 40 or 53) : coalitionVisual.SceneKind is not null) ||
+                     coalitionVisual.Operation == ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh &&
+                     batch.Source != CampaignEffectSource.MonthlyMaintenance))
                     throw new InvalidDataException("Invalid force coalition visual intent.");
                 if (request.ForceIndependenceScene is { } independenceScene &&
-                    (batch.Source != CampaignEffectSource.StrategicCommands ||
+                    (batch.Source is not (CampaignEffectSource.StrategicCommands or CampaignEffectSource.MonthlyMaintenance) ||
                      independenceScene.OriginalForceId is < 0 or > 51 ||
                      independenceScene.RulerOfficerId is < 0 or > 6000 ||
                      independenceScene.HomeLocationId is < 0 or > 61))
                     throw new InvalidDataException("Invalid force independence scene intent.");
+                if (request.ForceEmergenceScene is { } emergence &&
+                    (batch.Source != CampaignEffectSource.MonthlyMaintenance || emergence.ForceId is < 0 or > 51 ||
+                     emergence.RulerOfficerId is < 0 or > 6000 || emergence.HomeLocationId is < 0 or > 61))
+                    throw new InvalidDataException("Invalid force emergence scene intent.");
+                if (request.MonthlyDisasterConsequence is { } consequence)
+                {
+                    bool valid = consequence.Operation switch
+                    {
+                        MonthlyDisasterConsequenceOperation.CameraFocus or MonthlyDisasterConsequenceOperation.CameraRestore =>
+                            consequence.TextAtSource is null && consequence.Amount is null && consequence.ArmyReceiverId is null && consequence.BaseLocationId is null,
+                        MonthlyDisasterConsequenceOperation.AreaOrBaseEffect => consequence.TextAtSource is null &&
+                            (consequence.BaseLocationId is not null
+                                ? consequence.ArmyReceiverId is null
+                                : consequence.Amount is null),
+                        MonthlyDisasterConsequenceOperation.ArmyLossNumber => consequence.TextAtSource is null && consequence.Amount is not null &&
+                            consequence.ArmyReceiverId is not null && consequence.BaseLocationId is null,
+                        MonthlyDisasterConsequenceOperation.Summary => consequence.TextAtSource is not null && consequence.Amount is null &&
+                            consequence.ArmyReceiverId is null && consequence.BaseLocationId is null,
+                        _ => false
+                    };
+                    if (batch.Source != CampaignEffectSource.MonthlyMaintenance || !valid || consequence.DisasterKind is not (0 or 1) ||
+                        consequence.CityId is < 1 or > 51 || consequence.HexId is < 0 or >= 48400 ||
+                        consequence.ArmyReceiverId is < 1 or > 500 || consequence.BaseLocationId is < 1 or > 61)
+                        throw new InvalidDataException("Invalid monthly disaster consequence intent.");
+                }
                 if (request.DiplomacyArrivalAudio is { } audio &&
                     (batch.Source != CampaignEffectSource.DiplomacyCommands || audio.Variant is < 0 or > 2))
                     throw new InvalidDataException("Invalid diplomatic arrival audio variant.");
@@ -428,7 +485,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     {
                         TalentCommandPresentationOperation.SoundCue =>
                             (talent.SoundId is 5 or 6 or 8 ||
-                             batch.Source == CampaignEffectSource.MonthlyMaintenance && (talent.SoundId is 7 or 20 or 129) ||
+                             batch.Source == CampaignEffectSource.MonthlyMaintenance && (talent.SoundId is 7 or 16 or 20 or 21 or 22 or 23 or 129) ||
                              batch.Source == CampaignEffectSource.StrategicCommands && talent.SoundId is (7 or 21) ||
                              (batch.Source is CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) && talent.SoundId == 4) &&
                             talent.TextAtSource is null,
@@ -438,7 +495,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                             talent.TargetOfficerId is > 0 and <= 6000 && talent.RecruitSucceeded.HasValue,
                         _ => false
                     };
-                    if (talent.Operation == TalentCommandPresentationOperation.ConditionalOfficerText && batch.Source != CampaignEffectSource.StrategicCommands ||
+                    if (talent.Operation == TalentCommandPresentationOperation.ConditionalOfficerText && batch.Source is not (CampaignEffectSource.StrategicCommands or CampaignEffectSource.MonthlyMaintenance) ||
                         batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.OfficerOfficeCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands) || !valid ||
                         batch.Source == CampaignEffectSource.DoctrineResearchCommands &&
                         (talent.Operation != TalentCommandPresentationOperation.OfficerText || talent.Speaker is null) ||
@@ -450,7 +507,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                         talent.Operation is not (TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement))
                         throw new InvalidDataException("Invalid talent presentation payload.");
                     if (talent.Speaker is { } speaker &&
-                        (batch.Source is not (CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands) ||
+                        (batch.Source is not (CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands or CampaignEffectSource.MonthlyMaintenance) ||
                          talent.Operation is not (TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText) ||
                          speaker.OfficerId != talent.OfficerId || speaker.OfficerId is < 1 or > 6000 ||
                          speaker.NameAtSource is null))
@@ -465,15 +522,17 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                          conversation.ExecutorNameAtSource is null || conversation.TargetNameAtSource is null))
                         throw new InvalidDataException("Invalid recruitment conversation context.");
                     if (talent.Voice is { } voice &&
-                        (talent.Operation != TalentCommandPresentationOperation.OfficerText ||
+                        (talent.Operation is not (TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText) ||
+                         batch.Source == CampaignEffectSource.MonthlyMaintenance && talent.Speaker is null ||
                          voice.SpeakerId != talent.OfficerId || voice.SpeakerId is < 1 or > 6000 ||
-                         (batch.Source == CampaignEffectSource.StrategicCommands ? voice.VoiceId is not (33 or 42 or 43) :
+                         (batch.Source == CampaignEffectSource.MonthlyMaintenance ? voice.VoiceId is not (33 or 40 or 42 or 43) :
+                          batch.Source == CampaignEffectSource.StrategicCommands ? voice.VoiceId is not (33 or 42 or 43) :
                           batch.Source == CampaignEffectSource.DoctrineResearchCommands ? voice.VoiceId != 42 :
                           batch.Source == CampaignEffectSource.PersonnelAdministrationCommands
                              ? voice.VoiceId is not (33 or 34 or 35 or 36) : voice.VoiceId != 40) ||
                          voice.VoiceType >= 26 || !Enum.IsDefined(voice.Language) ||
                          voice.VariantIndex is < 0 or > 4 || voice.SoundId == 0 ||
-                         batch.Source is not (CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands) && talent.RecruitConversation is null))
+                         batch.Source is not (CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands or CampaignEffectSource.MonthlyMaintenance) && talent.RecruitConversation is null))
                         throw new InvalidDataException("Invalid recruitment voice selection.");
                 }
                 if (request.TalentSceneryDiscovery is { } discovery &&

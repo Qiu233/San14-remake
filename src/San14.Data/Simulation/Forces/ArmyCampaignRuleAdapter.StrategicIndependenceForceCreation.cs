@@ -7,7 +7,7 @@ internal sealed record StrategicIndependenceForceCreationResult(GameState State,
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    /// <summary>2E6010's 2D8050(governor,actual Home City,0,1,0).
+    /// <summary>2E6010/2A4980's 2D8050(person,actual Home City,0,1,0).
     /// This is a new Force in the existing world, not a fresh campaign.</summary>
     internal StrategicIndependenceForceCreationResult CreateStrategicIndependenceForceCurrent(
         GameState input, SourceWorldContext current, WorldIndexContext pool, int rulerPhysical,
@@ -23,7 +23,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         int forceId = IndependenceForceNeed(created.PhysicalSlot, "selected_Force");
         var original = current.ReadPersonForce(rulerPhysical) ?? throw IndependenceForceMissing("old_Force");
         bool originalValid = IndependenceForceNeed(current.ReadForceNativeValidity(original), "old_Force_validity");
-        if (!originalValid) throw IndependenceForceMissing("2E6010_serving_governor_Force");
         int oldForce = IndependenceForceNeed(original.PhysicalSlot, "old_Force_identity");
         int status = IndependenceForceNeed(current.ReadPersonStatus(rulerPhysical), "old_status");
         if (status is >= 1 and <= 4)
@@ -119,21 +118,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                 (f, effect) => _baseCapacityInputs.ReadPanelModifier(working, f, effect)), "ruler_Leadership");
             int charm = IndependenceForceNeed(abilities.ResolveDimension(working, id, 4,
                 (f, effect) => _baseCapacityInputs.ReadPanelModifier(working, f, effect)), "ruler_Charm");
-            int intelligence = IndependenceForceNeed(abilities.ResolveDimension(working, id, 2,
-                (f, effect) => _baseCapacityInputs.ReadPanelModifier(working, f, effect)), "ruler_Intelligence");
             BasePostLoad.WriteMorale(home, Math.Max((int)IndependenceForceNeed(current.ReadBaseMorale44(home), "home_Morale"),
                 Math.Min(BasePostLoad.ReadMoraleUpper(created, current), leadership / 10 + 80)), current);
             int security = Math.Clamp(Math.Max(working.Areas[areaId].Security ?? throw IndependenceForceMissing("Area_security"),
                 Math.Min(100, charm / 10 + 80)), 0, 100);
             working = working with { Areas = new(working.Areas) { [areaId] = working.Areas[areaId] with { Security = security } } };
             current.ConditionAreaSecurityReader = physical => working.Areas.GetValueOrDefault(physical)?.Security is int value && value is >= 0 and <= 255 ? (byte)value : null;
-            current.SetBaseResource(home, BaseResourceKind.Troops,
-                Math.Clamp(unchecked((charm + intelligence) * 20 + oldReady), 0, BasePostLoad.ReadResourceCapacities(home, current).Troops));
-            current.SetBaseResource(home, BaseResourceKind.Gold, Math.Min(oldGold, BasePostLoad.ReadResourceCapacities(home, current).Gold));
-            current.SetBaseResource(home, BaseResourceKind.Supplies, Math.Min(oldFood, BasePostLoad.ReadResourceCapacities(home, current).Supplies));
-            BasePostLoad.WriteLinkedField14(home, Math.Min(oldWall, BasePostLoad.ReadCapacities(home, current).Field46), current);
-            current.SetArmyReturnBaseWounded40(home, Math.Clamp(oldWounded, 0, BasePostLoad.ReadResourceCapacities(home, current).Troops));
-            current.SetBasePostLoadFlag66(home, BasePostLoad.ReadFlag66(home, current));
+            if (originalValid)
+            {
+                int intelligence = IndependenceForceNeed(abilities.ResolveDimension(working, id, 2,
+                    (f, effect) => _baseCapacityInputs.ReadPanelModifier(working, f, effect)), "ruler_Intelligence");
+                current.SetBaseResource(home, BaseResourceKind.Troops,
+                    Math.Clamp(unchecked((charm + intelligence) * 20 + oldReady), 0, BasePostLoad.ReadResourceCapacities(home, current).Troops));
+                current.SetBaseResource(home, BaseResourceKind.Gold, Math.Min(oldGold, BasePostLoad.ReadResourceCapacities(home, current).Gold));
+                current.SetBaseResource(home, BaseResourceKind.Supplies, Math.Min(oldFood, BasePostLoad.ReadResourceCapacities(home, current).Supplies));
+                BasePostLoad.WriteLinkedField14(home, Math.Min(oldWall, BasePostLoad.ReadCapacities(home, current).Field46), current);
+                current.SetArmyReturnBaseWounded40(home, Math.Clamp(oldWounded, 0, BasePostLoad.ReadResourceCapacities(home, current).Troops));
+                current.SetBasePostLoadFlag66(home, BasePostLoad.ReadFlag66(home, current));
+            }
+            else InitializeUnownedIndependenceCityResourcesCurrent(working, current, home, created, date, charm, abilities);
             working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
             ObjectRegistration.Register(new(RegistryKind.Force, forceId), current);
             working = InitializeDoctrineResearchForceCurrent(working, current, forceId);
@@ -165,6 +168,48 @@ public sealed partial class ArmyCampaignRuleAdapter
         finally { current.ClearNearbyTemporary(bases, true); }
         return new(working.WithArmyLifecycle((working.ReadArmyLifecycle() ?? throw IndependenceForceMissing("lifecycle")) with
             { Indexes = pool.ProjectOwnedRoles() }), created);
+    }
+
+    private void InitializeUnownedIndependenceCityResourcesCurrent(GameState state,
+        SourceWorldContext current, BaseReference home, ForceReference force, NativeMapSeasonDate date,
+        int rulerCharm, IEffectiveOfficerAbilities abilities)
+    {
+        //2D8050's no-former-Force branch quotes the current month and an
+        //explicit Person0. It does not quote next-month City landmark income.
+        int forceId = IndependenceForceNeed(force.PhysicalSlot, "initial_economy_Force");
+        int gold = 0, food = 0;
+        var recruitment = new AreaAdministrationPreviewSource(state, current, _scenario,
+            Seed.Language, _baseCapacityInputs, true);
+        foreach (var entry in current.ReadRegisteredAreaReferences() ?? throw IndependenceForceMissing("initial_economy_Area_registry"))
+        {
+            var area = entry ?? throw IndependenceForceMissing("initial_economy_Area_pointer");
+            if (IndependenceForceNeed(current.ReadAreaCitySlot(area), "initial_economy_Area35") != home.PhysicalSlot ||
+                IndependenceForceNeed(current.ReadAreaCurrentForceSlot(area), "initial_economy_Area_Force") != forceId) continue;
+            gold = unchecked(gold + ReadHireAreaGoldIncomeCurrent(state, current, area, home, abilities,
+                _ => throw IndependenceForceMissing("initial_economy_Person0_tasks"), personOverride: 0));
+            food = unchecked(food + CityFoodIncomeSource.ReadArea(state, current, area, home, force,
+                date.Month, abilities, personOverride: 0));
+            //The original executes this quote but discards its result. For
+            //an ordinary new Force, the explicit null recruiter returns0.
+            _ = HireEconomyValue(recruitment.Soldiers(
+                IndependenceForceNeed(area.PhysicalSlot, "initial_economy_Area"), recruiterOverride: 0));
+        }
+        //TC offline data:141A4AC54=6,141A4AC60=6,
+        //141A4AC6C=100,141A4AC78=10. No executable is read at runtime.
+        int goldFloor = Math.Min(BasePostLoad.ReadGoldCapacity(home, current), unchecked(gold * 6 + 3000));
+        current.SetBaseResource(home, BaseResourceKind.Gold, Math.Max(
+            IndependenceForceNeed(current.ReadBaseResource(home, BaseResourceKind.Gold), "initial_economy_Gold"), goldFloor));
+        int foodFloor = Math.Min(BasePostLoad.ReadSuppliesCapacity(home, current), unchecked(food * 6 + 30000));
+        current.SetBaseResource(home, BaseResourceKind.Supplies, Math.Max(
+            IndependenceForceNeed(current.ReadBaseResource(home, BaseResourceKind.Supplies), "initial_economy_Food"), foodFloor));
+        int areaId = IndependenceForceNeed(CurrentGateMapQueries.FindArea(home, current).PhysicalSlot, "initial_economy_representative_Area");
+        int population = state.Areas.GetValueOrDefault(areaId)?.NativeNormalAftermath?.Quantity52
+            ?? throw IndependenceForceMissing("initial_economy_representative_Area52");
+        int startYear = state.NativeMapSeason?.SecondDate.Year ?? throw IndependenceForceMissing("initial_economy_World2E_year");
+        int troops = unchecked(population / 10 + unchecked((date.Year - startYear + rulerCharm) * 100));
+        troops = Math.Max(troops, IndependenceForceNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "initial_economy_Troops"));
+        current.SetBaseResource(home, BaseResourceKind.Troops,
+            Math.Clamp(troops, 0, BasePostLoad.ReadTroopCapacity(home, current)));
     }
 
     private static ForceReference? SelectStrategicIndependenceForceCurrent(GameState state, SourceWorldContext current, int ruler)
@@ -245,7 +290,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (IndependenceForceNeed(current.ReadBaseForceSlot(target), "Base_Force") == forceId)
                 TransferDistrictAdministrationBaseCurrent(current, target, created, operation);
             else working = ApplyForceBaseTransferCurrent(working, current, pool, target, created, new(0), date, effects,
-                preserveResources: false, suppressMaintenance: false);
+                preserveResources: false, suppressMaintenance: false, fullCentralRadius: false);
             foreach (int person in DistrictCreationHomePeople(current, target))
                 if (IndependenceForceNeed(current.ReadPersonStatus(person), "resident_status") == 1) residentRuler = person;
                 else current.WritePersonStatus(person, 4);
@@ -304,6 +349,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.SetForceRankSlot47(force, 0); current.SetForceKingdomNameIndex(force, 0); current.SetForce164(force, 0);
         var domain = state.Forces[force];
         var after = owner with { FactionOfficerId = 0, PopulationTotal = 0, Flags12 = 0, Flags193 = 0, Flags194 = 0,
+            ForeignTradeProgress = new(ImmutableArray.Create<ushort>(0, 0, 0, 0, 0), ImmutableArray.Create<byte>(0, 0, 0, 0, 0)),
             DiplomacyFlags178 = 0, DiplomacyCooldownDate = new(0, 1, 1, 0), RelationsEA = new byte[52],
             NormalAftermath = new(new byte[52], 0) };
         return state with { NativeArmySimulation = native with { Forces = new(native.Forces) { [force] = after },

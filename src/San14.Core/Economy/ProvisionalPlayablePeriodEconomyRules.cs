@@ -45,7 +45,7 @@ internal static class PlayablePeriodEconomySettlement
         foreach (AreaState area in areas.Values.OrderBy(area => area.Id).ToArray())
         {
             if (area.Administration is not { OverseerId: int officerId, DevelopmentFocus: not null } ||
-                area.ForceId is not int forceId || !cities.TryGetValue(area.CityId, out CityState? city) ||
+                area.ForceId is not int forceId || area.CityId is not int cityId || !cities.TryGetValue(cityId, out CityState? city) ||
                 city.ForceId != forceId || !officers.TryGetValue(officerId, out OfficerState? officer) ||
                 officer.ForceId != forceId || officer.LocationId != city.Id ||
                 officer.Presence != OfficerPresence.Present || officer.Deployed ||
