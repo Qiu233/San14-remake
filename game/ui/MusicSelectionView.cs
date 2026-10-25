@@ -12,7 +12,7 @@ internal partial class MusicSelectionView : Control
     private Action<int?>? completed;
     private Action<int?>? preview;
     private int? current, previewIndex;
-    private bool abandoned, selectionChanged;
+    private bool abandoned, selectionChanged, collectionMode;
     private Vector2 firstRow, secondRow;
     private const int RowHeight = 62;
 
@@ -20,13 +20,24 @@ internal partial class MusicSelectionView : Control
         IReadOnlyList<MusicSelectionRow> candidates, int initial,
         Func<bool> admitted, Action<int?> completed, Action<int?>? preview = null,
         Func<int>? currentScrollSpeed = null)
+        => ConfigurePage(repository, text, candidates, initial, admitted, completed, preview, currentScrollSpeed, false);
+
+    internal void ConfigureCollection(GameResourceRepository repository, PreviewText text,
+        IReadOnlyList<MusicSelectionRow> candidates, Func<bool> admitted, Action returned,
+        Action<int?> preview, Func<int>? currentScrollSpeed = null)
+        => ConfigurePage(repository, text, candidates, -1, admitted, _ => returned(), preview, currentScrollSpeed, true);
+
+    private void ConfigurePage(GameResourceRepository repository, PreviewText text,
+        IReadOnlyList<MusicSelectionRow> candidates, int initial, Func<bool> admitted,
+        Action<int?> completed, Action<int?>? preview, Func<int>? currentScrollSpeed, bool collection)
     {
         this.admitted = admitted; this.completed = completed; this.preview = preview;
+        collectionMode = collection;
         current = candidates.Any(row => row.Index == initial) ? initial : null;
-        Name = "MusicSelection"; ZIndex = 6; MouseFilter = MouseFilterEnum.Stop;
+        Name = collection ? "CollectionMusic" : "MusicSelection"; ZIndex = 6; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x02DF, RequestBack, () => Finish(current));
+        chrome.Configure(repository, text, collection ? 0x6E : 0x02DF, RequestBack, () => Finish(current), returnOnly: collection);
         var source = new UiSourceLayout(MusicEditLayoutSource.LoadSelection(repository));
         source.Blur(chrome.Canvas, 2, source.Rectangle(2));
         source.Art(chrome.Canvas, 3, source.Rectangle(3), chrome.Assets, chrome.SpriteShader);
@@ -43,7 +54,12 @@ internal partial class MusicSelectionView : Control
             var button = new MusicCandidateRowView { Name = "MusicCandidate" + index, Size = source.Rectangle(13).Size };
             list.AddChild(button); buttons.Add((index, button));
             button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, row.Name, row.Number, CanEdit,
-                () => { if (CanEdit()) { current = index; selectionChanged = true; ApplySelection(); } },
+                () =>
+                {
+                    if (!CanEdit()) return;
+                    if (collectionMode) TogglePreview(index);
+                    else { current = index; selectionChanged = true; ApplySelection(); }
+                },
                 () => TogglePreview(index));
             button.ScrollInput += input => { if (CanEdit()) scroll?.HandleWheel(input); };
         }
@@ -86,6 +102,7 @@ internal partial class MusicSelectionView : Control
     {
         if (!CanEdit()) return;
         previewIndex = previewIndex == index ? null : index;
+        if (collectionMode) current = previewIndex;
         ApplySelection(); preview?.Invoke(previewIndex);
     }
     internal void Abandon()

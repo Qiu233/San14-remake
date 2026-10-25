@@ -20,7 +20,7 @@ class LightingQueue {
     std::map<UINT,ComPtr<ID3D11ComputeShader>> clusterPrograms;
     ComPtr<ID3D11Buffer> projectionConstants,resetConstants,cullConstants;
     LightingBuffer positions,attributes,extra,scatter,allocator;
-    UINT allocated{};bool configured{};UINT resetProgram{},cullProgram{},indexFormat{},headerElements{};
+    UINT allocated{};std::optional<UINT> previousPointCount;bool configured{};UINT resetProgram{},cullProgram{},indexFormat{},headerElements{};
     UINT resetGroups[3]{},cullGroups[3]{};
     std::array<std::uint8_t,16> resetBytes{};std::array<std::uint8_t,400> cullBytes{};
     NativeSourceClusterLights frame;
@@ -80,7 +80,10 @@ public:
         std::sort(jobs.begin(),jobs.end(),[](const auto& a,const auto& b){return a.source.ordinal<b.source.ordinal;});
         std::uint64_t total=0;for(const auto& job:jobs){if(!job.objects||!job.linked||!job.main)throw std::runtime_error("Effect light projection has no real allocation views");total+=job.source.capacity;}
         if(total>65535)throw std::runtime_error("Effect point-light source count exceeds its ordinary index representation");
-        const UINT count=UINT(total);if(!count&&!allocated)return;
+        const UINT count=UINT(total);
+        // The retained-zero source skips only after an actual previous empty
+        // dispatch. Clearing the last live registration still runs once.
+        if(!count&&(!allocated||previousPointCount==0))return;
         if(count>allocated){allocated=count;positions=typed(device,count,DXGI_FORMAT_R32G32B32A32_FLOAT,16);
             // The owned typed buffer stores a padded float4 per attribute;
             // normal Buffer<float3> consumers read its unchanged xyz lanes.
@@ -108,7 +111,7 @@ public:
         ID3D11UnorderedAccessView* outputs[]{indices,allocator.unordered.Get()};context->CSSetUnorderedAccessViews(0,2,outputs,nullptr);
         context->CSSetShader(clusterPrograms.at(cullProgram).Get(),nullptr,0);context->Dispatch(cullGroups[0],cullGroups[1],cullGroups[2]);ComputeScope::clear(context);
         frame.resources={indexView,positions.view.Get(),attributes.view.Get(),extra.view.Get(),nullptr,nullptr};
-        frame.pointCount=count;frame.spotCount=0;frame.computeSucceeded=true;
+        frame.pointCount=count;frame.spotCount=0;frame.computeSucceeded=true;previousPointCount=count;
     }
 };
 }

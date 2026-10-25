@@ -79,8 +79,9 @@ public static class D3D11HdrProgramMediaPreparation
                     reasons.Add("Pixel Globals buffer or binding is absent.");
                 else
                 {
-                    bool hasHatching=globals.Variables.Any(field=>field.Name.Text is "hsRampPrm" or "hsAOPrm" or "hsUVMat");
-                    bool hasShadowFade=globals.Variables.Any(field=>field.Name.Text=="fSdmFade");
+                    bool hasHatching=globals.Variables.Any(field=>IsUsed(field) &&
+                        (field.Name.Text is "hsRampPrm" or "hsAOPrm" or "hsUVMat"));
+                    bool hasShadowFade=globals.Variables.Any(field=>IsUsed(field) && field.Name.Text=="fSdmFade");
                     File.WriteAllText(Path.Combine(recipe.Directory,"policy.txt"),
                         $"{(hasHatching?1:0)} {(hasShadowFade?1:0)}\n");
                     // These are constructor values. Before drawing, the native
@@ -88,7 +89,11 @@ public static class D3D11HdrProgramMediaPreparation
                     // through this program's own named layouts.
                     var packet=D3D11DeferredConstantInputPreparation.PrepareRecipe(canonical,pixel,scene,caustics,false);
                     var clusterFields=WriteClusterLayout(recipe.Directory,pixel,globals,reasons);
-                    reasons.AddRange(packet.MissingFields.Where(field=>!clusterFields.Contains(field))
+                    // RDEF may retain disabled plugin declarations. Unread
+                    // lanes keep their constructor/template storage; they do
+                    // not request an invented current value or upload.
+                    reasons.AddRange(packet.MissingFields.Where(name=>!clusterFields.Contains(name) &&
+                            globals.Variables.Any(field=>field.Name.Text==name && IsUsed(field)))
                         .Select(field=>"Constant field has no producer: "+field));
                     string file="ps-b"+globalBinding.BindPoint+".bin";
                     File.WriteAllBytes(Path.Combine(recipe.Directory,file),packet.Bytes);
@@ -123,6 +128,7 @@ public static class D3D11HdrProgramMediaPreparation
     }
 
     private sealed record FieldWrite(int Kind,int Destination,int Bytes);
+    private static bool IsUsed(DxbcRdefVariable field)=>(field.Flags&2)!=0;
 
     private static HashSet<string> WriteClusterLayout(string directory,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)
@@ -134,6 +140,7 @@ public static class D3D11HdrProgramMediaPreparation
         {
             var field=globals.Variables.SingleOrDefault(field=>field.Name.Text==names[kind]);
             if(field is null)continue;
+            if(!IsUsed(field))continue;
             var type=definitions.Types.Single(type=>type.Offset==field.TypeOffset);
             int count=Math.Max(elements[kind],1),width=widths[kind];
             if(type.BaseType!=(kind==1?2:3) || type.Class!=(columns[kind]==1?0:1) ||
@@ -157,7 +164,7 @@ public static class D3D11HdrProgramMediaPreparation
         for(int kind=0;kind<names.Length;kind++)
         {
             var field=globals.Variables.SingleOrDefault(field=>field.Name.Text==names[kind]);
-            if(field is null)continue;
+            if(field is null || !IsUsed(field))continue;
             var type=definitions.Types.Single(type=>type.Offset==field.TypeOffset);
             int width=words[kind]*4;
             if(type.BaseType!=(kind==0?2:3) || type.Class!=(words[kind]==1?0:1) ||
@@ -177,7 +184,7 @@ public static class D3D11HdrProgramMediaPreparation
         for(int index=0;index<names.Length;index++)
         {
             var field=globals.Variables.SingleOrDefault(field=>field.Name.Text==names[index]);
-            if(field is null)continue;
+            if(field is null || !IsUsed(field))continue;
             if(field.ByteSize!=sizes[index])reasons.Add("Current field shape has no producer: "+names[index]);
             else result.Add(new(index,field.StartOffset,field.ByteSize));
         }

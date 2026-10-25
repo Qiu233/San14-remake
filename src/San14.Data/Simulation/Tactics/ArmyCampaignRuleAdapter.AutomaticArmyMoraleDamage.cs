@@ -50,7 +50,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         GameState state, SourceWorldContext current, TacticRemakeCurrentContext context,
         int casterId, int targetId, TacticSourceRow source, S14TacticEffectInstruction instruction,
         AutomaticArmyMoraleDamagePrefix prefix, NativeArmyCombatCycleSampler sampler,
-        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects)
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
+        long? immediatePauseRevision = null)
     {
         if (instruction.Opcode != 16 || instruction.Index is < 0 or > 1 || prefix.CasterId != casterId)
             throw AutomaticMoraleDamageMissing("instruction_prefix_owner");
@@ -72,6 +73,15 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         GameState Immediate(GameState value, UnitDefeatRequest request)
         {
+            if (immediatePauseRevision is long revision)
+            {
+                //Keep2709A0's actual source-Hex winner. The enclosing normal
+                //stage13 owns the pause and the helper publishes its changed
+                //people and battle effects before the ordered tactic resumes.
+                return ApplyNormalCombatImmediateDefeatCurrent(value, current, request,
+                    sampler.Read(value) ?? throw AutomaticMoraleDamageMissing("immediate_sampler"),
+                    operationDate, revision, effects);
+            }
             //31F160 full falls through here. Keep its exact source-Hex winner,
             //the enclosing operation's pool, sampler and pre-writer date.
             var pool = current.ReadOwnedCurrentListPool() ?? throw AutomaticMoraleDamageMissing("immediate_pool");

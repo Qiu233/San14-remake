@@ -22,9 +22,9 @@ public sealed partial class OwnedArmyDestructionStage
     internal OwnedArmyCurrentDefeatResult ApplyForcedDuelCaptureCurrent(GameState state, SourceWorldContext current,
         WorldIndexContext pool, UnitDefeatRequest request, TacticSourceSamplerWorld? sampler,
         NativeMapSeasonDate sourceDate, List<CampaignEffectRequest> feedback,
-        Action<ArmyUnitReference> refresh, Action<int> personChanged)
+        Action<ArmyUnitReference> refresh, Action<int> personChanged, bool allowPlayerRulerPause = false)
         => ApplyCurrentDefeat(state, current, pool, request, sampler, sourceDate, feedback,
-            refresh, personChanged, forcedDuelCapture: true);
+            refresh, personChanged, forcedDuelCapture: true, allowPlayerRulerPause: allowPlayerRulerPause);
 
     private OwnedArmyCurrentDefeatResult ApplyCurrentDefeat(GameState state, SourceWorldContext current,
         WorldIndexContext pool, UnitDefeatRequest request, TacticSourceSamplerWorld? sampler,

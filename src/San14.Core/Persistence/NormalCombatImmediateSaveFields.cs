@@ -8,6 +8,15 @@ internal static class NormalCombatImmediateSaveFields
 
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        AutomaticTacticExecutionSaveFields.RejectLegacyFields(state, version);
+        //Earlier snapshots already retained Base descriptors elsewhere in the
+        //mixed list. Only their current paused pair was restricted to Army/Army.
+        if (version < 179 && state[Key] is JsonObject snapshot &&
+            snapshot["OrderedPairs"] is JsonArray pairs && snapshot["PairIndex"] is JsonValue cursor &&
+            cursor.TryGetValue<int>(out int index) && index >= 0 && index < pairs.Count &&
+            pairs[index] is JsonObject pair && pair["Actor"] is JsonObject actor && pair["Target"] is JsonObject target &&
+            (!Integer(actor["Kind"], 27, 27) || !Integer(target["Kind"], 27, 27)))
+            throw new InvalidDataException("Legacy immediate combat continuation contains a future current pair mode.");
         if (version >= 176) return;
         if (state[Key] is not null ||
             Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
@@ -22,7 +31,9 @@ internal static class NormalCombatImmediateSaveFields
         if (state[Key] is not JsonNode node)
         {
             if (Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
-                Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1)) Invalid();
+                Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1) &&
+                !(version >= 178 && state["DuelAftermathContinuation"] is JsonObject &&
+                  Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5))) Invalid();
             return;
         }
         if (node is not JsonObject value ||
@@ -36,6 +47,7 @@ internal static class NormalCombatImmediateSaveFields
             !Integer(value["SampleSalt"], int.MinValue, int.MaxValue) ||
             !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
             !Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1)) Invalid();
+        AutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
     }
 
     private static bool Participant(JsonNode? node) => node is JsonObject value &&

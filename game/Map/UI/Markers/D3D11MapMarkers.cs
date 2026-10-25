@@ -83,6 +83,7 @@ internal partial class D3D11MapMarkers : Control
         if (_armyLabels is not null) _armyLabels.Visible = armies && campaignMarkerHexes is null;
         if (!bases) ClearPointer();
         PositionFoodWarnings();
+        PositionCityAttention();
         QueueRedraw();
     }
 
@@ -171,6 +172,7 @@ internal partial class D3D11MapMarkers : Control
         _numberPanel = MapMarkerSlices.Load(layout, 67, _assets);
         _barPanel = MapMarkerSlices.Load(_citySources.Bar, 1, _assets);
         RefreshWorld(world, markerColors, durabilityCapacities);
+        ConfigureCityAttention(repository);
         SetMeta("source_marker_layout_uri", layout.Source.ResourceUri);
         SetMeta("source_marker_layout_sha256", layout.Source.DecodedSha256);
         SetMeta("map_marker_projection", "accepted-native-main-world-to-projection-100");
@@ -247,6 +249,7 @@ internal partial class D3D11MapMarkers : Control
             }
         foreach (var key in _markers.Keys.Where(key => !live.Contains(key)).ToArray())
             _markers.Remove(key);
+        SynchronizeCityAttention();
         _font!.Prepare(_markers.Values.Where(marker => marker.Kind != Kind.Area).Select(marker => marker.Name), _locationFont!);
         _font.Prepare(_markers.Values.Where(marker => marker.Kind == Kind.Area).Select(marker => marker.Name), _areaFont!);
         if (_frame is { } frame) ProjectMarkers(frame);
@@ -425,6 +428,7 @@ internal partial class D3D11MapMarkers : Control
                 screen.Y > -100 && screen.Y < 1180;
         }
         PositionFoodWarnings();
+        PositionCityAttention();
     }
 
     internal static bool TryProject(Vector3 world, NMatrix worldToProjection, out Vector2 canonicalPixel)
@@ -570,6 +574,7 @@ internal partial class D3D11MapMarkers : Control
     public override void _ExitTree()
     {
         foodWarningShader?.Dispose();
+        cityAttentionShader?.Dispose();
         if (_ownsAssets) _assets?.Dispose();
         _font?.Dispose();
     }

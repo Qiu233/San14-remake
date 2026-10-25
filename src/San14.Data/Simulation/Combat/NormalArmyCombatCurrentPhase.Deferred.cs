@@ -32,12 +32,18 @@ public sealed partial class NormalArmyCombatCurrentPhase
         INormalArmyForceResultDefinitionQueries forceDefinitions)
     {
         var completed = TryCompleteNonlethalPair(current, pairIndex, forceDefinitions);
+        return CompleteOrdinaryPairTail(current, pairIndex, completed);
+    }
+
+    private NormalArmyNonlethalPairResult CompleteOrdinaryPairTail(GameState current, int pairIndex,
+        NormalArmyNonlethalPairResult completed)
+    {
         if (completed.Outcome != NormalArmyNonlethalPairOutcome.DestructionRequired) return completed;
         if (completed.Prefix is not { PendingCleanupState: { } draft, Application.Receipt.Killed: true } prefix)
             return completed;
         if (prefix.Automatic?.Outcome != AutomaticTacticPrefixOutcome.NativeSkip)
         {
-            if (prefix.Automatic?.NativeFrame24Activated != true) return completed;
+            if (!prefix.AutomaticActivationCompleted && prefix.Automatic?.NativeFrame24Activated != true) return completed;
             //A real completed172EB0 activation set frame24. A true178EC0
             //return now reaches16D9F0 busy98 before the actual1745B0 queue.
             draft = ArmyCampaignRuleAdapter.MarkBorrowedAutomaticTacticFatalFeedback(draft);
@@ -74,6 +80,27 @@ public sealed partial class NormalArmyCombatCurrentPhase
 
         NormalArmyNonlethalPairResult Unresolved(string owner) =>
             new(NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved, current, prefix, null, owner);
+    }
+
+    internal NormalArmyNonlethalPairResult ResumeOrdinaryPairAfterAutomatic(GameState state, int pairIndex,
+        ushort frame20, AutomaticTacticExecutionContinuation saved,
+        INormalArmyForceResultDefinitionQueries forceDefinitions)
+    {
+        if (currentApplication is null || operationCurrent is null || operationSampler is null || operationEffects is null ||
+            captureDefinitions(state) is not { } definitions)
+            throw new InvalidDataException("automatic-prefix.resume_operation_owners");
+        var target = plan.OrderedPairs[pairIndex].Target;
+        var primary = new NormalCombatParticipant(27, target.NativePoolSlot, target.ArmyId,
+            target.CappedMorale8, target.TroopsA, target.NativeHexC, target.NativeForce10, target.AcceptedPrimaryCount14);
+        var activation = currentApplication.ResumeBorrowedSelectedAutomatic(state, operationCurrent,
+            createContext(definitions), primary, saved, operationSampler, plan.Moment.WorldThirdDate,
+            plan.Moment.CalendarCycleOrdinal, operationEffects);
+        if (activation.Continuation is { } pending)
+            return new(NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision, activation.State, null, null, null)
+            { PendingAutomaticExecution = pending, PendingOrdinaryFrame20 = frame20 };
+        var prefix = ApplyPairAfterAutomatic(state, activation.State, pairIndex, frame20,
+            activation.Frame22 ?? throw new InvalidDataException("automatic-prefix.resume_frame22"), null, true, forceDefinitions);
+        return CompleteOrdinaryPairTail(state, pairIndex, CompleteNonlethalPrefix(state, pairIndex, prefix));
     }
 
     internal GameState CompletePairAfterImmediateDefeat(GameState state, int pairIndex, ushort word20)

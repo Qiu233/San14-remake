@@ -219,7 +219,7 @@ public partial class AudioPlaybackService : Node
     public void Stop(string channel, string? reason = null)
     {
         RequireEngineThread();
-        if (_mapMusic.Remove(channel, out var music)) RememberMapMusicPosition(music);
+        _mapMusic.Remove(channel);
         if (_players.TryGetValue(channel, out var voice) && voice.Player.Stream is not null)
         {
             voice.Player.Stop(); voice.Player.Stream = null;

@@ -13,7 +13,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     private AutomaticArmyTroopApplication ApplyBorrowedAutomaticArmyTroopDamage(GameState input,
         SourceWorldContext current, int casterId, int targetId, int requestedLoss,
         NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
-        List<CampaignEffectRequest> effects)
+        List<CampaignEffectRequest> effects, long? immediatePauseRevision = null)
     {
         var pool = current.ReadOwnedCurrentListPool();
         if (pool is null || !pool.OwnsArmyReturnProfile() || !ReferenceEquals(pool.ArmyReturnOwner, current))
@@ -64,10 +64,21 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw BaseAutomaticMissing("Army_damage_winner_receiver");
             var admission = OwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(working, current,
                 targetPhysical, winnerPhysical, null);
-            if (!admission.IsPending || admission.State is not { } queued)
+            if (admission.RequiresImmediateSettlement && immediatePauseRevision is long revision)
+            {
+                //The body, Force result and trait refresh above have already
+                //run. A full queue settles only this defeat, retaining the
+                //existing128 and allowing its actual ruler decision to wait.
+                working = ApplyNormalCombatImmediateDefeatCurrent(working, current,
+                    new(targetId, casterId, null), sampler.Read(working)
+                        ?? throw BaseAutomaticMissing("Army_damage_immediate_sampler"),
+                    operationDate, revision, effects);
+            }
+            else if (admission.IsPending && admission.State is { } queued)
+                working = queued;
+            else
                 throw BaseAutomaticMissing(admission.UnresolvedOwner ?? (admission.RequiresImmediateSettlement
                     ? "Army_damage_Full128_immediate259360" : "Army_damage1745B0"));
-            working = queued;
             OwnedArmyDestructionCurrent.BindOwnedCurrentContext(working, current);
         }
         return new(working, killed);

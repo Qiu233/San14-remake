@@ -20,7 +20,10 @@ public sealed record NormalCombatImmediateContinuation(
     ImmutableArray<NormalCombatParticipantSnapshot> Actors,
     ImmutableArray<NormalCombatPairSnapshot> OrderedPairs,
     ImmutableDictionary<int, NormalCombatArmySnapshot> ArmyDescriptors,
-    int PairIndex, ushort ReportWord20, int SampleDay, int SampleSalt);
+    int PairIndex, ushort ReportWord20, int SampleDay, int SampleSalt)
+{
+    public AutomaticTacticExecutionContinuation? AutomaticExecution { get; init; }
+}
 
 public sealed partial record GameState
 {
@@ -44,5 +47,23 @@ internal static class NormalCombatImmediateContinuationValidation
             value.Actors.IsDefault || value.OrderedPairs.IsDefaultOrEmpty || value.ArmyDescriptors is null ||
             value.PairIndex < 0 || value.PairIndex >= value.OrderedPairs.Length)
             throw new InvalidDataException("The immediate combat continuation has no matching phase or current pair.");
+        if (value.AutomaticExecution is { } automatic)
+        {
+            if (automatic.CasterUnitId <= 0 || automatic.TacticId is < 0 or > 200 ||
+                automatic.Instructions.IsDefault || automatic.InstructionIndex < 0 ||
+                automatic.InstructionIndex >= automatic.Instructions.Length ||
+                automatic.Instructions[automatic.InstructionIndex] is not { } instruction ||
+                instruction.Index != automatic.InstructionIndex || instruction.OrderedHexIds.IsDefault ||
+                automatic.TargetIndex < 0 || automatic.TargetIndex >= instruction.OrderedHexIds.Length ||
+                automatic.TargetUnitId <= 0 || automatic.TargetArmyPhysicalSlot < 0 || automatic.TargetReceiverId.Value <= 0 ||
+                automatic.TargetHexId is < 0 or > 48400 ||
+                instruction.Opcode is not (1 or 16) ||
+                (instruction.Opcode == 1) != (automatic.TroopPrefix is not null) ||
+                (instruction.Opcode == 16) != (automatic.MoralePrefix is not null) ||
+                automatic.DamageContributions.IsDefault || automatic.Details.IsDefault ||
+                automatic.FirstInstructionResults.IsDefault || automatic.SecondInstructionResults.IsDefault ||
+                automatic.ArmyPresentationEffects.IsDefault)
+                throw new InvalidDataException("The automatic tactic continuation has no matching instruction or target cursor.");
+        }
     }
 }

@@ -11,6 +11,7 @@ internal partial class D3D11MapMarkers
     {
         campaignMarkerHexes=visibleHexes;campaignSelectedHexes=selectedHexes;
         PositionFoodWarnings();
+        PositionCityAttention();
         if(_armyLabels is not null)_armyLabels.Visible=visibleHexes is null&&_armyInformationVisible;
         ClearPointer();QueueRedraw();
     }

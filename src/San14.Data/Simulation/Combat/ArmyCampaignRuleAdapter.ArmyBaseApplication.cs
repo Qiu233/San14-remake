@@ -2,24 +2,27 @@ using San14.Core;
 
 namespace San14.Data;
 
+internal sealed record BorrowedMixedPairApplication(GameState State, ushort? SuspendedWord20 = null,
+    AutomaticTacticExecutionContinuation? AutomaticExecution = null);
+
 public sealed partial class ArmyCampaignRuleAdapter
 {
     /// <summary>One actual Army-to-Base pair in169CE0's mixed ordering. The
     /// phase cache stays frozen, while every eligibility and quantity read uses
     /// the same current after earlier pairs. Unknown discards this operation.</summary>
-    private GameState CompleteBorrowedArmyBasePair(GameState state, SourceWorldContext current,
+    private BorrowedMixedPairApplication CompleteBorrowedArmyBasePair(GameState state, SourceWorldContext current,
         NormalCombatMixedPair pair, byte? baseDivisor,
         TacticRemakeCurrentBattleQueries descriptorQueries, NativeArmyCombatCycleSampler sampler,
-        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects)
+        NativeMapSeasonDate operationDate, long operationRevision, List<CampaignEffectRequest> effects)
     {
         var armyPointer = current.ReadArmyUnitTableReference(pair.Actor.PhysicalSlot)
             ?? throw Unresolved("Army_lookup");
         if (current.ReadArmyUnitNativeValidity(armyPointer) is not bool actorValid)
             throw Unresolved("Army_validity");
-        if (!actorValid) return state;
+        if (!actorValid) return new(state);
         if (OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, pair.Actor.PhysicalSlot)
             is not bool actorExcluded) throw Unresolved("Army_manager233560");
-        if (actorExcluded) return state;
+        if (actorExcluded) return new(state);
         if (pair.Actor.UnitId is not int attackerId || !state.Units.TryGetValue(attackerId, out var attacker) ||
             attacker.NativeArmyOrigin?.NativeSlotIndex != pair.Actor.PhysicalSlot)
             throw Unresolved("Army_identity");
@@ -36,7 +39,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (OwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(state, current, objectIndex)
                 is not bool baseExcluded) throw Unresolved("Base_manager2334B0");
-            if (baseExcluded) return state;
+            if (baseExcluded) return new(state);
         }
         //An invalid Base receiver does not itself reject169CE0. The separate
         //Object allocation still decides its native eligibility and Force13.
@@ -44,19 +47,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             ?? throw Unresolved("Base_Object_lookup");
         if (current.ReadObjectNativeValidity(targetObject) is not bool objectValid)
             throw Unresolved("Base_Object_validity");
-        if (!objectValid) return state;
+        if (!objectValid) return new(state);
         var pool = current.ReadOwnedCurrentListPool() ?? throw Unresolved("current_pool");
         var directory = current.CurrentMapObjectDirectory ?? throw Unresolved("Object_directory");
         int objectPhysical = targetObject.PhysicalSlot ?? throw Unresolved("Object_receiver");
         var receiver = directory.ReceiverAtPhysical(objectPhysical);
         var pending = pool.PendingObjectRetirements ?? throw Unresolved("pending_F0");
         foreach (var retired in pending)
-            if (retired == receiver) return state;
+            if (retired == receiver) return new(state);
         int actorForce = current.ReadArmyUnitRawForceSlot(armyPointer);
         int targetForce = current.ReadObjectForceSlot13(targetObject) ?? throw Unresolved("Object_Force13");
         if (ArmyLogisticsPreparation.ReadNativeRelationGate(state, actorForce, targetForce) is not bool hostile)
             throw Unresolved("relation2CA650");
-        if (!hostile) return state;
+        if (!hostile) return new(state);
         if (current.ArmyReturnTransferMode is not { Present: false })
             throw Unresolved("challenge_pair_gate497F20");
 
@@ -92,37 +95,59 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (automatic.Value)
                 {
                     var activation = CompleteBorrowedArmyBaseAutomatic(working, current, context,
-                        pair, sampler, operationDate, effects);
+                        pair, sampler, operationDate, operationRevision, effects);
                     working = activation.State; activated = activation.Activated;
-                    tacticWord22 = activation.PrimaryTroopDamageWord22;
+                    if (activation.Continuation is { } pendingActivation)
+                        return new(working, damage.Damage.NativeFrameWord20, pendingActivation);
+                    tacticWord22 = activation.PrimaryTroopDamageWord22
+                        ?? throw Unresolved("automatic_completed_frame22");
                 }
             }
-            if (Stage7PermitsBaseApplication(working))
-            {
-                //16FE60 consumes the real C8 Base tree after activation. A
-                //deferred primary opcode1 request enters stage7 exactly once;
-                //wall opcode18 has no troop-tree contribution.
-                var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(
-                    damage.Damage.NativeFrameWord20, tacticWord22);
-                var applied = ApplyBorrowedNormalBaseFatalApplication(working, attackerId, objectIndex,
-                    request.RequestedLoss, sampler, current);
-                if (applied.Outcome == NormalCityApplicationOutcome.CurrentInputsUnresolved || applied.Receipt is null)
-                    throw Unresolved(applied.UnresolvedOwner ?? "application178EC0");
-                working = applied.State;
-                if (activated && applied.Receipt.NativeReturn)
-                    working = MarkBorrowedAutomaticTacticFatalFeedback(working);
-                //174A30 accumulates the word after its minimum-one write,
-                //independently from the signed Base troop cap and wall loss.
-                working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [],
-                    new("normal_city_damage", working.NativeClock!.UpdateOrdinal, attackerId,
-                        pair.Actor.ForceSlot, objectIndex, request.FrameWord20After)] };
-            }
+            return new(CompleteBorrowedArmyBaseApplicationTail(working, current, pair,
+                damage.Damage.NativeFrameWord20, tacticWord22, activated, sampler));
         }
-        var aftermath = NormalArmyPairAftermath.TryApplyMixed(working, pair.Actor, pair.Target,
-            current, Context(current, sampler), _normalAftermathInputs);
-        if (aftermath.Outcome == NormalArmyPairAftermathOutcome.CurrentInputsUnresolved)
-            throw Unresolved(aftermath.MissingOwner ?? "aftermath174EC0");
-        return aftermath.State;
+        return new(CompleteBorrowedArmyBaseAftermath(working, current, pair, sampler));
+
+        InvalidDataException Unresolved(string owner) => ArmyBasePairMissing(pair, owner);
+    }
+
+    private BorrowedMixedPairApplication ResumeBorrowedArmyBasePairAfterAutomatic(GameState state,
+        SourceWorldContext current, NormalCombatMixedPair pair, ushort frame20,
+        AutomaticTacticExecutionContinuation saved, NativeArmyCombatCycleSampler sampler,
+        NativeMapSeasonDate operationDate, long revision, List<CampaignEffectRequest> effects)
+    {
+        var activation = ResumeBorrowedSelectedAutomatic(state, current, Context(current, sampler),
+            pair.Target, saved, sampler, operationDate, revision, effects);
+        if (activation.Continuation is { } pending)
+            return new(activation.State, frame20, pending);
+        return new(CompleteBorrowedArmyBaseApplicationTail(activation.State, current, pair, frame20,
+            activation.Frame22?.Word22After ?? throw ArmyBasePairMissing(pair, "resume_frame22"), true, sampler));
+    }
+
+    private GameState CompleteBorrowedArmyBaseApplicationTail(GameState working, SourceWorldContext current,
+        NormalCombatMixedPair pair, ushort frame20, ushort tacticWord22, bool activated,
+        NativeArmyCombatCycleSampler sampler)
+    {
+        int attackerId = pair.Actor.UnitId ?? throw ArmyBasePairMissing(pair, "tail_Army_identity");
+        int objectIndex = pair.Target.Kind == 5 ? pair.Target.PhysicalSlot : pair.Target.PhysicalSlot + 51;
+        var target = (pair.Target.Kind == 5 ? current.ReadCityTableReference(pair.Target.PhysicalSlot)
+            : current.ReadGateTableReference(pair.Target.PhysicalSlot))
+            ?? throw ArmyBasePairMissing(pair, "tail_Base_pointer");
+        if (Stage7PermitsBaseApplication(working))
+        {
+            var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(frame20, tacticWord22);
+            var applied = ApplyBorrowedNormalBaseFatalApplication(working, attackerId, objectIndex,
+                request.RequestedLoss, sampler, current);
+            if (applied.Outcome == NormalCityApplicationOutcome.CurrentInputsUnresolved || applied.Receipt is null)
+                throw Unresolved(applied.UnresolvedOwner ?? "application178EC0");
+            working = applied.State;
+            if (activated && applied.Receipt.NativeReturn)
+                working = MarkBorrowedAutomaticTacticFatalFeedback(working);
+            working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [],
+                new("normal_city_damage", working.NativeClock!.UpdateOrdinal, attackerId,
+                    pair.Actor.ForceSlot, objectIndex, request.FrameWord20After)] };
+        }
+        return CompleteBorrowedArmyBaseAftermath(working, current, pair, sampler);
 
         bool Stage7PermitsBaseApplication(GameState reached)
         {
@@ -142,7 +167,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             return pair.Actor.ForceSlot == playerId;
         }
 
-        InvalidDataException Unresolved(string owner) => new(
-            $"ordinary_army_combat_cut.Base_target.{owner}.source27:{pair.Actor.PhysicalSlot}.target{pair.Target.Kind}:{pair.Target.PhysicalSlot}");
+        InvalidDataException Unresolved(string owner) => ArmyBasePairMissing(pair, owner);
     }
+
+    private GameState CompleteBorrowedArmyBaseAftermath(GameState state, SourceWorldContext current,
+        NormalCombatMixedPair pair, NativeArmyCombatCycleSampler sampler)
+    {
+        var aftermath = NormalArmyPairAftermath.TryApplyMixed(state, pair.Actor, pair.Target,
+            current, Context(current, sampler), _normalAftermathInputs);
+        if (aftermath.Outcome == NormalArmyPairAftermathOutcome.CurrentInputsUnresolved)
+            throw ArmyBasePairMissing(pair, aftermath.MissingOwner ?? "aftermath174EC0");
+        return aftermath.State;
+    }
+
+    private static InvalidDataException ArmyBasePairMissing(NormalCombatMixedPair pair, string owner) => new(
+        $"ordinary_army_combat_cut.Base_target.{owner}.source27:{pair.Actor.PhysicalSlot}.target{pair.Target.Kind}:{pair.Target.PhysicalSlot}");
 }

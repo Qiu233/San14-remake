@@ -38,6 +38,7 @@ public partial class Main
         RefreshDisasterScene(session,owner,map);
         RefreshMonthlyScene(session,owner,map);
         RestoreFoodWarnings(session,owner,map);
+        RestoreCityMapAttention(owner,map);
         RefreshArmyMapSpeechBinding(session,owner,map);
         if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
         GameState? armyViewRefreshSource = null;

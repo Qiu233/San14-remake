@@ -11,7 +11,8 @@ public sealed record DuelCampaignAftermathResult(GameState State,
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private GameState CompleteDuelAftermathDuringArmyOperation(GameState state,
-        SourceWorldContext current, NativeArmyProgressStageMoment moment)
+        SourceWorldContext current, NativeArmyProgressStageMoment moment,
+        DuelAftermathContinuation? resumed = null, ArmyUnitReference? originalLoserArmy = null)
     {
         long sequence = state.CampaignDuelService?.Registered?.Sequence
             ?? throw DuelMissing("aftermath_completion_registration");
@@ -19,13 +20,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         //the reached history formatter. This binding occurs only for a duel.
         _personRelationInputs.BindCurrent(state, current);
         var effects = new List<CampaignEffectRequest>();
-        var applied = ApplyRegisteredDuelAftermathDuringArmyOperation(state, current, moment, effects);
+        var applied = ApplyRegisteredDuelAftermathCore(state, current, moment, effects, resumed, originalLoserArmy);
         var pending = applied.State.CampaignEffectRequests ?? throw DuelMissing("aftermath_effect_owner");
         if (effects.Count != 0)
             pending = pending.Append(CampaignEffectSource.ArmyBattleDefeat, moment.CalendarCycleOrdinal, effects);
         if (applied.TraitRefreshes.Length != 0)
             pending = pending.Append(CampaignEffectSource.ArmyTraitMaintenance, moment.CalendarCycleOrdinal, applied.TraitRefreshes);
-        return CampaignDuelRegistration.CompleteAftermath(applied.State with { CampaignEffectRequests = pending }, sequence,
+        var published = applied.State with { CampaignEffectRequests = pending };
+        if (published.DuelAftermathContinuation is not null) return published;
+        return CampaignDuelRegistration.CompleteAftermath(published, sequence,
             new(applied.Injuries, applied.ArmyNotices));
     }
 
@@ -35,6 +38,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     public DuelCampaignAftermathResult ApplyRegisteredDuelAftermathDuringArmyOperation(
         GameState state, SourceWorldContext current, NativeArmyProgressStageMoment moment,
         List<CampaignEffectRequest> effects)
+        => ApplyRegisteredDuelAftermathCore(state, current, moment, effects, null, null);
+
+    private DuelCampaignAftermathResult ApplyRegisteredDuelAftermathCore(GameState state,
+        SourceWorldContext current, NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> effects,
+        DuelAftermathContinuation? resumed, ArmyUnitReference? originalLoserArmy)
     {
         var service = state.CampaignDuelService ?? throw DuelMissing("aftermath_service");
         var registered = service.Registered ?? throw DuelMissing("aftermath_registered_result");
@@ -44,7 +52,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             throw DuelMissing("aftermath_operation_lifecycle");
         var result = registered.Result;
         int actor = registered.Pair.ActorOfficerId, opponent = registered.Pair.OpponentOfficerId;
-        var injuries = new List<CampaignDuelInjuryNotice>();
+        var injuries = resumed?.Injuries.ToList() ?? new List<CampaignDuelInjuryNotice>();
         var notices = new List<CampaignDuelArmyNotice>();
         var traitRefreshes = new List<CampaignEffectRequest>();
 
@@ -58,16 +66,32 @@ public sealed partial class ArmyCampaignRuleAdapter
                 state = ApplyDuelRewardDuringArmyOperation(state, current, opponent, 2, actor);
                 break;
             case CampaignDuelOutcome.Won:
-                state = ApplyDuelWinnerAftermath(state, current, actor, opponent, moment, effects, injuries);
-                state = ApplyDuelLoserAftermath(state, current, actor, opponent,
-                    result.Aftermath, result.PlayerOutcome, moment, effects, injuries, traitRefreshes);
+                if (resumed is null)
+                {
+                    state = ApplyDuelWinnerAftermath(state, current, actor, opponent, moment, effects, injuries);
+                    state = ApplyDuelLoserAftermath(state, current, actor, opponent,
+                        result.Aftermath, result.PlayerOutcome, moment, effects, injuries, traitRefreshes);
+                }
+                else if (resumed.ResumePoint == DuelAftermathResumePoint.AfterMoraleRouting)
+                    state = CompleteDuelLoserMoraleTail(state, current, actor, opponent,
+                        originalLoserArmy ?? throw DuelMissing("resume_original_loser_Army"), moment, injuries);
+                if (state.DuelAftermathContinuation is not null)
+                    return new(state, injuries.ToArray(), [], traitRefreshes.ToArray());
                 state = ApplyDuelRewardDuringArmyOperation(state, current, actor, 0, opponent);
                 state = ApplyDuelRewardDuringArmyOperation(state, current, opponent, 1, actor);
                 break;
             case CampaignDuelOutcome.Lost:
-                state = ApplyDuelWinnerAftermath(state, current, opponent, actor, moment, effects, injuries);
-                state = ApplyDuelLoserAftermath(state, current, opponent, actor,
-                    result.Aftermath, result.PlayerOutcome, moment, effects, injuries, traitRefreshes);
+                if (resumed is null)
+                {
+                    state = ApplyDuelWinnerAftermath(state, current, opponent, actor, moment, effects, injuries);
+                    state = ApplyDuelLoserAftermath(state, current, opponent, actor,
+                        result.Aftermath, result.PlayerOutcome, moment, effects, injuries, traitRefreshes);
+                }
+                else if (resumed.ResumePoint == DuelAftermathResumePoint.AfterMoraleRouting)
+                    state = CompleteDuelLoserMoraleTail(state, current, opponent, actor,
+                        originalLoserArmy ?? throw DuelMissing("resume_original_loser_Army"), moment, injuries);
+                if (state.DuelAftermathContinuation is not null)
+                    return new(state, injuries.ToArray(), [], traitRefreshes.ToArray());
                 state = ApplyDuelRewardDuringArmyOperation(state, current, opponent, 0, actor);
                 state = ApplyDuelRewardDuringArmyOperation(state, current, actor, 1, opponent);
                 break;

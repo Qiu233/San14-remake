@@ -8,7 +8,7 @@ public partial class Main
 
     private bool[] TitleAvailability() =>
         [CampaignSaves.HasAnyCampaign,
-         true,false,false,_ui.SourceLocale == "TC",true,false,true];
+         true,false,false,_ui.SourceLocale == "TC",true,true,true];
 
     private void OpenTitleMenu()
     {
@@ -22,7 +22,7 @@ public partial class Main
         try
         {
             view.Configure(_repository,_ui,TitleAvailability(),
-                ()=>!_failed&&!_shuttingDown&&_titleMenu==view&&!HasCampaignSavePage&&!HasEnvironmentSettings&&!HasTitleEditMenu&&_titleConfirmation is null,
+                ()=>!_failed&&!_shuttingDown&&_titleMenu==view&&!HasCampaignSavePage&&!HasEnvironmentSettings&&!HasTitleEditMenu&&!HasCollectionMenu&&_titleConfirmation is null,
                 command=>RunUiAction(()=>ExecuteTitleCommand(command)),
                 locale=>RunUiAction(()=>ChangeTitleLanguage(locale)));
             _browserContent.Hide();_browserContent.ProcessMode=ProcessModeEnum.Disabled;
@@ -32,7 +32,7 @@ public partial class Main
 
     private void ExecuteTitleCommand(TitleMenuCommand command)
     {
-        if(_titleMenu is not { } view||HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||_titleConfirmation is not null)return;
+        if(_titleMenu is not { } view||HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||_titleConfirmation is not null)return;
         switch(command)
         {
             case TitleMenuCommand.NewGame:
@@ -45,6 +45,8 @@ public partial class Main
                 OpenEnvironmentSettings();break;
             case TitleMenuCommand.Edit:
                 OpenTitleEditMenu();break;
+            case TitleMenuCommand.Collection:
+                OpenCollectionMenu();break;
             case TitleMenuCommand.Exit:
                 var question=new DeploymentTargetConfirmation();_titleConfirmation=question;AddChild(question);
                 try
@@ -64,20 +66,21 @@ public partial class Main
 
     private void ChangeTitleLanguage(int locale)
     {
-        if(_titleMenu is null||HasTitleEditMenu||locale==_locale.Selected||locale is <0 or >1)return;
+        if(_titleMenu is null||HasTitleEditMenu||HasCollectionMenu||locale==_locale.Selected||locale is <0 or >1)return;
         CloseTitleMenu();_locale.Select(locale);UpdateLocale();RefreshScenarios(loadPreview:false);OpenTitleMenu();
     }
 
     private bool ResumeTitleMenu()
     {
         if(_failed||_shuttingDown||_titleMenu is not { } view||_playerForceId.HasValue||
-            HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||_titleConfirmation is not null)return false;
+            HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||_titleConfirmation is not null)return false;
         view.ApplyAvailability(TitleAvailability());view.Show();return true;
     }
 
     private void CloseTitleMenu()
     {
         CloseTitleEditMenu(resumeTitle: false);
+        CloseCollectionMenu(resumeTitle: false);
         var question=_titleConfirmation;_titleConfirmation=null;
         if(question is not null){question.Abandon();question.QueueFree();}
         var view=_titleMenu;_titleMenu=null;

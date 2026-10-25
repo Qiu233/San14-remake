@@ -20,7 +20,7 @@ public sealed record NormalArmyCombatPairAutomaticSelection(
     NormalArmyCombatPairCurrentDamage Stage5,
     AutomaticTacticCurrentSelection? Selection);
 
-public enum AutomaticTacticPrefixOutcome { CurrentInputsUnresolved, NativeSkip, EffectsTailWaitingCommitted }
+public enum AutomaticTacticPrefixOutcome { CurrentInputsUnresolved, NativeSkip, EffectsTailWaitingCommitted, AwaitingPlayerDecision }
 public sealed record AutomaticTacticPrefixResult(AutomaticTacticPrefixOutcome Outcome,
     GameState State, NormalArmyCombatPairAutomaticSelection? Selection,
     PlayableNativeTacticActivationResult? Activation)
@@ -28,6 +28,7 @@ public sealed record AutomaticTacticPrefixResult(AutomaticTacticPrefixOutcome Ou
     public string? MissingOwner { get; init; }
     internal NormalArmyCombatTacticFrame22Receipt? ActualFrame22 { get; init; }
     internal bool? NativeFrame24Activated { get; init; }
+    internal AutomaticTacticExecutionContinuation? PendingAutomaticExecution { get; init; }
 }
 
 /// <summary>Operation-local descriptor/cache owner for Army-only ordinary
@@ -198,7 +199,10 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 var applied = currentApplication.ApplyBorrowedSelectedAutomatic(current, operationCurrent,
                     createContext(definitions), selection.Stage5.Pair.Attacker.ArmyId, primary,
                     new(selected.TacticSlot, selected.Program, hexVectors), operationSampler,
-                    plan.Moment.WorldThirdDate, operationEffects);
+                    plan.Moment.WorldThirdDate, operationEffects, plan.Moment.CalendarCycleOrdinal);
+                if (applied.Continuation is { } pending)
+                    return new(AutomaticTacticPrefixOutcome.AwaitingPlayerDecision, applied.State, selection, null)
+                    { PendingAutomaticExecution = pending };
                 var actor = applied.State.Units[selection.Stage5.Pair.Attacker.ArmyId];
                 var activation = new PlayableNativeTacticActivationResult(applied.State, applied.Reports,
                     [new("tactic_used", actor.ForceId, null, actor.OfficerId, selected.TacticSlot,

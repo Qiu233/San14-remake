@@ -67,8 +67,6 @@ public sealed class G1EffectMapDirectDraws
                     lightingDevice.SetLightingCluster(cluster,frame.LightingIndexFormat);
                     lightAllocation.SetLighting(G1EffectDirectLightingSource.Read(main,generic,mainStorage.Value,
                         instance.AutoHdrScaleExposure),lightOrdinal);
-                    missing.Add(new(generic.Record.FileOffset,"DirectLinkedLighting",
-                        "The actual point queue is prepared; its separate source point-light draw route is not yet installed."));
                 }
                 continue;
             }

@@ -503,7 +503,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         ensurePrimaryForwardResources();
         currentEffects.prepareLights(device.Get(),context.Get(),primaryForwardGpu.clusterUav.Get(),primaryForwardGpu.resources[16].Get());
         const auto& cluster=currentEffects.clusterLights();
-        if(cluster.computeSucceeded)for(UINT i=1;i<6;++i)primaryForwardGpu.resources[16+i]=cluster.resources[i];
+        if(cluster.computeSucceeded) {
+            for(UINT i=1;i<6;++i)primaryForwardGpu.resources[16+i]=cluster.resources[i];
+            phase.publishClusteredLights();
+        }
     };
     auto currentLightingFrame=[&](auto&&... arguments) {
         auto frame=frameState.lightingFrame(std::forward<decltype(arguments)>(arguments)...);

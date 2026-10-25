@@ -42,7 +42,11 @@ public static class GameStateCopy
         // Decision continuations contain immutable operands and immutable candidate lists.
         ArmyDefeatContinuation = value.ArmyDefeatContinuation,
         //All descriptors and both ordered collections are immutable snapshots.
+        // Retained combat descriptors, automatic instruction vectors and all
+        // accumulated report/presentation leaves are immutable and shared.
         NormalCombatImmediateContinuation = value.NormalCombatImmediateContinuation,
+        //The duel tail retains only immutable injury notices and its registered sequence.
+        DuelAftermathContinuation = value.DuelAftermathContinuation,
         CoalitionCameraPresentation = value.CoalitionCameraPresentation,
         PersonDeathContinuation = value.PersonDeathContinuation,
         CampaignCrtRandom = value.CampaignCrtRandom,

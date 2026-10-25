@@ -74,7 +74,23 @@ public partial class AudioPlaybackService
         if (float.IsFinite(position) && position >= 0) _musicPositions[index] = position;
     }
 
-    /// <summary>The proved first-map attack on an already prepared looping clip.
+    // The manager's explicit stop saves the current cursor once and fades the
+    // actual voice. Repeated stops while already fading do not restart it.
+    internal bool FadeOutMapMusic(string channel, int milliseconds)
+    {
+        RequireEngineThread();
+        AudioServer.Lock();
+        try
+        {
+            if (!_mapMusic.TryGetValue(channel, out var voice) || voice.Releasing) return false;
+            RememberMapMusicPosition(voice);
+            ReleaseMapMusicLocked(channel, milliseconds);
+            return true;
+        }
+        finally { AudioServer.Unlock(); }
+    }
+
+    /// <summary>The first-map attack on an already prepared music clip.
     /// Host route selection and native bus DSP belong to the caller.</summary>
     internal void PlayMapMusic(AudioClip clip, string channel, float volumeDb = 0, string bus = "Master",
         int? musicIndex = null, float startSeconds = 0, int attackMilliseconds = 1000)
@@ -95,8 +111,8 @@ public partial class AudioPlaybackService
                 throw new InvalidOperationException("Prepared map music belongs to a replaced output resource.");
             profile.Outputs.ValidateHost();
         }
-        if (!clip.UsesSourceLoop || clip.SampleRate != 48000 || clip.StaticPlayback is not null)
-            throw new InvalidDataException("Map music requires its original 48000 Hz loop and separate root gain.");
+        if (clip.SampleRate != 48000 || clip.StaticPlayback is not null)
+            throw new InvalidDataException("Map music requires its original 48000 Hz sample format and separate root gain.");
         float releaseSeconds = clip.MapMusic?.ReleaseSeconds ?? 3.5f;
         if (!float.IsFinite(releaseSeconds) || releaseSeconds < 0 || releaseSeconds * 48000f >= int.MaxValue)
             throw new InvalidDataException("Map music source release duration is outside its supported tick range.");

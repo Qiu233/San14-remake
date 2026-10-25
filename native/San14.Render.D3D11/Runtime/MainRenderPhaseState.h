@@ -13,6 +13,9 @@ public:
 
     void beginMain() { deferredQueue_=0; }
     void publishThinSurface(bool rainPresent) { if(rainPresent)deferredQueue_|=ThinSurface; }
+    // Node71 publishes the ordinary combined-light path after preparing its
+    // actual cluster producer. Queue allocation alone does not set this state.
+    void publishClusteredLights() { deferredQueue_|=ClusteredLights; }
     void publishSpecialTail() { deferredQueue_|=SpecializedGeometry; }
     void completeOuterApply() { hostCompletion_|=3; deferredQueue_|=OuterApplyComplete; }
 
@@ -20,6 +23,7 @@ public:
     std::uint32_t deferredQueueFlags()const { return deferredQueue_; }
     std::uint64_t hostCompletionFlags()const { return hostCompletion_; }
 private:
+    static constexpr std::uint32_t ClusteredLights=0xC0000;
     static constexpr std::uint32_t ThinSurface=0x400;
     static constexpr std::uint32_t SpecializedGeometry=0x40;
     static constexpr std::uint32_t OuterApplyComplete=0x20;

@@ -127,8 +127,17 @@ public sealed class AudioMapMusicSelector
         AudioMusicCueMapping? mapping)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        int index = selection.EffectiveMusicIndex;
-        if (!selection.CanQueue || index is < 0 or >= MusicIndexCount)
+        return PrepareCommit(selection.EffectiveMusicIndex, mapping, selection.CanQueue);
+    }
+
+    /// <summary>A direct manager-index request, such as Collection playback.
+    /// It has no source-slot setting or eligibility-query fallback.</summary>
+    public AudioPreparedMusicCommit PrepareCommit(int musicIndex, AudioMusicCueMapping? mapping)
+        => PrepareCommit(musicIndex, mapping, true);
+
+    private AudioPreparedMusicCommit PrepareCommit(int index, AudioMusicCueMapping? mapping, bool canQueue)
+    {
+        if (!canQueue || index is < 0 or >= MusicIndexCount)
             return new(false, index, null, null, mapping);
         uint cueHash = mapping is { RawKind: 0, RawTableRowIndex: >= 0 and < MusicIndexCount }
             ? CueHashes[mapping.RawTableRowIndex] : 0;

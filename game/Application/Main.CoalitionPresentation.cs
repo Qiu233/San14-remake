@@ -51,11 +51,14 @@ public partial class Main
     {
         if (request.Operation == ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh)
         {
-            // This is the city's province-advantage attention, independent
-            // of the diplomacy information cards.
-            GD.PushWarning("coalition.city_province_advantage_indicator_owner");
-            _personnelPresentationInspectedOwner = world;
-            return false;
+            if (!TryRefreshProvinceAttention(world, map, out var missing))
+            {
+                GD.PushWarning(missing);
+                _personnelPresentationInspectedOwner = world;
+                return false;
+            }
+            return session.TryCompleteForceCoalitionVisual(world, entry.Source, entry.BatchSequence,
+                entry.RequestIndex, request.Operation);
         }
         var query = CoalitionPresentationQueries(world, map).QueryForceCoalitionIllustration(world, request);
         if (!query.Available) throw new InvalidDataException(query.UnresolvedInput);

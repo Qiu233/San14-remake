@@ -173,6 +173,12 @@ public partial class Main : Control
         if (_diplomacyNegotiation is not null) { HandleDiplomaticNegotiationInput(input); return; }
         if(_consumeBackRelease&&input is InputEventMouseButton { ButtonIndex:MouseButton.Right,Pressed:false })
         { GetViewport().SetInputAsHandled();_consumeBackRelease=false;return; }
+        if (HasCollectionMenu && input is InputEventKey { Keycode: Key.Escape } collectionKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (collectionKey.Pressed && !collectionKey.Echo) RunUiAction(RequestCollectionBack);
+            return;
+        }
         if (HasTitleEditMenu && input is InputEventKey { Keycode: Key.Escape } editKey)
         {
             GetViewport().SetInputAsHandled();
@@ -417,7 +423,8 @@ public partial class Main : Control
             _governanceNarration is { } governanceSpeech&&governanceSpeech.IsVisibleInTree()&&!governanceSpeech.IsQueuedForDeletion())
         {GetViewport().SetInputAsHandled();_consumeBackRelease=true;return;}
         Action? back = null;
-        if (HasTitleEditMenu) back = RequestTitleEditBack;
+        if (HasCollectionMenu) back = RequestCollectionBack;
+        else if (HasTitleEditMenu) back = RequestTitleEditBack;
         else if (_titleConfirmation is { } titleCancel) back = titleCancel.RequestCancel;
         else if (_personnelConfirmation is { } personnelCancel) back = personnelCancel.RequestCancel;
         else if (_campaignSaveConfirmation is { } saveQuestion) back = saveQuestion.RequestCancel;
@@ -1116,6 +1123,9 @@ public partial class Main : Control
         _foodWarningMap = null;
         _foodWarningSession = null;
         _foodWarningCityFlags = null;
+        _cityAttentionMap = null;
+        _cityAttentionSession = null;
+        _cityAttentionWorld = null;
         CloseUnitRetarget();
         CloseTransportSetup();
         CloseCommandWorkspace();
@@ -1233,7 +1243,9 @@ public partial class Main : Control
         {
             if (!_residentMap.InitialSceneLoad.IsCompleted ||
                 !_residentMap.IsPlayableMapReady) return;
-            _residentMap.RefreshPlayableWorld(IsStoryPresentationCurrent ? _storyPresentation!.World : world);
+            var mapWorld = IsStoryPresentationCurrent ? _storyPresentation!.World : world;
+            _residentMap.RefreshPlayableWorld(mapWorld);
+            RefreshCityMapAttention(mapWorld, _residentMap);
             if (WorldMapDiagnosticEnabled && !_residentMap.HasNativeWorldMapFactory && world.Units.Count == 0 &&
                 world.Structures?.Count == 0 && world.NativeMapSeason is not null)
                 _residentMap.SetNativeWorldMapDependencyFactory(
@@ -1354,6 +1366,7 @@ public partial class Main : Control
                 return;
             }
             view.RefreshPlayableWorld(world);
+            RefreshCityMapAttention(world, view);
             _campaignComposition?.ConfigureArmyTraitSpeechViews(view.CaptureArmyTraitSpeechViews());
             if (view.SourceMainCameraTerrain is { } terrain)
                 _campaignComposition?.ConfigureBaseCapturePresentationTerrain(terrain);

@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public enum NormalArmyPairApplicationPrefixOutcome
 {
-    CurrentInputsUnresolved, AwaitingApplicationTail, ZeroTroopsCleanupRequired, NativePairSkipped
+    CurrentInputsUnresolved, AwaitingApplicationTail, ZeroTroopsCleanupRequired, NativePairSkipped, AwaitingPlayerDecision
 }
 
 public sealed record NormalArmyPairApplicationPrefixResult(
@@ -17,6 +17,8 @@ public sealed record NormalArmyPairApplicationPrefixResult(
     public NormalArmyPersonalityReactionReceipt? PersonalityReaction { get; init; }
     public NormalArmyPersonalityApplication? PersonalityApplication { get; init; }
     internal GameState? PendingCleanupState { get; init; }
+    internal AutomaticTacticExecutionContinuation? PendingAutomaticExecution { get; init; }
+    internal bool AutomaticActivationCompleted { get; init; }
 }
 
 public sealed partial class NormalArmyCombatCurrentPhase
@@ -36,6 +38,9 @@ public sealed partial class NormalArmyCombatCurrentPhase
             return new(NormalArmyPairApplicationPrefixOutcome.NativePairSkipped, current,
                 null, null, null, null);
         var automatic = TryApplyAutomaticTacticPrefix(current, pairIndex);
+        if (automatic.Outcome == AutomaticTacticPrefixOutcome.AwaitingPlayerDecision)
+            return new(NormalArmyPairApplicationPrefixOutcome.AwaitingPlayerDecision, automatic.State,
+                automatic, null, null, null) { PendingAutomaticExecution = automatic.PendingAutomaticExecution };
         if (automatic.Outcome == AutomaticTacticPrefixOutcome.CurrentInputsUnresolved ||
             automatic.Selection is not { } original)
             return new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current,
@@ -57,12 +62,26 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 checked((ushort)original.Stage5.Pair.Target.NativePoolSlot), [])!;
         }
         else frame22 = new(0, 0, false, 0); //Actual fresh pair and native no-activation path.
+        return ApplyPairAfterAutomatic(current, automatic.State, pairIndex, frame20, frame22,
+            automatic, automatic.NativeFrame24Activated == true, forceDefinitions);
+
+        NormalArmyPairApplicationPrefixResult Unknown(string phase) =>
+            new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current, null, null, null, phase);
+    }
+
+    private NormalArmyPairApplicationPrefixResult ApplyPairAfterAutomatic(GameState current, GameState afterAutomatic,
+        int pairIndex, ushort frame20, NormalArmyCombatTacticFrame22Receipt frame22,
+        AutomaticTacticPrefixResult? automatic, bool activated,
+        INormalArmyForceResultDefinitionQueries? forceDefinitions)
+    {
+        var pair = plan.OrderedPairs[pairIndex];
+        if (currentApplication is null) return Unknown("actual-cycle-application-owner");
         var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(frame20, frame22.Word22After);
         TacticRemakeCurrentContext? ReadCurrent(GameState reached) =>
             captureDefinitions(reached) is { } definitions ? createContext(definitions) : null;
         var applied = operationCurrent is null
-            ? currentApplication.TryApplyNativeNormalApplicationPrefix(automatic.State, original.Stage5.Pair, request, ReadCurrent)
-            : currentApplication.TryApplyBorrowedNormalApplicationPrefix(automatic.State, original.Stage5.Pair, request, ReadCurrent, operationCurrent);
+            ? currentApplication.TryApplyNativeNormalApplicationPrefix(afterAutomatic, pair, request, ReadCurrent)
+            : currentApplication.TryApplyBorrowedNormalApplicationPrefix(afterAutomatic, pair, request, ReadCurrent, operationCurrent);
         if (applied.Outcome == NormalArmyApplicationPrefixOutcome.CurrentInputsUnresolved)
             return new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current,
                 null, null, null, applied.MissingPhase);
@@ -72,8 +91,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
             NormalArmyForceResultApplication? force = null;
             if (forceDefinitions is not null && applied.Receipt?.TroopDebit is { } killedDebit)
             {
-                var attacker = transient.Units[original.Stage5.Pair.Attacker.ArmyId];
-                var target = transient.Units[original.Stage5.Pair.Target.ArmyId];
+                var attacker = transient.Units[pair.Attacker.ArmyId];
+                var target = transient.Units[pair.Target.ArmyId];
                 force = operationCurrent is null
                     ? currentApplication.ApplyForceResultDuringArmyOperation(transient, attacker.ForceId,
                         target.ForceId, killedDebit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions)
@@ -86,14 +105,14 @@ public sealed partial class NormalArmyCombatCurrentPhase
             // A killed commander does not take the nonlethal category1E branch.
             return new(NormalArmyPairApplicationPrefixOutcome.ZeroTroopsCleanupRequired, current,
                 automatic, frame22, applied with { State = current }, applied.MissingPhase)
-                { ForceResult = force, PendingCleanupState = transient };
+                { ForceResult = force, PendingCleanupState = transient, AutomaticActivationCompleted = activated };
         }
         if (forceDefinitions is not null && applied.Receipt?.TroopDebit is { } debit)
         {
             //1791E0..17921B, ordinary kind27/null second Force. A missing
             //current15F or reached160 registry result rolls back both prefixes.
-            var attacker = applied.State.Units[original.Stage5.Pair.Attacker.ArmyId];
-            var target = applied.State.Units[original.Stage5.Pair.Target.ArmyId];
+            var attacker = applied.State.Units[pair.Attacker.ArmyId];
+            var target = applied.State.Units[pair.Target.ArmyId];
             var force = operationCurrent is null
                 ? currentApplication.ApplyForceResultDuringArmyOperation(applied.State, attacker.ForceId,
                     target.ForceId, debit.AppliedLoss, applied.Receipt.Killed!.Value, forceDefinitions)
@@ -110,10 +129,10 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 return Unknown("normal-personality-reaction");
             return new(NormalArmyPairApplicationPrefixOutcome.AwaitingApplicationTail, personality.State,
                 automatic, frame22, applied, null) { ForceResult = force, PersonalityReaction = personality.Receipt,
-                    PersonalityApplication = personality };
+                    PersonalityApplication = personality, AutomaticActivationCompleted = activated };
         }
         return new(NormalArmyPairApplicationPrefixOutcome.AwaitingApplicationTail, applied.State,
-            automatic, frame22, applied, null);
+            automatic, frame22, applied, null) { AutomaticActivationCompleted = activated };
 
         NormalArmyPairApplicationPrefixResult Unknown(string phase) =>
             new(NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved, current, null, null, null, phase);

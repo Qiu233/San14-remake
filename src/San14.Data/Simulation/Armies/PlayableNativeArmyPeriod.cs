@@ -28,7 +28,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         var clock = state.NativeClock ?? throw PeriodMissing("waiting_owner");
         var resume = state.NativePeriodContinuation?.Cursor;
         long expectedWaiting = season.ProcessedNativeOrdinal;
-        if (resume?.StageIndex is (byte)NativeArmyProgressStage.Defeat or (byte)NativeArmyProgressStage.Combat)
+        if (resume?.StageIndex is (byte)NativeArmyProgressStage.Defeat or (byte)NativeArmyProgressStage.Combat
+            or (byte)NativeArmyProgressStage.DuelOpportunity)
         {
             var reachedDate = season.ThirdDate;
             for (int cycle = 0; cycle <= resume.CycleIndex; cycle++)
@@ -71,7 +72,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             int dueBeforeBlock = resume?.DueBeforeBlock ?? diagnostics.Count;
             for (int cycle = resume?.CycleIndex ?? 0; cycle < NativeArmyProgressAtomicRuntime.CyclesPerSaveBlock; cycle++)
             {
-                RequireInactiveDuelServiceForProgress(working);
+                if (resume?.StageIndex != (byte)NativeArmyProgressStage.DuelOpportunity)
+                    RequireInactiveDuelServiceForProgress(working);
+                else if (working.DuelAftermathContinuation is null)
+                    throw PeriodMissing("stage5_resume_owner");
                 long ordinal = checked(season.AdvancedCalendarSteps + cycle);
                 ArmyMovementQueue? queue = null;
                 ArmyMarchSourceRuntime? movement = null;
@@ -98,6 +102,24 @@ public sealed partial class ArmyCampaignRuleAdapter
                             resume = null;
                             working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } active
                                 ? active with { Cursor = null } : null };
+                            break;
+                        case NativeArmyProgressStage.DuelOpportunity:
+                            if (date.Hour != 10) break;
+                            working = resume?.StageIndex == (byte)NativeArmyProgressStage.DuelOpportunity
+                                ? ResumeDuelAftermathDuringArmyOperation(working, moment)
+                                : AdvanceDuelOpportunity(working, moment);
+                            if (working.DuelAftermathContinuation is not null)
+                            {
+                                var suspendedDuel = working.NativePeriodContinuation
+                                    ?? throw PeriodMissing("stage5_preparation");
+                                var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock);
+                                return new(working with { NativePeriodContinuation = suspendedDuel with { Cursor = cursor } }, stages);
+                            }
+                            resume = null;
+                            working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedDuel
+                                ? completedDuel with { Cursor = null } : null };
+                            RequireInactiveDuelServiceForProgress(working);
                             break;
                         case NativeArmyProgressStage.PrepareMovement:
                             movementCurrent = CaptureWritableTransportRouteCurrent(working);

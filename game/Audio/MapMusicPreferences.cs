@@ -5,7 +5,7 @@ internal sealed record MapMusicPreferenceFile(
     [property: JsonRequired] sbyte[] SourceSelections,
     [property: JsonRequired] Dictionary<int, AudioMusicCueMapping> CueMapping);
 
-internal sealed record MapMusicEntrySelection(int? SourceMonth, AudioPreparedMusicSelection Selection,
+internal sealed record MapMusicEntrySelection(int? SourceMonth, AudioPreparedMusicSelection? Selection,
     AudioPreparedMusicCommit Commit);
 
 /// <summary>One application-owned current music selection and cue mapping.
@@ -75,6 +75,17 @@ internal sealed class MapMusicPreferences
 
     internal MapMusicEntrySelection SelectEntry(string locale, int currentThirdMonth)
         => SelectSourceSlot(locale, AudioMapMusicSelector.SelectMonthSourceSlot(currentThirdMonth), currentThirdMonth);
+
+    // Collection uses the selected music index directly, not an editor setting
+    // or one of the 28 source slots. Reading the mapping does not mutate it.
+    internal MapMusicEntrySelection SelectMusicIndex(string locale, int musicIndex)
+    {
+        if (musicIndex is < 0 or >= AudioMapMusicSelector.MusicIndexCount)
+            throw new ArgumentOutOfRangeException(nameof(musicIndex));
+        var selector = AudioMapMusicSelector.Create(locale);
+        mapping.TryGetValue(musicIndex, out var current);
+        return new(null, null, selector.PrepareCommit(musicIndex, current));
+    }
 
     internal MapMusicEntrySelection SelectSourceSlot(string locale, int slot, int? currentThirdMonth = null)
     {

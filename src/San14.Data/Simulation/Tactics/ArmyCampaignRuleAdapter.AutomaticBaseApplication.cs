@@ -1,11 +1,20 @@
+using System.Collections.Immutable;
 using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
-internal sealed record BorrowedBaseAutomaticApplication(GameState State, bool Activated, ushort PrimaryTroopDamageWord22);
+internal sealed record BorrowedBaseAutomaticApplication(GameState State, bool Activated, ushort? PrimaryTroopDamageWord22)
+{
+    internal AutomaticTacticExecutionContinuation? Continuation { get; init; }
+}
 internal sealed record BorrowedAutomaticSelectedApplication(GameState State,
-    NormalArmyCombatTacticFrame22Receipt Frame22, TacticReportEntry[] Reports);
+    NormalArmyCombatTacticFrame22Receipt? Frame22, TacticReportEntry[] Reports)
+{
+    internal AutomaticTacticExecutionContinuation? Continuation { get; init; }
+}
+internal sealed record BorrowedAutomaticExecutionPlan(int TacticSlot,
+    S14TacticEffectProgram Program, int[][] HexVectors);
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
@@ -15,7 +24,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// No manual permission, fake primary Army or complete-world copy is used.</summary>
     private BorrowedBaseAutomaticApplication CompleteBorrowedArmyBaseAutomatic(GameState state,
         SourceWorldContext current, TacticRemakeCurrentContext context, NormalCombatMixedPair pair,
-        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects)
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate, long operationRevision,
+        List<CampaignEffectRequest> effects)
     {
         var candidates = context.ResolveAutomaticBaseCurrentCandidates(state, pair)
             ?? throw BaseAutomaticMissing("current_candidates");
@@ -25,8 +35,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             return new(state, false, 0);
         var selected = selection.SelectedCandidate ?? throw BaseAutomaticMissing("selected_tactic");
         var applied = ApplyBorrowedSelectedAutomatic(state, current, context, candidates.SourceArmyId,
-            pair.Target, selected, sampler, operationDate, effects);
-        return new(applied.State, true, applied.Frame22.Word22After);
+            pair.Target, selected, sampler, operationDate, effects, operationRevision);
+        return new(applied.State, true, applied.Frame22?.Word22After) { Continuation = applied.Continuation };
     }
 
     //The caller supplies the already selected program and its original ordered
@@ -36,24 +46,62 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, TacticRemakeCurrentContext context, int casterId,
         NormalCombatParticipant primary, AutomaticTacticBaseCandidateSource selected,
         NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
-        List<CampaignEffectRequest> effects)
+        List<CampaignEffectRequest> effects, long? immediatePauseRevision = null)
+        => ApplyBorrowedAutomaticExecution(state, current, context, casterId, primary,
+            new(selected.TacticSlot, selected.Program, selected.Instructions.Select(vector =>
+                vector.OrderedTargets.Select(node => node.HexId).ToArray()).ToArray()),
+            sampler, operationDate, effects, null, immediatePauseRevision);
+
+    internal BorrowedAutomaticSelectedApplication ResumeBorrowedSelectedAutomatic(GameState state,
+        SourceWorldContext current, TacticRemakeCurrentContext context, NormalCombatParticipant primary,
+        AutomaticTacticExecutionContinuation saved, NativeArmyCombatCycleSampler sampler,
+        NativeMapSeasonDate operationDate, long revision, List<CampaignEffectRequest> effects)
+    {
+        var bytes = new byte[8];
+        foreach (var instruction in saved.Instructions)
+        {
+            bytes[instruction.Index] = instruction.Opcode;
+            bytes[2 + instruction.Index] = instruction.Raw64;
+            bytes[4 + instruction.Index] = instruction.EffectValue;
+            bytes[6 + instruction.Index] = instruction.Raw68;
+        }
+        var plan = new BorrowedAutomaticExecutionPlan(saved.TacticId,
+            S14TacticEffectProgramReader.Read(saved.TacticId, bytes),
+            saved.Instructions.OrderBy(row => row.Index).Select(row => row.OrderedHexIds.ToArray()).ToArray());
+        return ApplyBorrowedAutomaticExecution(state, current, context, saved.CasterUnitId, primary,
+            plan, sampler, operationDate, effects, saved, revision);
+    }
+
+    private BorrowedAutomaticSelectedApplication ApplyBorrowedAutomaticExecution(GameState state,
+        SourceWorldContext current, TacticRemakeCurrentContext context, int casterId,
+        NormalCombatParticipant primary, BorrowedAutomaticExecutionPlan selected,
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        List<CampaignEffectRequest> effects, AutomaticTacticExecutionContinuation? resume,
+        long? immediatePauseRevision)
     {
         var actor = state.Units[casterId];
         //16DF00 precedes all instruction effects. This capture is only a
         //genuinely empty actual neighbor chain, not an empty replacement list.
-        var chain = context.CaptureAutomaticEmptyChain(state, actor, selected.TacticSlot)
-            ?? throw BaseAutomaticMissing("linked_actor_chain16DF00");
+        var chain = resume is null
+            ? context.CaptureAutomaticEmptyChain(state, actor, selected.TacticSlot)
+                ?? throw BaseAutomaticMissing("linked_actor_chain16DF00")
+            : context.RestoreAutomaticEmptyChain(actor.Id, selected.TacticSlot,
+                resume.ChainWaitingContribution, resume.ChainRandomState);
         var source = _catalog.Rows[selected.TacticSlot];
         var sourceRules = new TacticEffectSourceRules(_catalog, context, new(new HexTravelMap(_map)));
-        var details = new List<TacticReportEntry>();
-        var results = new[] { new List<TacticResultPresentation>(), new List<TacticResultPresentation>() };
-        var armyPresentationEffects = new List<TacticEffectPresentation>();
-        var troopLedger = new AutomaticBaseTacticDamageLedger();
+        var details = resume?.Details.ToList() ?? new List<TacticReportEntry>();
+        var results = new[] { resume?.FirstInstructionResults.ToList() ?? new List<TacticResultPresentation>(),
+            resume?.SecondInstructionResults.ToList() ?? new List<TacticResultPresentation>() };
+        var armyPresentationEffects = resume?.ArmyPresentationEffects.ToList() ?? new List<TacticEffectPresentation>();
+        var troopLedger = resume is null ? new AutomaticBaseTacticDamageLedger()
+            : AutomaticBaseTacticDamageLedger.Restore(resume.DamageContributions);
         var working = state;
         foreach (var instruction in selected.Program.Instructions)
         {
+            if (resume is not null && instruction.Index < resume.InstructionIndex) continue;
+            bool resumingInstruction = resume is not null && instruction.Index == resume.InstructionIndex;
             actor = working.Units.GetValueOrDefault(casterId) ?? throw BaseAutomaticMissing("instruction_actor");
-            var vector = selected.Instructions[instruction.Index];
+            var vector = selected.HexVectors[instruction.Index];
             //Every native wrapper is reached in program order, even for an
             //empty vector. Unsupported numeric prefixes cannot become no-op.
             TacticEffectScaleSourceInput? instructionScale = null;
@@ -67,7 +115,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 case 0: continue;
                 case 1:
-                    troopPrefix = context.BeginAutomaticArmyBaseTroopDamage(working, actor, 0);
+                    troopPrefix = resumingInstruction
+                        ? new(casterId, resume!.TroopPrefix!.SourceArmyPhysicalSlot, resume.TroopPrefix.SourceTroops,
+                            resume.TroopPrefix.SourceForceSlot, resume.TroopPrefix.StageProduct)
+                        : context.BeginAutomaticArmyBaseTroopDamage(working, actor, 0);
                     break;
                 case 18:
                     wallPrefix = context.ResolveAutomaticBaseWallTacticRequest(working, actor, source, instruction, 0);
@@ -78,8 +129,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                     _ = TacticEffectSourceMath.Scale(instructionScale);
                     break;
                 case 16:
-                    moraleDamagePrefix = BeginBorrowedAutomaticArmyMoraleDamage(working, current,
-                        context, casterId, 0);
+                    moraleDamagePrefix = resumingInstruction
+                        ? new(casterId, new(resume!.MoralePrefix!.SourceArmyPhysicalSlot),
+                            new(resume.MoralePrefix.SourceHexId), resume.MoralePrefix.StageFactor, resume.MoralePrefix.WaitingFactor)
+                        : BeginBorrowedAutomaticArmyMoraleDamage(working, current, context, casterId, 0);
                     break;
                 case 22:
                     modifierPrefix = BeginBorrowedAutomaticArmyAllModifiers(working, current,
@@ -109,20 +162,30 @@ public sealed partial class ArmyCampaignRuleAdapter
                     throw BaseAutomaticMissing("instruction" + instruction.Index + "_opcode" + instruction.Opcode + "_numeric_writer");
             }
 
-            foreach (var node in vector.OrderedTargets)
+            for (int targetIndex = resumingInstruction ? resume!.TargetIndex : 0; targetIndex < vector.Length; targetIndex++)
             {
+                int nodeHex = vector[targetIndex];
+                if (resumingInstruction && targetIndex == resume!.TargetIndex)
+                {
+                    //The actual numeric callback and its immediate destruction
+                    //are complete. Keep the original target and signed request.
+                    working = MarkBorrowedAutomaticTacticFatalFeedback(working);
+                    FinishArmyDamageNode(resume.TargetUnitId, resume.TargetArmyPhysicalSlot,
+                        resume.TargetReceiverId, nodeHex, instruction, resume.RequestedLoss);
+                    continue;
+                }
                 //177610 independently reads Hex1A -> Object.16EB20's Army
                 //priority must not hide an Object occupying this same Hex.
                 if (instruction.Opcode == 18)
                 {
                     var applied = ApplyBorrowedAutomaticHexWallTactic(working, current, context, casterId,
-                        node.HexId, source, instruction, 0, sampler, effects, wallPrefix!);
+                        nodeHex, source, instruction, 0, sampler, effects, wallPrefix!);
                     working = applied.State;
                     if (applied.TargetResultMarker)
                     {
-                        var marked = FieldHexOccupantSource.ReadCurrent(working, current, node.HexId);
+                        var marked = FieldHexOccupantSource.ReadCurrent(working, current, nodeHex);
                         var marker = marked.Receipt ?? throw BaseAutomaticMissing(marked.UnresolvedOwner ?? "wall_marker_receiver");
-                        AddCurrentMarker(marker, node.HexId, instruction.Index, unchecked((ushort)wallPrefix!.Request));
+                        AddCurrentMarker(marker, nodeHex, instruction.Index, unchecked((ushort)wallPrefix!.Request));
                         if (applied.BaseLocationId is int wallLocation && applied.Wall is { } wall)
                             working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [],
                                 new("tactic_city_wall_damage", working.NativeClock!.UpdateOrdinal, casterId,
@@ -130,7 +193,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     }
                     continue;
                 }
-                var target = FieldHexOccupantSource.ReadCurrent(working, current, node.HexId);
+                var target = FieldHexOccupantSource.ReadCurrent(working, current, nodeHex);
                 var receiver = target.Receipt ?? throw BaseAutomaticMissing(target.UnresolvedOwner ?? "effect_Hex_receiver");
                 if (receiver.NativeKind == 255) continue;
                 actor = working.Units.GetValueOrDefault(casterId) ?? throw BaseAutomaticMissing("effect_actor");
@@ -148,7 +211,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         //The ordinary frame+30 is0. Only a different captured
                         //node Hex applies178EC0 now; receiver equality is not
                         //the native deferral test.
-                        if (node.HexId != primary.HexId)
+                        if (nodeHex != primary.HexId)
                         {
                             var applied = ApplyBorrowedNormalBaseFatalApplication(working, casterId,
                                 location, request, sampler, current);
@@ -158,7 +221,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             if (applied.Receipt.NativeReturn)
                                 working = MarkBorrowedAutomaticTacticFatalFeedback(working);
                         }
-                        AddBaseEffect(location, node.HexId, instruction, PlayableTacticEffectKind.ArmyDamage,
+                        AddBaseEffect(location, nodeHex, instruction, PlayableTacticEffectKind.ArmyDamage,
                             unchecked((ushort)request), unchecked((ushort)request));
                         //176C10 records the original full signed request after
                         //its marker, whether applied now or deferred above.
@@ -172,7 +235,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             source, reference, instruction, 0, sampler, instructionScale!);
                         working = applied.State;
                         if (applied.Applied && applied.Receipt is { } receipt)
-                            AddBaseEffect(location, node.HexId, instruction, PlayableTacticEffectKind.NativeMoraleChange,
+                            AddBaseEffect(location, nodeHex, instruction, PlayableTacticEffectKind.NativeMoraleChange,
                                 receipt.MoraleAfter!.Value - receipt.MoraleBefore!.Value);
                     }
                     else if (instruction.Opcode == 19)
@@ -181,7 +244,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             source, reference, instruction, 0, sampler);
                         working = applied.State;
                         //A valid unchanged receiver still has its real marker.
-                        if (applied.Applied) AddBaseEffect(location, node.HexId, instruction,
+                        if (applied.Applied) AddBaseEffect(location, nodeHex, instruction,
                             PlayableTacticEffectKind.ClearAbnormalStatuses, 0);
                     }
                     else if (instruction.Opcode is 2 or 3 or 4 or 23)
@@ -193,7 +256,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         {
                             int amount = applied.Receipt.Counters.Sum(counter => counter.CounterWritten
                                 ? counter.CounterAfter!.Value - counter.CounterBefore!.Value : 0);
-                            AddBaseEffect(location, node.HexId, instruction,
+                            AddBaseEffect(location, nodeHex, instruction,
                                 PlayableTacticEffectKind.NativeAbnormalChange, amount);
                         }
                     }
@@ -203,30 +266,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     int id = receiver.GameplayArmyId ?? throw BaseAutomaticMissing("effect_Army_identity");
                     var army = working.Units.GetValueOrDefault(id) ?? throw BaseAutomaticMissing("effect_Army_image");
+                    var targetReceiverId = working.ReadArmyLifecycle()!.Slots[receiver.NativePhysicalSlot].ReceiverId;
                     if (instruction.Opcode == 1)
                     {
                         var numeric = context.ResolveAutomaticArmyTroopDamage(working, actor, army,
                             source, instruction, troopPrefix!);
                         if (!numeric.TargetValid) continue;
                         int request = numeric.Amount ?? throw BaseAutomaticMissing("Army_opcode1_amount");
-                        if (node.HexId != primary.HexId)
+                        if (nodeHex != primary.HexId)
                         {
                             var applied = ApplyBorrowedAutomaticArmyTroopDamage(working, current, casterId,
-                                id, request, sampler, operationDate, effects);
+                                id, request, sampler, operationDate, effects, immediatePauseRevision);
                             working = applied.State;
+                            if (working.ArmyDefeatContinuation is not null)
+                                return Suspend(instruction, targetIndex, id, receiver.NativePhysicalSlot, targetReceiverId, nodeHex,
+                                    request, troopPrefix, null);
                             if (applied.NativeReturn) working = MarkBorrowedAutomaticTacticFatalFeedback(working);
                         }
-                        //176C10 keeps its captured kind/id even after damage.
-                        AddCurrentMarker(receiver, node.HexId, instruction.Index, unchecked((ushort)request));
-                        var damagedArmy = new ArmyUnitReference(receiver.NativePhysicalSlot);
-                        if (current.ReadArmyUnitNativeValidity(damagedArmy)
-                            ?? throw BaseAutomaticMissing("Army_opcode1_post_application_validity"))
-                            troopLedger.AccumulateArmy(damagedArmy, request);
-                        details.Add(new("effect", checked(state.PeriodNumber + 1), actor.ForceId,
-                            actor.Id, actor.OfficerId, selected.TacticSlot, id,
-                            PlayableTacticEffectKind.ArmyDamage, unchecked((ushort)request))
-                        { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = node.HexId,
-                            InstructionIndex = instruction.Index });
+                        FinishArmyDamageNode(id, receiver.NativePhysicalSlot, targetReceiverId,
+                            nodeHex, instruction, request);
                         continue;
                     }
                     if (instruction.Opcode is 16 or 22)
@@ -235,8 +293,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                         if (instruction.Opcode == 16)
                         {
                             var applied = ApplyBorrowedAutomaticArmyMoraleDamage(working, current, context,
-                                casterId, id, source, instruction, moraleDamagePrefix!, sampler, operationDate, effects);
+                                casterId, id, source, instruction, moraleDamagePrefix!, sampler, operationDate, effects, immediatePauseRevision);
                             working = applied.State; marked = applied.TargetResultMarker;
+                            if (working.ArmyDefeatContinuation is not null)
+                                return Suspend(instruction, targetIndex, id, receiver.NativePhysicalSlot, targetReceiverId, nodeHex,
+                                    0, null, moraleDamagePrefix);
                             if (applied.NativeReturn) working = MarkBorrowedAutomaticTacticFatalFeedback(working);
                         }
                         else
@@ -247,10 +308,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                         }
                         if (marked)
                         {
-                            AddCurrentMarker(receiver, node.HexId, instruction.Index, 0);
+                            AddCurrentMarker(receiver, nodeHex, instruction.Index, 0);
                             details.Add(new("effect", checked(state.PeriodNumber + 1), actor.ForceId,
                                 actor.Id, actor.OfficerId, selected.TacticSlot, id)
-                            { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = node.HexId,
+                            { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = nodeHex,
                                 InstructionIndex = instruction.Index });
                         }
                         continue;
@@ -290,7 +351,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             effect.HealingResult, effect.NativeAbnormalAfter, effect.CurrentMoraleAfter));
                         details.Add(new("effect", checked(state.PeriodNumber + 1), actor.ForceId,
                             actor.Id, actor.OfficerId, selected.TacticSlot, army.Id, effect.Kind, amount)
-                        { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = node.HexId,
+                        { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = nodeHex,
                             InstructionIndex = instruction.Index });
                     }
                     working = working with { Units = new(working.Units) { [id] = army },
@@ -330,7 +391,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     //2/3/4/15/19/23 wrappers use result amount0;20 uses its
                     //actual signed healing amount truncated to the result word.
                     if (singleAbnormal?.TargetResultMarker ?? (resolution.Effects.Length != 0))
-                        AddCurrentMarker(receiver, node.HexId, instruction.Index, instruction.Opcode == 20
+                        AddCurrentMarker(receiver, nodeHex, instruction.Index, instruction.Opcode == 20
                             ? unchecked((ushort)resolution.Effects.Single().Amount) : (ushort)0);
                     bool healing = resolution.Effects.Any(effect => effect.Kind == PlayableTacticEffectKind.ArmyHealing);
                     bool morale = resolution.Effects.Any(effect => effect.Kind == PlayableTacticEffectKind.NativeMoraleChange);
@@ -382,6 +443,44 @@ public sealed partial class ArmyCampaignRuleAdapter
         var frame22 = troopLedger.ConsumeFrame22(current, primary.Kind, checked((ushort)primary.PhysicalSlot));
         return new(working, frame22, [used, .. details]);
 
+        BorrowedAutomaticSelectedApplication Suspend(S14TacticEffectInstruction instruction, int targetIndex,
+            int targetId, int targetPhysical, ArmyReceiverId targetReceiver, int targetHex, int request,
+            AutomaticArmyBaseTroopDamagePrefix? troop, AutomaticArmyMoraleDamagePrefix? morale)
+        {
+            if (immediatePauseRevision is null || primary.Kind is not (5 or 6 or 27))
+                throw BaseAutomaticMissing("immediate_activation_outer_owner");
+            var saved = new AutomaticTacticExecutionContinuation(casterId, selected.TacticSlot,
+                selected.Program.Instructions.Select(row => new AutomaticTacticInstructionSnapshot(row.Index,
+                    row.Opcode, row.Raw64, row.EffectValue, row.Raw68,
+                    selected.HexVectors[row.Index].ToImmutableArray())).ToImmutableArray(),
+                instruction.Index, targetIndex, targetId, targetPhysical,
+                targetReceiver, targetHex, request,
+                chain.SumOfNativeWaitingContributions, chain.RandomState, troopLedger.Capture(),
+                details.ToImmutableArray(), results[0].ToImmutableArray(), results[1].ToImmutableArray(),
+                armyPresentationEffects.ToImmutableArray())
+            {
+                TroopPrefix = troop is null ? null : new(troop.SourceArmyPhysicalSlot, troop.SourceTroops,
+                    troop.SourceForceSlot, troop.StageProduct),
+                MoralePrefix = morale is null ? null : new(morale.SourceArmy.PhysicalSlot!.Value,
+                    morale.SourceHex.PhysicalSlot!.Value, morale.StageFactor, morale.WaitingFactor)
+            };
+            return new(working, null, []) { Continuation = saved };
+        }
+
+        void FinishArmyDamageNode(int targetId, int targetPhysical, ArmyReceiverId receiver,
+            int hex, S14TacticEffectInstruction instruction, int request)
+        {
+            results[instruction.Index].Add(new(TacticResultTargetKind.ArmyReceiver, receiver.Value, hex,
+                instruction.Opcode == 1 ? unchecked((ushort)request) : (ushort)0));
+            if (instruction.Opcode == 1 && (current.ReadArmyUnitNativeValidity(new(targetPhysical))
+                ?? throw BaseAutomaticMissing("Army_opcode1_post_application_validity")))
+                troopLedger.AccumulateArmy(new(targetPhysical), request);
+            details.Add(new("effect", checked(state.PeriodNumber + 1), actor.ForceId, actor.Id, actor.OfficerId,
+                selected.TacticSlot, targetId, instruction.Opcode == 1 ? PlayableTacticEffectKind.ArmyDamage : null,
+                instruction.Opcode == 1 ? unchecked((ushort)request) : 0)
+            { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = hex, InstructionIndex = instruction.Index });
+        }
+
         void AddBaseEffect(int location, int hex, S14TacticEffectInstruction instruction,
             PlayableTacticEffectKind effect, int amount, ushort markerAmount = 0)
         {
@@ -425,6 +524,14 @@ public sealed partial class TacticRemakeCurrentContext
         var chain = ResolveChain(state, actor, _catalog.Rows[tacticSlot]);
         if (chain is not { ChainCount: 0 } || chain.RandomState != state.RandomState) return null;
         _automaticEmptyChain = new(actor.Id, tacticSlot, chain);
+        return chain;
+    }
+
+    internal TacticRemakeChainResolution RestoreAutomaticEmptyChain(int actorId, int tacticId,
+        int waitingContribution, ulong randomState)
+    {
+        var chain = new TacticRemakeChainResolution(0, waitingContribution, randomState);
+        _automaticEmptyChain = new(actorId, tacticId, chain);
         return chain;
     }
 

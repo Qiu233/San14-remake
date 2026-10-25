@@ -21,6 +21,11 @@ public partial class Main
     {
         if (_sceneAudioBinding is { } binding)
         {
+            if (_collectionMusic is not null)
+            {
+                binding.BeginCollectionMusic(_ui.SourceLocale, _preferences.MusicSelection);
+                UpdateSceneAudioStatus(); return;
+            }
             if (_musicEditor is not null) { binding.BeginMusicEdit(); UpdateSceneAudioStatus(); return; }
             SceneAudioBindingState state = binding.SetContext(new(_world?.ScenarioKey, _playerForceId, _sceneView is not null));
             SetMeta("scene_audio_scene_key", state.SceneKey ?? "");
@@ -51,6 +56,7 @@ public partial class Main
 
     private void UpdateSceneAudioStatus()
     {
+        UpdateCollectionMusicStatus();
         if (_sceneAudioStatus is null || _failed || !GodotObject.IsInstanceValid(_sceneAudioStatus)) return;
         var binding = _sceneAudioBinding;
         string musicStatus = binding?.MapMusicStatus ?? "inactive";
@@ -72,7 +78,8 @@ public partial class Main
         {
             if (entry.SourceMonth is int month) SetMeta("map_music_source_month", month);
             else RemoveMeta("map_music_source_month");
-            SetMeta("map_music_source_slot", entry.Selection.SourceSlot);
+            if (entry.Selection is { } selection) SetMeta("map_music_source_slot", selection.SourceSlot);
+            else RemoveMeta("map_music_source_slot");
             SetMeta("map_music_index", entry.Commit.MusicIndex);
             SetMeta("map_music_cue_hash", entry.Commit.CueHash?.ToString("X8") ?? "");
         }

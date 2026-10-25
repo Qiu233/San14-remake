@@ -15,7 +15,7 @@ public partial class Main
 
     private void OpenTitleEditMenu()
     {
-        if (_failed || _shuttingDown || _titleMenu is not { } title || HasTitleEditMenu ||
+        if (_failed || _shuttingDown || _titleMenu is not { } title || HasTitleEditMenu || HasCollectionMenu ||
             HasEnvironmentSettings || HasCampaignSavePage || _titleConfirmation is not null || _repository is null) return;
         var view = new TitleEditMenuView(); _titleEditMenu = view; AddChild(view); title.Hide();
         try

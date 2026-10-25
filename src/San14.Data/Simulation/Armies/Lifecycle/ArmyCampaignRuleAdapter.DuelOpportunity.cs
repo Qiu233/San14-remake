@@ -66,6 +66,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //Every real manager return reaches the scheduler's fresh Busy read.
         //Active/history are not extra gates inside the due manager.
+        if (result.DuelAftermathContinuation is not null) return result;
         if (result.CampaignDuelService?.Busy is not false)
             throw DuelMissing(result.CampaignDuelService?.Registered is null ?
                 "post_manager_busy" : "aftermath_379790_campaign_consumer");

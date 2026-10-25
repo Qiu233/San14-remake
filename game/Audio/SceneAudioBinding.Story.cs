@@ -14,8 +14,8 @@ internal sealed partial class SceneAudioBinding
         var entry = preferences.SelectSourceSlot(locale, command.Id);
         //404570 retains a currently playing identical selection. A stopped or
         //failed channel still needs a new request, even when its index matches.
-        if (MapMusicChannel is { Status: "playing", MusicSelection: { } playing } &&
-            playing.EffectiveMusicIndex == entry.Selection.EffectiveMusicIndex) return;
+        if (MapMusicChannel is { Status: "playing", MusicCommit: { } playing } &&
+            playing.MusicIndex == entry.Commit.MusicIndex) return;
         _mapEntry?.Cancel(); _mapEntry?.Dispose();
         var lifetime = new CancellationTokenSource(); _mapEntry = lifetime;
         MapMusicSelection = entry; MapMusicError = null; MusicChanged?.Invoke();

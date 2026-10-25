@@ -310,6 +310,18 @@ public partial class SceneAudioSession : Node
         _currentMusicChannel = null;
     }
 
+    internal void FadeOutMapMusic(int milliseconds)
+    {
+        RequireEngineThread();
+        if (_service is null) throw new InvalidOperationException("Application audio host is not configured.");
+        if (_currentMusicChannel is { } channel && _channels.TryGetValue(channel, out var state) &&
+            _service.FadeOutMapMusic(channel, milliseconds))
+        {
+            state.Snapshot = state.Snapshot with { Status = "releasing" };
+            ChannelChanged?.Invoke(state.Snapshot);
+        }
+    }
+
     internal void ResetAudioSpecialMode()
     {
         RequireEngineThread();
@@ -340,7 +352,7 @@ public partial class SceneAudioSession : Node
             throw new OperationCanceledException("Map music selection belongs to a retired scene.", token);
         string? outgoing = _currentMusicChannel;
         string target = outgoing == channel ? channel + ":1" : channel;
-        var result = await ChangeSelectionAsync(target, selected.Request with { LoopPolicy = AudioLoopPolicy.RequireSource },
+        var result = await ChangeSelectionAsync(target, selected.Request with { LoopPolicy = AudioLoopPolicy.SourceIfPresent },
             null, true, 0, _service!.OriginalOutputs.MusicBus, token, AudioVolumeGroup.Music, entry,
             transition: new(outgoing, useStoredPosition, fadeInMilliseconds, fadeOutMilliseconds));
         return result;

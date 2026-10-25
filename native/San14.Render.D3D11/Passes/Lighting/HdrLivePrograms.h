@@ -154,6 +154,9 @@ public:
                 pass.fixedPixelViews[texture.slot]=resource;
             }
             if(!recipe.cluster.empty()) {
+                // Prepared rows contain only RDEF-used lanes. Disabled
+                // Scaling leaves its unread storage untouched rather than
+                // manufacturing a value for the optional current setter.
                 if(!cluster||!cluster->computeSucceeded)
                     throw std::runtime_error("Selected HDR cluster constants have no current compute owner");
                 for(const auto& write:recipe.cluster) {

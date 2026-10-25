@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using San14.Core;
+
 namespace San14.Data;
 
 /// <summary>One actually reached Base-primary activation's B8/C8 aggregation.
@@ -7,6 +10,20 @@ internal sealed class AutomaticBaseTacticDamageLedger
 {
     private readonly Dictionary<BaseReference, int> requestedByReceiver = [];
     private readonly Dictionary<ArmyUnitReference, int> requestedByArmy = [];
+
+    internal ImmutableArray<AutomaticTacticDamageContribution> Capture() =>
+        [.. requestedByArmy.Select(row => new AutomaticTacticDamageContribution(27, row.Key.PhysicalSlot!.Value, row.Value)),
+         .. requestedByReceiver.Select(row => new AutomaticTacticDamageContribution(
+             row.Key.Kind == BaseKind.City ? 5 : 6, row.Key.PhysicalSlot!.Value, row.Value))];
+
+    internal static AutomaticBaseTacticDamageLedger Restore(ImmutableArray<AutomaticTacticDamageContribution> rows)
+    {
+        var result = new AutomaticBaseTacticDamageLedger();
+        foreach (var row in rows)
+            if (row.Kind == 27) result.AccumulateArmy(new(row.PhysicalSlot), row.RequestedLoss);
+            else result.Accumulate(new(row.Kind == 5 ? BaseKind.City : BaseKind.Gate, row.PhysicalSlot), row.RequestedLoss);
+        return result;
+    }
 
     internal void AccumulateArmy(ArmyUnitReference receiver, int requestedLoss)
     {

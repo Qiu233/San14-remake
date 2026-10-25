@@ -49,7 +49,9 @@ internal static class MapMusicClips
                 // The selection count excludes codec tail padding but still
                 // includes encoder delay. Only compare normalized coordinates;
                 // the decoder already removed delay from the PCM and loop.
+                bool hasLoop = header.LoopStartSample >= 0;
                 if ((long)header.DeclaredSamples - reference.Sample.EncoderDelaySamples != ktac.PlayableSamples ||
+                    hasLoop != ktac.HasLoop || hasLoop &&
                     (long)header.LoopStartSample - reference.Sample.EncoderDelaySamples != ktac.LoopStartSample)
                     throw new InvalidDataException("Selected music timing differs between selection and stream banks.");
                 return (Reference: reference, Stream: source,

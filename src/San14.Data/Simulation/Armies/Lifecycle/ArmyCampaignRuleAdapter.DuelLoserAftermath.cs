@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -37,7 +38,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (admitted.Kind == CombatSettlementAdmissionKind.Full)
                 {
                     return SettleImmediateDefeat(state, request,
-                        forcedCapture: request.Cause == UnitDefeatCause.DuelCapture);
+                        forcedCapture: request.Cause == UnitDefeatCause.DuelCapture,
+                        resumePoint: DuelAftermathResumePoint.AfterDefeat);
                 }
                 current.BindOwnedDestructionQueue(admitted.Queue, state);
                 return state with { PendingCombatSettlements = admitted.Queue };
@@ -74,18 +76,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         var applied = ArmyMoraleZeroRoutingCurrent.ApplyImmediateFromHex(state, current, loserArmy,
             unchecked(-loss), source, TrapMobility(), Immediate);
         state = applied.State ?? throw DuelMissing("aftermath_loser_morale:" + applied.UnresolvedOwner);
-        //Read the same current Army after2709A0's actual immediate callback.
-        //A retired receiver is not replaced with its saved pre-call image.
-        if (DuelReportMorale(current, loserArmy) > 0 && DuelAftermathHealth(current, loser) < 3 &&
-            DuelAftermathReadiness(state, loserId) <
-                DuelCampaignAftermathParameters.Read(state, "loser-injury-readiness-threshold"))
-            state = ApplyDuelInjury(state, current, loser, winner, moment, injuries);
-        return state;
+        if (state.ArmyDefeatContinuation is not null) return state;
+        return CompleteDuelLoserMoraleTail(state, current, winnerId, loserId, loserArmy, moment, injuries);
 
         GameState Immediate(GameState value, UnitDefeatRequest request)
-            => SettleImmediateDefeat(value, request, forcedCapture: false);
+            => SettleImmediateDefeat(value, request, forcedCapture: false,
+                resumePoint: DuelAftermathResumePoint.AfterMoraleRouting);
 
-        GameState SettleImmediateDefeat(GameState value, UnitDefeatRequest request, bool forcedCapture)
+        GameState SettleImmediateDefeat(GameState value, UnitDefeatRequest request, bool forcedCapture,
+            DuelAftermathResumePoint resumePoint)
         {
             var pool = current.ReadOwnedCurrentListPool() ?? throw DuelMissing("aftermath_immediate_pool");
             if (current.ReadOwnedPersonCommandManager() is null)
@@ -98,14 +97,23 @@ public sealed partial class ArmyCampaignRuleAdapter
             var changed = new HashSet<int>();
             var stage = new OwnedArmyDestructionStage(this);
             var sampler = FSampler(value, moment);
+            bool allowPause = value.NativePeriodContinuation is not null;
             value = forcedCapture
                 ? stage.ApplyForcedDuelCaptureCurrent(value, current, pool, request, sampler,
-                    moment.PreWriterThirdDate, effects, Refresh, person => changed.Add(person)).State
+                    moment.PreWriterThirdDate, effects, Refresh, person => changed.Add(person),
+                    allowPlayerRulerPause: allowPause).State
                 : stage.ApplyBattleDefeatCurrent(value, current, pool, request, sampler,
-                    moment.PreWriterThirdDate, effects, Refresh, person => changed.Add(person));
+                    moment.PreWriterThirdDate, effects, Refresh, person => changed.Add(person),
+                    allowPlayerRulerPause: allowPause);
             void Refresh(ArmyUnitReference army) => traitRefreshes.Add(new(null, null)
             { ArmyTraitViewRefresh = new(ArmyDestructionQueue.ResolveUnitId(value, army.PhysicalSlot)
                 ?? throw DuelMissing("aftermath_immediate_trait_Army")) });
+            if (value.ArmyDefeatContinuation is not null)
+            {
+                long sequence = value.CampaignDuelService?.Registered?.Sequence
+                    ?? throw DuelMissing("aftermath_immediate_registered_sequence");
+                value = value with { DuelAftermathContinuation = new(sequence, resumePoint, injuries.ToImmutableArray()) };
+            }
             if (changed.Count == 0) return value;
             var people = new Dictionary<int, OfficerState>(value.Officers);
             foreach (int physical in changed)
@@ -119,5 +127,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             return value with { Officers = people };
         }
+    }
+
+    //Resume2709A0 after its actual immediate destruction, using the original
+    //Army pointer. The loser's E4 may now name a captor, Base or free Area;
+    //looking up that new position would change which morale byte is tested.
+    internal GameState CompleteDuelLoserMoraleTail(GameState state, SourceWorldContext current,
+        int winnerId, int loserId, ArmyUnitReference originalLoserArmy,
+        NativeArmyProgressStageMoment moment, List<CampaignDuelInjuryNotice> injuries)
+    {
+        int winner = DuelAftermathPerson(current, winnerId), loser = DuelAftermathPerson(current, loserId);
+        if (DuelReportMorale(current, originalLoserArmy) > 0 && DuelAftermathHealth(current, loser) < 3 &&
+            DuelAftermathReadiness(state, loserId) <
+                DuelCampaignAftermathParameters.Read(state, "loser-injury-readiness-threshold"))
+            state = ApplyDuelInjury(state, current, loser, winner, moment, injuries);
+        return state;
     }
 }

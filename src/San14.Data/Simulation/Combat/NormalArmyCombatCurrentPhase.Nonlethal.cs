@@ -5,7 +5,11 @@ namespace San14.Data;
 public enum NormalArmyNonlethalPairOutcome { CurrentInputsUnresolved, NativeSkip, Committed, DestructionRequired, AwaitingPlayerDecision }
 public sealed record NormalArmyNonlethalPairResult(NormalArmyNonlethalPairOutcome Outcome,
     GameState State, NormalArmyPairApplicationPrefixResult? Prefix,
-    NormalArmyPairAftermathResult? Aftermath, string? MissingOwner);
+    NormalArmyPairAftermathResult? Aftermath, string? MissingOwner)
+{
+    internal AutomaticTacticExecutionContinuation? PendingAutomaticExecution { get; init; }
+    internal ushort? PendingOrdinaryFrame20 { get; init; }
+}
 public sealed record NormalArmyNonlethalPhaseResult(bool Complete, GameState State,
     NormalArmyNonlethalPairResult[] OrderedPairs, int? BlockedPairIndex, string? MissingOwner);
 
@@ -20,6 +24,16 @@ public sealed partial class NormalArmyCombatCurrentPhase
     {
         ArgumentNullException.ThrowIfNull(forceDefinitions);
         var prefix = TryApplyPairApplicationPrefix(current, pairIndex, forceDefinitions);
+        return CompleteNonlethalPrefix(current, pairIndex, prefix);
+    }
+
+    private NormalArmyNonlethalPairResult CompleteNonlethalPrefix(GameState current, int pairIndex,
+        NormalArmyPairApplicationPrefixResult prefix)
+    {
+        if (prefix.Outcome == NormalArmyPairApplicationPrefixOutcome.AwaitingPlayerDecision)
+            return new(NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision, prefix.State, prefix, null, null)
+            { PendingAutomaticExecution = prefix.PendingAutomaticExecution,
+                PendingOrdinaryFrame20 = prefix.Automatic?.Selection?.Stage5.Damage.NativeFrameWord20 };
         if (prefix.Outcome == NormalArmyPairApplicationPrefixOutcome.CurrentInputsUnresolved)
             return Blocked(NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved, prefix.MissingPhase);
         if (prefix.Outcome == NormalArmyPairApplicationPrefixOutcome.NativePairSkipped)
@@ -60,7 +74,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
         for (int index = 0; index < plan.OrderedPairs.Length; index++)
         {
             var next = TryCompleteNonlethalPair(working, index, forceDefinitions);
-            if (next.Outcome is NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved or NormalArmyNonlethalPairOutcome.DestructionRequired)
+            if (next.Outcome is NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved or NormalArmyNonlethalPairOutcome.DestructionRequired
+                or NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision)
                 return new(false, current, [], index, next.MissingOwner);
             working = next.State; pairs.Add(next);
         }

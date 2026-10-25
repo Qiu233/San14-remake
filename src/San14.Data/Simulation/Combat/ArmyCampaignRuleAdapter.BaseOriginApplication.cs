@@ -7,9 +7,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>One reached Base-origin/Army-target pair in the mixed order.
     /// All writes borrow the same private operation; Unknown rejects that
     /// operation, including reached numeric and presentation prefixes.</summary>
-    private GameState CompleteBorrowedBaseArmyPair(GameState state, SourceWorldContext current,
+    private BorrowedMixedPairApplication CompleteBorrowedBaseArmyPair(GameState state, SourceWorldContext current,
         NormalCombatMixedPair pair, byte? baseDivisor, TacticRemakeCurrentBattleQueries descriptorQueries,
-        NativeArmyCombatCycleSampler sampler, List<CampaignEffectRequest> effects)
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        long operationRevision, List<CampaignEffectRequest> effects)
     {
         var origin = (pair.Actor.Kind == 5
             ? current.ReadCityTableReference(pair.Actor.PhysicalSlot <= 51 ? pair.Actor.PhysicalSlot : 0)
@@ -25,31 +26,31 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (OwnedArmyDestructionCurrent.ReadBaseExcluded2334B0(state, current, objectIndex) is not bool baseExcluded)
                 throw Missing("Base_manager");
-            if (baseExcluded) return state;
+            if (baseExcluded) return new(state);
         }
         var sourceObject = current.ReadObjectTableReference(objectIndex) ?? throw Missing("Base_Object_lookup");
         if (current.ReadObjectNativeValidity(sourceObject) is not bool objectValid) throw Missing("Base_Object_validity");
-        if (!objectValid) return state;
+        if (!objectValid) return new(state);
         var pendingObjects = current.ReadOwnedCurrentListPool()?.PendingObjectRetirements ?? throw Missing("pending_F0");
         var objectDirectory = current.CurrentMapObjectDirectory ?? throw Missing("Object_directory");
         int objectPhysical = sourceObject.PhysicalSlot ?? throw Missing("Object_receiver");
         var objectReceiver = objectDirectory.ReceiverAtPhysical(objectPhysical);
         foreach (var pending in pendingObjects)
-            if (pending == objectReceiver) return state;
+            if (pending == objectReceiver) return new(state);
         int sourceForce = current.ReadObjectForceSlot13(sourceObject) ?? throw Missing("Base_Object_Force13");
         var targetReference = new ArmyUnitReference(pair.Target.PhysicalSlot);
         if (current.ReadArmyUnitNativeValidity(targetReference) is not bool armyValid) throw Missing("Army_validity");
-        if (!armyValid) return state;
+        if (!armyValid) return new(state);
         if (pair.Target.UnitId is not int targetId || !state.Units.TryGetValue(targetId, out var target) ||
             target.NativeArmyOrigin?.NativeSlotIndex != pair.Target.PhysicalSlot)
             throw Missing("Army_identity");
         if (OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, pair.Target.PhysicalSlot) is not bool excluded)
             throw Missing("Army_manager");
-        if (excluded) return state;
+        if (excluded) return new(state);
         int targetForce = current.ReadArmyUnitRawForceSlot(targetReference);
         if (ArmyLogisticsPreparation.ReadNativeRelationGate(state, sourceForce, targetForce) is not bool hostile)
             throw Missing("relation");
-        if (!hostile) return state;
+        if (!hostile) return new(state);
         //The real absent570850 service bypasses497F20. A challenge-present
         //pair needs that service's own fields; tutorial flags are no substitute.
         if (current.ArmyReturnTransferMode is not { Present: false })
@@ -99,9 +100,26 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReadLatest, current);
         if (application.Outcome == NormalArmyApplicationPrefixOutcome.CurrentInputsUnresolved)
             throw Missing(application.MissingPhase ?? "application");
-        if (application.Outcome == NormalArmyApplicationPrefixOutcome.ZeroTroopsCleanupRequired)
-            throw Missing("deferred_destruction_with_Base_winner");
-        var working = application.State;
+        var working = application.PendingCleanupState ?? application.State;
+        if (application.Outcome == NormalArmyApplicationPrefixOutcome.ZeroTroopsCleanupRequired &&
+            application.Receipt is { Killed: true })
+        {
+            int location = current.ReadBaseObjectLink(origin) ?? throw Missing("winner_Base4E");
+            var winner = ArmyDestructionQueue.ResolveBase(current, origin) ?? throw Missing("winner_Base_identity");
+            var admitted = OwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(working, current,
+                pair.Target.PhysicalSlot, null, location);
+            if (admitted.RequiresImmediateSettlement)
+            {
+                working = ApplyNormalCombatImmediateDefeatCurrent(working, current,
+                    new(targetId, null, winner), sampler.Read(working) ?? throw Missing("immediate_sampler"),
+                    operationDate, operationRevision, effects);
+                if (working.ArmyDefeatContinuation is not null)
+                    return new(working, request.FrameWord20After);
+            }
+            else if (admitted.IsPending && admitted.State is { } queued) working = queued;
+            else throw Missing(admitted.UnresolvedOwner ?? "Base_winner1745B0");
+            OwnedArmyDestructionCurrent.BindOwnedCurrentContext(working, current);
+        }
         //178EC0 rewards and updates Force results only for a real Army
         //source. Target personality remains independent of source kind.
         if (application.Outcome == NormalArmyApplicationPrefixOutcome.AwaitingForceAndAftermath)
@@ -111,15 +129,29 @@ public sealed partial class ArmyCampaignRuleAdapter
                 throw Missing("target_personality");
             working = personality.State;
         }
+        return new(CompleteBorrowedBaseArmyPairTail(working, current, pair,
+            request.FrameWord20After, sampler, effects));
+
+        InvalidDataException Missing(string owner) => new($"ordinary_army_combat_cut.Base_origin.{owner}.source{pair.Actor.Kind}:{pair.Actor.PhysicalSlot}.target27:{pair.Target.PhysicalSlot}");
+    }
+
+    //Resume only174A30's report/view work and174EC0. Numeric damage,
+    //personality, queue admission and any actual259360 prefix have run once.
+    internal GameState CompleteBorrowedBaseArmyPairTail(GameState working, SourceWorldContext current,
+        NormalCombatMixedPair pair, ushort word20, NativeArmyCombatCycleSampler sampler,
+        List<CampaignEffectRequest> effects)
+    {
+        int targetId = pair.Target.UnitId ?? throw Missing("Army_identity");
         working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [],
             new("normal_base_damage", working.NativeClock!.UpdateOrdinal, targetId,
-                pair.Actor.ForceSlot, pair.Actor.PhysicalSlot, damage.Damage.NativeFrameWord20)] };
+                pair.Actor.ForceSlot, pair.Actor.PhysicalSlot, word20)] };
         //The actual view chooses whether presentation148 exists. Keep this
         //as pending work; no playback or target-view receipt is manufactured.
         effects.Add(new(null, null) { NormalCombatTargetReaction = new(targetId, 1) });
         _baseCapacityInputs.BindCurrent(working, current);
+        OwnedArmyDestructionCurrent.BindOwnedCurrentContext(working, current);
         var aftermath = NormalArmyPairAftermath.TryApplyMixed(working, pair.Actor, pair.Target,
-            current, ReadLatest(working), _normalAftermathInputs);
+            current, Context(current, sampler), _normalAftermathInputs);
         if (aftermath.Outcome == NormalArmyPairAftermathOutcome.CurrentInputsUnresolved)
             throw Missing(aftermath.MissingOwner ?? "aftermath");
         return aftermath.State;

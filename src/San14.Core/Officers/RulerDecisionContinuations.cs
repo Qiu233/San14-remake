@@ -83,10 +83,12 @@ internal static class RulerDecisionContinuationValidation
     internal static void Validate(GameState state)
     {
         NormalCombatImmediateContinuationValidation.Validate(state);
+        DuelAftermathContinuationValidation.Validate(state);
         if (state.ArmyDefeatContinuation is { } defeat)
         {
             bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } &&
-                state.NormalCombatImmediateContinuation is not null;
+                state.NormalCombatImmediateContinuation is not null ||
+                state.NativePeriodContinuation?.Cursor is { StageIndex: 5 } && state.DuelAftermathContinuation is not null;
             if ((immediate ? defeat.SettlementIndex != -1 : defeat.SettlementIndex < 0) ||
                 defeat.Defeat is null || defeat.Defeat.VictimUnitId <= 0 ||
                 defeat.Defeat.WinnerUnitId is <= 0 || !Enum.IsDefined(defeat.Defeat.Cause) ||
