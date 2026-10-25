@@ -79,7 +79,7 @@ public static class GateCaptureTerritorySource
 
     public static GateCaptureHexTransfer ApplyTerritoryAfterResources(
         GameState state, SourceWorldContext current, BaseReference gate,
-        int newForce, int oldDistrict, int newDistrict)
+        int newForce, int oldDistrict, int newDistrict, bool eagerAdvice = true)
     {
         CheckGate(current, gate); CheckForce(newForce);
         //Capture's ordinary source contract has both presentation flags1;
@@ -92,7 +92,7 @@ public static class GateCaptureTerritorySource
         var temporary = current.CreateNearbyTemporary(); //2DFA7B, before advice query.
         try
         {
-            ReadEagerAdvice2B44E0(state, current);
+            if (eagerAdvice) ReadEagerAdvice2B44E0(state, current);
             for (int distance = 0; distance <= radius; distance++)
             {
                 current.ClearNearbyTemporary(temporary, false);

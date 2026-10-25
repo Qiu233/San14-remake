@@ -21,6 +21,23 @@ public interface IPostRegistrationLookupState
 /// twelve object registries and before31ECD0. No implicit map clear.</summary>
 public static class PostRegistrationLookups
 {
+    //The main manager reserves these200 receivers independently of whether
+    //their embedded ID/status currently describes a live generated Person.
+    internal static int? HirePersonPhysicalSlot(int officerId) =>
+        officerId is >= 4201 and <= 4400 ? 1651 + officerId - 4201 : null;
+
+    internal static void BindHirePersonLookups(IPostRegistrationLookupState state)
+    {
+        for (int index = 0; index < 200; index++) BindHirePersonLookup(state, index);
+    }
+
+    private static TransferPersonReference BindHirePersonLookup(IPostRegistrationLookupState state, int index)
+    {
+        TransferPersonReference source = Person(state.ReadTransferPersonTableReference(1651 + index));
+        state.WritePersonLookupReference(4201 + index, source);
+        return source;
+    }
+
     public static void RebuildPersonIds(IPostRegistrationLookupState state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -44,8 +61,7 @@ public static class PostRegistrationLookups
         for(int index=0;index<200;index++)
         {
             int destination=4201+index;
-            TransferPersonReference source=Person(state.ReadTransferPersonTableReference(1651+index));
-            state.WritePersonLookupReference(destination,source);
+            TransferPersonReference source=BindHirePersonLookup(state,index);
             if(!source.PhysicalSlot.HasValue)continue;
             if(!Known(state.ReadPersonNativeValidity(source.PhysicalSlot.Value),"person validity"))continue;
             TransferPersonReference current=Person(state.ReadPersonLookupReference(destination));

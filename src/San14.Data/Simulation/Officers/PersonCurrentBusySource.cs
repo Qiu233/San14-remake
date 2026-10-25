@@ -20,6 +20,8 @@ internal static class PersonCurrentBusySource
             if (commands?.Returns.ContainsKey(id) == true) return false; // v98=15.
             if (commands?.Talents?.ContainsKey(id) == true) return true; // Search3 or Employ2.
             if (commands?.Disappearances?.ContainsKey(id) == true) return true; // v98=16.
+            if (commands?.Diplomacies?.ContainsKey(id) == true || commands?.Strategies?.ContainsKey(id) == true ||
+                commands?.Independences?.ContainsKey(id) == true) return true; // Actual command kinds other than Return15.
         }
         throw missing("associated_virtual98");
 

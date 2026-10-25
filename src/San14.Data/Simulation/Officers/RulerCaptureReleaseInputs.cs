@@ -11,6 +11,9 @@ public sealed class RulerCaptureReleaseInputs
     public const string VersionKey = "ce-ruler-capture-release-current:version";
     public static string PersonWordKey(int physical, int tcOffset) => $"ce-ruler-capture-release-current:person:{physical}:{tcOffset:X}";
     private static readonly int[] WordOffsets = [0x16E, 0x176, 0x178, 0x17A];
+    //6B4E20 consumes these independent current preferences for research.
+    //They share the same2391C0 serialized signed-word run, not abilities.
+    private static readonly int[] CapturedWordOffsets = [0x16E, 0x176, 0x178, 0x17A, 0x16A, 0x17C, 0x17E, 0x180];
     private readonly LoadedScenario source;
     private readonly string language, ruleVersion;
     private readonly short[][] words;
@@ -33,8 +36,8 @@ public sealed class RulerCaptureReleaseInputs
             ReadOnlySpan<byte> row = document.DecodedPayload.AsSpan(table.RecordOffset + p * table.RecordStride, table.RecordStride);
             if (BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(150 + delta, 2)) != source.Snapshot.Characters[p].CharacterId)
                 throw new InvalidDataException("Ruler release Person serializer identity differs.");
-            words[p] = new short[4];
-            for (int i = 0; i < 4; i++) words[p][i] = BinaryPrimitives.ReadInt16LittleEndian(row.Slice(276 + delta + WordOffsets[i] - 0x16A, 2));
+            words[p] = new short[CapturedWordOffsets.Length];
+            for (int i = 0; i < CapturedWordOffsets.Length; i++) words[p][i] = BinaryPrimitives.ReadInt16LittleEndian(row.Slice(276 + delta + CapturedWordOffsets[i] - 0x16A, 2));
         }
         return new(source, language, ruleVersion, words);
     }
@@ -48,7 +51,7 @@ public sealed class RulerCaptureReleaseInputs
             throw new InvalidDataException("Ruler capture inputs require their unused ordinary fresh owner.");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values) { [VersionKey] = 1 };
         for (int p = 0; p < 1851; p++)
-            for (int i = 0; i < 4; i++) values.Add(PersonWordKey(p, WordOffsets[i]), words[p][i]);
+            for (int i = 0; i < CapturedWordOffsets.Length; i++) values.Add(PersonWordKey(p, CapturedWordOffsets[i]), words[p][i]);
         return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
     }
 

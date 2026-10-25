@@ -33,7 +33,7 @@ public sealed partial class GameSimulation
         ICommandPlanner? planner = null)
     {
         RequireNoProgress();
-        if (State.Phase != TurnPhase.Strategy || State.NativePlayableTerminal is not null)
+        if (State.Phase != TurnPhase.Strategy || State.NativePlayableTerminal is not null || State.CampaignTurnStop is not null)
             throw new InvalidOperationException("Native campaign progress requires an active strategy world.");
         request.ValidateNormalPeriod(State);
         var planning = new CommandPlanningContext(GameStateCopy.Copy(State));

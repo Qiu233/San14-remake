@@ -30,6 +30,7 @@ public partial class AudioPlaybackService : Node
         ArgumentNullException.ThrowIfNull(volumes); volumes.Validate();
         Volumes = volumes;
         foreach (var voice in _players.Values) ApplyVolume(voice);
+        ApplySpatialVolumes();
     }
 
     private void ApplyVolume(Voice voice)
@@ -71,6 +72,7 @@ public partial class AudioPlaybackService : Node
     {
         while (_engineActions.TryDequeue(out Action? action)) action();
         UpdateEffects();
+        UpdateSpatialVoices();
         UpdateMapMusic();
     }
 
@@ -225,6 +227,7 @@ public partial class AudioPlaybackService : Node
     public override void _ExitTree()
     {
         _lifetime.Cancel();
+        StopAllSpatial();
         Array.Clear(_effects);
         foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();

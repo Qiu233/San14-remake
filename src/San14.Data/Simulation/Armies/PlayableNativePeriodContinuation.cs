@@ -3,20 +3,44 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter campaign)
-    : IPlayableNativePeriodContinuationRules, IPlayableNativeArmyPeriodRules
+    : IPlayableNativePeriodContinuationRules, IPlayableNativeArmyPeriodRules, IPlayableNativeNormalTurnRules
 {
     private IPlayableNativeArmyProgressStageRules? completedArmyStages;
     private NativeArmyFoodTurnResult? completedFoodTurn;
+    private bool completedNormalTurn;
     public bool UsesSourceFacilityWork => true;
 
     public GameState CompleteArmyPeriod(GameState state, IPlayableNativeSubdayRules waitingRules)
     {
         completedArmyStages = null;
         completedFoodTurn = null;
+        completedNormalTurn = false;
         var completed = campaign.CompleteNativeArmyPeriod(state, waitingRules);
         if (completed.State.NativePeriodContinuation?.Cursor is null)
             completedArmyStages = completed.Stages;
         return completed.State;
+    }
+
+    public GameState CompleteNormalTurn(GameState completed)
+    {
+        if (completedArmyStages is not { } stages || completed.NativePeriodContinuation?.Cursor is not null)
+            throw new InvalidDataException("Native normal Turn requires completed Army Progress.");
+        if (completedNormalTurn)
+            throw new InvalidDataException("Native normal Turn has already completed for this Army period.");
+        //Progress can itself reach the saved native terminal at an earlier
+        //cycle. Its real stop does not execute the later normal Turn prefix.
+        var result = completed.NativePlayableTerminal is not null ? completed
+            : campaign.CompleteNormalTurnAfterArmyPeriodCurrent(completed);
+        if (result.CampaignTurnStop is not null || result.NativePlayableTerminal is not null)
+        {
+            //The real stop keeps its reached source fields. It does not
+            //consume food or pretend that the later Turn owners completed.
+            stages.PublishDerivedState(result);
+            completedArmyStages = null;
+            completedFoodTurn = null;
+        }
+        completedNormalTurn = true;
+        return result;
     }
 
     public GameState CompleteArmyFoodTurn(GameState state)

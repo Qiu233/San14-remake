@@ -57,6 +57,8 @@ public sealed class LocalizedUiSpriteSource
             "000_cmn_txt_decision_konin" or "000_cmn_txt_decision_gikyoudai"))
             throw new ArgumentException("Not an audited common round-button caption.", nameof(baseName));
         string language = Language(locale);
+        if (baseName is "000_cmn_txt_decision_konin" or "000_cmn_txt_decision_gikyoudai")
+            return LoadTexturePackSprite($"texture_pk_lang_{language}", $"{baseName}_{language}");
         return LoadTexturePackSprite($"texture_lang_{language}",$"{language}_{baseName}");
     }
 

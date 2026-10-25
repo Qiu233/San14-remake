@@ -45,13 +45,14 @@ public sealed class NarrationVoiceRequests
     {
         //These imported families follow the ordinary405E80 path. Special
         //voice10/12/32 must not borrow these five-slot definitions.
-        if (voiceId is not (34 or 35 or 36 or 40 or 42)) throw Missing("voice_family");
+        if (voiceId is not (33 or 34 or 35 or 36 or 40 or 42 or 43)) throw Missing("voice_family");
         byte voiceType = person.VoiceType ?? throw Missing("current_Person_voice_type");
         ReadOnlySpan<uint> slots = voiceType < 26
             ? voiceId switch
             {
-                34 or 35 or 36 => NarrationPersonnelVoiceDefinitions.Slots(settings.Language, voiceType, voiceId),
+                33 or 34 or 35 or 36 => NarrationPersonnelVoiceDefinitions.Slots(settings.Language, voiceType, voiceId),
                 40 => NarrationRecruitVoiceDefinitions.Slots(settings.Language, voiceType),
+                43 => NarrationStrategicVoiceDefinitions.Slots(settings.Language, voiceType),
                 _ => NarrationMerchantVoiceDefinitions.Slots(settings.Language, voiceType)
             }
             : [];

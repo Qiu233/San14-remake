@@ -4,12 +4,14 @@ namespace San14.Data;
 
 public sealed partial class ForceUnregisterSource
 {
-    private static void RequireEmptyPeopleAndArmies(GameState state, SourceWorldContext current, int force)
+    private static void RequireEmptyPeopleAndArmies(GameState state, SourceWorldContext current, int force,
+        bool absorption = false)
     {
         foreach (int? at in current.ReadRegisteredPersonPhysicalSlots() ?? throw Missing("manager100"))
         {
             int person = at ?? throw Missing("Person_payload");
-            if (Need(current.ReadPersonOldForceSlot(person), "Person_current_Force") == force)
+            if (Need(current.ReadPersonOldForceSlot(person), "Person_current_Force") == force &&
+                (!absorption || HasServingOrCaptiveStatus(current, person)))
                 throw Missing("branch.nonempty_Force_Person_after_265250");
         }
         foreach (int army in Chain(current, RegistryKind.Army))
@@ -20,6 +22,30 @@ public sealed partial class ForceUnregisterSource
             if (Need(current.ReadPersonOldForceSlot(person), "Army_current_Force") == force &&
                 !Known(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, army), "Army233560"))
                 throw Missing("branch.nonempty_Force_Army_after_265250");
+        }
+    }
+
+    //2349D0/234850 filter4 admits every status. With the real null captor,
+    //2EACB0 has no item writer; only status1..4 and6 have subsequent writers.
+    //Other retained rawE0 values lose their Force through226DC0's District
+    //reset, rather than through a fabricated Person transfer.
+    private static bool HasServingOrCaptiveStatus(SourceWorldContext current, int person)
+        => Need(current.ReadPersonStatus(person), "absorption_PersonE6") is >= 1 and <= 4 or 6;
+
+    private static void MirrorAbsorptionRelations(GameState state, SourceWorldContext current, int victim)
+    {
+        var owner = state.NativeForceUnregisterCurrent!;
+        for (int other = 0; other < 52; other++)
+        {
+            var fields = state.NativeArmySimulation!.Forces[other];
+            byte relation = other == 0 ? owner.PlaceholderRelations13[victim]
+                : fields.NormalAftermath!.Relations13![victim];
+            byte alliance = other == 0 ? owner.PlaceholderRelationsEA[victim] : fields.RelationsEA![victim];
+            current.SetRulerReleaseRelation13(other, victim, relation);
+            current.SetForceRelationByteEA(other, victim, alliance);
+            current.SetRulerReleaseRelation13(victim, other,
+                state.NativeArmySimulation.Forces[victim].NormalAftermath!.Relations13![other]);
+            current.SetForceRelationByteEA(victim, other, state.NativeArmySimulation.Forces[victim].RelationsEA![other]);
         }
     }
 
@@ -125,7 +151,7 @@ public sealed partial class ForceUnregisterSource
     {
         var image = new byte?[0x20E];
         Zero(0x10, 3); Zero(0x47, 2); Zero(0x4A, 2); Zero(0x52, 2); Zero(0x54, 0x96);
-        Zero(0x120, 0x3E); Zero(0x160, 8); Zero(0x168, 1); Zero(0x16A, 4);
+        Zero(0x11E, 2); Zero(0x120, 0x3E); Zero(0x160, 8); Zero(0x168, 1); Zero(0x16A, 4);
         Zero(0x170, 8); Zero(0x178, 2); Put(0x15E, 0xB, 2);
         Zero(0x17A, 5); Zero(0x17F, 5); Zero(0x184, 10); Zero(0x18E, 5); Zero(0x193, 2);
         Zero(0x196, 6); Zero(0x19C, 3); Zero(0x1B8, 4); Zero(0x1BC, 8);
@@ -159,7 +185,7 @@ public sealed partial class ForceUnregisterSource
         foreach (int id in forces.Keys.ToArray())
             forces[id] = forces[id] with { RelationsEA = relationEA[id],
                 NormalAftermath = forces[id].NormalAftermath! with { Relations13 = relation13[id] } };
-        forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0,
+        forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0, FactionOfficerId = 0, PopulationTotal = 0,
             NormalAftermath = forces[victim].NormalAftermath! with { Development1BE = 0 } };
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (int field in new[] { 0x10, 0x52, 0x16C }) values[BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, field)] = 0;
@@ -188,7 +214,8 @@ public sealed partial class ForceUnregisterSource
                     System.Collections.Immutable.ImmutableArray.Create<byte>(0, 0, 0, 0, 0, 0)) } : null,
             Forces = new(state.Forces) { [victim] = state.Forces[victim] with
                 { IsActive = false, RankId = 0, KingdomNameIndex = 0, CombatObjective = ForceCombatObjective.Inactive,
-                    PolicyEffects = ForcePolicyEffects.Empty } },
+                    PolicyEffects = ForcePolicyEffects.Empty,
+                    DoctrineResearch = new(System.Collections.Immutable.ImmutableHashSet<int>.Empty) } },
             NativeArmySimulation = native with { Forces = forces, Parameters = native.Parameters with { Int32Values = values } },
             NativeForceUnregisterCurrent = module with { ForceResetImages = resetImages, ForceRankings = rankings,
                 PlaceholderRelations13 = relation13[0], PlaceholderRelationsEA = relationEA[0] } };

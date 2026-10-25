@@ -12,6 +12,8 @@ public static class GameStateCopy
         PendingRetirements = value.PendingRetirements.ToArray(),
         Disappearances = value.Disappearances?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Diplomacies = value.Diplomacies?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Strategies = value.Strategies?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Independences = value.Independences?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Talents = value.Talents?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Returns = value.Returns.ToDictionary(pair => pair.Key, pair => pair.Value with
         {
@@ -32,6 +34,9 @@ public static class GameStateCopy
         // selected template's mutable lists when it creates a world officer.
         PersonnelHire = value.PersonnelHire,
         CampaignCrtRandom = value.CampaignCrtRandom,
+        ArmyMapSpeech = value.ArmyMapSpeech,
+        CampaignTurnStop = value.CampaignTurnStop,
+        ForeignCountryRelations = value.ForeignCountryRelations,
         NormalCombatRefresh = value.NormalCombatRefresh?.Copy(),
         CampaignEffectRequests = value.CampaignEffectRequests?.Copy(),
         ManualTacticIntervention = value.ManualTacticIntervention?.Copy(),

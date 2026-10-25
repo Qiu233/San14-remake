@@ -17,6 +17,13 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState ApplyCaptiveReleaseCurrent(GameState input, SourceWorldContext current,
         int personPhysical, NativeMapSeasonDate? sourceDate, Func<int> day450,
         List<CampaignEffectRequest> sink, TacticSourceSamplerWorld? sourceSampler)
+        => ApplyCaptiveReleaseCurrent(input, current, personPhysical, sourceDate, day450, sink, sourceSampler, true);
+
+    //29FA40 uses actual2E7890 notification0. Holder resolution and all
+    //release/return/freedom writers are shared; only its report gate differs.
+    internal GameState ApplyCaptiveReleaseCurrent(GameState input, SourceWorldContext current,
+        int personPhysical, NativeMapSeasonDate? sourceDate, Func<int> day450,
+        List<CampaignEffectRequest> sink, TacticSourceSamplerWorld? sourceSampler, bool reportRelease)
     {
         InvalidDataException Missing(string field) => new("person-captive-release." + field);
         T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
@@ -72,8 +79,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         else if (Need(current.ReadBaseNativeValidity(holderBase), "holder_Base_validity"))
             holderDistrict = current.ReadBaseDistrictReference(holderBase) ?? throw Missing("holder_Base_virtual80");
-        ApplyCaptiveReleaseReports(current, () => working, value => working = value,
-            personPhysical, holderArmy, holderBase, holderDistrict, day450, sink);
+        if (reportRelease)
+            ApplyCaptiveReleaseReports(current, () => working, value => working = value,
+                personPhysical, holderArmy, holderBase, holderDistrict, day450, sink);
 
         //The original force is reread after both actual scratch messages and
         //history.22EA10 reads the ruler's E2 without a ruler validity gate.

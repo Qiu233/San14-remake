@@ -42,6 +42,7 @@ public static class SimulationParameterKeys
     }
     public static class ForceRelations
     {
+        public const string SpecialPersonnelStartPeriod = "simulation.force-relations.special-personnel-start-period";
         public static string LevelThreshold(int level) => level is >= 1 and <= 5
             ? $"simulation.force-relations.level-{level}-threshold" : throw new ArgumentOutOfRangeException(nameof(level));
     }
@@ -475,5 +476,28 @@ public static class SimulationParameterKeys
         public const string NonblockingOccupantPenalty = "simulation.transport-route.nonblocking-occupant-penalty";
         public const string WallPenaltyPercent = "simulation.transport-route.wall-penalty-percent";
     }
+
+    public static class MonthlyMaintenance
+    {
+        public const string CrossingRelationBase = "simulation.monthly-maintenance.crossing-relation-base";
+        public const string CrossingRelationThreshold = "simulation.monthly-maintenance.crossing-relation-threshold";
+        public const string CrossingRelationHighBase = "simulation.monthly-maintenance.crossing-relation-high-base";
+        public const string CrossingRelationAddend = "simulation.monthly-maintenance.crossing-relation-addend";
+        public const string ThirdForceRelationBase = "simulation.monthly-maintenance.third-force-relation-base";
+        public const string ThirdForceRelationAddend = "simulation.monthly-maintenance.third-force-relation-addend";
+        public const string DifferentDoctrineLoyaltyLoss = "simulation.monthly-maintenance.different-doctrine-loyalty-loss";
+        public const string LoyaltyRandomBound = "simulation.monthly-maintenance.loyalty-random-bound";
+        public const string LoyaltyCloseAffinityLoss = "simulation.monthly-maintenance.loyalty-close-affinity-loss";
+        public const string LoyaltyMiddleAffinityLoss = "simulation.monthly-maintenance.loyalty-middle-affinity-loss";
+        public const string LoyaltyOtherAffinityLoss = "simulation.monthly-maintenance.loyalty-other-affinity-loss";
+        public const string RequestHighProgressThreshold = "simulation.monthly-maintenance.request-high-progress-threshold";
+        public const string RequestLowProgressThreshold = "simulation.monthly-maintenance.request-low-progress-threshold";
+        public const string RequestSuccessRelation = "simulation.monthly-maintenance.request-success-relation";
+        public const string RequestPartialRelation = "simulation.monthly-maintenance.request-partial-relation";
+        public const string RequestZeroProgressRelation = "simulation.monthly-maintenance.request-zero-progress-relation";
+        public const string SameDoctrineLoyaltyLoss = "simulation.monthly-maintenance.same-doctrine-loyalty-loss";
+        public const string RequestLowProgressRelation = "simulation.monthly-maintenance.request-low-progress-relation";
+    }
+
 
 }

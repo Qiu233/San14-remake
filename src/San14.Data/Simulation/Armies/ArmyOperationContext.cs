@@ -39,7 +39,10 @@ public sealed partial class ArmyOperationContext
             map.Map.Cells.Select(cell => new MapTileDefinition(cell.Id, cell.AreaSlot, cell.SurfaceCode)));
     }
 
-    internal int? ResolveOfficerSource(int officerId) => _officerSources.ResolveOfficer(officerId);
+    //330155's reserved lookup survives even while the receiver's embedded ID
+    //is0. This resolves storage, not native validity or a domain allocation.
+    internal int? ResolveOfficerSource(int officerId) =>
+        PostRegistrationLookups.HirePersonPhysicalSlot(officerId) ?? _officerSources.ResolveOfficer(officerId);
     internal int? ReadOfficerSourceIdentity(int record) => _officerSources.IdentityAt(record);
 
     //Only the fresh return-field installer consumes the original byte. A
@@ -79,6 +82,10 @@ public sealed partial class ArmyOperationContext
         }
         foreach (OfficerState officer in state.Officers.Values)
         {
+            //Only an actually saved main-world Person supplies its mutable
+            //identity. Empty reserved receivers remain outside Officers.
+            if (PostRegistrationLookups.HirePersonPhysicalSlot(officer.Id) is int reserved)
+                native.SetPersonIdentity(reserved, checked((ushort)officer.Id));
             if (native.ResolveOfficerSource(officer.Id) is not int physical) return null;
             if (officer.LocationId is < 0 or > ushort.MaxValue || officer.DistrictId is < 0 or > 51) return null;
             native.SetPersonFirstLocation(physical, OwnedArmyLifecycleDetachedInputs.ReadPersonFirstLocation(state, officer, physical));
@@ -167,6 +174,7 @@ public sealed partial class ArmyOperationContext
         native.MaterializeFixedPersonalities(_personalities);
         native.TacticParameterDecoderTable = TacticCeParameterDecoderTable.Instance;
         native.ResetPersonIdLookup(); PostRegistrationLookups.RebuildPersonIds(native);
+        PostRegistrationLookups.BindHirePersonLookups(native);
 
         var pool = new WorldIndexContext(native);
         native.SetRegistryDescriptor(RegistryKind.Object, new(pool.AllocateDescriptor().Identity));

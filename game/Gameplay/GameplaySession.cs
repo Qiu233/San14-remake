@@ -44,6 +44,13 @@ public sealed class GameplaySession
     public NormalPeriodOperation? PendingNormalPeriod => _simulation.PendingNormalPeriod;
     public bool TryCompletePersonnelPresentation(GameState expectedOwner,long batchSequence,int requestIndex) =>
         _simulation.TryCompletePersonnelPresentation(expectedOwner,batchSequence,requestIndex);
+    public bool TryStartArmyMapSpeech(GameState expectedOwner, ArmyMapSpeechState snapshot, long sequence,
+        bool armyLayoutAvailable, IArmyMapSpeechRules rules, out ArmyMapSpeechStartResult? result,
+        CampaignAppRandomState? appRandomSnapshot = null) =>
+        _simulation.TryStartArmyMapSpeech(expectedOwner, snapshot, sequence, armyLayoutAvailable, rules,
+            out result, appRandomSnapshot);
+    public bool TryCompleteArmyMapSpeech(GameState expectedOwner, ArmyMapSpeechState snapshot, long sequence) =>
+        _simulation.TryCompleteArmyMapSpeech(expectedOwner, snapshot, sequence);
     public bool TryCompleteForceExperiencePresentation(GameState expectedOwner, long batchSequence, int requestIndex,
         int previousDisplayLevel, IForceExperiencePresentationRules rules) =>
         _simulation.TryCompleteForceExperiencePresentation(expectedOwner, batchSequence, requestIndex, previousDisplayLevel, rules);
@@ -136,7 +143,8 @@ public sealed class GameplaySession
         _simulation.FinishReport(Rules.ReportingRules);
     }
 
-    public void Save(string path, DateTimeOffset? savedAt = null, CampaignAppRandomState? appRandomSnapshot = null)
+    public void Save(string path, DateTimeOffset? savedAt = null, CampaignAppRandomState? appRandomSnapshot = null,
+        ArmyMapSpeechState? speechSnapshot = null, GameState? speechExpectedOwner = null)
     {
         //Outside a suspended transaction the live host owns presentation
         //draws, including cancelled command drafts. Lend that stream only to
@@ -144,8 +152,20 @@ public sealed class GameplaySession
         //operations already own both their committed and candidate streams.
         var savedWorld = !HasPendingOperation && appRandomSnapshot is not null
             ? World with { CampaignAppRandom32 = appRandomSnapshot } : World;
+        var savedNormalPeriod = PendingNormalPeriod;
+        var speechOwner = savedNormalPeriod?.Candidate ?? World;
+        // A stale display snapshot must not replace a newer queue or another
+        // suspended transaction's owner. Saving never mutates the live session.
+        if (speechSnapshot is not null && ReferenceEquals(speechExpectedOwner, speechOwner) &&
+            (savedNormalPeriod is not null || !HasPendingOperation))
+        {
+            if (savedNormalPeriod is not null)
+                savedNormalPeriod = savedNormalPeriod with
+                { Candidate = savedNormalPeriod.Candidate with { ArmyMapSpeech = speechSnapshot } };
+            else savedWorld = savedWorld with { ArmyMapSpeech = speechSnapshot };
+        }
         _saves.Save(path, savedWorld, RequirePlayer(), PendingProgress, LastStorySequence, PendingManualTactic, savedAt,
-            normalPeriod: PendingNormalPeriod);
+            normalPeriod: savedNormalPeriod);
     }
 
     public void SavePreview(string path) => _previewSaves.Save(path, World);

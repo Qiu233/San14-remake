@@ -54,6 +54,22 @@ public static partial class PersonReturnCommands
             current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
+        foreach (var task in owner.Strategies?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)Get(
+                current.ReadPersonIdentity(current.ResolveOfficerSource(id) ?? throw Missing("strategic member source")),
+                "strategic member identity")).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
+        foreach (var task in owner.Independences?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)Get(
+                current.ReadPersonIdentity(current.ResolveOfficerSource(id) ?? throw Missing("independence member source")),
+                "independence member identity")).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
         current.BindOwnedPersonCommandTree(owner.DispatchOrder().ToDictionary(task => task.Slot, task => task.Id));
     }
 
@@ -195,6 +211,12 @@ public static partial class PersonReturnCommands
             if (owner.Diplomacies?.GetValueOrDefault(identity) is { } diplomacy)
                 return TalentTravelSource.ResolvePosition(state, current, diplomacy.StartHexId, diplomacy.EndHexId,
                     diplomacy.SourceDistrictId, diplomacy.StartDate, diplomacy.DueDate, date ?? readDate!());
+            if (owner.Strategies?.GetValueOrDefault(identity) is { } strategic)
+                return TalentTravelSource.ResolvePosition(state, current, strategic.StartHexId, strategic.EndHexId,
+                    strategic.SourceDistrictId, strategic.StartDate, strategic.DueDate, date ?? readDate!());
+            if (owner.Independences?.GetValueOrDefault(identity) is { } independence)
+                return TalentTravelSource.ResolvePosition(state, current, independence.StartHexId, independence.EndHexId,
+                    independence.SourceDistrictId, independence.StartDate, independence.DueDate, date ?? readDate!());
             return ResolveJourneyPosition(state, current, identity, date ?? readDate!());
         }
         ushort second = Get(current.ReadPersonSecondLocation(personPhysical), "PersonE4");
@@ -222,7 +244,7 @@ public static partial class PersonReturnCommands
         location.BaseId - (location.Kind == PersonnelReturnBaseKind.Gate ? 51 : 0));
     private static int DateOrdinal(NativeMapSeasonDate date) => unchecked(date.Day - 31 + (date.Month + date.Year * 12) * 30);
     internal static int CalendarOrdinal(NativeMapSeasonDate date) => DateOrdinal(date);
-    private static NativeMapSeasonDate DateFromOrdinal(int ordinal)
+    internal static NativeMapSeasonDate DateFromOrdinal(int ordinal)
     { short year = unchecked((short)(ordinal / 360)); int remaining = Math.Max(0, unchecked(ordinal - year * 360));
         return new(year, unchecked((sbyte)(remaining / 30 + 1)), unchecked((sbyte)(remaining % 30 + 1)), 0); }
     private static T Get<T>(T? value, string name) where T : struct => value ?? throw Missing(name);

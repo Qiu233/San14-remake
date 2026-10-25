@@ -29,12 +29,19 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
         SourceWorldContext current, WorldIndexContext pool)
         => ApplyCore(input, victim, captor, null, current, pool);
 
+    /// <summary>2A2760's293BD0(from,null,1,1), after its actual Base,
+    /// Person and territory transfers. The caller retains its live temporaries.</summary>
+    internal ForceUnregisterResult TryApplyAbsorptionBorrowedCurrent(GameState input, int victim,
+        SourceWorldContext current, WorldIndexContext pool)
+        => ApplyCore(input, victim, 0, null, current, pool, absorption: true);
+
     private ForceUnregisterResult ApplyCore(GameState input, int victim, int captor,
-        Action<GameState>? publishReached, SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool)
+        Action<GameState>? publishReached, SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool,
+        bool absorption = false)
     {
         try
         {
-            NativeForceUnregisterCurrentStateValidation.Validate(input);
+            if (!absorption) NativeForceUnregisterCurrentStateValidation.Validate(input);
             var saved = input.NativeForceUnregisterCurrent ?? throw Missing("saved_numeric_owner");
             var world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(input)
                 : OwnedArmyReturnWorld.Borrow(input, borrowedCurrent, borrowedPool
@@ -57,7 +64,7 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             if (selected == victim || other == victim) throw Missing("branch.277590_274DD0_current_interaction");
             ushort ruler = Need(current.ReadForceRecord(victim)?.RawRuler10, "victim_ruler10");
             if (ruler is 521 or 35) throw Missing("branch.279EA0_achievement_pair");
-            RequireEmptyPeopleAndArmies(input, current, victim);
+            RequireEmptyPeopleAndArmies(input, current, victim, absorption);
             foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80"))
                 if (entry is not null && current.ReadBaseForceSlot(entry) == victim)
                     throw Missing("branch.293BD0_remaining_Base_or_Gate");
@@ -108,46 +115,60 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                 int leader = (leaderId <= 6000 ? current.ReadPersonLookupReference(leaderId) : current.ReadTransferPersonTableReference(0))
                     ?.PhysicalSlot ?? throw Missing("District_leader_lookup");
                 byte status = Need(current.ReadPersonStatus(leader), "District_leaderE6");
-                if (status is >= 1 and <= 4 && status != 1) current.WritePersonStatus(leader, 4);
-                var home = BaseLookup.Find(Need(current.ReadPersonFirstLocation(leader), "District_leaderE2"), current);
-                if (Known(current.ReadBaseNativeValidity(home), "District_leader_current_Home_validity"))
+                if (status is >= 1 and <= 4 && status != 1 && (!absorption || status != 3))
+                    current.WritePersonStatus(leader, 4);
+                //293490's third argument1 preserves a current Governor and
+                //skips the former leader Home governor refresh altogether.
+                if (!absorption)
                 {
-                    var packet = package.ApplyPersonFreedomGovernorCurrent(working, current, home);
-                    governors.Add(packet); working = PublishGovernor(working, current, packet);
+                    var home = BaseLookup.Find(Need(current.ReadPersonFirstLocation(leader), "District_leaderE2"), current);
+                    if (Known(current.ReadBaseNativeValidity(home), "District_leader_current_Home_validity"))
+                    {
+                        var packet = package.ApplyPersonFreedomGovernorCurrent(working, current, home);
+                        governors.Add(packet); working = PublishGovernor(working, current, packet);
+                    }
                 }
                 if ((current.ReadRegisteredPersonPhysicalSlots() ?? throw Missing("manager100")).Any(p =>
-                    p is int person && current.ReadPersonDistrictSlot(person) == district))
+                    p is int person && current.ReadPersonDistrictSlot(person) == district &&
+                    (!absorption || HasServingOrCaptiveStatus(current, person))))
                     throw Missing("branch.293490_nonempty_District_Person");
                 if ((current.ReadRegisteredBases() ?? throw Missing("manager80")).Any(b =>
                     b is not null && current.ReadBaseDistrictSlot(b) == district))
                     throw Missing("branch.293490_nonempty_District_Base");
-                RequireNoTroopsDistrict(working, current, district);
+                if (absorption) working = ArmyCautionDistrictResetSource.ResetForDistrict(working, current, district);
+                else RequireNoTroopsDistrict(working, current, district);
                 //District0 is native-invalid, so the treasury24 transfer
                 //condition short-circuits before its old numeric stock read.
                 ClearRouting(current, 8, district);
                 removedDistrictNodes += RemoveAll(current, RegistryKind.District, district);
                 current.ResetDistrict(district);
             }
-            effects.Add("227FC0.live_D0→District_pointer_temporary→293490.Governor→empty_Person_Base_Troops→32B690→226DC0");
+            effects.Add(absorption
+                ? "227FC0.live_D0→293490_mode1_preserve_Governor→actual_caution_reset→32B690→226DC0"
+                : "227FC0.live_D0→District_pointer_temporary→293490.Governor→empty_Person_Base_Troops→32B690→226DC0");
             ClearRouting(current, 7, victim);
             int forceNodesRemoved = RemoveAll(current, RegistryKind.Force, victim);
             var resets = new Dictionary<int, byte?[]>(saved.ForceResetImages) { [victim] = ForceResetImage() };
             working = ResetForce(working, current, victim, resets);
+            if (absorption) MirrorAbsorptionRelations(working, current, victim);
             var windows = saved.DistrictWindows10.ToDictionary(x => x.Key,
                 x => Enumerable.Range(0x10, 28).Select(o => current.ReadDistrictRawByte(x.Key, o)).ToArray());
-            working = (working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows } }).WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
+            working = (working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows },
+                Districts = absorption ? working.Districts.Where(row => !districts.Contains(row.Key))
+                    .ToDictionary(row => row.Key, row => row.Value) : working.Districts
+            }).WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
             effects.Add("32B710→3DFB50.all_equal_Force_nodes→2261B0.literal_numeric_reset_and_bidirectional_relations");
-            //This finite caller admits no surviving pending header. It still
-            //executes the normal28E window using the saved actual empty queue.
-            if ((current.ReadArmyReturnPending70Descriptor() is not { } pending) ||
-                current.ReadRegistryHead(pending)?.Identity is not null) throw Missing("branch.28E_nonempty_pending_after_Freedom_window");
+            //The old finite leaf admits only an empty queue. Absorption owns
+            //the real borrowed lifecycle pass, including reached retirements.
+            if (!absorption && ((current.ReadArmyReturnPending70Descriptor() is not { } pending) ||
+                current.ReadRegistryHead(pending)?.Identity is not null)) throw Missing("branch.28E_nonempty_pending_after_Freedom_window");
             working = (borrowedCurrent is null ? package.ConsumeArmyLifecyclePending(working)
                 : package.ConsumeArmyLifecyclePendingCurrent(working, current, pool))
-                ?? throw Missing("28E_current_empty_window");
+                ?? throw Missing(absorption ? "28E_absorption_current_window" : "28E_current_empty_window");
             //Project only permanent domain roles while this caller still owns its
-            //District/Object temporary lists. The empty28E window cannot free them.
+            //District/Object temporary lists;28E does not own those lists.
             working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
-            effects.Add("28E6D0.actual_empty_pending70_window");
+            effects.Add(absorption ? "28E6D0.actual_current_pending70_window" : "28E6D0.actual_empty_pending70_window");
             var ranked = RankCurrent(working, current, pool);
             working = ranked.State; effects.Add("2924B0.actual_two_pointer_temporaries_and_shared_Int32_temporary");
             current.ClearTemporaryHexList(districtTemporary); current.ReleaseTemporaryHexList(districtTemporary);
@@ -155,7 +176,7 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             working = PersonAssignmentPrecallInputs.PublishCurrent(working, current);
             working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
                 { Indexes = borrowedCurrent is null ? pool.ExportOwnedState() : pool.ProjectOwnedRoles() });
-            NativeForceUnregisterCurrentStateValidation.Validate(working);
+            if (!absorption) NativeForceUnregisterCurrentStateValidation.Validate(working);
             return new(working, new(victim, captor, remaining.Length, playerCount, districts, changedHexes,
                 forceNodesRemoved, removedDistrictNodes, governors.ToArray(), ranked.Forces, effects.AsReadOnly()), null);
         }

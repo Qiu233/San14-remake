@@ -10,6 +10,10 @@ public sealed record NativeArmyParameterState(string Revision, string Language,
 }
 public sealed record NativeArmyForceState(byte? Flags193)
 {
+    /// <summary>The faction's associated officer used when selecting a
+    /// receiver for a newly independent force. This is separate from its ruler.</summary>
+    public int? FactionOfficerId { get; init; }
+    public int? PopulationTotal { get; init; }
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
     public ushort? DiplomacyFlags178 { get; init; }
@@ -19,6 +23,9 @@ public sealed record NativeArmyForceState(byte? Flags193)
 }
 public sealed record NativeArmyWorldState
 {
+    //The actual coalition-event deadline. Missing old knowledge stays null;
+    //a reached coalition writer installs its real calendar result.
+    public NativeMapSeasonDate? PlayerCoalitionCooldownDate { get; init; }
     public NativeArmySamplerEpoch? SamplerEpoch { get; init; }
     public byte? Flags165C { get; init; }
     public byte? SelectedForce1656 { get; init; }
@@ -46,7 +53,8 @@ internal static class NativeArmySimulationStateValidation
             simulation.World is null || parameters.Int32Values.Keys.Concat(parameters.Float32Values.Keys)
                 .Any(string.IsNullOrWhiteSpace) || parameters.Float32Values.Values.Any(value => !float.IsFinite(value)) ||
             simulation.Forces.Any(pair => pair.Value is null || !state.Forces.ContainsKey(pair.Key) ||
-                pair.Value.RelationsEA is { Length: not 52 }))
+                  pair.Value.RelationsEA is { Length: not 52 } || pair.Value.FactionOfficerId is < 0 or > ushort.MaxValue ||
+                  pair.Value.PopulationTotal < 0))
             throw new InvalidDataException("Owned native Army simulation inputs are incomplete or inconsistent.");
         foreach (UnitState army in state.Units.Values)
             if (army.NativeArmyOrigin is { } origin &&
@@ -57,6 +65,9 @@ internal static class NativeArmySimulationStateValidation
             simulation.World.ObjectPairs?.Any(pair => pair is null || pair.FirstArmyId < 0 ||
                 pair.SecondArmyId < 0 || pair.BaseLocationId < 0) == true)
             throw new InvalidDataException("Owned native manager lists have invalid typed identities.");
+        if (simulation.World.PlayerCoalitionCooldownDate is { } coalition &&
+            (coalition.Month is < 1 or > 12 || coalition.Day is < 1 or > 30 || coalition.Hour is < 0 or > 23))
+            throw new InvalidDataException("The player coalition cooldown date is invalid.");
         if (simulation.World.SamplerEpoch is { } epoch) NativeArmySamplerEpochValidation.Validate(state, epoch);
         NativeNormalArmyAftermathStateValidation.Validate(state);
     }

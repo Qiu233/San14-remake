@@ -20,18 +20,53 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, int personPhysical, DistrictReference destinationDistrict,
         BaseReference destinationHome, NativeMapSeasonDate sourceDate,
         Func<int> readDay450, List<CampaignEffectRequest> sink)
+        => ApplyPersonJoinCurrent(input, current, personPhysical, destinationDistrict,
+            destinationHome, sourceDate, readDay450, sink, absorption: false);
+
+    //2A2760 keeps the same271C20 body but sets param5=1. That flag
+    //admits a former ruler and suppresses defection penalties/old-primary repair.
+    internal TalentRecruitJoinResult ApplyForceAbsorptionPersonJoinCurrent(GameState input,
+        SourceWorldContext current, int personPhysical, DistrictReference destinationDistrict,
+        BaseReference destinationHome, NativeMapSeasonDate sourceDate,
+        Func<int> readDay450, List<CampaignEffectRequest> sink)
+        => ApplyPersonJoinCurrent(input, current, personPhysical, destinationDistrict,
+            destinationHome, sourceDate, readDay450, sink, absorption: true);
+
+    //2E6010 supplies its actual nonnull follower list as271C20 param4.
+    //Only the independent defection relation penalty tests this pointer;
+    //the remaining ordinary join/resentment/old-District body is shared.
+    internal TalentRecruitJoinResult ApplyStrategicIndependencePersonJoinCurrent(GameState input,
+        SourceWorldContext current, int personPhysical, DistrictReference destinationDistrict,
+        BaseReference destinationHome, NativeMapSeasonDate sourceDate,
+        Func<int> readDay450, List<CampaignEffectRequest> sink, HexListHandle followers)
+        => ApplyPersonJoinCurrent(input, current, personPhysical, destinationDistrict,
+            destinationHome, sourceDate, readDay450, sink, absorption: false, followerList: followers);
+
+    private TalentRecruitJoinResult ApplyPersonJoinCurrent(GameState input,
+        SourceWorldContext current, int personPhysical, DistrictReference destinationDistrict,
+        BaseReference destinationHome, NativeMapSeasonDate sourceDate,
+        Func<int> readDay450, List<CampaignEffectRequest> sink, bool absorption,
+        HexListHandle? followerList = null)
     {
         T Need<T>(T? value, string field) where T : struct => value ?? throw RecruitMissing("join_" + field);
         if (Seed.Language != "TC") throw RecruitMissing("join_SC_owner");
         if (!Need(current.ReadPersonNativeValidity(personPhysical), "Person_validity")) return new(input, 0);
         byte originalStatus = Need(current.ReadPersonStatus(personPhysical), "PersonE6");
-        if (originalStatus == 1) return new(input, 0);
+        if (originalStatus == 1 && !absorption) return new(input, 0);
         //The real old-home lookup precedes232460's serving-person branch.
         _ = BaseLookup.Find(Need(current.ReadPersonFirstLocation(personPhysical), "old_HomeE2"), current);
         var working = input;
-        if (originalStatus is >= 2 and <= 4)
+        if (originalStatus is >= 1 and <= 4)
             working = ApplyRecruitServingPrefixCurrent(working, current, personPhysical,
-                destinationDistrict, destinationHome, sourceDate, readDay450, sink);
+                destinationDistrict, destinationHome, sourceDate, readDay450, sink, absorption);
+        if (absorption && Need(current.ReadPersonStatus(personPhysical), "absorbed_ruler_status") == 1)
+        {
+            current.WritePersonStatus(personPhysical, 4);
+            int id = Need(current.ReadPersonIdentity(personPhysical), "absorbed_ruler_identity");
+            var formerRuler = working.Officers.GetValueOrDefault(id) ?? throw RecruitMissing("absorbed_ruler_owner");
+            working = working with { Officers = new(working.Officers) { [id] = formerRuler with
+                { ServiceStatus = OfficerServiceStatus.ServingOfficer, Role = OfficerRole.Officer } } };
+        }
         var oldForce = current.ReadPersonForce(personPhysical) ?? throw RecruitMissing("join_old_Force22CB40");
         byte rawOldDistrict = Need(current.ReadPersonDistrictSlot(personPhysical), "old_DistrictE0");
         var oldDistrict = current.ReadDistrictTableReference(rawOldDistrict < 52 ? rawOldDistrict : 0)
@@ -54,7 +89,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             });
             working = current.PublishOfficerAftermath(working, Need(current.ReadPersonIdentity(personPhysical), "Person10"));
         }
-        if (Need(current.ReadForceNativeValidity(oldForce), "old_Force_validity"))
+        if (Need(current.ReadForceNativeValidity(oldForce), "old_Force_validity") && !absorption)
         {
             ushort rawRuler = Need(current.ReadForceRecord(Need(current.ReadForcePhysicalSlot(oldForce), "old_Force60"))?.RawRuler10, "old_Force_ruler10");
             var before = current.ReadOfficerAftermath(personPhysical) ?? throw RecruitMissing("join_old_resentment_owner");
@@ -69,13 +104,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                 { UnmappedResentmentTarget = mapped ? null : oldRuler }
             });
             working = current.PublishOfficerAftermath(working, Need(current.ReadPersonIdentity(personPhysical), "resentment_Person10"));
-            int office = Need(current.ReadMoraleWavePersonPostE7(personPhysical), "join_office_E7");
-            int rank = Need(OwnedArmyMoraleWaveInputs.ReadPost37(working, office), "join_office37");
-            int penalty = Math.Clamp(unchecked(TalentRecruitParameters.Read(working, "join-diplomacy-office-base") - rank), 0, 10);
-            working = ForceRelationChangeCurrent.ApplyWithoutPresentation(working, current, forcePhysical,
-                Need(current.ReadForcePhysicalSlot(oldForce), "relation_old_Force60"), -penalty,
-                key => working.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(key, out int value) == true
-                    ? value : throw RecruitMissing("join_relation_parameter_" + key));
+            if (followerList is null)
+            {
+                int office = Need(current.ReadMoraleWavePersonPostE7(personPhysical), "join_office_E7");
+                int rank = Need(OwnedArmyMoraleWaveInputs.ReadPost37(working, office), "join_office37");
+                int penalty = Math.Clamp(unchecked(TalentRecruitParameters.Read(working, "join-diplomacy-office-base") - rank), 0, 10);
+                working = ForceRelationChangeCurrent.ApplyWithoutPresentation(working, current, forcePhysical,
+                    Need(current.ReadForcePhysicalSlot(oldForce), "relation_old_Force60"), -penalty,
+                    key => working.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(key, out int value) == true
+                        ? value : throw RecruitMissing("join_relation_parameter_" + key));
+            }
         }
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current)
             ?? throw RecruitMissing("join_player_Force");
@@ -136,7 +174,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.WriteArmyReturnPersonFlags196(personPhysical, (ushort)((flags & 0xFFFE) | 0x80));
         working = PublishPerson(working);
         working = current.PublishOfficerAftermath(working, identity);
-        if (Need(current.ReadDistrictNativeValidity(oldDistrict), "old_District_validity"))
+        if (Need(current.ReadDistrictNativeValidity(oldDistrict), "old_District_validity") && !absorption)
         {
             var districtQueries = CreateCaptureDistrictOperationQueries(current, () => working,
                 next => working = next, sourceDate, sink);

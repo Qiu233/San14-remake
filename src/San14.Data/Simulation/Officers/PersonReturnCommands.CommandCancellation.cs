@@ -21,6 +21,14 @@ public static partial class PersonReturnCommands
         { members = absence.MemberIds; districtId = absence.DistrictId; }
         else if (owner.Diplomacies?.TryGetValue(commandId, out var diplomacy) == true)
         { members = diplomacy.MemberIds; districtId = diplomacy.SourceDistrictId; }
+        else if (owner.Strategies?.TryGetValue(commandId, out var strategic) == true)
+        {
+            if (strategic.IsRetiring) return state;
+            state = RefundStrategicMilitaryCurrent(state, current, strategic);
+            members = strategic.MemberIds; districtId = strategic.SourceDistrictId;
+        }
+        else if (owner.Independences?.TryGetValue(commandId, out var independence) == true)
+        { members = independence.MemberIds; districtId = independence.SourceDistrictId; }
         else throw Missing("cancel associated command virtual90 owner");
 
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("cancel current player");
@@ -55,6 +63,16 @@ public static partial class PersonReturnCommands
         {
             if (diplomacy.IsRetiring) return owner;
             owner = owner with { Diplomacies = new(owner.Diplomacies) { [commandId] = diplomacy with { IsRetiring = true } } };
+        }
+        else if (owner.Strategies?.TryGetValue(commandId, out var strategic) == true)
+        {
+            if (strategic.IsRetiring) return owner;
+            owner = owner with { Strategies = new(owner.Strategies) { [commandId] = strategic with { IsRetiring = true } } };
+        }
+        else if (owner.Independences?.TryGetValue(commandId, out var independence) == true)
+        {
+            if (independence.IsRetiring) return owner;
+            owner = owner with { Independences = new(owner.Independences) { [commandId] = independence with { IsRetiring = true } } };
         }
         else throw Missing("retiring personnel command owner");
         owner = owner with { PendingRetirements = [.. owner.PendingRetirements, commandId] };

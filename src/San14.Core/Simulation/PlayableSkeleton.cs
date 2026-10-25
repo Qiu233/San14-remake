@@ -118,6 +118,9 @@ public static class PlayableSkeleton
         commands = new PlayableDiplomacyOrders(commands, diplomacyPolicy);
         commands = new PlayableTacticOrders(commands, routes, tactics);
         commands = new PlayablePersonnelOrders(commands, personnel);
+        commands = new DistrictCommandOrders(commands, armyCreationRules as IDistrictCommandRules);
+        commands = new DoctrineResearchOrders(commands, armyCreationRules as IDoctrineResearchCommandRules);
+        commands = new StrategicCommandOrders(commands, armyCreationRules as IStrategicCommandRules);
         commands = new PlayableDiplomaticOfficerGuard(commands);
         if (armyCreationRules is IPlayableArmyCreationPreparationRules preparationRules)
             commands = new PlayableArmyCreationPreparationGuard(commands, preparationRules);
@@ -246,7 +249,7 @@ public static class PlayableSkeleton
         public GameState AdvanceTenDays(GameState state)
         {
             RequireSkeleton(state);
-            if (state.NativePlayableTerminal is not null)
+            if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
                 throw new InvalidOperationException("The campaign has ended.");
             var resumedPeriod = state.NativePeriodContinuation;
             if (resumedPeriod is null) routes.ValidateWorld(state);
@@ -477,6 +480,15 @@ public static class PlayableSkeleton
                 }, nativeSubdayRules ?? throw new InvalidDataException("Native Army waiting rules are unavailable."));
                 if (nativeState.NativePeriodContinuation?.Cursor is not null) return nativeState;
                 nativeState = nativeState with { NativePeriodContinuation = null };
+                var normalTurn = nativePeriodContinuationRules as IPlayableNativeNormalTurnRules
+                    ?? throw new InvalidDataException("Native normal Turn rules are unavailable after completed Army Progress.");
+                nativeState = normalTurn.CompleteNormalTurn(nativeState);
+                if (nativeState.CampaignTurnStop is not null || nativeState.NativePlayableTerminal is not null)
+                {
+                    reports.AddRange(nativeState.PeriodReports);
+                    reports.AddRange(nativeState.PendingCommandReports);
+                    return TerminalReport(nativeState);
+                }
             }
             else nativeState = NativeSubdayRuntime.CompletePeriodOwned(tacticState, nativeSubdayRules);
             if (nativePeriodContinuationRules is not null)
@@ -1222,7 +1234,8 @@ public static class PlayableSkeleton
                     if (siege.AttackerLoss > 0)
                         reports.Add(new("casualties", moved.ForceId, hostileCity?.Id,
                             moved.OfficerId, siege.AttackerLoss, nextHex, nextHex) { LocationId = hostileLocationId });
-                    if (periodBasis.NativePlayableTerminal is not null) return TerminalReport(CurrentWorld());
+                    if (periodBasis.NativePlayableTerminal is not null || periodBasis.CampaignTurnStop is not null)
+                        return TerminalReport(CurrentWorld());
                     continue;
                 }
                 reports.Add(new PeriodReportEntry("assault", moved.ForceId, hostileCity?.Id,
@@ -1331,7 +1344,8 @@ public static class PlayableSkeleton
                 //27A6B0's player exit is after the reached capture Person
                 //prefix, but before ordinary293BD0 and provisional withdrawal.
                 //Keep the Force/District/Army owners that this branch preserves.
-                if (postCapture.NativePlayableTerminal is { Kind: NativePlayableTerminalKind.PlayerDefeated })
+                if (postCapture.NativePlayableTerminal is { Kind: NativePlayableTerminalKind.PlayerDefeated } ||
+                    postCapture.CampaignTurnStop is not null)
                 {
                     if (personnel is not null) reports.AddRange(personnel.Reports);
                     return TerminalReport(postCapture);
@@ -1360,7 +1374,7 @@ public static class PlayableSkeleton
                 if (personnel is not null) reports.AddRange(personnel.Reports);
                 reports.AddRange(aftermath.Reports);
                 if (defeat is not null) reports.AddRange(defeat.Reports);
-                if (periodBasis.NativePlayableTerminal is not null)
+                if (periodBasis.NativePlayableTerminal is not null || periodBasis.CampaignTurnStop is not null)
                     return TerminalReport(CurrentWorld());
             }
 
@@ -1616,7 +1630,7 @@ public static class PlayableSkeleton
         public GameState CompleteReport(GameState state)
         {
             RequireSkeleton(state);
-            if (state.NativePlayableTerminal is not null)
+            if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
                 return state with { Phase = TurnPhase.Strategy };
             if (districtCommandBudgetRules is not null)
                 return districtCommandBudgetRules.RefreshDistrictCommandBudgets(state) with { Phase = TurnPhase.Strategy };

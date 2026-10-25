@@ -56,7 +56,11 @@ public static class ForceUnregisterInputs
         foreach (var row in source.Snapshot.Forces.Where(x => x.Slot != 0))
             values.TryAdd(BattleRemakeCurrentForcePolicies.ForceFieldKey(row.Slot, 0x15E),
                 Convert.FromHexString(row.RemainingBytesHex)[318]);
-        result = result with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values },
+        //227070 clears11E before237CC0; the normal329-byte static
+        //serializer skips that word between EA[52] and120[60].
+        var factions = native.Forces.ToDictionary(pair => pair.Key,
+            pair => pair.Value with { FactionOfficerId = 0, PopulationTotal = 0 });
+        result = result with { NativeArmySimulation = native with { Forces = factions, Parameters = native.Parameters with { Int32Values = values },
             World = native.World with { SelectedForce1656 = native.World.SelectedForce1656 ?? 0 } } };
         NativeForceUnregisterCurrentStateValidation.Validate(result); return result;
     }

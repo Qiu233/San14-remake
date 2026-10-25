@@ -44,7 +44,9 @@ public static partial class PersonReturnCommands
             if (owner.Disappearances is null) throw Missing("absence task owner");
             owner = owner with { Returns = new(owner.Returns), Disappearances = new(owner.Disappearances),
                 Talents = owner.Talents is null ? null : new(owner.Talents),
-                Diplomacies = owner.Diplomacies is null ? null : new(owner.Diplomacies) };
+                Diplomacies = owner.Diplomacies is null ? null : new(owner.Diplomacies),
+                Strategies = owner.Strategies is null ? null : new(owner.Strategies),
+                Independences = owner.Independences is null ? null : new(owner.Independences) };
             var pending = owner.PendingRetirements.ToList();
             var working = state with { PersonnelCommands = owner };
             current.SetOwnedPersonCommandManager(owner);
@@ -99,6 +101,30 @@ public static partial class PersonReturnCommands
                     }
                     if (talent is null) throw Missing("talent execution owner");
                     var advanced = talent.AdvanceTalentCurrent(working, current, taskTalent, date);
+                    working = advanced.State;
+                    owner = CurrentCommandOwner(working, current);
+                    SyncPending();
+                    if (advanced.Retire) QueueRetirement(taskId);
+                    continue;
+                }
+                if (entry.Kind == PersonnelCommandKind.Strategic)
+                {
+                    if (date.Hour != 8) continue; //1DDB40's actual334450(date,8).
+                    if (talent is not IPersonnelStrategicExecution strategy)
+                        throw Missing("strategic execution owner");
+                    var advanced = strategy.AdvanceStrategicCurrent(working, current, owner.Strategies![taskId], date);
+                    working = advanced.State;
+                    owner = CurrentCommandOwner(working, current);
+                    SyncPending();
+                    if (advanced.Retire) QueueRetirement(taskId);
+                    continue;
+                }
+                if (entry.Kind == PersonnelCommandKind.Independence)
+                {
+                    if (date.Hour != 8) continue;
+                    if (talent is not IPersonnelStrategicExecution strategy)
+                        throw Missing("independence execution owner");
+                    var advanced = strategy.AdvanceIndependenceCurrent(working, current, owner.Independences![taskId], date);
                     working = advanced.State;
                     owner = CurrentCommandOwner(working, current);
                     SyncPending();
@@ -199,6 +225,8 @@ public static partial class PersonReturnCommands
                 else if (owner.Disappearances!.Remove(taskId, out var absence)) freeSlots.Insert(0, absence.DispatchSlot);
                 else if (owner.Talents?.Remove(taskId, out var talentTask) == true) freeSlots.Insert(0, talentTask.DispatchSlot);
                 else if (owner.Diplomacies?.Remove(taskId, out var diplomacyTask) == true) freeSlots.Insert(0, diplomacyTask.DispatchSlot);
+                else if (owner.Strategies?.Remove(taskId, out var strategic) == true) freeSlots.Insert(0, strategic.DispatchSlot);
+                else if (owner.Independences?.Remove(taskId, out var independence) == true) freeSlots.Insert(0, independence.DispatchSlot);
                 else throw Missing("retiring personnel task");
             }
             for (int i = 0; i < receipts.Count; i++)

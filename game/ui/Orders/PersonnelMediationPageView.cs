@@ -2,7 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal sealed record PersonnelMediationPersonValues(string Name, LoadedSprite? Portrait, bool CanChoose);
+internal sealed record PersonnelMediationPersonValues(string Name, LoadedSprite? Portrait, bool CanChoose, bool HasPerson);
 internal sealed record PersonnelMediationPageValues(IReadOnlyList<PersonnelMediationPersonValues> People,
     IReadOnlyDictionary<int, string> Fields, bool CanMarry, bool CanSwear, bool CanClear, bool ShowThird, string Guide);
 
@@ -24,6 +24,7 @@ internal partial class PersonnelMediationPageView : Control
     private PersonnelMediationPageValues? publication;
     private GameResourceRepository repository = null!;
     private UiSourceLayout source = null!;
+    private LoadedSprite emptyPortrait = null!;
     private bool busy, abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
@@ -35,6 +36,8 @@ internal partial class PersonnelMediationPageView : Control
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, 0x7E5, RequestBack, () => { }, returnOnly: true, returnNode: 3);
         source = new(repository, 0x1DE0C63E); Vector2 mount = new(0, 170);
+        var placeholder = ArmyMapUiSources.Create().PortraitNames(0x896);
+        emptyPortrait = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(placeholder.ResourceName, placeholder.SpriteName);
         int[] replaced = [10, 13, 15, 17, 21, 24, 26, 28, 32, 35, 37, 39];
         foreach (var node in source.Nodes)
         {
@@ -93,10 +96,11 @@ internal partial class PersonnelMediationPageView : Control
             buttons[slot].Visible = slot != 2 || value.ShowThird;
             portraitHosts[slot].Visible = slot != 2 || value.ShowThird;
             buttons[slot].Caption = person?.Name ?? ""; buttons[slot].Disabled = busy || person?.CanChoose != true;
-            if (ReferenceEquals(sources[slot], person?.Portrait)) continue;
+            var sprite = person?.HasPerson == true ? person.Portrait : emptyPortrait;
+            if (ReferenceEquals(sources[slot], sprite)) continue;
             if (portraits[slot] is { } previous) { portraitHosts[slot].RemoveChild(previous); previous.QueueFree(); portraits[slot] = null; }
-            sources[slot] = person?.Portrait;
-            if (person?.Portrait is not { } sprite) continue;
+            sources[slot] = sprite;
+            if (sprite is null) continue;
             Rect2 box = source.Rectangle(14 + slot * 11, new(0, 170));
             var portrait = new UiSourcePortrait { Position = box.Position, Size = box.Size };
             portraitHosts[slot].AddChild(portrait); portraitHosts[slot].MoveChild(portrait, 0);

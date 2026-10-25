@@ -15,8 +15,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             before.GetValueOrDefault(PersonAssignmentPrecallInputs.VersionKey) != 1)
             throw HireMissing("copy_existing_input_owners");
         var values = new Dictionary<string, int>(before);
-        //The independent catalogue's constructor and226480 initialize these
-        //channels.334EF0 does not take them from a same-ID historical Person.
+        //2216E0→2277B0 explicitly zeroes B2/B4/B6/BE (TC220000.cpp7621),
+        //and226480 clears the relation lists.334EF0 does not replace them
+        //from a same-ID historical Person.
         //32F720 explicitly replaces bloodline B2 with the allocated identity.
         foreach (int field in new[] { 0xB4, 0xB6, 0xBA, 0xBC, 0xBE })
             values[OwnedPersonRelationInputs.PersonFieldKey(physical, field)] = 0;
@@ -76,7 +77,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.WritePersonSecondLocation(person, location);
             var owner = Owner(person);
             Change(person, p => p with { ForceId = Known(current.ReadForcePhysicalSlot(force), "hire_Force_pointer"),
-                DistrictId = districtId, LocationId = location,
+                DistrictId = districtId, LocationId = location, Presence = OfficerPresence.Present,
                 LocationState = current.ReadOfficerLocation(owner.Id) ?? throw Missing("hire_current_position") });
             int year = Math.Clamp((int)(latest.NativeMapSeason?.ThirdDate.Year ?? throw Missing("hire_year")), 0, 350);
             SetParameter(OwnedArmyGovernorComparatorInputs.PersonWord166Key(person), year);
@@ -103,7 +104,7 @@ public sealed partial class SourceWorldContext
 {
     //The selected31C520 copy is bound into the existing main-table receiver.
     //No world capture, pool import or unrelated Person binding occurs here.
-    internal void BindPersonnelHirePersonCurrent(int physical, OfficerState person)
+    internal void BindPersonnelHirePersonCurrent(int physical, OfficerState person, int previousForce)
     {
         ushort flags = OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior)
             ?? throw new InvalidDataException("personnel.hire.copy_behavior");
@@ -113,6 +114,7 @@ public sealed partial class SourceWorldContext
             ?? throw new InvalidDataException("personnel.hire.copy_status");
         SetPersonTablePointer(person.Id, physical);
         SetPersonRecord(new(physical, checked((ushort)person.Id), flags, marker, status, 0));
+        SetPersonPortraitAppearance(physical, person.PortraitAppearanceIndex);
         _officerLocations[person.Id] = person.LocationState;
         SetPersonFirstLocation(physical, checked((ushort)(person.LocationId ?? 0)));
         SetPersonDistrictSlot(physical, checked((byte)(person.DistrictId ?? 0)));
@@ -121,7 +123,7 @@ public sealed partial class SourceWorldContext
         SetAssignmentPersonAreaVector(physical, new([], 0));
         SetOfficerHealth(person.Id, person.Health);
         SetOfficerAftermath(physical, new(person.Resentment, person.AllegianceDisposition,
-            new(person.Id, null, 0, 0)));
+            new(person.Id, null, 0, previousForce)));
         SetPersonDestructionLoyaltyE8(physical, person.Loyalty is int loyalty ? checked((byte)loyalty) : null);
         SetMoraleWavePersonPostE7(physical, OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment));
         OfficerTraitActivationSourceAdapter.Write(this, physical, person.TraitActivation);

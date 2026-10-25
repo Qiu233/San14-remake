@@ -27,11 +27,22 @@ public sealed partial class GameSimulation
                 { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText },
             CampaignEffectSource.OfficerOfficeCommands => request.TalentCommandPresentation is
                 { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement },
+            CampaignEffectSource.DoctrineResearchCommands => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.OfficerText },
+            CampaignEffectSource.StrategicCommands => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
+            CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
+                { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText } ||
+                request.MonthlyMaintenance is
+                { Operation: MonthlyMaintenanceOperation.ControllerQueueEvent, EventKind: 6 or 8 } ||
+                request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText },
             _ => false
         };
-        //Growth history and discovery events retain their own consumers.
+        // Controller events 6/8 enqueue actual SE audio. History, discovery
+        // and monthly map effects retain their separate consumers.
         if (!canComplete) return false;
 
         CampaignEffectBatch[] batches;

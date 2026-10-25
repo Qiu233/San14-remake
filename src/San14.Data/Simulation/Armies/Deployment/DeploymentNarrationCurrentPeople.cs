@@ -69,6 +69,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             '\\' => id == Field(id, 0xBC) ? 1 : 0,
             'G' => Status(id) == 1 ? Rank(id) : 0,
             'H' => StatusField(id).Value,
+            'U' => HealthIdentity(id),
             'c' => CurrentPlayerField(id),
             'o' => Need(current.ReadMoraleWavePersonPostE7(Physical(id)), "current_office"),
             '=' => Age(id),
@@ -118,6 +119,7 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         int physical = Physical(id);
         if (!Need(current.ReadPersonNativeValidity(physical), "person_validity") && id is not (>= 2001 and <= 2088)) return "";
         if (field == 'H') return StatusField(id).Text;
+        if (field == 'U') return HealthText(id);
         if (field == 'T') return FirstLocationText(physical);
         if (field == 'o') return OfficeText(id);
         if (field == 'Q') return PersonForceDisplayName(id).Text;
@@ -258,6 +260,15 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
         int post = Need(current.ReadMoraleWavePersonPostE7(Physical(id)), "current_office");
         if (!Need(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, post), "office_validity")) return string.Empty;
         return state.OfficerOffices.TryGetValue(post, out var office) ? "^05" + office.Name + "^00" : throw Missing("current_office_name");
+    }
+
+    private int HealthIdentity(int id) => Need(OfficerHealthSourceAdapter.ReadByte(current, Physical(id)), "U_current_health");
+    //Person case55 ->35C7E0 ->30BE70. Its label belongs to Data table0,
+    //and the source wraps even an out-of-range empty label in color03.
+    private string HealthText(int id)
+    {
+        int health = HealthIdentity(id);
+        return "^03" + (health <= 3 ? StatusLabel(0, 0x123 + health) : string.Empty) + "^00";
     }
 
     private (int Value, string Text) StatusField(int id)

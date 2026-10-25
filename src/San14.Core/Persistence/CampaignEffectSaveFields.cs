@@ -5,6 +5,24 @@ internal static class CampaignEffectSaveFields
 {
     internal static void Migrate(JsonObject state, int version)
     {
+        if (version < 164 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray strategicBatches)
+            foreach (var batch in strategicBatches.OfType<JsonObject>())
+                if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&
+                    source >= (int)CampaignEffectSource.StrategicCommands)
+                    throw new InvalidDataException("Legacy campaign batch has a future strategic command origin.");
+        if (version < 164 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray legacyBatches)
+            foreach (var batch in legacyBatches.OfType<JsonObject>())
+                if (batch["Requests"] is JsonArray requests)
+                    foreach (var request in requests.OfType<JsonObject>())
+                        if (request["TalentCommandPresentation"]?["Operation"] is JsonValue value &&
+                            value.TryGetValue<int>(out int operation) &&
+                            operation >= (int)TalentCommandPresentationOperation.ConditionalOfficerText)
+                            throw new InvalidDataException("Legacy campaign presentation has a future operation.");
+        if (version < 163 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray researchBatches)
+            foreach (var batch in researchBatches.OfType<JsonObject>())
+                if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&
+                    source >= (int)CampaignEffectSource.DoctrineResearchCommands)
+                    throw new InvalidDataException("Legacy campaign batch has a future research command origin.");
         if (version < 159 && state["CampaignEffectRequests"]?["PendingBatches"] is JsonArray personnelBatches)
             foreach (var batch in personnelBatches.OfType<JsonObject>())
                 if (batch["Source"] is JsonValue value && value.TryGetValue<int>(out int source) &&

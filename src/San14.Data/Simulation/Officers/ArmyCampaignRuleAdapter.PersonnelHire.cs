@@ -102,12 +102,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         var copied = source with
         {
             Id = dynamicId, AppearanceYear = (ushort)year,
+            //Native0 is the unassigned sentinel, not a domain definition.
+            //Older saved offer catalogues may still carry that raw value.
+            DoctrineId = source.DoctrineId == 0 ? null : source.DoctrineId,
+            PolicyId = source.PolicyId == 0 ? null : source.PolicyId,
             BaseFormationIds = source.BaseFormationIds?.ToArray(), BaseTacticIds = source.BaseTacticIds?.ToArray(),
             CurrentTacticSlots = source.CurrentTacticSlots?.ToArray(), CurrentTraitIds = source.CurrentTraitIds?.ToArray(),
+            //229590/229520 re-encode these caps for the newly allocated
+            //physical slot. Their odd-or-previous-odd operand is always1
+            //throughout4201..4400, giving ordinary120 and charm100.
             AbilityState = new(120, 100, source.AbilityState?.ObservedDoctrineId)
         };
         var working = state with { Officers = new(state.Officers) { [dynamicId] = copied } };
-        current.BindPersonnelHirePersonCurrent(physical, copied);
+        current.BindPersonnelHirePersonCurrent(physical, copied,
+            template.PreviousForceId ?? throw HireMissing("copy_template_previous_Force"));
         working = InstallPersonnelHirePersonInputsCurrent(working, physical, dynamicId, year, template);
         _personRelationInputs.BindCurrent(() => working, current);
         var join = new PersonAppearanceSource(this, working, current, pool);
@@ -128,7 +136,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var roster = owner.Forces.GetValueOrDefault(forceId) ?? throw HireMissing("create_Force_roster");
         var changed = roster with { AvailableTemplateOfficerIds = roster.AvailableTemplateOfficerIds.Remove(templateId),
             HiredOfficerIds = roster.HiredOfficerIds.Add(dynamicId) };
-        var resetTemplate = ResetPersonnelHireTemplateSnapshot(template);
+        var resetTemplate = ResetPersonnelHireTemplate(template);
         working = working with { PersonnelHire = owner with
         {
             RemainingSlots = owner.RemainingSlots - 1,

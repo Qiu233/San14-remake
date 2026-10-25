@@ -46,7 +46,9 @@ public static class OwnedArmyReturnCurrentFields
             //Actual shared Base reset's qword+3C zeroes BOTH ready3C and
             //wounded40. The serialized prefix overwrites3C, skips40, and starts
             //with word2E. These are explicit fresh allocation/prefix writes.
-            cities[city.Id] = city with { NativeReturnRuntime = new(Revision,
+            //226FA0 clears DWORD64..67. Static237920 omits the runtime67
+            //branch; only the full save serializer can restore that byte.
+            cities[city.Id] = city with { HasNearbyEnemyArmy = false, NativeReturnRuntime = new(Revision,
                 prefix.ReadBaseMorale44(target),0,definitions.ReadFreshReturnGovernor2E(city.Id)) };
         }
         var gates = state.Gates.ToDictionary(x => x.Key, x => x.Value);
@@ -55,10 +57,11 @@ public static class OwnedArmyReturnCurrentFields
             var target = new BaseReference(BaseKind.Gate, gate.Id - 51);
             //The shared ctor's qword3C clears40. Static237920 writes44 but
             //skips40; only this fresh allocation consumes the loaded value.
-            gates[gate.Id] = gate with { NativeCombatRuntime = new(GateCombatRevision,
+            gates[gate.Id] = gate with { HasNearbyEnemyArmy = false, NativeCombatRuntime = new(GateCombatRevision,
                 prefix.ReadBaseMorale44(target), 0) };
         }
-        var result = state with { Officers = people, Cities = cities, Gates = gates, ResourceState = residues };
+        var result = state with { Officers = people, Cities = cities, Gates = gates, ResourceState = residues,
+            UnassignedCityHasNearbyEnemyArmy = false, UnassignedGateHasNearbyEnemyArmy = false };
         NativeArmyReturnCurrentStateValidation.Validate(result); return result;
     }
 

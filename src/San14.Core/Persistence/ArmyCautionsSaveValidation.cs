@@ -18,5 +18,9 @@ internal static class ArmyCautionsSaveValidation
         foreach (var row in cautions.GroupLabels)
             if (row.Key < 0 || row.Value is null || row.Value.Label is <= 0 || !row.Value.IsKnown && row.Value.Label is not null)
                 throw new InvalidDataException("Saved army caution group label is invalid.");
+        if (cautions.GroupDistrictIds is not null)
+            foreach (var row in cautions.GroupDistrictIds)
+                if (row.Key is < 0 or > 500 || row.Value is < 0 or > 51)
+                    throw new InvalidDataException("Saved army caution group District is invalid.");
     }
 }

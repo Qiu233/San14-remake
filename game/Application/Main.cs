@@ -292,6 +292,24 @@ public partial class Main : Control
             if (personnelAdministrationKey.Pressed && !personnelAdministrationKey.Echo) RunUiAction(RequestPersonnelAdministrationBack);
             return;
         }
+        if (HasDoctrineResearchPage && input is InputEventKey { Keycode: Key.Escape } doctrineResearchKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (doctrineResearchKey.Pressed && !doctrineResearchKey.Echo) RunUiAction(() => RequestDoctrineResearchBack(escape: true));
+            return;
+        }
+        if (HasStrategicOrdersPage && input is InputEventKey { Keycode: Key.Escape } strategicOrdersKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (strategicOrdersKey.Pressed && !strategicOrdersKey.Echo) RunUiAction(RequestStrategicOrdersBack);
+            return;
+        }
+        if (HasDistrictAdministrationPage && input is InputEventKey { Keycode: Key.Escape } districtAdministrationKey)
+        {
+            GetViewport().SetInputAsHandled();
+            if (districtAdministrationKey.Pressed && !districtAdministrationKey.Echo) RunUiAction(RequestDistrictAdministrationBack);
+            return;
+        }
         if (HasOfficerOfficePage && input is InputEventKey { Keycode: Key.Escape } officeKey)
         {
             GetViewport().SetInputAsHandled();
@@ -407,6 +425,9 @@ public partial class Main : Control
         else if (_governanceRosterConfirmation is { } governanceQuestion) back = governanceQuestion.RequestCancel;
         else if (HasGovernanceRosterPage) back = CloseGovernanceRoster;
         else if (HasPersonnelAdministrationPage) back = RequestPersonnelAdministrationBack;
+        else if (HasDistrictAdministrationPage) back = RequestDistrictAdministrationBack;
+        else if (HasDoctrineResearchPage) back = () => RequestDoctrineResearchBack(escape: true);
+        else if (HasStrategicOrdersPage) back = RequestStrategicOrdersBack;
         else if (HasOfficerOfficePage) back = RequestOfficerOfficesBack;
         else if (HasCampaignCommandPage) back = RequestCampaignCommandBack;
         else if (HasCommanderSelectionPage) back = CloseCommanderSelectionPage;
@@ -1064,6 +1085,7 @@ public partial class Main : Control
 
     private void CloseResidentMap()
     {
+        CloseArmyMapSpeech();
         _personnelDevelopmentContinuation = null;
         CloseTalentOrders();
         CloseTalentAutoSearch();
@@ -1085,6 +1107,11 @@ public partial class Main : Control
         CloseGovernanceNarration();
         ClosePersonnelItems();
         ClosePersonnelAdministration();
+        CloseDistrictAdministration();
+        CloseDoctrineResearch();
+        CloseStrategicOrders();
+        _strategicOrdersContinuation = null;
+        _districtAdministrationContinuation = null;
         CloseOfficerOffices();
         CloseCampaignDeployment();
         CloseCampaignRetreat();
@@ -1169,6 +1196,9 @@ public partial class Main : Control
         if(_personnelItemWorld is { } itemWorld&&(!ReferenceEquals(itemWorld,world)||!ReferenceEquals(_personnelItemSession,_session)))ClosePersonnelItems();
         if(_officerOfficeWorld is { } officeWorld&&(!ReferenceEquals(officeWorld,world)||!ReferenceEquals(_officerOfficeSession,_session)))CloseOfficerOffices();
         if(_personnelAdministrationWorld is { } personnelWorld&&(!ReferenceEquals(personnelWorld,world)||!ReferenceEquals(_personnelAdministrationSession,_session)))ClosePersonnelAdministration();
+        if(_districtAdministration is { } districtOwner&&!IsDistrictAdministrationCurrent(districtOwner))CloseDistrictAdministration();
+        if(_doctrineResearch is { } researchOwner&&!IsDoctrineResearchCurrent(researchOwner))CloseDoctrineResearch();
+        if(_strategicOrders is { } strategicOwner&&!IsStrategicOrdersCurrent(strategicOwner))CloseStrategicOrders();
         if(HasCampaignDeploymentPage&&!IsCampaignDeploymentCurrent)CloseCampaignDeployment();
         if(HasCampaignRetreatPage&&!IsCampaignRetreatCurrent)CloseCampaignRetreat();
         if(_campaignSaveWorld is { } saveWorld&&(!ReferenceEquals(saveWorld,world)||!ReferenceEquals(_campaignSaveSession,_session)))CloseCampaignSaves();

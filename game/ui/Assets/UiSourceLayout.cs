@@ -61,6 +61,10 @@ internal sealed class UiSourceLayout
     }
 
     internal Rect2 Rectangle(int index, Vector2 mount = default) => new(rectangles[index].Position + mount, rectangles[index].Size);
+    internal Transform2D NodeTransform(int index, Vector2 mount = default)
+    {
+        var transform = transforms[index]; transform.Origin += mount; return transform;
+    }
 
     internal UiSourceType6Parameters Type6(int index) => UiSourceType6Parameters.Read(Nodes[index]);
 

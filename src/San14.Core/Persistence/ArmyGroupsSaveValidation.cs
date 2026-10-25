@@ -18,6 +18,12 @@ internal static class ArmyGroupsSaveValidation
                 throw new InvalidDataException("Saved army group leader is invalid.");
             Officer(leader.Value.Officer);
         }
+        if (groups.CautionTargets is not null)
+            foreach (var row in groups.CautionTargets)
+                if (row.Key is < 0 or > 500 || row.Value is null ||
+                    row.Value.CautionGroupId is < 0 or > 500 ||
+                    !row.Value.IsKnown && row.Value.CautionGroupId is not null)
+                    throw new InvalidDataException("Saved army group caution objective is invalid.");
     }
 
     private static void Officer(ArmyGroupOfficerReference reference)

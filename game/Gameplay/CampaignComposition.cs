@@ -92,6 +92,7 @@ public sealed partial class CampaignComposition
         world = army.ConfirmNewGamePlayerPerson(world, rulerId);
         world = MapSeasonRuntime.CreateForFreshCampaign(_repository, world,
             MapSeasonNativeSource.Load(_repository.SourceDirectory, Snapshot.Locale));
+        world = army.InitializeFreshDoctrineResearch(world);
         if (Snapshot.Locale == "TC")
         {
             var merchants = army.InitializeFreshCityMerchants(world);

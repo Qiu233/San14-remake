@@ -11,11 +11,18 @@ internal sealed record CampaignChronicleCommand(int EventCode, int Family, int C
 /// This is independent of the report ring and emits no presentation work.</summary>
 internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
 {
-    internal GameState Write(GameState state, SourceWorldContext current, CampaignChronicleCommand command)
+    internal GameState Write(GameState state, SourceWorldContext current, CampaignChronicleCommand command,
+        bool? userSelectionServicePresent = null)
     {
-        //The two native getters are pure. Known -1 closes their conjunction
-        //without inventing a TaskScene/App-presence owner.
-        if (state.CampaignEventWorld?.CurrentUserIndex != -1)
+        //8C8D50 reads BC only when the independent selection service exists.
+        //Legacy callers can still close the conjunction with a known -1.
+        if (userSelectionServicePresent is true)
+        {
+            var selection = state.CampaignEventWorld?.CurrentUserIndex
+                ?? throw Missing("current_user");
+            if (selection != -1) return state;
+        }
+        else if (userSelectionServicePresent is null && state.CampaignEventWorld?.CurrentUserIndex != -1)
             throw Missing("task_scene_presence_for_current_user");
         if (command.AdditionalEvent != -1) throw Missing("recursive_additional_event");
         if (command.EntryKind == 0) return state;

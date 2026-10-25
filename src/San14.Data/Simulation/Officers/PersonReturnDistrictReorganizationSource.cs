@@ -246,29 +246,24 @@ internal static class PersonReturnDistrictReorganizationSource
         foreach (int id in operation.TouchedDistricts)
         {
             windows[id] = Enumerable.Range(0x10, 28).Select(at => current.ReadDistrictRawByte(id, at)).ToArray();
-            if (!districts.TryGetValue(id, out var before)) continue;
             bool valid = K(current.ReadDistrictNativeValidity(id), "published_District_validity");
+            //293490 unlinks and resets the reusable source slot. That reset
+            //window still belongs to the native owner, but the domain map
+            //contains active Districts, not retired arena slots.
+            if (!valid) { districts.Remove(id); continue; }
+            if (!districts.TryGetValue(id, out var before)) continue;
             int leader = K(current.ReadDistrictLeader(id), "published_District_leader");
             districts[id] = before with { ForceId = K(current.ReadDistrictForceId(id), "published_District_force"),
                 Number = K(current.ReadDistrictNumber(id), "published_District_number"),
                 LeaderId = leader == 0 ? null : leader,
-                OrdersRemaining = valid ? before.OrdersRemaining : 0 };
+                OrdersRemaining = before.OrdersRemaining };
         }
         return state with { Districts = districts, NativeForceUnregisterCurrent = owner with { DistrictWindows10 = windows } };
     }
 
     private static void ResetGroups(SourceWorldContext current, int district, ArmyReturnDistrictOperationQueries operation)
     {
-        //293490 walks80BA8 (CCautionTroopsData), not the military group table.
-        //Its invalid rows short-circuit before the stored District14 read.
-        //The existing caution owner has labels/members but no District14 yet.
-        for (int slot = 0; slot < 501; slot++)
-        {
-            var reference = current.ReadRegistryTableReference(RegistryKind.CautionTroops, slot)
-                ?? throw Missing("caution_group_table");
-            if (!K(current.ReadRegistryObjectNativeValidity(reference), "caution_group_validity")) continue;
-            throw Missing("caution_group_stored_District14_for_32B570");
-        }
+        operation.Publish(ArmyCautionDistrictResetSource.ResetForDistrict(operation.Latest(), current, district));
     }
     private static int Cap(SourceWorldContext current, GameState state, int district)
     {

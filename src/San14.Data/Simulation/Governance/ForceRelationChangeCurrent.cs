@@ -4,7 +4,7 @@ namespace San14.Data;
 
 /// <summary>Actual ordinary2704F0 two-way Relations13 mutation. Directional
 /// hostilityEA is a separate owner. Each call retains its own level notice.</summary>
-internal static class ForceRelationChangeCurrent
+internal static partial class ForceRelationChangeCurrent
 {
     internal static GameState Apply(GameState state, SourceWorldContext current,
         int first, int second, Func<int> adjustment, Func<string, int> parameter)

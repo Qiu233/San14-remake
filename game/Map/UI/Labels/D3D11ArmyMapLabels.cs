@@ -54,6 +54,7 @@ internal partial class D3D11ArmyMapLabels : Control
 
     internal ArmyMapUiCurrentFrame? CurrentFields => _fields;
     internal IReadOnlyDictionary<int, ArmyMapCard> Cards => _cards;
+    internal bool HasSpeechLayout(int unitId) => _rows.TryGetValue(unitId, out var row) && row.ArmyValid == true;
 
     internal void Configure(GameResourceRepository repository, ScenarioCityPreview scenario,
         UiAssets assets, MapFont font, MapTextPresets presets,

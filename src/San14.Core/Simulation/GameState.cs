@@ -82,6 +82,7 @@ public sealed record ItemState(int Id, int DefinitionId)
 }
 public sealed record DistrictState(int Id, int ForceId, int Number, int? LeaderId)
 {
+    public DistrictSettings? Settings { get; init; }
     public int? OrdersRemaining { get; init; }
     // Current cancellation/refund ceiling, separate from stock replenishment.
     // A fresh period's remaining books can legitimately exceed this ceiling.
@@ -685,6 +686,7 @@ public static class StateValidator
         PlayableForceDefeat.Validate(state);
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
+        CampaignTurnStopValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
         CampaignHistoryValidation.Validate(state);
         CampaignChronicleValidation.Validate(state);

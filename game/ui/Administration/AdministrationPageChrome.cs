@@ -22,7 +22,7 @@ internal partial class AdministrationPageChrome : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text, int titleMessage,
         Action returned, Action accepted, bool returnOnly = false, bool showFooterHint = true, bool compactReturn = false,
-        bool threeButtonFooter = false, int? returnNode = null)
+        bool threeButtonFooter = false, int? returnNode = null, int titleSection = 1)
     {
         this.returned = returned; this.accepted = accepted;
         MouseFilter = MouseFilterEnum.Ignore;
@@ -33,7 +33,7 @@ internal partial class AdministrationPageChrome : Control
         AddChild(Canvas);
         var header = new UiSourceLayout(repository, 0xDC8AC8AA);
         header.Art(Canvas, 1, header.Rectangle(1), Assets, SpriteShader);
-        var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
+        var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[titleSection];
         title = header.Text(Canvas, 2, default, messages.Records[titleMessage].Text ??
             throw new InvalidDataException("Missing domestic page title."), Font, MapTextPresets.Create()[56]);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);

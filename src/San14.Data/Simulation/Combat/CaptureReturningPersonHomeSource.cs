@@ -64,7 +64,8 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
     //2851B0 reaches260310 for every noncaptured ordinary Home owner. Read
     //the actual232370 predicate instead of treating an out-of-Base actor as idle.
     internal ReturningPersonHomeResult TryApplyHomeCurrent(GameState state, SourceWorldContext current,
-        int capturedLocationId, int previousForceId, int officerId, NativeMapSeasonDate? operationThirdDate)
+        int capturedLocationId, int previousForceId, int officerId, NativeMapSeasonDate? operationThirdDate,
+        ArmyReturnDistrictOperationQueries? districtOperation = null, List<CampaignEffectRequest>? feedback = null)
     {
         try
         {
@@ -90,7 +91,8 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
                     throw Missing("current.260310_dispatch_active_Commander_Army");
             }
             return ApplyBeforeTransfer(state, capturedLocationId, previousForceId, officerId, activeArmy,
-                idleResident: !busy, operationThirdDate: operationThirdDate, operationCurrent: current, currentBusy: busy);
+                idleResident: !busy, operationThirdDate: operationThirdDate, operationCurrent: current, currentBusy: busy,
+                districtOperation: districtOperation, feedback: feedback);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
     }
@@ -118,7 +120,8 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
 
     private ReturningPersonHomeResult ApplyBeforeTransfer(GameState state, int capturedLocationId, int previousForceId,
         int officerId, UnitState? activeArmy = null, bool idleResident = false, NativeMapSeasonDate? operationThirdDate = null,
-        SourceWorldContext? operationCurrent = null, bool? currentBusy = null)
+        SourceWorldContext? operationCurrent = null, bool? currentBusy = null,
+        ArmyReturnDistrictOperationQueries? districtOperation = null, List<CampaignEffectRequest>? feedback = null)
     {
         SourceWorldContext? current = null;
         HexListHandle? cities = null;
@@ -143,7 +146,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             var firstPosition = PersonPositionRepair.DecodeFirstLocation(first);
             var secondPosition = PersonPositionRepair.DecodeSecondLocation(second);
             if (first != capturedLocationId || (idleResident
-                ? status is not (3 or 4) || first != second
+                ? (districtOperation is null && status is not (3 or 4)) || first != second
                 : currentBusy is null && (firstPosition == secondPosition ||
                     (activeArmy is null ? secondPosition.Kind == 27 : secondPosition.Kind != 27))))
                 throw Missing("branch.260310_not_busy_Return_position");
@@ -157,7 +160,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             if (Need(current.ReadForcePhysicalSlot(force), "current.original_Force_ordinal") != previousForceId)
                 throw Missing("branch.changed_current_Force");
             var oldHome = BaseLookup.Find(first, current);
-            if (idleResident && (Need(current.ReadBaseForceSlot(oldHome), "current.preCaptureBase_original_Force") != previousForceId ||
+            if (idleResident && districtOperation is null && (Need(current.ReadBaseForceSlot(oldHome), "current.preCaptureBase_original_Force") != previousForceId ||
                 Need(current.ReadBaseDistrictSlot(oldHome), "current.preCaptureBase_original_District") != districtSlot))
                 throw Missing("current.preCaptureBase_original_owner_District");
             cities = NewTemporary(current); //260310 ptr_list<CCity>.
@@ -194,7 +197,14 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
                 }
                 finally { ClearRelease(current, outer); }
             }
-            if (candidates.Count == 0) throw Missing("branch.260310_no_same_District_City_Force_fallback");
+            if (candidates.Count == 0)
+            {
+                if (districtOperation is null) throw Missing("branch.260310_no_same_District_City_Force_fallback");
+                return ApplyIndependenceForceFallback(state, current, pool, person, officerId, first,
+                    idleResident, activeArmy, writes160, districtOperation,
+                    operationThirdDate ?? throw Missing("current.independence_260310_date"),
+                    feedback ?? throw Missing("current.independence_260310_report_owner"));
+            }
             //24C2F0's input and074560's copied empty Hex functor both allocate
             //actual descriptors.253F20 ignores the stored oldBase argument.
             var originalOrder = candidates.Select(x => x.Evidence).ToArray();
@@ -229,7 +239,8 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             var newDistrict = current.ReadCityDistrictReference(chosen) ?? throw Missing("current.selected_City_V80");
             ushort destination = (ushort)Math.Min(Need(current.ReadBaseObjectLink(chosen), "current.selected_City4E"), (ushort)61);
             current.WritePersonFirstLocation(person, destination);
-            var queries = new Queries(state, governorInputs, current);
+            IArmyReturnGovernorCurrentQueries queries = districtOperation is not null
+                ? districtOperation : new Queries(state, governorInputs, current);
             var governors = new List<ArmyReturnGovernorPacket>();
             governors.AddRange(ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(newDistrict, current, queries));
             governors.AddRange(ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(district, current, queries));
@@ -239,7 +250,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             //takes its actual230C70 status6 prisoner branch instead. Both
             //saved busy1 leaves skip2EA9A0 and preserve E4/status/Army fields.
             PersonReturnCommandResult? returning = null;
-            var working = state;
+            var working = districtOperation?.Latest() ?? state;
             if (idleResident)
             {
                 RequireIdleNoCommanderArmy(current);

@@ -484,7 +484,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (result.Reports.Count != 0)
                 throw Missing("assignment_report_" + result.Reports[0].NativeMessageCode.ToString("X4"));
         }
-        private IPersonDistrictTransferState Transfer() => ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations, RequireOwnedAssignmentReports);
+        private IPersonDistrictTransferState Transfer() => ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations, _monthlyAssignmentReports ?? RequireOwnedAssignmentReports);
         private void SetStatus(int person, byte status)
         {
             current.WritePersonStatus(person, status);

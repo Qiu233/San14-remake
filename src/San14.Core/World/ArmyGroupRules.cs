@@ -119,7 +119,11 @@ public static class ArmyGroupRules
         if (assignment.GroupId is not int groupId) return next;
         var members = GetMembers(next, groupId, rosterAfterRemoval, excludedUnitIds);
         if (members is null) return null;
-        if (members.Count == 0) next.Leaders[groupId] = new(true, emptyGroupLeader ?? next.ResetLeader);
+        if (members.Count == 0)
+        {
+            next.Leaders[groupId] = new(true, emptyGroupLeader ?? next.ResetLeader);
+            next.CautionTargets?.Remove(groupId);
+        }
         return next;
     }
 }

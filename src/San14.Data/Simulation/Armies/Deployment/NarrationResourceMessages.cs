@@ -24,6 +24,7 @@ internal interface INarrationCurrentContext
     string CityText(int argument, int field) => throw new InvalidDataException("narration.city_argument");
     string ForceText(int argument, int field) => throw new InvalidDataException("narration.force_argument");
     int ForceValue(int argument, int field) => throw new InvalidDataException("narration.force_numeric_argument");
+    string DistrictText(int argument, int field) => throw new InvalidDataException("narration.district_argument");
 }
 
 internal enum NarrationResourceFamily { Deployment, AreaDismissal, AreaAppointment }
@@ -34,7 +35,7 @@ internal sealed record NarrationResourceText(int RootMessageId, int MessageId,
 /// <summary>The finite deployment, region-handover and officer-speech dialect. It reads game
 /// resources, never executable instructions. Expressions are parsed before
 /// evaluation; unreached operands do not query current people or draw randoms.</summary>
-internal sealed class NarrationResourceMessages
+internal sealed partial class NarrationResourceMessages
 {
     private readonly MessageDocument _messages;
     private readonly Dictionary<int, Program> _programs = [];
@@ -393,25 +394,65 @@ internal sealed class NarrationResourceMessages
         0x589E, 0x589F, 0x598F, 0x5C4E, 0x5C51, 0x5C52, 0x5C53, 0x5C54, 0x5C55, 0x5C56, 0x5C57, 0x5C58,
         0x5C59, 0x5C5A, 0x5C5B, 0x5C5C, 0x5C5D, 0x5C5E, 0x5C5F, 0x5C6E, 0x5C72,
     ];
+    //The three District roots and their complete installed TC/SC resource closure.
+    private static readonly HashSet<int> DistrictAdministrationMessages =
+    [
+        0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0,
+        0x00A1, 0x00A2, 0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00B8, 0x00B9, 0x00BA,
+        0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF, 0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4,
+        0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9, 0x00CA, 0x00CB, 0x00CC, 0x00CD, 0x00CE,
+        0x00CF, 0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5, 0x00D7, 0x00D8, 0x00D9,
+        0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF, 0x00E0, 0x00E1, 0x00E2, 0x00E3,
+        0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA, 0x00EB, 0x00EC, 0x00ED,
+        0x00EE, 0x00EF, 0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7,
+        0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE, 0x00FF, 0x0100, 0x0101,
+        0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107, 0x0108, 0x0109, 0x010A, 0x010B,
+        0x010C, 0x010D, 0x010E, 0x010F, 0x0110, 0x0111, 0x0112, 0x0113, 0x0114, 0x0115,
+        0x0116, 0x0117, 0x0118, 0x0119, 0x011A, 0x011B, 0x011C, 0x011D, 0x011E, 0x011F,
+        0x0120, 0x0121, 0x0122, 0x0123, 0x0124, 0x0125, 0x0127, 0x0128, 0x0289, 0x028A,
+        0x028B, 0x028C, 0x028D, 0x5946, 0x5963, 0x5964, 0x5965, 0x5966, 0x5967, 0x5968,
+        0x5969, 0x596A, 0x596B, 0x596C, 0x596D, 0x596E,
+    ];
     internal string ResolvePersonnelAdministrationReport(INarrationCurrentContext people,
         Func<int, int> drawApp32, int root)
     {
         if (root is not (0x585D or 0x5867 or 0x5868 or 0x5885 or 0x5886 or 0x5887 or
             0x588C or 0x5896 or 0x5888 or 0x5889 or 0x588A or 0x588B or 0x5C56 or
             0x5C5E or 0x5C5F or 0x5C51 or 0x5C52 or 0x5C53 or 0x5C54 or
-            0x5D21 or 0x5D22 or 0x5D23 or 0x5D24))
+            0x5D21 or 0x5D22 or 0x5D23 or 0x5D24 or 0x5946 or 0x5963 or 0x5969))
             throw Failure("personnel_administration_root");
         _prefix = "personnel.administration.text";
         bool previous = _report; _report = true;
         try
         {
             return ExecuteMessage(people, drawApp32, root, Get(root, true), _ => false, true, null,
-                PersonnelAdministrationMessages.Contains, (group, code) => (group, code) switch
+                id => (root is 0x5946 or 0x5963 or 0x5969 ? DistrictAdministrationMessages : PersonnelAdministrationMessages).Contains(id), (group, code) => (group, code) switch
                 {
                     ('C', 'J') => "^02", ('C', 'L') => "^05",
                     ('E', 'K') or ('E', 'M') => string.Empty,
                     _ => throw Failure($"unresolved_escape_{group:X2}_{code:X2}")
                 }, true).Text;
+        }
+        finally { _report = previous; }
+    }
+
+    // The installed TC/SC research guide, confirmation and ruler narration closure.
+    private static readonly HashSet<int> DoctrineResearchMessages =
+    [
+        0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x0606, 0x0607, 0x0608, 0x0609, 0x060A,
+        0x57C7, 0x5C61, 0x5C62, 0x5C63, 0x5C64, 0x5C65, 0x5C67, 0x5C68, 0x5C69, 0x5C6A, 0x5C6B,
+        0x5C7F, 0x5C80, 0x5C81, 0x5C82, 0x5C83, 0x5C84, 0x5C85
+    ];
+    internal string ResolveDoctrineResearch(INarrationCurrentContext context, Func<int, int> drawApp32, int root)
+    {
+        if (root is not (0x57C7 or 0x5C61 or 0x5C62 or 0x5C63 or 0x5C64 or 0x5C65 or 0x5C67 or
+            0x5C68 or 0x5C69 or 0x5C6A or 0x5C6B or 0x5C7F)) throw Failure("doctrine_research_root");
+        _prefix = "doctrine.research.text";
+        bool previous = _report; _report = true;
+        try
+        {
+            return ExecuteMessage(context, drawApp32, root, Get(root, true), _ => false,
+                true, null, DoctrineResearchMessages.Contains).Text;
         }
         finally { _report = previous; }
     }
@@ -602,6 +643,7 @@ internal sealed class NarrationResourceMessages
 
     private static readonly HashSet<int> ReportMessages =
     [
+        0x5D25, 0x5D26, 0x5D7F, 0x5D80,
         0x5A74, 0x5A75, 0x5A76,
         0x322E,
         0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x0606, 0x0607, 0x0608, 0x0609,
@@ -669,7 +711,7 @@ internal sealed class NarrationResourceMessages
 
     internal string ResolveHistoryReport(INarrationCurrentContext context, Func<int,int> drawApp32, int root)
     {
-        if (root is not (0x5A74 or 0x5A75 or 0x5A76 or 0x322E or 0x5F6A or 0x5F58 or 0x5F6D or 0x5F80 or 0xC96A or 0xC96B or 0xC96C or 0xC96D or 0xC96E or
+        if (root is not (0x5D25 or 0x5D26 or 0x5D7F or 0x5D80 or 0x5A74 or 0x5A75 or 0x5A76 or 0x322E or 0x5F6A or 0x5F58 or 0x5F6D or 0x5F80 or 0xC96A or 0xC96B or 0xC96C or 0xC96D or 0xC96E or
             0xC356 or 0xC357 or 0xC358 or 0xC359 or 0xC35A or 0xC35B or 0xC35D or 0xC35E or 0xC96F or 0xC360 or
             0x3228 or 0x3229 or 0x3225 or 0x322D or 0x3231 or 0x3232 or 0x3239 or 0x323A or
             0x5F7B or 0x5F7C or 0x5F7D or 0x349D or 0x53D4 or 0x3452 or 0x2A3B))
@@ -995,6 +1037,7 @@ internal sealed class NarrationResourceMessages
         { Person p => people.PersonText(p.Argument, p.Field), Area a => people.AreaText(a.Argument, a.Field),
           City c => people.CityText(c.Argument, c.Field),
           Force f => people.ForceText(f.Argument, f.Field),
+          District d => people.DistrictText(d.Argument, d.Field),
           Army a => people.ArmyText(a.Argument, a.Field),
           StringArgument a => _report ? people.StringText(a.Argument, a.Field) :
               string0?.Invoke() ?? throw Failure("string_argument"),
@@ -1021,6 +1064,31 @@ internal sealed class NarrationResourceMessages
             { '=' => left == right, '!' => left != right, '<' => left < right, '>' => left > right,
               '{' => left <= right, '}' => left >= right, _ => throw Failure("comparison") };
         }
+    }
+
+    //Action31 Army-map speech: complete installed TC/SC C829 closure.
+    private static readonly HashSet<int> ArmyMapSpeechMessages =
+    [
+        0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0,
+        0x00A1, 0x00A2, 0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00AB, 0x00AC, 0x00AD,
+        0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5, 0x00B6, 0x00B7, 0xC829, 0xC82A, 0xC82B,
+        0xC82C, 0xC82D, 0xC82E, 0xC82F, 0xC830, 0xC831, 0xC832,
+    ];
+    internal string ResolveArmyMapSpeech(INarrationCurrentContext context, Func<int, int> drawApp32)
+    {
+        _prefix = "army-map-speech.text";
+        bool previous = _report; _report = true;
+        try
+        {
+            return ExecuteMessage(context, drawApp32, 0xC829, Get(0xC829, true), _ => false, true, null,
+                ArmyMapSpeechMessages.Contains, (group, code) => (group, code) switch
+                {
+                    ('C', 'J') => "^02", ('C', 'L') => "^05",
+                    ('E', 'K') or ('E', 'M') => string.Empty,
+                    _ => throw Failure($"unresolved_escape_{group:X2}_{code:X2}")
+                }, true).Text;
+        }
+        finally { _report = previous; }
     }
 
     private string _prefix = "deployment.narration";
@@ -1065,6 +1133,40 @@ internal sealed class NarrationResourceMessages
         return result.ToString();
     }
 
+    private static readonly HashSet<int> MonthlyMaintenanceMessages =
+    [
+        0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF, 0x00C0, 0x00C1,
+        0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9, 0x00CA, 0x00CB,
+        0x00CC, 0x00CD, 0x00CE, 0x00CF, 0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5,
+        0x00D7, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF, 0x00E0,
+        0x00E1, 0x00E2, 0x00E3, 0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA,
+        0x00EB, 0x00EC, 0x00ED, 0x00EE, 0x00EF, 0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4,
+        0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE,
+        0x00FF, 0x0100, 0x0101, 0x0119, 0x3055, 0x3056, 0x3057, 0x3058, 0x3059, 0x305A,
+        0x305B, 0x305C, 0x305D, 0x3174, 0x320A, 0x320E, 0x3212, 0x324A, 0x324B, 0x5EF8,
+        0x5EF9, 0x5EFA, 0x5EFB, 0x5EFC, 0x5EFD, 0x5EFE,
+    ];
+    internal string ResolveMonthlyMaintenance(INarrationCurrentContext context, Func<int, int> drawApp32, int root)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(drawApp32);
+        if (root is not (0x5EF8 or 0x324A or 0x324B or 0x3174 or 0x320A or 0x320E or 0x3212 or
+            0x3055 or 0x3056 or 0x3057 or 0x3058 or 0x3059 or 0x305A or 0x305B or 0x305C or 0x305D))
+            throw new InvalidDataException("monthly-maintenance.text.root");
+        _prefix = "monthly-maintenance.text";
+        bool previousReport = _report;
+        _report = true;
+        try
+        {
+            string text = ExecuteMessage(context, drawApp32, root, Get(root), _ => false, true, null,
+                MonthlyMaintenanceMessages.Contains).Text;
+            if (text.Length > 338 || text.Any(c => c == '\0' || char.IsSurrogate(c)))
+                throw Failure("complete_short_bmp_profile");
+            return text;
+        }
+        finally { _report = previousReport; }
+    }
+
     private Program Get(int id, bool allowOpaqueEscapes = false)
     {
         var cache = _report ? _reportPrograms : _history ? _historyPrograms : _programs;
@@ -1100,6 +1202,7 @@ internal sealed class NarrationResourceMessages
     private sealed record Area(int Argument, int Field) : Expression;
     private sealed record City(int Argument, int Field) : Expression;
     private sealed record Force(int Argument, int Field) : Expression;
+    private sealed record District(int Argument, int Field) : Expression;
     private sealed record Army(int Argument, int Field) : Expression;
     private sealed record StringArgument(int Argument = 0, int Field = 0) : Expression;
     private sealed record Function(int Field, Expression[] Arguments) : Expression;
@@ -1192,10 +1295,12 @@ internal sealed class NarrationResourceMessages
                 int field = Peek() >= 0x20 ? Read() : 0;
                 return new Person(selector - 'F', field);
             }
-            if (selector == 'x')
-            { int field = Peek() >= 0x20 ? Read() : 0; return new City(0, field); }
-            if (selector == 'P' || reportArguments && selector == 'Q')
+            if (selector == 'x' || reportArguments && selector is >= 'y' and <= '|')
+            { int field = Peek() >= 0x20 ? Read() : 0; return new City(selector - 'x', field); }
+            if (selector == 'P' || reportArguments && selector is >= 'Q' and <= 'T')
             { int field = Peek() >= 0x20 ? Read() : 0; return new Force(selector - 'P', field); }
+            if (reportArguments && selector == 'Z')
+            { int field = Peek() >= 0x20 ? Read() : 0; return new District(0, field); }
             if (reportArguments && selector is 'n' or 'o')
             { int field = Peek() >= 0x20 ? Read() : 0; return new Army(selector - 'n', field); }
             if (selector == '<' || reportArguments && selector is '=' or '>')

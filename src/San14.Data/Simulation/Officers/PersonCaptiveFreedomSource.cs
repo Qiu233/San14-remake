@@ -48,7 +48,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     //The outer operation owns the live pool, final Export and pending queue.
     internal GameState ApplyCaptiveFreedomCurrent(GameState input, SourceWorldContext current,
         WorldIndexContext pool, int personPhysical, NativeMapSeasonDate? sourceDate,
-        Func<int> readDay450, Func<TacticSourceSamplerWorld> readSampler, List<CampaignEffectRequest> sink)
+        Func<int> readDay450, Func<TacticSourceSamplerWorld> readSampler, List<CampaignEffectRequest> sink,
+        TransferPersonReference? formerRuler = null, BaseReference? preferredHome = null)
     {
         T Need<T>(T? value, string field) where T : struct => value ?? throw CaptiveFreedomMissing(field);
         if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
@@ -150,8 +151,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.WritePersonFirstLocation(personPhysical, 0);
         working = PublishPerson(working);
         working = current.PublishOfficerAftermath(working, id);
-        var selected = (_captiveFreedomHomes ??= new(_scenario)).ResolveBorrowed(working, current,
-            personPhysical, oldHome, oldArea, readSampler);
+        //265250's nonnull placement argument selects that Base's actual
+        //representative Area directly, without City/Area shuffle draws.
+        var selected = preferredHome is not null && Need(current.ReadBaseNativeValidity(preferredHome), "preferred_Home_validity")
+            ? new PersonFreedomHomeResult(1, null, PersonFreedomHomeSource.FindBaseArea229FD0(current, preferredHome), null, null)
+            : (_captiveFreedomHomes ??= new(_scenario)).ResolveBorrowed(working, current,
+                personPhysical, oldHome, oldArea, readSampler);
         if (selected.NativeReturn == 0) return working; //Real prefix survives the no-City return0.
         if (selected.NativeReturn != 1 || selected.Area?.PhysicalSlot is not int areaPhysical)
             throw CaptiveFreedomMissing(selected.UnresolvedOwner ?? "null_placement_City_or_Area");
@@ -206,6 +211,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             { Appointment = OfficerAppointment.Synchronize(73), MeritState = OfficerMeritRules.ResetAfterRelease(merit) } } };
         working = ArmyDestructionLoyalty.PublishCurrentRawE8(working, current, personPhysical, loyalty);
         working = PublishPerson(working);
+        if (formerRuler?.PhysicalSlot is int former && Need(current.ReadPersonNativeValidity(former), "former_ruler_validity"))
+        {
+            var aftermath = current.ReadOfficerAftermath(personPhysical) ?? throw CaptiveFreedomMissing("former_ruler_resentment_owner");
+            current.SetOfficerAftermath(personPhysical, aftermath with
+            { Resentment = new(Math.Clamp((int)Need(current.ReadPersonIdentity(former), "former_ruler_identity"), 0, 6000), 12) });
+        }
         working = current.PublishOfficerAftermath(working, id);
         if (repairGovernor && Need(current.ReadArmyReturnBaseGovernor2E(oldHome), "tail_old_Home2E") == 0 &&
             Need(current.ReadBaseNativeValidity(oldHome), "tail_old_Home_validity"))

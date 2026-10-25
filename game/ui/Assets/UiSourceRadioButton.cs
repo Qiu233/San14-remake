@@ -10,6 +10,8 @@ internal partial class UiSourceRadioButton : UiSourceButton
 {
     private Rect2 hit;
     private Action? released;
+    private UiSourceText caption = null!;
+    internal string Caption { get => caption.Text; set => caption.Text = value; }
     public override bool _HasPoint(Vector2 point) => hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
@@ -35,7 +37,7 @@ internal partial class UiSourceRadioButton : UiSourceButton
         ActionMode = ActionModeEnum.Release;
         var states = new[] { 3, 5, 8, 11, 13 }
             .Select(index => source.Art(this, index, source.Rectangle(index), assets, shader)).ToArray();
-        var caption = source.Text(this, 16, default, text, font);
+        caption = source.Text(this, 16, default, text, font);
         caption.Name = "Caption";
         var profile = MapFontProfile.FromNode(source.Nodes[16], source.Source.Source.ResourceUri);
         var presets = MapTextPresets.Create();

@@ -111,6 +111,7 @@ internal sealed partial class SceneAudioBinding : IDisposable
 
     internal void LeavePlayableMap()
     {
+        if (GodotObject.IsInstanceValid(_session) && _session.IsInsideTree()) _session.StopMonthlyTerritorySounds();
         StopPersonnelPresentationAudio();
         StopNarrationVoice();
         _musicEditActive = false; _musicReturnSelection = null; _musicEditTemporaryScene = false;

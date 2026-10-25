@@ -7,15 +7,16 @@ internal sealed partial class SceneAudioBinding
     private const string PersonnelEffectChannel = "personnel-presentation-effect";
     private CancellationTokenSource? _personnelEffect;
 
-    internal void PlayPersonnelPresentationAudio(TalentCommandPresentationRequest? talent,
+    internal bool PlayPersonnelPresentationAudio(TalentCommandPresentationRequest? talent,
         DiplomacyArrivalAudioRequest? arrival, NarrationVoiceLanguage language)
     {
         try
         {
+            if (!GodotObject.IsInstanceValid(_session) || !_session.IsInsideTree()) return false;
             if (talent?.Voice is { } voice)
             {
                 PlayPersonnelNarrationVoice(voice);
-                return;
+                return true;
             }
             var source = PersonnelPresentationAudioSource.Select(talent, arrival, language);
             CancellationTokenSource lifetime;
@@ -35,8 +36,9 @@ internal sealed partial class SceneAudioBinding
             //An outbox receipt does not end playback. Only replacement/scene
             //retirement cancels this lifetime, matching the nonblocking source.
             _ = PlayPersonnelPresentationAudioAsync(source, channel, lifetime);
+            return true;
         }
-        catch (Exception error) { GD.PushWarning("Personnel audio: " + error.Message); }
+        catch (Exception error) { GD.PushWarning("Personnel audio: " + error.Message); return false; }
     }
 
     internal void PlayPersonnelNarrationVoice(TalentNarrationVoiceRequest voice)

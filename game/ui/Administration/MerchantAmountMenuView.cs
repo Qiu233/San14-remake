@@ -15,7 +15,7 @@ internal partial class MerchantAmountMenuView : Control
     private Func<bool>? admitted;
     private Action<int?>? closed;
     private int current, minimum, maximum;
-    private int titleMessage;
+    private int calculatorTitleMessage;
     private Vector2 calculatorPosition;
     private bool abandoned;
 
@@ -23,7 +23,9 @@ internal partial class MerchantAmountMenuView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<int> presetAmounts, int current, int minimum, int maximum,
-        Func<bool> admitted, Action<int?> closed, int titleMessage=0x020D, Vector2? calculatorPosition=null)
+        Func<bool> admitted, Action<int?> closed, int titleMessage=0x020D, Vector2? calculatorPosition=null,
+        string? quantityIconPrefix = null, int? calculatorTitleMessage = null, string? hintText = null,
+        string? quantityIconTexturePack = null)
     {
         if (presetAmounts.Count != 3)
             throw new ArgumentException("The source amount dialog requires three published quantities.", nameof(presetAmounts));
@@ -34,7 +36,7 @@ internal partial class MerchantAmountMenuView : Control
         this.maximum = maximum;
         this.admitted = admitted;
         this.closed = closed;
-        this.titleMessage=titleMessage;
+        this.calculatorTitleMessage = calculatorTitleMessage ?? titleMessage;
         this.calculatorPosition=calculatorPosition??new(860,22);
         Name = "MerchantAmountMenu";
         ZIndex = 6;
@@ -44,7 +46,7 @@ internal partial class MerchantAmountMenuView : Control
         AddChild(chrome);
         chrome.Configure(repository, text, titleMessage, RequestCancel, static () => { }, returnOnly: true);
         var narration = new AdministrationMessages(repository, text.SourceLocale);
-        chrome.ApplyDefaultHint(narration.Format(titleMessage==0x020C?0x59B7:0x59B8));
+        chrome.ApplyDefaultHint(hintText ?? narration.Format(titleMessage==0x020C?0x59B7:0x59B8));
         chrome.ApplyReturnHint(narration.Format(0x2733));
 
         var source = new UiSourceLayout(repository, 0x9E967696);
@@ -59,6 +61,8 @@ internal partial class MerchantAmountMenuView : Control
         ];
         if(titleMessage==0x020C)
             for(int index=0;index<3;index++)icons[index]="000_cmn_icon_sel_kin_"+(index+1);
+        if (quantityIconPrefix is not null)
+            for (int index = 0; index < 3; index++) icons[index] = quantityIconPrefix + (index + 1);
         for (int index = 0; index < 4; index++)
         {
             int choice = index;
@@ -80,7 +84,7 @@ internal partial class MerchantAmountMenuView : Control
                 if (!ReadAdmission()) return;
                 if (choice == 3) OpenCalculator();
                 else Finish(amount);
-            });
+            }, index < 3 ? quantityIconTexturePack : null);
         }
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
@@ -105,7 +109,7 @@ internal partial class MerchantAmountMenuView : Control
                 // The original four-choice dialog has already returned Other.
                 // Cancelling its calculator returns to the merchant unchanged.
                 Finish(result);
-            }, panelPosition: calculatorPosition, titleMessage: titleMessage);
+            }, panelPosition: calculatorPosition, titleMessage: calculatorTitleMessage);
             child.Name = "MerchantAmountCalculator";
             chrome.Hide();
         }
@@ -172,7 +176,7 @@ internal partial class MerchantAmountChoiceButton : UiSourceButton
     public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
-        MapFont font, string text, string icon, Action released)
+        MapFont font, string text, string icon, Action released, string? iconTexturePack = null)
     {
         this.released = released;
         var source = new UiSourceLayout(repository, 0x53C224C0);
@@ -189,7 +193,7 @@ internal partial class MerchantAmountChoiceButton : UiSourceButton
         var presets = MapTextPresets.Create();
         var palettes = MapSpritePalettes.Create();
         var picture = source.Art(this, 17, source.Rectangle(17), assets, shader,
-            colors: palettes[25], commonSpriteOverride: icon);
+            colors: palettes[25], commonSpriteOverride: icon, commonTexturePack: iconTexturePack);
         picture.Name = "QuantityIcon";
         var sprites = picture.FindChildren("*", "", true, false).OfType<UiSourceSprite>().ToArray();
         ConfigureStates(states, state =>

@@ -13,18 +13,33 @@ internal static class PersonnelPresentationQueue
         {
             if(batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.DiplomacyCommands or
                 CampaignEffectSource.OfficerGrowthNotifications or CampaignEffectSource.OfficerOfficeCommands or
-                CampaignEffectSource.PersonnelAdministrationCommands))continue;
+                CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance or
+                CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands))continue;
             for(int index=0;index<batch.Requests.Length;index++)
             {
                 var request=batch.Requests[index];
-                if(request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
+                //Monthly controller and map operations keep their source order.
+                //The host must handle the head before showing a later line.
+                if(request.MonthlyMaintenance is not null||request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
                     request.OfficerGrowthFeedback?.Operation is OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration||
                     request.DiplomacyArrivalAudio is not null||request.TalentCommandPresentation?.Operation is
                     TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or
-                    TalentCommandPresentationOperation.OfficerText)
+                    TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText)
                     return new(batch.Sequence,index,request,batch.Source);
             }
         }
         return null;
     }
+
+    internal static TalentCommandPresentationRequest? Message(PersonnelPresentationEntry entry) =>
+        entry.Request.TalentCommandPresentation ?? (entry.Request.MonthlyMaintenance switch
+        {
+            { Operation: MonthlyMaintenanceOperation.ControllerQueueEvent, EventKind: 6 or 8 } sound =>
+                new(TalentCommandPresentationOperation.SoundCue, sound.EventKind, null, null, null, null),
+            { Operation: MonthlyMaintenanceOperation.NarrationText } text =>
+                new(TalentCommandPresentationOperation.Announcement, null, null, null, null, text.TextAtSource),
+            { Operation: MonthlyMaintenanceOperation.ConditionalSpeakerText } text =>
+                new(TalentCommandPresentationOperation.OfficerText, null, text.SpeakerId, null, null, text.TextAtSource),
+            _ => null
+        });
 }

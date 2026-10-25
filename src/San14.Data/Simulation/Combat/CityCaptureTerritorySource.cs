@@ -21,7 +21,7 @@ public sealed record CityCaptureStateTransition(int StatePhysical, int Advantage
 /// takeover list. Whole2851B0,3x2E9140,resources/reward and publication remain
 /// the caller's transaction. Reached Gate reassignment/Emperor/presentation
 /// services outside a finite leaf throw concrete unknowns.</summary>
-public static class CityCaptureTerritorySource
+public static partial class CityCaptureTerritorySource
 {
     public static CityCaptureAreaScope CaptureRelatedAreas(SourceWorldContext current,
         BaseReference city, int newForce)
@@ -334,13 +334,13 @@ public static class CityCaptureTerritorySource
     { if (denominator == 0 || numerator == int.MinValue && denominator == -1) throw Missing("source_IDIV"); return numerator / denominator; }
 
     private static GateCaptureHexTransfer Rings(GameState state, SourceWorldContext current,
-        HexReference center, int radius, int newForce)
+        HexReference center, int radius, int newForce, bool eagerAdvice = true)
     {
         var visited = new List<int>(); var cleared = new List<int>(); var changed = new List<int>(); var dirty = new List<int>();
         var temporary = current.CreateNearbyTemporary();
         try
         {
-            Advice(state, current); //Actual param6=1 eager query after descriptor allocation.
+            if (eagerAdvice) Advice(state, current); //Actual param6 gates this query.
             for (int distance = 0; distance <= radius; distance++)
             {
                 current.ClearNearbyTemporary(temporary, false);

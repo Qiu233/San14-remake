@@ -1,0 +1,82 @@
+using Godot;
+using San14.Core;
+using San14.Client.Gameplay;
+
+public partial class Main
+{
+    private sealed class MonthlyFeedbackWorkspace(GameplaySession session, GameState world,
+        MapSceneView map, MonthlyMaintenanceRequest request)
+    {
+        internal GameplaySession Session { get; } = session;
+        internal GameState World { get; } = world;
+        internal MapSceneView Map { get; } = map;
+        internal MonthlyMaintenanceRequest Request { get; } = request;
+        internal CancellationTokenSource Lifetime { get; } = new();
+        internal bool Running { get; set; } = true;
+    }
+
+    private MonthlyFeedbackWorkspace? _monthlyFeedback;
+    private bool HasMonthlyFeedback => _monthlyFeedback?.Running == true;
+    private bool IsMonthlyFeedbackCurrent => _monthlyFeedback is { } feedback &&
+        ReferenceEquals(_session, feedback.Session) && _residentMap == feedback.Map &&
+        ReferenceEquals(PersonnelPresentationOwner(feedback.Session), feedback.World);
+
+    private bool TryPresentMonthlyTerritory(PersonnelPresentationEntry entry, GameplaySession session,
+        GameState world, MapSceneView map)
+    {
+        var request = entry.Request.MonthlyMaintenance!;
+        if (_monthlyFeedback is { } previous && IsMonthlyFeedbackCurrent &&
+            ReferenceEquals(previous.Request, request)) return previous.Running;
+        CloseMonthlyFeedback();
+        if (_sceneAudioBinding is not { } audio)
+            throw new InvalidOperationException("Monthly map feedback needs the active scene audio owner.");
+        var feedback = new MonthlyFeedbackWorkspace(session, world, map, request);
+        _monthlyFeedback = feedback;
+        RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
+        map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(false); HideDeploymentHud();
+        _ = Dispatch();
+        return true;
+
+        async Task Dispatch()
+        {
+            try
+            {
+                var result = await map.DispatchMonthlyTerritoryFeedbackAsync(request, audio, feedback.Lifetime.Token);
+                if (_monthlyFeedback != feedback || !IsMonthlyFeedbackCurrent) return;
+                //A spatial sound alone does not complete the separate map effect.
+                //Keep the source request until both actual consumers accept it.
+                if (result.AudioAccepted && result.VisualAccepted)
+                    session.TryCompletePersonnelPresentation(world, entry.BatchSequence, entry.RequestIndex);
+                else if (result.UnresolvedInput is { } missing)
+                    GD.PushWarning("Monthly map feedback: " + missing);
+            }
+            catch (OperationCanceledException) when (feedback.Lifetime.IsCancellationRequested) { }
+            catch (Exception error)
+            {
+                if (_monthlyFeedback == feedback && IsMonthlyFeedbackCurrent)
+                    GD.PushWarning("Monthly map feedback: " + error.Message);
+            }
+            finally
+            {
+                feedback.Running = false;
+                if (_monthlyFeedback != feedback) feedback.Lifetime.Dispose();
+                else if (GodotObject.IsInstanceValid(map) && _residentMap == map)
+                {
+                    map.SetDetailsOpen(false);
+                    if (!_failed && !_shuttingDown && IsInsideTree()) RunUiAction(RefreshPlayControls);
+                }
+            }
+        }
+    }
+
+    private void CloseMonthlyFeedback()
+    {
+        var feedback = _monthlyFeedback; _monthlyFeedback = null;
+        if (feedback is null) return;
+        feedback.Lifetime.Cancel();
+        //A running dispatch disposes its borrowed token in its own finally.
+        if (!feedback.Running) feedback.Lifetime.Dispose();
+        if (feedback.Running && GodotObject.IsInstanceValid(feedback.Map) && _residentMap == feedback.Map)
+            feedback.Map.SetDetailsOpen(false);
+    }
+}

@@ -5,7 +5,7 @@ using San14.Data.Formats;
 internal sealed record CommandSelectionColumn(string Key, string Caption, int Width, bool Numeric = false);
 internal sealed record CommandSelectionCell(string Text, long? Number = null, string? SortKey = null);
 internal sealed record CommandSelectionRow(int Id, IReadOnlyList<CommandSelectionCell> Cells,
-    bool Enabled, string? DisabledReason = null);
+    bool Enabled, string? DisabledReason = null, bool LockedSelected = false);
 
 /// <summary>A source command selector over a retained candidate publication.
 /// Only fourteen row controls are mounted, including for very large rosters.</summary>
@@ -20,6 +20,7 @@ internal partial class CommandSelectionView : Control
     private UiSourceBottomButton selectAll = null!;
     private readonly List<RowDisplay> pool = [];
     private readonly List<int> selection = [];
+    private readonly HashSet<int> lockedSelection = [];
     private readonly Dictionary<string, UiSourceColumnButton> headers = [];
     private IReadOnlyList<CommandSelectionRow> publication = [], ordered = [];
     private Func<bool>? admitted;
@@ -111,7 +112,7 @@ internal partial class CommandSelectionView : Control
         selectAll.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, selectCaption, () =>
         {
             if (!ReadAdmission()) return;
-            if (selection.Count == Math.Min(this.maximum, eligibleCount)) selection.Clear();
+            if (EditableSelectedCount() == EditableMaximum()) selection.RemoveAll(id => !lockedSelection.Contains(id));
             else foreach (var row in ordered)
             {
                 if (selection.Count >= this.maximum) break;
@@ -121,7 +122,8 @@ internal partial class CommandSelectionView : Control
         });
         selectAll.Visible = !singleSelection;
         foreach (int id in initial)
-            if (selection.Count < maximum && !selection.Contains(id) && publication.Any(row => row.Id == id && row.Enabled)) selection.Add(id);
+            if (selection.Count < maximum && !selection.Contains(id) && publication.FirstOrDefault(row => row.Id == id) is { } row && (row.Enabled || row.LockedSelected))
+            { selection.Add(id); if (row.LockedSelected) lockedSelection.Add(id); }
         PositionRows(); RefreshSelection();
 
         int Compare(CommandSelectionRow a, CommandSelectionRow b, int index)
@@ -161,10 +163,12 @@ internal partial class CommandSelectionView : Control
         if (selectAll is not null)
         {
             selectAll.Disabled = maximum == 0 || eligibleCount == 0;
-            selectAll.ApplyCaption(selection.Count == Math.Min(maximum, eligibleCount) ? clearCaption : selectCaption);
+            selectAll.ApplyCaption(EditableSelectedCount() == EditableMaximum() ? clearCaption : selectCaption);
         }
         chrome.ApplyDecision(!requireSelection || selection.Count > 0, true);
     }
+    private int EditableSelectedCount() => selection.Count - lockedSelection.Count;
+    private int EditableMaximum() => Math.Min(Math.Max(0, maximum - lockedSelection.Count), eligibleCount);
     internal void RequestCancel() => Finish(null);
     internal void ApplyNotice(string value) { if (!abandoned) chrome.ApplyDefaultHint(value); }
     private void RequestApply() { if (!requireSelection || selection.Count > 0) Finish(selection.ToArray()); }

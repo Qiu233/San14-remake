@@ -49,6 +49,7 @@ public sealed partial class WorldIndexContext
         { handle = AllocateDescriptor(); _cautionHandles.Add(group, handle); }
         return handle;
     }
+    internal HexListHandle? ExistingCautionGroupHandle(int group) => _cautionHandles.GetValueOrDefault(group);
     internal void ReplaceCautionGroupMembers(int group, IReadOnlyList<int?> members)
     {
         var handle = CautionGroupHandle(group);

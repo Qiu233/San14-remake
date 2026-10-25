@@ -267,6 +267,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         InitializeMapArmyGroupsKnownReset(Enumerable.Range(0, 501));
         var ready = InstallFreshCampaignEventState(InstallFreshLandmarkInvestments(SubdayStatusParameters.InstallFresh(FireCommandParameters.InstallFresh(
             HexFireParameters.InstallFresh(BaseWoundedRecoveryParameters.InstallFresh(initialized)))))) with { RegionOccupationFollowups = new([], []) };
+        ready = MonthlyCampaignMaintenanceRules.InstallFresh(ready);
+        ready = InstallFreshNormalTurnForeignRelations(ready);
         ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
         ready = PersonnelCommandParameters.InstallFresh(ready);
         ready = GovernanceRosterParameters.InstallFresh(ready);
@@ -274,7 +276,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         ready = ArmyFoodExpenseParameters.InstallFresh(ready);
         ready = GarrisonFoodShortageParameters.InstallFresh(ready);
         return TerrainDamageParameters.InstallFresh(FireDamageParameters.InstallFresh(TrapParameters.InstallFresh(ArmyTraitMaintenanceParameters.InstallFresh(FacilityRepairParameters.InstallFresh(InstallFreshBaseDamageTiers(RefreshDistrictCommandBudgets(DistrictCommandBudgetParameters.InstallFresh(FalseReportParameters.InstallFresh(ready))))))))) with
-            { NormalCombatRefresh = new(0, []), CampaignEffectRequests = CampaignEffectRequests.Empty };
+            { NormalCombatRefresh = new(0, []), CampaignEffectRequests = CampaignEffectRequests.Empty,
+                ArmyMapSpeech = new(1, []) };
     }
     public IPlayableCityEntryStateRules CreateCityEntryStateRules() =>
         new OwnedArmyOrdinaryCityReturnStage(this, _governorInputs);

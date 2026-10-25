@@ -113,7 +113,7 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
     {
         ArgumentNullException.ThrowIfNull(input);
         cancellationToken.ThrowIfCancellationRequested();
-        bool supported = (input.Codec, input.InputExtension) is ("KTAC", ".ktac") or ("KOVS", ".kvs") or ("SRSA-MSADPCM", ".srsa");
+        bool supported = (input.Codec, input.InputExtension) is ("KTAC", ".ktac") or ("KOVS", ".kvs") or ("SRSA-MSADPCM", ".srsa") or ("SRSA-KTSR", ".srsa");
         if (!supported) throw new NotSupportedException($"Audio {input.Codec}/{input.InputExtension} has no selected-container decoder contract.");
         if (input.DecoderBytes.Length is < 4 or > 64 * 1024 * 1024 || Hash(input.DecoderBytes) != input.DecoderInputSha256)
             throw new InvalidDataException("Selected decoder container changed or exceeds the encoded read budget.");

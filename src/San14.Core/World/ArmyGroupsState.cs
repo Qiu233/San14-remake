@@ -18,23 +18,32 @@ public sealed record ArmyGroupOfficerReference(ArmyGroupOfficerKind Kind, int? O
 public sealed record ArmyGroupAssignment(bool IsKnown, int? GroupId);
 public sealed record ArmyGroupLeader(bool IsKnown, ArmyGroupOfficerReference Officer);
 
+/// <summary>The caution-group objective of a military group. A known null
+/// means the group has another objective kind. Zero remains a cleared caution
+/// objective, distinct from another kind.</summary>
+public sealed record ArmyGroupCautionTarget(bool IsKnown, int? CautionGroupId);
+
 /// <summary>Military groups own assignments and leaders. Their ordered
 /// membership comes from the world's army roster, not a second saved roster.</summary>
 public sealed record ArmyGroupsState
 {
     public Dictionary<int, ArmyGroupAssignment> UnitAssignments { get; init; } = [];
     public Dictionary<int, ArmyGroupLeader> Leaders { get; init; } = [];
+    public Dictionary<int, ArmyGroupCautionTarget>? CautionTargets { get; init; } = [];
     public ArmyGroupOfficerReference ResetLeader { get; init; } = ArmyGroupOfficerReference.None;
 
     // An unused group has the normal initial leader. Unknown imported leaders
     // are represented explicitly, rather than by omission.
     public ArmyGroupLeader GetLeader(int groupId) => Leaders.GetValueOrDefault(groupId)
         ?? new(true, ResetLeader);
+    public ArmyGroupCautionTarget GetCautionTarget(int groupId) => CautionTargets is null
+        ? new(false, null) : CautionTargets.GetValueOrDefault(groupId) ?? new(true, null);
 
     public ArmyGroupsState Copy() => this with
     {
         UnitAssignments = new(UnitAssignments),
-        Leaders = new(Leaders)
+        Leaders = new(Leaders),
+        CautionTargets = CautionTargets is null ? null : new(CautionTargets)
     };
 }
 

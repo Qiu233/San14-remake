@@ -99,6 +99,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         for (int i = 0; i < 5; i++) if (unchecked((uint)(id - (4111 + i * 20))) <= 9) { specialBand = true; break; }
         if (specialBand && TalentNeed(current.ReadPersonFirstLocation(executorPhysical), "reward_special_E2") is >= 1 and <= 61 && ForceId() is not (>= 46 and <= 50)) return state;
         if (outcomeKind is < 1 or > 6) return state;
+        if (actionKind is 10 or 11 or 12 or 13 or 14 or 20 or 24)
+        {
+            var reward = ReadStrategicCommandRewardCurrent(state, actionKind, outcomeKind);
+            return ApplyPersonnelCommandGrowthCurrent(state, current, id, executorPhysical,
+                2, reward.Growth, reward.Merit);
+        }
         int dimension;
         string key;
         if (actionKind == 2) { dimension = 4; key = outcomeKind == 2 ? "employ-failure-growth" : "employ-success-growth"; }
@@ -120,6 +126,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             9 when outcomeKind != 2 => unchecked(ReadDiplomacyCommandRewardParameter(state, "attack-success-merit") * 10),
             _ => 0
         };
+        return ApplyPersonnelCommandGrowthCurrent(state, current, id, executorPhysical, dimension, xp, merit);
+
+        int ForceId() => TalentNeed(current.ReadForcePhysicalSlot(current.ReadPersonForce(executorPhysical)
+            ?? throw TalentCommandMissing("reward_Force")), "reward_Force60");
+    }
+
+    private GameState ApplyPersonnelCommandGrowthCurrent(GameState state, SourceWorldContext current,
+        int id, int executorPhysical, int dimension, int xp, int merit)
+    {
         var working = state;
         //2B9810 initializes the remaining four dimension slots to zero, not
         //the sentinel5. Even requested0 can award trait75's minimum1.
@@ -133,8 +148,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         return ApplyTalentPendingMeritCurrent(working, current, executorPhysical, merit);
 
-        int ForceId() => TalentNeed(current.ReadForcePhysicalSlot(current.ReadPersonForce(executorPhysical)
-            ?? throw TalentCommandMissing("reward_Force")), "reward_Force60");
     }
 
     internal GameState ApplyTalentPendingMeritCurrent(GameState state, SourceWorldContext current,

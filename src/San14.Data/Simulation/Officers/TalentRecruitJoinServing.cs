@@ -8,7 +8,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     //shares this operation's current, registered lists and temporary pool.
     private GameState ApplyRecruitServingPrefixCurrent(GameState state, SourceWorldContext current,
         int person, DistrictReference destinationDistrict, BaseReference destinationHome,
-        NativeMapSeasonDate date, Func<int> readDay450, List<CampaignEffectRequest> sink)
+        NativeMapSeasonDate date, Func<int> readDay450, List<CampaignEffectRequest> sink,
+        bool absorption = false)
     {
         T Need<T>(T? value, string field) where T : struct => value ?? throw RecruitMissing(field);
         var working = state;
@@ -67,7 +68,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (!Need(current.ReadArmyUnitNativeValidity(army), "join_Army_validity"))
         {
             if (Need(current.ReadLinkedEntityNativeValidity(linked), "join_associated_validity"))
-                working = CompleteRecruitAssociatedCommandCurrent(working, current, linked, date, sink);
+            {
+                int kind = absorption ? Need(new PersonReturnGovernorQueries(working, _governorInputs, current)
+                    .ReadCurrentAssociatedVirtual98(linked), "absorption_join_associated_kind") : 0;
+                if (!absorption || kind is 1 or 15)
+                    working = CompleteRecruitAssociatedCommandCurrent(working, current, linked, date, sink);
+                else
+                {
+                    var detached = PersonReturnCommands.DetachPersonFromFirstAssociated(working, current, person);
+                    working = working with { PersonnelCommands = detached.Owner
+                        ?? throw RecruitMissing(detached.UnresolvedOwner ?? "absorption_join_member_detachment") };
+                    ushort home = Need(current.ReadPersonFirstLocation(person), "absorption_join_old_home");
+                    if (home is >= 1 and <= 61) current.WritePersonSecondLocation(person, home);
+                }
+            }
             return working;
         }
         int physical = Need(army.PhysicalSlot, "join_Army_pointer");

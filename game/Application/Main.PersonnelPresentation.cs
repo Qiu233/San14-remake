@@ -11,9 +11,9 @@ public partial class Main
     private MapSceneView? _personnelPresentationMap;
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
-    private bool HasPersonnelPresentation=>_personnelPresentation is not null;
+    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
-    private bool IsPersonnelPresentationCurrent=>_personnelPresentation is not null&&
+    private bool IsPersonnelPresentationCurrent=>HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
@@ -32,10 +32,13 @@ public partial class Main
             (session.HasPendingOperation&&session.PendingNormalPeriod is null)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=PersonnelPresentationOwner(session);
-        if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment();
+        RefreshArmyMapSpeechBinding(session,owner,map);
+        if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
-            var payload=entry.Request.TalentCommandPresentation;
+            if(entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.TerritoryOccupation)
+                return TryPresentMonthlyTerritory(entry,session,owner,map);
+            var payload=PersonnelPresentationQueue.Message(entry);
             var growth=entry.Request.OfficerGrowthFeedback;
             var scenery=entry.Request.TalentSceneryReward;
             var voice=payload?.Voice??scenery?.Voice;
@@ -48,12 +51,19 @@ public partial class Main
             }
             if(entry.Request.DiplomacyArrivalAudio is not null||payload?.Operation==TalentCommandPresentationOperation.SoundCue)
             {
+                bool audioRequired=entry.Source is CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands;
                 //Native SE/arrival calls enqueue audio and continue immediately.
                 //A request receipt does not pretend that audio has finished.
                 if(entry.Request.DiplomacyArrivalAudio is null||_preferences.Voice.Enabled)
                 {
                     if(_sceneAudioBinding is {} audio)
-                        audio.PlayPersonnelPresentationAudio(payload,entry.Request.DiplomacyArrivalAudio,_preferences.Voice.Language);
+                    {
+                        bool queued=audio.PlayPersonnelPresentationAudio(payload,entry.Request.DiplomacyArrivalAudio,_preferences.Voice.Language);
+                        if(!queued&&audioRequired)
+                            throw new InvalidDataException("Source presentation sound could not be queued: "+entry.Source);
+                    }
+                    else if(audioRequired)
+                        throw new InvalidOperationException("Source presentation needs the active scene audio owner: "+entry.Source);
                     else GD.PushWarning("Personnel presentation audio is unavailable in this scene.");
                 }
                 if(!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex))return false;
@@ -125,10 +135,24 @@ public partial class Main
                     }
                     else
                     {
-                        var query=queries.QueryPersonnelPresentationSpeaker(owner,payload.OfficerId!.Value);
+                        var query=payload.Speaker is { } sourceSpeaker
+                            ? queries.QueryPersonnelPresentationSpeaker(owner,sourceSpeaker)
+                            : queries.QueryPersonnelPresentationSpeaker(owner,payload.OfficerId!.Value);
                         var speaker=query.Value;
                         var sprites=new LocalizedUiSpriteSource(_repository);
-                        if(speaker?.Face2Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:not null,SpriteName:not null} face)
+                        bool monthlySpeaker=entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.ConditionalSpeakerText;
+                        bool standingSpeaker=monthlySpeaker||entry.Source==CampaignEffectSource.DoctrineResearchCommands||
+                            entry.Source==CampaignEffectSource.StrategicCommands&&payload.Operation==TalentCommandPresentationOperation.OfficerText;
+                        if(payload.Operation==TalentCommandPresentationOperation.ConditionalOfficerText)
+                        {
+                            LoadedSprite? portrait=null;
+                            if(speaker?.Face2Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:not null,SpriteName:not null} smallFace)
+                                portrait=sprites.LoadTexturePackSprite(smallFace.ResourceName,smallFace.SpriteName);
+                            else GD.PushWarning(speaker?.PortraitUnresolvedInput??query.UnresolvedInput??"Strategic subtitle portrait is unavailable.");
+                            view.ConfigurePersonMessage(_repository,_ui,speaker?.Name??payload.Speaker?.NameAtSource??"",payload.TextAtSource!,
+                                portrait,Completed,()=>_preferences.AutomaticMessageAdvance,Admitted);
+                        }
+                        else if(!standingSpeaker&&speaker?.Face2Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:not null,SpriteName:not null} face)
                             view.ConfigurePersonMessage(_repository,_ui,speaker.Name,payload.TextAtSource!,
                                 sprites.LoadTexturePackSprite(face.ResourceName!,face.SpriteName!),Completed,
                                 ()=>_preferences.AutomaticMessageAdvance,Admitted);
@@ -145,7 +169,7 @@ public partial class Main
                             GD.PushWarning(reason);view.SetMeta("portrait_unavailable",reason);
                             //Keep the source message and layout usable while the
                             //unimplemented animated/legacy appearance stays absent.
-                            if(payload.OfficerId==5012)
+                            if(!standingSpeaker&&payload.OfficerId==5012)
                                 view.ConfigurePersonMessage(_repository,_ui,speaker?.Name??"",payload.TextAtSource!,null,
                                     Completed,()=>_preferences.AutomaticMessageAdvance,Admitted);
                             else view.Configure(_repository,_ui,speaker?.Name??"",payload.TextAtSource!,[],Completed,
@@ -178,11 +202,12 @@ public partial class Main
             });
         }
         _personnelPresentationInspectedOwner=owner;
-        return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment();
+        return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
     }
 
     private void ClosePersonnelPresentation()
     {
+        CloseMonthlyFeedback();
         if(_personnelPresentationOwnsVoice)_sceneAudioBinding?.StopNarrationVoice();
         _personnelPresentationOwnsVoice=false;
         var view=_personnelPresentation;var map=_personnelPresentationMap;

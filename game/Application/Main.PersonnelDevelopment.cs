@@ -170,7 +170,7 @@ public partial class Main
                 var quote = draft.View;
                 var people = draft.TargetSlots.Select((person, index) => new PersonnelMediationPersonValues(
                     person?.Name ?? PersonnelDataText(0x3FE), person is null ? null : content.Create(person.OfficerCard).Portrait,
-                    index < draft.CandidatesBySlot.Count && draft.CandidatesBySlot[index].Any(row => row.Enabled == true))).ToArray();
+                    index < draft.CandidatesBySlot.Count && draft.CandidatesBySlot[index].Any(row => row.Enabled == true), person is not null)).ToArray();
                 view.Apply(new(people, new Dictionary<int, string>
                 {
                     [47] = Number(quote?.GoldBefore), [49] = Number(quote?.GoldAfter), [50] = Cost(quote?.GoldCost),

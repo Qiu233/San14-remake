@@ -40,9 +40,14 @@ public sealed record ArmyCautionsState
 {
     public Dictionary<int, ArmyCautionRelation> Relations { get; init; } = [];
     public Dictionary<int, ArmyCautionGroupLabel> GroupLabels { get; init; } = [];
+    // Fresh groups reset their stored District to zero. Null preserves an
+    // unimported legacy owner; individual null values preserve unknown rows.
+    public Dictionary<int, int?>? GroupDistrictIds { get; init; } = [];
 
     public ArmyCautionRelation GetRelation(int cautionId) => Relations.GetValueOrDefault(cautionId) ?? ArmyCautionRelation.Empty;
     public ArmyCautionGroupLabel GetGroupLabel(int groupId) => GroupLabels.GetValueOrDefault(groupId) ?? ArmyCautionGroupLabel.Empty;
+    public int? GetGroupDistrictId(int groupId) => GroupDistrictIds is null ? null
+        : GroupDistrictIds.TryGetValue(groupId, out int? district) ? district : 0;
 
     public IEnumerable<int> ReferencedUnitIds() => Relations.Values
         .Where(relation => relation.Unit is { Kind: ArmyCautionUnitKind.Unit, UnitId: not null })
@@ -51,6 +56,7 @@ public sealed record ArmyCautionsState
     public ArmyCautionsState Copy() => this with
     {
         Relations = new(Relations),
-        GroupLabels = new(GroupLabels)
+        GroupLabels = new(GroupLabels),
+        GroupDistrictIds = GroupDistrictIds is null ? null : new(GroupDistrictIds)
     };
 }

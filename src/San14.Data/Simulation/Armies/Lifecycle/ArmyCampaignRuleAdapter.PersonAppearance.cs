@@ -14,6 +14,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         CampaignNormalPeriodIntent intent, ICampaignAppRandomBinding? appRandom,
         TransferServiceState? transferService, TransferModeState? transferMode,
         Action<string, GameState>? observe = null)
+        => TryAdvanceNormalTurnPrefix(state, intent.StartDate, intent.StartPeriodNumber,
+            appRandom, transferService, transferMode, observe);
+
+    private PersonAppearanceTurnResult TryAdvanceNormalTurnPrefix(GameState state,
+        PeriodDate startDate, int startPeriodNumber, ICampaignAppRandomBinding? appRandom,
+        TransferServiceState? transferService, TransferModeState? transferMode,
+        Action<string, GameState>? observe = null)
     {
         uint? saved = null;
         int next = 0;
@@ -21,11 +28,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var season = state.NativeMapSeason ?? throw AppearanceTurnMissing("calendar");
             var clock = state.NativeClock ?? throw AppearanceTurnMissing("clock");
-            var expected = intent.StartDate.Next();
+            var expected = startDate.Next();
             if (expected.Year is < short.MinValue or > short.MaxValue)
                 throw AppearanceTurnMissing("completed_period_year_profile");
-            if (state.Date != intent.StartDate || state.PeriodNumber != intent.StartPeriodNumber ||
-                state.Phase != TurnPhase.Strategy || clock.AnchorDate != intent.StartDate || clock.UpdatesIntoPeriod != 40 ||
+            if (state.Date != startDate || state.PeriodNumber != startPeriodNumber ||
+                state.Phase != TurnPhase.Strategy || clock.AnchorDate != startDate || clock.UpdatesIntoPeriod != 40 ||
                 season.ProcessedNativeOrdinal != clock.UpdateOrdinal || season.ThirdDate != new NativeMapSeasonDate(
                     checked((short)expected.Year), checked((sbyte)expected.Month), checked((sbyte)expected.Day), 0) ||
                 state.NativeNormalArmyCombatCalendar?.NextCalendarCycleOrdinal != season.AdvancedCalendarSteps)
@@ -103,9 +110,65 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             else Observe("turn.index5.skipped");
             next = 6;
-            // This is the actual next unowned action, not normal Turn exit.
-            // In particular, do not restore SavedApp32 here, even if nonzero.
-            throw AppearanceTurnMissing("action.6");
+            if (monthStart)
+            {
+                state = new MonthlyCampaignMaintenanceSource(this, state, current, pool, observe).Run();
+                Observe("turn.index6.completed");
+            }
+            else Observe("turn.index6.skipped");
+            next = 7;
+            if (monthStart)
+            {
+                state = new CampaignNormalTurnPersonnelAgingSource(this, state, current, pool, observe).RunLifespan();
+                Observe("turn.index7.completed");
+            }
+            else Observe("turn.index7.skipped");
+            next = 8;
+            if (monthStart)
+            {
+                state = new CampaignNormalTurnPersonnelAgingSource(this, state, current, pool, observe).RunHealth();
+                Observe("turn.index8.completed");
+            }
+            else Observe("turn.index8.skipped");
+            next = 9;
+            var ending = CheckCampaignNormalTurnEndingCurrent(state, current, pool);
+            state = ending.State ?? throw new InvalidDataException(ending.UnresolvedOwner);
+            Observe("turn.index9.completed");
+            if (ending.Stop) return new(state, null, next, saved);
+            next = 10;
+            if (annual)
+            {
+                state = ApplyNormalTurnAnnualCalendarCurrent(state, current, out bool stop);
+                Observe("turn.index10.completed");
+                if (stop) return new(state, null, next, saved);
+            }
+            else Observe("turn.index10.skipped");
+            next = 11;
+            //4F8560 is literally return1; it has no world or random writer.
+            Observe("turn.index11.completed");
+            next = 12;
+            state = ApplyNormalTurnForceAbsorptionEventsCurrent(state, current, pool);
+            Observe("turn.index12.completed");
+            next = 13;
+            state = ApplyNormalTurnSpecialForceRelationsCurrent(state, current, pool);
+            Observe("turn.index13.completed");
+            next = 14;
+            if (monthStart)
+            {
+                state = ApplyNormalTurnMonthlyCaptiveEscapesCurrent(state, current, pool);
+                Observe("turn.index14.completed");
+            }
+            else Observe("turn.index14.skipped");
+            next = 15;
+            if (monthStart)
+            {
+                state = ApplyNormalTurnMonthlyDisastersCurrent(state, current, pool);
+                Observe("turn.index15.completed");
+            }
+            else Observe("turn.index15.skipped");
+            next = 16;
+            //Do not finalize or pull research51/hire52/53 ahead of this frontier.
+            throw AppearanceTurnMissing("action.16");
 
             void Observe(string point)
             {

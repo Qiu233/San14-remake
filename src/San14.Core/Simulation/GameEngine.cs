@@ -66,7 +66,7 @@ public static class GameEngine
     private static CommandResult? CheckOrderPermissions(GameState state, GameOrder order,
         CommandContext context, IOrderAuthority authority, bool requireStrategyPhase)
     {
-        if (state.NativePlayableTerminal is not null)
+        if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
             return CommandResult.Reject("The campaign has ended.", "command.campaign_ended");
         if (requireStrategyPhase && state.Phase != TurnPhase.Strategy)
             return CommandResult.Reject("Orders can only be issued during the strategy phase.", "command.phase");
@@ -103,7 +103,7 @@ public static class GameEngine
 
     internal static GameState AdvancePeriodOwned(GameState state, GameState working, IAdvancementRules rules)
     {
-        if (state.NativePlayableTerminal is not null)
+        if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
             throw new InvalidOperationException("The campaign has ended.");
         if (state.Phase != TurnPhase.Strategy)
             throw new InvalidOperationException("The state is not in the strategy phase.");
@@ -114,7 +114,7 @@ public static class GameEngine
             new NormalPeriodOperation(next).Validate(state);
             return next;
         }
-        if (next.NativePlayableTerminal is not null)
+        if (next.NativePlayableTerminal is not null || next.CampaignTurnStop is not null)
         {
             //The reached capture can end before the remaining movement/economy
             //and period date rollover. Its report gets this operation's ordinal;
@@ -159,7 +159,7 @@ public static class GameEngine
         GameState next = rules.CompleteReport(working);
         ValidateWorldIdentity(state, next);
         if (next.Phase != TurnPhase.Strategy || next.Date != state.Date || next.PeriodNumber != state.PeriodNumber || next.NativeClock != state.NativeClock ||
-            next.NativePlayableTerminal != state.NativePlayableTerminal)
+            next.NativePlayableTerminal != state.NativePlayableTerminal || next.CampaignTurnStop != state.CampaignTurnStop)
             throw new InvalidDataException("Reporting rules returned an invalid phase or date.");
         return next;
     }

@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 160;
+    public const int CurrentSchemaVersion = 164;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -66,6 +66,8 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             throw new InvalidDataException("Save format or schema version is unsupported.");
         if (document["State"] is not JsonObject)
             throw new InvalidDataException("Saved game state is missing or invalid.");
+        ArmyDistrictSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        PersonnelStrategicSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
         {
@@ -156,6 +158,19 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         ForceCreditReserveSaveFields.Migrate(stateDocument, version);
         PersonnelHireSaveFields.Migrate(stateDocument, version);
         CampaignCrtRandomSaveFields.Migrate(stateDocument, version);
+        MonthlyMaintenanceSaveFields.Migrate(stateDocument, version);
+        DistrictSettingsSaveFields.Migrate(stateDocument, version);
+        ArmyDistrictSaveFields.Migrate(stateDocument, version);
+        ArmyMapSpeechSaveFields.Migrate(stateDocument, version);
+        DoctrineResearchSaveFields.Migrate(stateDocument, version);
+        CampaignTurnStopSaveFields.Migrate(stateDocument, version);
+        OfficerPresentationSaveFields.Migrate(stateDocument, version);
+        ForeignRelationsSaveFields.Migrate(stateDocument, version);
+        CoalitionCooldownSaveFields.Migrate(stateDocument, version);
+        ForceFactionSaveFields.Migrate(stateDocument, version);
+        PersonnelStrategicSaveFields.Migrate(stateDocument, version);
+        ForceCoalitionVisualSaveFields.Migrate(stateDocument, version);
+        ForceIndependenceSceneSaveFields.Migrate(stateDocument, version);
         DiplomacySaveFields.Migrate(stateDocument, version);
         if (version < 149) stateDocument["NativePeriodContinuation"] = null;
         else if (!stateDocument.ContainsKey("NativePeriodContinuation"))

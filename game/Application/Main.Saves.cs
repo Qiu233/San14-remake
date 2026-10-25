@@ -34,7 +34,8 @@ public partial class Main
             uint flags = OwnedArmyReturnServiceInputs.ReadCurrent(source.World)
                 ?? throw new InvalidDataException("Automatic saving requires the current campaign mode flags.");
             if ((flags & 0x100) != 0) return null;
-            CampaignSaves.SaveAutomatic(source, new(_presentationRandom.State));
+            var speech = CaptureArmySpeechCheckpoint(source);
+            CampaignSaves.SaveAutomatic(source, new(_presentationRandom.State), speech.Snapshot, speech.Owner);
             _playContinue.Disabled = false;
             return null;
         }
@@ -53,7 +54,8 @@ public partial class Main
     private void SavePlayable(int slot)
     {
         if (_session?.PlayerForceId is null) return;
-        CampaignSaves.SaveCampaign(_session!, slot, new(_presentationRandom.State));
+        var speech = CaptureArmySpeechCheckpoint(_session);
+        CampaignSaves.SaveCampaign(_session, slot, new(_presentationRandom.State), speech.Snapshot, speech.Owner);
         RefreshSaveSlots();
         _playMessage.Text = _ui.Get("play_saved");
     }

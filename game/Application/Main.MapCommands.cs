@@ -11,6 +11,9 @@ public partial class Main
         MapMenuCommand[] available = [MapMenuCommand.Deploy, MapMenuCommand.WithdrawAll, MapMenuCommand.Policy, MapMenuCommand.Office,
             MapMenuCommand.Search, MapMenuCommand.Recruit, MapMenuCommand.Items, MapMenuCommand.Reward, MapMenuCommand.Expel,
             MapMenuCommand.Merit, MapMenuCommand.Award, MapMenuCommand.Employ, MapMenuCommand.Learn, MapMenuCommand.Introduce,
+            MapMenuCommand.CreateDistrict, MapMenuCommand.EditDistrict, MapMenuCommand.Research,
+            MapMenuCommand.ProvokeWar, MapMenuCommand.Incite, MapMenuCommand.Alienate, MapMenuCommand.Poison,
+            MapMenuCommand.PlacateArea, MapMenuCommand.Sabotage, MapMenuCommand.Rumor,
             MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance, MapMenuCommand.RequestAttack];
         return available.ToDictionary(command => command,
             command => (Action)(() => RunUiAction(() => OpenMapMenuEditor(command))));
@@ -19,6 +22,20 @@ public partial class Main
     private void OpenMapMenuEditor(MapMenuCommand command)
     {
         if (HasMapSystemMenu || HasCampaignSavePage || HasCommandWorkspace) return;
+        if (command == MapMenuCommand.Research) { OpenDoctrineResearch(); return; }
+        if (command is MapMenuCommand.ProvokeWar or MapMenuCommand.Incite or MapMenuCommand.Alienate or
+            MapMenuCommand.Poison or MapMenuCommand.PlacateArea or MapMenuCommand.Sabotage or MapMenuCommand.Rumor)
+        {
+            OpenStrategicOrders(command switch
+            {
+                MapMenuCommand.ProvokeWar => 10, MapMenuCommand.Incite => 11, MapMenuCommand.Alienate => 12,
+                MapMenuCommand.Poison => 13, MapMenuCommand.PlacateArea => 14, MapMenuCommand.Sabotage => 20,
+                _ => 24
+            });
+            return;
+        }
+        if (command is MapMenuCommand.CreateDistrict or MapMenuCommand.EditDistrict)
+        { OpenDistrictAdministration(command == MapMenuCommand.EditDistrict); return; }
         if (command is MapMenuCommand.Reward or MapMenuCommand.Expel or MapMenuCommand.Merit or MapMenuCommand.Award or
             MapMenuCommand.Employ or MapMenuCommand.Learn or MapMenuCommand.Introduce)
         { OpenPersonnelAdministration(command); return; }

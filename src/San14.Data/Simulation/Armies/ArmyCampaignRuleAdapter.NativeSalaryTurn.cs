@@ -12,8 +12,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         // These read-only rule constants are qualified against the TC typed
         // data and reference cache. No original file is consulted at runtime.
         if (Seed.Language != "TC") throw SalaryMissing("SC_rule_constants");
-        const int ordinaryPayMultiplier = 10, specialPersonPay = 10;
-        const int personalityReductionMultiplier = 1, policyReductionMultiplier = 1, captivePay = 50;
+        const int captivePay = 50;
         var working = input;
         TacticRemakeCurrentAbilities? abilities = null;
         PayBase(city);
@@ -118,27 +117,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        int Salary(int person)
-        {
-            if (!Known(current.ReadPersonNativeValidity(person), "salary_Person_validity")) return 0;
-            byte office = Office(person);
-            if (!Known(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(working, office), "salary_office_validity")) office = 73;
-            var parameters = working.NativeArmySimulation?.Parameters ?? throw SalaryMissing("saved_parameters");
-            string key = OwnedArmyGovernorComparatorInputs.OfficeGuard36Key(office);
-            if (parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1 ||
-                parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int officePay) ||
-                officePay is < 0 or > 255) throw SalaryMissing("salary_office36");
-            int basis = unchecked(officePay * ordinaryPayMultiplier);
-            if (!Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "salary_Person_flags14"))
-                basis = specialPersonPay;
-            int trait = Known(TacticRemakeCurrentTraits.PersonContribution(current, person, 46), "salary_trait46");
-            int personalityReduction = unchecked(personalityReductionMultiplier * trait);
-            var force = current.ReadPersonForce(person) ?? throw SalaryMissing("salary_Force_pointer");
-            int policy = Known(current.ReadForceNativeValidity(force), "salary_Force_validity")
-                ? Known(_baseCapacityInputs.ReadPanelModifier(working, Known(force.PhysicalSlot, "salary_Force_identity"), 12), "salary_policy12") : 0;
-            return unchecked(basis - unchecked(policyReductionMultiplier * policy * basis) / 100 -
-                unchecked(personalityReduction * basis) / 100);
-        }
+        int Salary(int person) => ReadNativeMonthlyOfficerSalaryCurrent(working, current, person);
         int CollectorGold(BaseReference receiver)
         {
             var source = receiver.Kind == BaseKind.Gate ? CurrentGateMapQueries.FindCity(receiver, current) : receiver;
@@ -216,6 +195,30 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
         T Known<T>(T? value, string field) where T : struct => value ?? throw SalaryMissing(field);
+    }
+
+    internal int ReadNativeMonthlyOfficerSalaryCurrent(GameState state, SourceWorldContext current, int person)
+    {
+        if (Seed.Language != "TC") throw SalaryMissing("SC_rule_constants");
+        if (!K(current.ReadPersonNativeValidity(person), "salary_Person_validity")) return 0;
+        int identity = K(current.ReadPersonIdentity(person), "Person_identity");
+        var owner = state.Officers.GetValueOrDefault(identity) ?? throw SalaryMissing("Person_domain_owner");
+        byte office = K(OfficerAppointmentSourceAdapter.ReadOfficeId(owner.Appointment), "Person_officeE7");
+        if (!K(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, office), "salary_office_validity")) office = 73;
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw SalaryMissing("saved_parameters");
+        string key = OwnedArmyGovernorComparatorInputs.OfficeGuard36Key(office);
+        if (parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1 ||
+            parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int officePay) ||
+            officePay is < 0 or > 255) throw SalaryMissing("salary_office36");
+        int basis = unchecked(officePay * 10);
+        if (!K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "salary_Person_flags14")) basis = 10;
+        int trait = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 46), "salary_trait46");
+        var force = current.ReadPersonForce(person) ?? throw SalaryMissing("salary_Force_pointer");
+        int policy = K(current.ReadForceNativeValidity(force), "salary_Force_validity")
+            ? K(_baseCapacityInputs.ReadPanelModifier(state, K(force.PhysicalSlot, "salary_Force_identity"), 12), "salary_policy12") : 0;
+        return unchecked(basis - unchecked(policy * basis) / 100 - unchecked(trait * basis) / 100);
+
+        static T K<T>(T? value, string field) where T : struct => value ?? throw SalaryMissing(field);
     }
 
     private static InvalidDataException SalaryMissing(string owner) => new("army.Turn_salary." + owner);

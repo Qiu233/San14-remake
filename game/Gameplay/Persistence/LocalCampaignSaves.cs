@@ -23,13 +23,15 @@ internal sealed class LocalCampaignSaves(string directory, ISaveCodec readCodec)
     public bool HasCampaign(int slot) => File.Exists(CampaignPath(slot));
     public bool HasAnyCampaign => Enumerable.Range(1, TotalReadableSlots).Any(HasCampaign);
 
-    public void SaveCampaign(GameplaySession session, int slot, CampaignAppRandomState? appRandomSnapshot = null)
+    public void SaveCampaign(GameplaySession session, int slot, CampaignAppRandomState? appRandomSnapshot = null,
+        ArmyMapSpeechState? speechSnapshot = null, GameState? speechExpectedOwner = null)
     {
         if (slot < 1 || slot > SlotCount) throw new ArgumentOutOfRangeException(nameof(slot));
-        session.Save(CampaignPath(slot), DateTimeOffset.Now, appRandomSnapshot);
+        session.Save(CampaignPath(slot), DateTimeOffset.Now, appRandomSnapshot, speechSnapshot, speechExpectedOwner);
     }
 
-    public int SaveAutomatic(GameplaySession session, CampaignAppRandomState? appRandomSnapshot = null)
+    public int SaveAutomatic(GameplaySession session, CampaignAppRandomState? appRandomSnapshot = null,
+        ArmyMapSpeechState? speechSnapshot = null, GameState? speechExpectedOwner = null)
     {
         int recentSlot = SlotCount;
         DateTime? recentTime = null;
@@ -57,7 +59,7 @@ internal sealed class LocalCampaignSaves(string directory, ISaveCodec readCodec)
         }
         int nextSlot = recentSlot + 1;
         if (nextSlot > TotalReadableSlots) nextSlot = SlotCount + 1;
-        session.Save(CampaignPath(nextSlot), DateTimeOffset.Now, appRandomSnapshot);
+        session.Save(CampaignPath(nextSlot), DateTimeOffset.Now, appRandomSnapshot, speechSnapshot, speechExpectedOwner);
         return nextSlot;
     }
 

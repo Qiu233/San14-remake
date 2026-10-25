@@ -119,7 +119,11 @@ public sealed record PersonnelPresentationAudioSource(AudioCueBank Bank, uint So
                 4 => 0x60E1C344, //SE_000_HAPPY
                 5 => 0x7E332452, //SE_000_HAPPY2
                 6 => 0xA583960B, //SE_000_UNHAPPY
+                7 => 0xB400EB99, //SE_000_UNHAPPY2
                 8 => 0x9038AFA2, //SE_000_HAPPEN
+                20 => 0x211889FF, //SE_100_RICHHARVESTS
+                21 => 0x93B9E02E, //SE_100_RAISEARMY
+                129 => throw new NotSupportedException("personnel.presentation.composite_cue_129_start_and_channel_owner"),
                 _ => throw new InvalidDataException("personnel.presentation.sound_index")
             };
             return new(new(0x17047C02, null), sound, AudioSampleStorage.Internal, false);

@@ -9,7 +9,10 @@ namespace San14.Data;
 internal sealed record HistoryMessageOperands(ArmyUnitReference? Army0 = null, ArmyUnitReference? Army1 = null,
     ushort? Base0 = null, string? String0 = null, string? String1 = null, string? String2 = null,
     int Person0 = 0, int Person1 = 0, int? Force0 = null, int? Area0 = null, int[]? Integers = null,
-    int? Person2 = null, int? Person3 = null, int? Force1 = null, int? Person4 = null);
+    int? Person2 = null, int? Person3 = null, int? Force1 = null, int? Person4 = null, int? District0 = null,
+    int? Force2 = null, int? Force3 = null, int? Force4 = null,
+    int? ObjectDefinition0 = null, int? ObjectDefinition1 = null,
+    ushort? Base1 = null, ushort? Base2 = null, ushort? Base3 = null, ushort? Base4 = null);
 internal sealed record HistoryTextResult(GameState State, string Text)
 {
     public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
@@ -17,7 +20,7 @@ internal sealed record HistoryTextResult(GameState State, string Text)
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment }
+    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment, MonthlyMaintenance, ArmyMapSpeech, DoctrineResearch, NormalTurn, StrategicCommands }
     internal string ReadHistoryDataText(int section, int id)
     {
         var data = _repository.LoadMessages(Seed.Language, MessageKind.Data).Messages;
@@ -122,6 +125,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         => FormatReportMessage(state, current, messageId,
             new(Person0: speaker, Person1: ruler, String0: appointment), ReportMessageOrigin.Governance, null);
 
+    internal HistoryTextResult FormatMonthlyMaintenanceReport(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands, Action<GameState> publishAfterDraw) =>
+        FormatReportMessage(state, current, root, operands, ReportMessageOrigin.MonthlyMaintenance, publishAfterDraw);
+
+    internal HistoryTextResult FormatNormalTurnReport(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands, Action<GameState>? publishAfterDraw = null) =>
+        FormatReportMessage(state, current, root, operands, ReportMessageOrigin.NormalTurn, publishAfterDraw);
+
     private HistoryTextResult FormatReportMessage(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands, ReportMessageOrigin origin, Action<GameState>? publishReached,
         NarrationVoiceSettings? voiceSettings = null)
@@ -137,7 +148,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             appearanceScenario: _scenario, appearanceLanguage: Seed.Language, forceArgument: operands.Force0,
             personArgument2: operands.Person2, personArgument3: operands.Person3, forceArgument1: operands.Force1,
             personArgument4: operands.Person4, voiceRequests: voices);
-        var context = new ReportCurrent(this, () => latest, current, people, operands);
+        var context = new ReportCurrent(this, () => latest, current, people, operands,
+            origin is ReportMessageOrigin.MonthlyMaintenance or ReportMessageOrigin.NormalTurn);
         int Draw(int bound)
         {
             if (bound < 2) return 0;
@@ -165,6 +177,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReportMessageOrigin.Talent=>vm.ResolveTalentReport(context,Draw,root),
             ReportMessageOrigin.PersonnelAdministration=>vm.ResolvePersonnelAdministrationReport(context,Draw,root),
             ReportMessageOrigin.PersonnelDevelopment=>vm.ResolvePersonnelDevelopmentReport(context,Draw,root),
+            ReportMessageOrigin.MonthlyMaintenance=>vm.ResolveMonthlyMaintenance(context,Draw,root),
+            ReportMessageOrigin.NormalTurn=>vm.ResolveNormalTurnReport(context,Draw,root),
+            ReportMessageOrigin.ArmyMapSpeech=>vm.ResolveArmyMapSpeech(context,Draw),
+            ReportMessageOrigin.DoctrineResearch=>vm.ResolveDoctrineResearch(context,Draw,root),
+            ReportMessageOrigin.StrategicCommands=>vm.ResolveStrategicCommandReport(context,Draw,root),
             ReportMessageOrigin.Diplomacy=>vm.ResolveDiplomacyReport(context,Draw,root),
             _=>vm.ResolveHistoryReport(context,Draw,root)
         };
@@ -176,7 +193,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     private static InvalidDataException HistoryMissing(string field) => new("campaign-history.text." + field);
 
     private sealed class ReportCurrent(ArmyCampaignRuleAdapter package, Func<GameState> latest,
-        SourceWorldContext current, INarrationCurrentContext people, HistoryMessageOperands operands) : INarrationCurrentContext
+        SourceWorldContext current, INarrationCurrentContext people, HistoryMessageOperands operands, bool monthlyForceFields = false) : INarrationCurrentContext
     {
         public int PersonValue(int a, int f) => people.PersonValue(a, f);
         public string PersonText(int a, int f) => people.PersonText(a, f);
@@ -211,24 +228,69 @@ public sealed partial class ArmyCampaignRuleAdapter
         //Bare City argument is read without the display-field range gate.
         public int CityValue(int a, int f)
         {
-            if (a != 0 || f != 0) throw HistoryMissing("Base_numeric_field");
-            return operands.Base0 ?? throw HistoryMissing("Base_argument");
+            if (f != 0) throw HistoryMissing("Base_numeric_field");
+            return BaseArgument(a);
         }
         public int BaseArgumentValidity(int raw) => HistoryKnown(
             current.ReadBaseNativeValidity(BaseLookup.Find(raw, current)), "Base_argument_validity") ? 1 : 0;
-        public string CityText(int a, int f) => people.CityText(a, f);
+        public string CityText(int a, int f)
+        {
+            if (f != '2') throw HistoryMissing("Base_text_field");
+            ushort raw = BaseArgument(a);
+            if (raw is 0 or > 61) return "";
+            var selected = BaseLookup.Find(raw, current);
+            int physical = HistoryKnown(selected.PhysicalSlot, "Base_text_pointer");
+            var state = latest();
+            string? name = selected.Kind switch
+            {
+                BaseKind.City => state.Cities.GetValueOrDefault(physical)?.Name,
+                BaseKind.Gate => state.Gates.GetValueOrDefault(physical + 51)?.Name,
+                _ => null
+            };
+            return CityDomesticMessageFormatting.FormatCityNameField(name ?? throw HistoryMissing("Base_text_name"));
+        }
+        private ushort BaseArgument(int argument) => (argument switch
+        {
+            0 => operands.Base0, 1 => operands.Base1, 2 => operands.Base2,
+            3 => operands.Base3, 4 => operands.Base4,
+            _ => throw HistoryMissing("Base_argument_index")
+        }) ?? throw HistoryMissing("Base_argument");
         public int IntegerValue(int a) => operands.Integers is { } values && (uint)a < (uint)values.Length
             ? values[a] : throw HistoryMissing("Integer_argument");
         public int ForceValue(int a, int f)
         {
-            if (a is not (0 or 1) || f != 0) throw HistoryMissing("Force_numeric_field");
-            int raw = (a == 0 ? operands.Force0 : operands.Force1) ?? throw HistoryMissing("Force_numeric_argument");
+            if (a is < 0 or > 4 || f != 0) throw HistoryMissing("Force_numeric_field");
+            int raw = ForceArgument(a);
             var force = current.ReadForceTableReference(raw is >= 0 and < 52 ? raw : 0)
                 ?? throw HistoryMissing("Force_numeric_pointer");
             return HistoryKnown(current.ReadForcePhysicalSlot(force), "Force_numeric_ordinal");
         }
+        public string DistrictText(int argument, int field)
+        {
+            if (argument != 0 || field != '2') throw HistoryMissing("District_field");
+            int raw = operands.District0 ?? throw HistoryMissing("District_argument");
+            if (raw is < 1 or > 51) return "";
+            var district = current.ReadDistrictTableReference(raw) ?? throw HistoryMissing("District_lookup");
+            int physical = HistoryKnown(district.PhysicalSlot, "District_physical");
+            ushort id = HistoryKnown(current.ReadDistrictLeader(physical), "District_leader12");
+            var person = (id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))
+                ?? throw HistoryMissing("District_leader_lookup");
+            int at = HistoryKnown(person.PhysicalSlot, "District_leader_physical");
+            string name = "";
+            if (HistoryKnown(current.ReadPersonNativeValidity(at), "District_leader_validity"))
+            {
+                if (physical is >= 46 and <= 50) throw HistoryMissing("District_special_name231160");
+                int identity = HistoryKnown(current.ReadPersonIdentity(at), "District_leader_identity");
+                var owner = latest().Officers.GetValueOrDefault(identity) ?? throw HistoryMissing("District_leader_owner");
+                name = HeadHistory(owner.CurrentSurname ?? throw HistoryMissing("District_leader_surname")) +
+                    HeadHistory(owner.CurrentGivenName ?? throw HistoryMissing("District_leader_given_name")) +
+                    HeadHistory(package.ReadHistoryDataText(1, 0x350));
+            }
+            return CityDomesticMessageFormatting.FormatPersonNameField(name);
+        }
         public string ForceText(int a, int f)
         {
+            if (monthlyForceFields) return MonthlyForceText(a, f);
             if (f == '4') return people.ForceText(a, f);
             if (a is not (0 or 1) || f != '3') throw HistoryMissing("Force_field");
             int raw = (a == 0 ? operands.Force0 : operands.Force1) ?? throw HistoryMissing("Force_argument");
@@ -247,6 +309,43 @@ public sealed partial class ArmyCampaignRuleAdapter
             };
             return CityDomesticMessageFormatting.FormatCityNameField(name);
         }
+        //30EB60's monthly force fields read a custom kingdom name before
+        //native validity, unlike the ordinary trap-counter display contract.
+        private string MonthlyForceText(int argument, int field)
+        {
+            if (argument is < 0 or > 4 || field is not ('3' or '4')) throw HistoryMissing("monthly_Force_field");
+            int raw = ForceArgument(argument);
+            if (raw is < 1 or > 51) return "";
+            var force = current.ReadForceTableReference(raw) ?? throw HistoryMissing("monthly_Force_lookup");
+            int physical = HistoryKnown(force.PhysicalSlot, "monthly_Force_pointer");
+            byte kingdom = HistoryKnown(current.ReadForceKingdomNameIndex(physical), "monthly_Force_kingdom");
+            string suffix = HeadHistory(package.ReadHistoryDataText(1, 0x34F));
+            string name;
+            if (kingdom is >= 1 and <= 100) name = Custom(kingdom) + (field == '3' ? suffix : "");
+            else
+            {
+                if (!HistoryKnown(current.ReadForceNativeValidity(force), "monthly_Force_validity")) return "";
+                int selected = HistoryKnown(current.ReadForcePhysicalSlot(force), "monthly_Force_identity");
+                int ruler = selected == 0 ? 5014 : HistoryKnown(current.ReadForceRecord(selected)?.RawRuler10, "monthly_Force_ruler");
+                var person = (ruler <= 6000 ? current.ReadPersonLookupReference(ruler) : current.ReadTransferPersonTableReference(0))
+                    ?? throw HistoryMissing("monthly_ruler_lookup");
+                int personPhysical = HistoryKnown(person.PhysicalSlot, "monthly_ruler_pointer");
+                if (!HistoryKnown(current.ReadPersonNativeValidity(personPhysical), "monthly_ruler_validity")) return "";
+                int identity = HistoryKnown(current.ReadPersonIdentity(personPhysical), "monthly_ruler_identity");
+                if (current.ResolveOfficerSource(identity) != personPhysical || !latest().Officers.TryGetValue(identity, out var owner))
+                    throw HistoryMissing("monthly_ruler_owner");
+                selected = HistoryKnown(current.ReadForcePhysicalSlot(force), "monthly_Force_fresh_identity");
+                name = selected is < 46 or > 50 ? HeadHistory(owner.Name) + suffix :
+                    HeadHistory(identity is >= 5101 and <= 5200 or >= 2062 and <= 2066 ? owner.Name : owner.CurrentSurname ?? throw HistoryMissing("monthly_ruler_surname"));
+            }
+            return CityDomesticMessageFormatting.FormatCityNameField(name);
+        }
+        private int ForceArgument(int argument) => (argument switch
+        {
+            0 => operands.Force0, 1 => operands.Force1, 2 => operands.Force2,
+            3 => operands.Force3, 4 => operands.Force4, _ => null
+        }) ?? throw HistoryMissing("Force_argument");
+
         private string Custom(byte id)
         {
             var defs = package._repository.LoadForceNameDefinitions(package._scenario.FixedDataSource.SourcePath).Catalog.Definitions;

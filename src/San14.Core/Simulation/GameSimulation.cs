@@ -59,7 +59,7 @@ public sealed partial class GameSimulation
             _normalPeriod = new(advanced);
             return State;
         }
-        GameState result = advanced.NativePlayableTerminal is null && complete is not null
+        GameState result = advanced.NativePlayableTerminal is null && advanced.CampaignTurnStop is null && complete is not null
             ? complete(advanced) : advanced;
         // Check final identity against the committed input, including a
         // calendar writer that mutates its own transaction's content ledger.
@@ -84,7 +84,7 @@ public sealed partial class GameSimulation
         GameEngine.ValidateWorldIdentity(identity ?? previous, next);
         if (next.Phase != previous.Phase || next.Date != previous.Date ||
             next.PeriodNumber != previous.PeriodNumber || next.NativeClock != previous.NativeClock ||
-            next.NativePlayableTerminal != previous.NativePlayableTerminal)
+            next.NativePlayableTerminal != previous.NativePlayableTerminal || next.CampaignTurnStop != previous.CampaignTurnStop)
             throw new InvalidDataException("Planning or calendar rules changed the simulation boundary.");
     }
 }
