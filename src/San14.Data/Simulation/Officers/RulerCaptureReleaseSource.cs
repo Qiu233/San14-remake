@@ -15,8 +15,8 @@ public sealed record RulerCaptureReleaseReceipt(RulerCaptureDecisionReceipt Deci
 public sealed record RulerCaptureReleaseResult(GameState? State,
     RulerCaptureReleaseReceipt? Receipt, string? UnresolvedOwner);
 
-/// <summary>2F86F0 AI Lord decision and ordinary remote release. Execute and
-/// same-home260310 retain their distinct required writer scopes.</summary>
+/// <summary>2F86F0 AI Lord decision and release relationship prefix. The
+/// enclosing operation supplies its shared-current Home/Return kernel.</summary>
 public static class RulerCaptureReleaseSource
 {
     public const string Revision = "san14:ce-ruler-capture-release-source-20261007";
@@ -114,7 +114,8 @@ public static class RulerCaptureReleaseSource
 
     public static RulerCaptureReleaseResult Release(GameState state, SourceWorldContext current,
         RulerCaptureDecisionResult decision, NativeMapSeasonDate returnCommandDate,
-        RulerCaptureReleaseApplicationOwners application)
+        RulerCaptureReleaseApplicationOwners application,
+        Func<GameState, int, PersonReturnCommandResult>? returnHome = null)
     {
         try {
             if (decision.Decision != RulerCaptureDecision.Release || decision.Receipt is not { } receipt)
@@ -142,6 +143,15 @@ public static class RulerCaptureReleaseSource
                 fame = (short)Math.Clamp(unchecked(K(current.ReadRulerReleasePopularity1BE(winner), "current.Lord_winner_Force1BE") + P(SimulationParameterKeys.ArmyDestruction.RulerReleasePopularityGain)), -1000, 1000);
                 working = WriteForce(working, winner, f => f with { Development1BE = fame });
                 current.SetRulerReleasePopularity1BE(winner, fame);
+            }
+            if (returnHome is not null)
+            {
+                var applied = returnHome(working, person);
+                working = applied.State ?? throw Missing(applied.UnresolvedOwner ?? "current.Lord_release_Home_operation");
+                ushort destination = K(current.ReadPersonFirstLocation(person), "current.Lord_release_Home_E2");
+                return new(working, new(receipt, relationWritten, afterA, afterB, fame, destination,
+                    K(applied.NativeReturn, "current.Lord_release_Home_native_result"), applied.CommandId,
+                    applied.TravelDays), null);
             }
             ushort second = K(current.ReadPersonSecondLocation(person), "current.Lord_release_PersonE4");
             ushort first = K(current.ReadPersonFirstLocation(person), "current.Lord_release_PersonE2");

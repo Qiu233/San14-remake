@@ -87,7 +87,8 @@ public static class G1EffectReader
             Range(at, length, lower, end);
             int recordEnd = checked(at + length);
             uint? type = table == G1EffectTable.Generic ? U(at + 4) : null;
-            uint flags = U(at + (table is G1EffectTable.Emitter or G1EffectTable.ParticleDefinition ? 4 : 8));
+            uint flags = U(at + (table is G1EffectTable.Emitter or G1EffectTable.ParticleDefinition or
+                G1EffectTable.NestedParticleDefinition or G1EffectTable.Controller ? 4 : 8));
             int? configuration = null;
             if (type.HasValue)
             {

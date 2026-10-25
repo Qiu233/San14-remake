@@ -58,7 +58,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var effects = new List<CampaignEffectRequest>();
             bool entered = false;
-            if (capturedStatus != 6 && (capturedStatus == 1 ||
+            if (deathCause == 0 && emitReports && capturedStatus != 6 && (capturedStatus == 1 ||
                 Known(OwnedArmyMoraleWaveInputs.ReadPost37(latest, capturedOffice), "initial_report_office_rank37") <
                     Parameter("office-report-rank-threshold") || IsPlayer(Force(person))))
             {
@@ -73,22 +73,32 @@ public sealed partial class ArmyCampaignRuleAdapter
                 entered = true;
             }
 
-            //Reset and actual argument binding precede root selection. The
-            //ordinary annual profile selects2A14; ruler/successor arguments
-            //for29A9/29B1 are not supplied by this finite consumer.
-            ushort argument0 = Identity(person);
-            if (capturedStatus is 1 or 2) throw Missing("initial_special_report_arguments_29A9_29B1");
-            string text = FormatInitialDeathText(argument0);
-            ushort speaker = Identity(person); //Fresh1F0EC0 operand after formatting.
-            effects.Add(Request(new(PersonDeathReportOperation.SpeakerText, null, speaker, text)));
+            if (emitReports)
+            {
+                ushort argument0 = Identity(person);
+                ushort argument1 = Valid(killer) ? Identity(Physical(killer, "initial_killer_pointer")) : (ushort)0;
+                int root = deathCause switch { 1 => 0x29A9, 2 => 0x29B1, _ => 0x2A14 };
+                var prepared = FormatInitialDeathText(argument0, argument1, root);
+                ushort speaker = Identity(person); //Fresh1F0EC0 operand after formatting.
+                var owner = Owner(person);
+                var snapshot = new TalentOfficerPresentationContext(speaker,
+                    (owner.CurrentSurname ?? throw Missing("initial_speaker_surname")) +
+                    (owner.CurrentGivenName ?? throw Missing("initial_speaker_given_name")),
+                    current.ReadPersonPortraitAppearance(person));
+                effects.Add(Request(new(PersonDeathReportOperation.SpeakerText, null, speaker, prepared.Text)
+                { Voice = prepared.Voice is null ? null : SaveVoice(prepared.Voice), Speaker = snapshot }));
+            }
             if (entered) effects.Add(Request(new(PersonDeathReportOperation.EventExit, null, null, null)));
             AppendInitialDeathEffects(effects);
             Observe("death.initial-report");
 
             ApplySecondReports(person, capturedStatus, capturedOffice);
 
-            int chronicleCode = ApplyDeathHistory(person);
-            ApplyDeathKinJournal(person, capturedForce, capturedPosition, chronicleCode);
+            if (emitHistory)
+            {
+                int chronicleCode = ApplyDeathHistory(person);
+                ApplyDeathKinJournal(person, capturedForce, capturedPosition, chronicleCode);
+            }
         }
 
         private int ApplyDeathHistory(int person)
@@ -113,11 +123,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             byte firstStatus = Status(person);
             if (firstStatus is not (>= 1 and <= 4) && Status(person) != 6)
             {
-                string text = FormatDeathHistoryText(0x2A32, Identity(person), 0, 0, 0);
+                string text = FormatDeathHistoryText(deathCause == 2 ? 0x2A34 : 0x2A32, Identity(person), 0, 0, 0);
                 int day = DeathHistoryDay();
                 string? supplemental = CampaignHistoryWriter.Supplemental(latest);
                 CommitDeathHistory(new(0, 0, 0, day, text, supplemental, 5012));
-                return 0;
+                return deathCause == 2 ? 13 : 0;
             }
 
             var related = Force(person);
@@ -129,16 +139,24 @@ public sealed partial class ArmyCampaignRuleAdapter
                 related = current.ReadForceTableReference(prior <= 51 ? prior : 0)
                     ?? throw Missing("death_history_165_Force_lookup");
             }
-            int root = Known(current.ReadForceNativeValidity(related), "death_history_main_Force_validity") ? 0x2A2E : 0x2A32;
+            bool relatedValid = Known(current.ReadForceNativeValidity(related), "death_history_main_Force_validity");
+            int root = deathCause switch
+            {
+                1 => relatedValid ? 0x2A30 : 0x2A32,
+                2 => relatedValid ? 0x2A31 : 0x2A34,
+                _ => relatedValid ? 0x2A2E : 0x2A32
+            };
             string main = FormatDeathHistoryText(root, Identity(person), 0, 0, 0);
 
             //A separate reset/context for528F. The annual second operand is
             //the real lookup0 binding, not a fabricated known-null Person.
             ushort argument1 = Known(current.ReadMoraleWaveRuler22EAC0(player), "death_history_attachment_ruler22EAC0");
-            var secondary = current.ReadPersonLookupReference(0) ?? throw Missing("death_history_param2_lookup0");
+            var secondary = deathCause == 0
+                ? current.ReadPersonLookupReference(0) ?? throw Missing("death_history_param2_lookup0") : killer;
             ushort argument2 = Valid(secondary) ? Identity(Physical(secondary, "death_history_param2_pointer")) : (ushort)0;
             ushort argument3 = Identity(person);
-            string attachment = FormatDeathHistoryText(0x528F, reporter, argument1, argument2, argument3);
+            string attachment = FormatDeathHistoryText(deathCause switch
+                { 1 => 0x52AB, 2 => 0x52C6, _ => 0x528F }, reporter, argument1, argument2, argument3);
 
             int district = 0;
             if (Known(current.ReadForceNativeValidity(related), "death_history_metadata_Force_validity"))
@@ -150,7 +168,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             int hex = Known(Position(person).PhysicalSlot, "death_history_Hex_ordinal");
             if (hex < 0) throw Missing("death_history_negative_Hex_ordinal");
             CommitDeathHistory(new(1, district, hex, freshDay, main, attachment, reporter, MarkBit3: 1, MarkBit4: 1));
-            return root == 0x2A2E ? 12 : 0; //Retain the actual annual branch result, not a later status.
+            return relatedValid ? deathCause switch { 1 => 13, 2 => 14, _ => 12 } : 0;
         }
 
         private int DeathHistoryDay()
@@ -227,7 +245,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             //Actual233780(Person,1) is status equality. Special-ruler reports
             //are rejected by the existing initial-report profile before here.
-            if (Status(person) == 1) throw Missing("second_report_ruler_status_label");
+            if (Status(person) == 1) return package.ReadHistoryDataText(1, 0xFA);
             int post = Known(current.ReadMoraleWavePersonPostE7(person), "second_report_office_validity_E7");
             string caption = string.Empty;
             if (Known(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(latest, post), "second_report_office_validity") &&
@@ -273,19 +291,25 @@ public sealed partial class ArmyCampaignRuleAdapter
             Observe(observation);
         }
 
-        private string FormatInitialDeathText(ushort argument0)
+        private (string Text, NarrationVoiceRequest? Voice) FormatInitialDeathText(ushort argument0, ushort argument1, int root)
         {
             if (package.Seed.Language is not ("TC" or "SC")) throw Missing("initial_report_text_locale");
             try
             {
                 var abilities = new TacticRemakeCurrentAbilities(current, package._scenario,
                     package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language));
-                var people = new DeploymentNarrationCurrentPeople(latest, current, abilities, argument0, 0,
+                //Only29B1 actually encounters Function4. Do not require an
+                //application voice owner for the no-Voice duel/annual text.
+                var voices = root == 0x29B1 ? new NarrationVoiceRequests(package._personnelNarrationVoice
+                    ?? throw Missing("initial_voice_settings"), DrawDeathReportApp32) : null;
+                var people = new DeploymentNarrationCurrentPeople(latest, current, abilities, argument0, argument1,
                     appearanceRepository: package._repository, appearanceScenario: package._scenario,
-                    appearanceLanguage: package.Seed.Language);
+                    appearanceLanguage: package.Seed.Language, voiceRequests: voices);
                 var messages = new NarrationResourceMessages(package._repository.LoadMessages(
                     package.Seed.Language, MessageKind.Game).Messages);
-                return messages.ResolvePersonDeathInitial(people, DrawDeathReportApp32);
+                string text = messages.ResolvePersonDeathInitial(people, DrawDeathReportApp32, root);
+                if (voices?.Pending.Count > 1) throw Missing("initial_multiple_voices");
+                return (text, voices?.Pending.FirstOrDefault());
             }
             catch (IOException error)
             { throw new InvalidDataException("person-death.initial_report_text_resource", error); }

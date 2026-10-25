@@ -212,6 +212,7 @@ public sealed partial class CampaignComposition
         var army = ArmyCampaignRuleAdapter.FromOwnedCampaign(_repository,
             Scenario, Map, Snapshot.Locale, revision);
         army.ConfigureApplicationGameplay(_applicationGameplay);
+        army.ConfigureArmyTraitSpeechView(_armyTraitSpeechViews is null ? null : _armyTraitSpeechViews.Read);
         if (_baseCaptureTerrainBound) army.ConfigureBaseCapturePresentationTerrain(_baseCaptureTerrain);
         if (_applicationProfile is { } profile) army.ConfigureApplicationProfile(profile);
         if (_personnelNarrationVoiceSettings is { } voice) army.ConfigurePersonnelNarrationVoice(voice);

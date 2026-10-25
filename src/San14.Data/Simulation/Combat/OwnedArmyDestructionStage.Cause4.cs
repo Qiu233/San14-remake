@@ -42,10 +42,19 @@ public sealed partial class OwnedArmyDestructionStage
         ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null)
         => ApplyCause4Current(state, current, pool, physical, winnerArmy, operationThirdDate, false);
 
+    /// <summary>295EE0 argument4: a still-employed commander, null winner,
+    /// mode0/cause4, before the enclosing death resets the Person.</summary>
+    internal ArmyCause4Result ApplyDeathCommanderCause4Current(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, int physical,
+        NativeMapSeasonDate date, List<CampaignEffectRequest> feedback)
+        => ApplyCause4Current(state, current, pool, physical, new(null), date, false,
+            withinOperation: true, feedback: feedback, deathCommander: true);
+
     private ArmyCause4Result ApplyCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
         ArmyUnitReference winner, NativeMapSeasonDate? sourceDate, bool freeCommander,
-        bool withinOperation = false, List<CampaignEffectRequest>? feedback = null)
+        bool withinOperation = false, List<CampaignEffectRequest>? feedback = null,
+        bool deathCommander = false)
     {
         try
         {
@@ -79,11 +88,11 @@ public sealed partial class OwnedArmyDestructionStage
                 if (current.ReadPersonStatus(commander) is not (>= 1 and <= 4) || force.PhysicalSlot is not (>= 1 and <= 45) ||
                     !Known(current.ReadForceNativeValidity(force), "cause4_employed_Force_validity"))
                     throw Missing("branch.cause4_actual_employed_Commander");
-                if (!Known(current.ReadArmyUnitNativeValidity(winner), "cause4_winner_Army_validity") || winner.PhysicalSlot == physical)
+                if (!deathCommander && (!Known(current.ReadArmyUnitNativeValidity(winner), "cause4_winner_Army_validity") || winner.PhysicalSlot == physical))
                     throw Missing("branch.cause4_employed_winner_Army");
-                if (!Known(current.ReadBaseNativeValidity(captured.VictimHome), "cause4_employed_Home_validity") ||
+                if (!deathCommander && (!Known(current.ReadBaseNativeValidity(captured.VictimHome), "cause4_employed_Home_validity") ||
                     current.ReadBaseForceSlot(captured.VictimHome) != force.PhysicalSlot ||
-                    !current.IsArmyUnitMapWriteSkipped(victim))
+                    !current.IsArmyUnitMapWriteSkipped(victim)))
                     throw Missing("branch.cause4_actual_friendly_at_Home");
             }
             var effects = new List<string>();
@@ -117,7 +126,14 @@ public sealed partial class OwnedArmyDestructionStage
             //The free5 leaf makes232460 false. The employed at-home leaf
             //really calls2EA9A0, whose valid friendly same-Hex branch only
             //writes E4 and creates no Return receiver/value temporaries.
-            if (!freeCommander)
+            if (deathCommander)
+            {
+                state = ReturnAbsorptionCommander(state, current, pool, commander,
+                    sourceDate ?? throw Missing("current.death_cause4_Return_date"),
+                    feedback ?? throw Missing("current.death_cause4_feedback"));
+                effects.Add("25B7CE.232460_then2EA9A0_death_current_Return");
+            }
+            else if (!freeCommander)
             {
                 var home = BaseLookup.Find(Known(current.ReadPersonFirstLocation(commander), "cause4_return_PersonE2"), current);
                 if (!Known(current.ReadBaseNativeValidity(home), "cause4_return_Home_validity") ||
@@ -153,7 +169,7 @@ public sealed partial class OwnedArmyDestructionStage
             effects.Add("25C171.Hex1C_clear→25C180.pending70_admission");
             PersonNormalArmyRewardReceipt? winnerReward = null;
             int? forceGain = null;
-            if (!freeCommander)
+            if (!freeCommander && !deathCommander)
             {
                 //Cause4 does not skip these late winner writers. Publish the
                 //victim pending image to this same operation before2B9290.

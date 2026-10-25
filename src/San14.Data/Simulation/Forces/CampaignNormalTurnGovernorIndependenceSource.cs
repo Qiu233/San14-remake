@@ -7,31 +7,38 @@ public sealed partial class ArmyCampaignRuleAdapter
     //NormalTurn20 calls2E5DF0, whose retained Force list predates every
     //independence callback. A newly created Force is not revisited this pass.
     internal GameState ApplyNormalTurnMonthlyGovernorIndependenceCurrent(GameState state,
-        SourceWorldContext current, WorldIndexContext pool)
+        SourceWorldContext current, WorldIndexContext pool, int? onlyForce = null,
+        TransferPersonReference? excludedPerson = null, List<CampaignEffectRequest>? sharedEffects = null)
     {
-        var effects = new List<CampaignEffectRequest>();
-        var forces = Temporary();
-        try
+        var effects = sharedEffects ?? new List<CampaignEffectRequest>();
+        //28C5D0 calls2E57B0 directly. It must not allocate2E5DF0's outer
+        //Force list while the succession caller retains its own temporaries.
+        if (onlyForce is int single) SelectAndApply(single);
+        else
         {
-            foreach (var row in current.ReadRegistryReferences(RegistryKind.Force) ?? throw Missing("Force_C0"))
+            var forces = Temporary();
+            try
             {
-                if (row is not { Kind: RegistryKind.Force, PhysicalSlot: int force }) throw Missing("Force_payload");
-                //The source tests these identities, not player ownership or
-                //Force178. Force0, if actually registered, has City count0.
-                if (force is >= 46 and <= 50 || force == 51) continue;
-                Append(forces, RegistryKind.Force, force);
+                foreach (var row in current.ReadRegistryReferences(RegistryKind.Force) ?? throw Missing("Force_C0"))
+                {
+                    if (row is not { Kind: RegistryKind.Force, PhysicalSlot: int force }) throw Missing("Force_payload");
+                    //The source tests these identities, not player ownership or
+                    //Force178. Force0, if actually registered, has City count0.
+                    if (force is >= 46 and <= 50 || force == 51) continue;
+                    Append(forces, RegistryKind.Force, force);
+                }
+                var forceNode = Head(forces);
+                while (forceNode.Identity.HasValue)
+                {
+                    var row = current.ReadRegistryNodePayload(new(forceNode.Identity)) ?? throw Missing("Force_temporary_payload");
+                    if (row is not { Kind: RegistryKind.Force, PhysicalSlot: int force }) throw Missing("Force_temporary_kind");
+                    SelectAndApply(force);
+                    forceNode = Next(forceNode);
+                }
             }
-            var forceNode = Head(forces);
-            while (forceNode.Identity.HasValue)
-            {
-                var row = current.ReadRegistryNodePayload(new(forceNode.Identity)) ?? throw Missing("Force_temporary_payload");
-                if (row is not { Kind: RegistryKind.Force, PhysicalSlot: int force }) throw Missing("Force_temporary_kind");
-                SelectAndApply(force);
-                forceNode = Next(forceNode);
-            }
+            finally { Release(forces); }
         }
-        finally { Release(forces); }
-        if (effects.Count != 0)
+        if (sharedEffects is null && effects.Count != 0)
         {
             var pending = state.CampaignEffectRequests ?? throw Missing("pending_effect_owner");
             long revision = state.NativeClock?.UpdateOrdinal ?? throw Missing("effect_revision");
@@ -61,7 +68,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     int person = K(entry, "Person_pointer");
                     if (K(current.ReadPersonOldForceSlot(person), "candidate_Force") != force ||
-                        Status(person) is < 1 or > 4 || Status(person) is not (2 or 3)) continue;
+                        Status(person) is < 1 or > 4) continue;
+                    if (excludedPerson?.PhysicalSlot is int excluded && Valid(excluded) && Id(person) == Id(excluded)) continue;
+                    if (Status(person) is not (2 or 3)) continue;
                     var home = BaseLookup.Find(K(current.ReadPersonFirstLocation(person), "candidate_E2"), current);
                     int homeCode = K(current.ReadBaseObjectLink(home), "candidate_Home4E");
                     if (homeCode is >= 52 and <= 61) continue;
@@ -102,15 +111,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //22DF50 returns that ordinal. Out-of-range Force48 selects0.
                 int kingdom = title < 101 ? title : 0;
                 int historicalPenalty = kingdom == 6 && Id(ruler) == 607 ? Rule("historical-kingdom-penalty", 30) : 0;
-                //2E5DF0 supplies param2=null. Cached2E5C5A confirms the
-                //optional15 bonus tests that excluded Person, so it is absent.
+                //2E5DF0 supplies null;28C5D0 supplies the former ruler.
+                int formerRulerBonus = excludedPerson?.PhysicalSlot is int old && Valid(old)
+                    ? Rule("former-ruler-chance-bonus", 15) : 0;
                 int chance = Math.Clamp(unchecked(Preference(rebel) / Rule("chance-ambition-divisor", 4) -
                     historicalPenalty - Disposition(rebel) / Rule("chance-disposition-divisor", 4) +
-                    Rule("chance-loyalty-base", 75) - Loyalty(rebel)), 0, 70);
+                    formerRulerBonus + Rule("chance-loyalty-base", 75) - Loyalty(rebel)), 0, 70);
                 var sampler = ReadArmyDestructionSampler(state, current) ?? throw Missing("World450_45C");
                 int sample = TacticEffectSourceSamplerMath.Sample(100, 1, unchecked(date.Year + date.Month), date.Day, Id(rebel), 0, sampler);
                 if (sample >= chance) return;
-                var applied = ApplyForceIndependenceCurrent(state, current, pool, new(force), rebel, null,
+                //The shared follower operation takes a physical Person slot,
+                //then compares its real Person10; it does not take that ID.
+                var applied = ApplyForceIndependenceCurrent(state, current, pool, new(force), rebel, excludedPerson?.PhysicalSlot,
                     date, effects, (image, root, person) => ApplyNormalTurnIndependenceReportCurrent(
                         image, current, force, rebel, root, person, effects));
                 state = applied.State;

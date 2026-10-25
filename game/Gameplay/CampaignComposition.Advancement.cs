@@ -30,6 +30,7 @@ public sealed partial class CampaignComposition
         _applicationProfile = source._applicationProfile;
         _baseCaptureTerrain = source._baseCaptureTerrain;
         _baseCaptureTerrainBound = source._baseCaptureTerrainBound;
+        _armyTraitSpeechViews = source._armyTraitSpeechViews;
         // Loaded definitions and these read-only views are shared. Mutable
         // resource caches, Army captures and rule services belong to the worker.
         Scenario = source.Scenario;

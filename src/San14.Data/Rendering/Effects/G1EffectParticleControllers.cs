@@ -8,16 +8,20 @@ namespace San14.Data;
 public static class G1EffectParticleControllers
 {
     public static void Apply(ReadOnlyMemory<byte> controller, Memory<byte> particle,
-        float dt, G1EffectContext context) => ApplyCore(controller, particle, dt, context, null);
+        float dt, G1EffectContext context) => ApplyCore(controller, particle, dt, context, null, null);
 
     /// <summary>Type 27 reads the current generic's opacity binding and
     /// configuration. Supply its mutable declaration clone, not a static copy.</summary>
     public static void Apply(ReadOnlyMemory<byte> controller, Memory<byte> particle,
         float dt, G1EffectContext context, G1EffectRecord generic) =>
-        ApplyCore(controller, particle, dt, context, generic);
+        ApplyCore(controller, particle, dt, context, generic, null);
+
+    public static void Apply(ReadOnlyMemory<byte> controller, Memory<byte> particle,
+        float dt, G1EffectContext context, G1EffectRecord generic, float? moduleStrength) =>
+        ApplyCore(controller, particle, dt, context, generic, moduleStrength);
 
     private static void ApplyCore(ReadOnlyMemory<byte> c, Memory<byte> p, float dt,
-        G1EffectContext context, G1EffectRecord? generic)
+        G1EffectContext context, G1EffectRecord? generic, float? moduleStrength)
     {
         switch (I(c, 4))
         {
@@ -37,18 +41,29 @@ public static class G1EffectParticleControllers
             }
             case 4:
             {
-                int cursor = 0x20;
-                // This scalar AST's source context is the same current slot.
+                // Native dispatch reads the opcode at 1C and passes an operand
+                // cursor at 20. The shared prefix evaluator consumes both.
+                int cursor = 0x1C;
                 W(p, I(c, 8), G1EffectBirthExpression.Evaluate(c, ref cursor, p, context.Random));
                 break;
             }
             case 8:
-                ApplyCore(Nested(c), p, dt, context, generic);
+                ApplyCore(Nested(c), p, dt, context, generic, moduleStrength);
                 Byte(p, I(c, 8), F(p, I(c, 0x18)) * 255f);
                 break;
+            case 11:
+            {
+                int target = I(c, 8);
+                float baseline = F(p, I(c, 0x18));
+                float normalized = F(p, target) / baseline;
+                float time = F(p, I(c, 0x10)), period = F(c, 0x1C);
+                time -= MathF.Floor(time / period) * period;
+                W(p, target, Scalar(c[0x20..], normalized, time, 1f, dt) * baseline);
+                break;
+            }
             case 13:
             {
-                ApplyCore(Nested(c), p, dt, context, generic);
+                ApplyCore(Nested(c), p, dt, context, generic, moduleStrength);
                 int field = I(c, 0x18);
                 float turns = F(p, field) / 6.2831855f + 0.5f;
                 W(p, field, (turns - MathF.Floor(turns)) * 6.2831855f - 3.1415927f);
@@ -71,7 +86,7 @@ public static class G1EffectParticleControllers
             {
                 int field = I(c, 0x18);
                 float before = F(p, field);
-                ApplyCore(Nested(c), p, dt, context, generic);
+                ApplyCore(Nested(c), p, dt, context, generic, moduleStrength);
                 float difference = F(p, field) - before;
                 int matrix = I(c, 8);
                 for (int lane = 0; lane < 4; lane++)
@@ -86,8 +101,9 @@ public static class G1EffectParticleControllers
                 if (generic is null)
                     throw new InvalidOperationException("Particle opacity controller requires its current generic owner.");
                 var source = generic.Bytes;
-                int configuration = checked(0x18 + I(source, 0x18));
-                float value = F(p, I(source, 0xBC)) * F(source, checked(configuration + 0x34));
+                float strength = moduleStrength ??
+                    throw new InvalidOperationException("Particle opacity controller requires its current module strength.");
+                float value = F(p, I(source, 0xBC)) * strength;
                 if ((I(c, 0xC) & 1) != 0) W(p, I(c, 8), value);
                 else Byte(p, I(c, 8), value * 255f);
                 break;
@@ -107,6 +123,7 @@ public static class G1EffectParticleControllers
                 return ScalarCanContinue(c[0x20..],
                     (1f / F(particle, I(c, 0x14))) * F(particle, I(c, 0x10)));
             case 4: return true;
+            case 11: return true;
             case 8:
             case 13:
             case 22: return CanContinue(Nested(c), particle);
@@ -126,7 +143,12 @@ public static class G1EffectParticleControllers
         switch (I(s, 4))
         {
             case 0:
-                return (Clamp(time * F(s, 0x14) + F(s, 0x10)) * F(s, 0x1C) + F(s, 0x18)) * scale;
+            case 2:
+            {
+                float phase = Clamp(time * F(s, 0x14) + F(s, 0x10));
+                if (I(s, 4) == 2) phase = Smooth(phase);
+                return (phase * F(s, 0x1C) + F(s, 0x18)) * scale;
+            }
             case 1:
             {
                 float elapsed = time - F(s, 0x10);
@@ -139,14 +161,40 @@ public static class G1EffectParticleControllers
                 float target = scale * F(s, 0x1C);
                 return (current - target) / (dt * F(s, 0x14) + 1f) + target;
             }
+            case 6:
+            case 8:
+            {
+                float elapsed = time - F(s, 0x10);
+                if (elapsed <= dt)
+                {
+                    current = scale * F(s, 0x20);
+                    dt = elapsed;
+                    if (elapsed <= 0) return current;
+                }
+                float phase = time * F(s, 0x1C) + F(s, 0x18);
+                if (phase > 0)
+                {
+                    phase = Clamp(phase);
+                    if (I(s, 4) == 8) phase = Smooth(phase);
+                    return (phase * F(s, 0x28) + F(s, 0x24)) * scale;
+                }
+                float target = F(s, 0x24) * scale;
+                return (current - target) / (F(s, 0x14) * dt + 1f) + target;
+            }
             case 3:
             case 5:
+            case 9:
+            case 11:
             {
                 float first = Clamp(time * F(s, 0x14) + F(s, 0x10));
                 float second = Clamp(time * F(s, 0x1C) + F(s, 0x18));
+                // Type 11 smooths both clamped transitions; type 5 smooths
+                // only the second. Both have an empty initialization slot.
+                if (I(s, 4) is 9 or 11) first = Smooth(first);
                 float value = first * F(s, 0x24) + F(s, 0x20);
-                if (I(s, 4) == 5) second = (3f - (second + second)) * (second * second);
-                return (value + second * F(s, 0x28)) * scale;
+                if (I(s, 4) is 5 or 11) second = Smooth(second);
+                float secondValue = second * F(s, 0x28);
+                return (I(s, 4) == 9 ? secondValue + value : value + secondValue) * scale;
             }
             default: throw new NotSupportedException($"Particle scalar controller expression {I(s, 4)} is not implemented.");
         }
@@ -154,9 +202,9 @@ public static class G1EffectParticleControllers
 
     private static bool ScalarCanContinue(ReadOnlyMemory<byte> s, float time) => I(s, 4) switch
     {
-        0 => 1f > time * F(s, 0x14) + F(s, 0x10) || F(s, 0x1C) + F(s, 0x18) > 0.0011920928955078125f,
+        0 or 2 => 1f > time * F(s, 0x14) + F(s, 0x10) || F(s, 0x1C) + F(s, 0x18) > 0.0011920928955078125f,
         1 => 8f / F(s, 0x14) + F(s, 0x10) > time || F(s, 0x1C) > 0.0011920928955078125f,
-        3 or 5 => 1f > time * F(s, 0x1C) + F(s, 0x18) ||
+        3 or 5 or 6 or 8 or 9 or 11 => 1f > time * F(s, 0x1C) + F(s, 0x18) ||
             (F(s, 0x24) + F(s, 0x20)) + F(s, 0x28) > 0.0011920928955078125f,
         _ => throw new NotSupportedException($"Particle scalar controller expression {I(s, 4)} lifetime is not implemented.")
     };
@@ -170,6 +218,7 @@ public static class G1EffectParticleControllers
     }
 
     private static float Clamp(float value) => MathF.Min(1f, MathF.Max(0f, value));
+    private static float Smooth(float value) => (3f - (value + value)) * (value * value);
     private static int I(ReadOnlyMemory<byte> bytes, int offset) =>
         BinaryPrimitives.ReadInt32LittleEndian(Range(bytes, offset, 4));
     private static float F(ReadOnlyMemory<byte> bytes, int offset) =>

@@ -35,27 +35,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     private HistoryTextResult PrepareArmyMapSpeechOpeningVoiceCurrent(GameState state,
         SourceWorldContext current, ArmyMapSpeechEntry entry)
     {
-        int at = entry.HexId;
-        float x, z;
-        if (at < 48400)
-        {
-            var point = CeHexWorldCoordinates.Project(at); x = (float)point.X; z = (float)point.Z;
-        }
-        else
-        {
-            //1888D0 still projects the48400 sentinel;1889A0 supplies0 Y.
-            //Do not replace this explicit packet with a later Person Hex.
-            float step = MathF.Sqrt(3f) * 468f;
-            x = at % 220 * 702f + 37594f;
-            z = step * (at / 220) + (at % 2 == 0 ? step * .5f : 0);
-            z += MathF.Sqrt(3f) * .5f * 468f + 12930f;
-        }
+        var source = ArmyMapSpeechVoiceGeometry.QueryPacketPosition(entry.HexId, armyMapSpeechVoiceTerrain);
         if (armyMapSpeechSpatialAdmission is null) throw SpatialSpeechMissing("application_admission_owner");
-        float y = 0;
-        if (at < 48400 && armyMapSpeechVoiceTerrain is { } terrain)
-        {
-            float ground = terrain.Query(x, z); y = 445f <= ground ? ground : 445f;
-        }
         int physical = current.ReadPersonLookupReference(entry.OfficerId <= 6000 ? entry.OfficerId : 0)?.PhysicalSlot
             ?? throw SpatialSpeechMissing("opening_Person_pointer");
         bool valid = current.ReadPersonNativeValidity(physical) ?? throw SpatialSpeechMissing("opening_Person_validity");
@@ -65,7 +46,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var voices = new NarrationVoiceRequests(_personnelNarrationVoice ?? throw SpatialSpeechMissing("voice_settings"), Draw,
             spatialAdmission: request => armyMapSpeechSpatialAdmission(new(SaveVoice(request.Voice),
                 request.SourceX, request.SourceY, request.SourceZ)));
-        _ = voices.RequestSpatialAt(person, 2, new(x, y, z));
+        _ = voices.RequestSpatialAt(person, 2, source);
         return new(latest, "") { SpatialVoices = voices.PendingSpatial };
 
         int Draw(int bound)

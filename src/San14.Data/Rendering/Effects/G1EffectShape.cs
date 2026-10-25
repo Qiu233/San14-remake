@@ -20,7 +20,7 @@ public sealed class G1EffectShape
     public uint ShapeType { get; }
     public ReadOnlyMemory<byte> SourceBytes { get; }
     public Matrix4x4 Transform { get; set; }
-    public int Dimension => ShapeType switch { 0 => 3, 6 => 2, _ => 0 };
+    public int Dimension => ShapeType switch { 0 => 3, 3 or 6 => 2, _ => 0 };
 
     private G1EffectShape(uint type, ReadOnlyMemory<byte> bytes)
     {
@@ -43,6 +43,14 @@ public sealed class G1EffectShape
             radiusCubeDifference = outerRadius * outerRadius * outerRadius -
                 innerRadius * innerRadius * innerRadius;
         }
+        else if (type == 3)
+        {
+            outerRadius = F(0x50);
+            angleStart = F(0x54);
+            angleEnd = F(0x58);
+            lowerCosine = MathF.Cos(F(0x60));
+            upperCosine = MathF.Cos(F(0x5C));
+        }
         else if (type == 6)
         {
             outerRadius = F(0x50);
@@ -62,7 +70,7 @@ public sealed class G1EffectShape
     {
         int minimum = type switch
         {
-            0 => 0x80, 6 => 0x60, 10 => 0x50,
+            0 => 0x80, 3 => 0x70, 6 => 0x60, 10 => 0x50,
             _ => throw new NotSupportedException($"G1FX shape {type} is not implemented.")
         };
         if (bytes.Length < minimum || BinaryPrimitives.ReadUInt32LittleEndian(bytes.Span) != bytes.Length ||
@@ -79,6 +87,8 @@ public sealed class G1EffectShape
         get
         {
             if (ShapeType == 10) return 1;
+            if (ShapeType == 3) return MathF.Abs((upperCosine - lowerCosine) * (angleEnd - angleStart)) *
+                (outerRadius * outerRadius);
             if (ShapeType == 6) return MathF.Abs(height * outerRadius * (angleEnd - angleStart));
             Matrix4x4 m = Transform;
             float determinant = (m.M21 * m.M13 - m.M11 * m.M23) * m.M32 +
@@ -91,7 +101,8 @@ public sealed class G1EffectShape
 
     /// <summary>One sample per scheduled birth batch, before iterating its
     /// particle definitions. Shape zero consumes azimuth, polar cosine, then
-    /// radius; shape six consumes azimuth then height; shape ten consumes none.</summary>
+    /// radius; shape three consumes azimuth then polar cosine; shape six
+    /// consumes azimuth then height; shape ten consumes none.</summary>
     public Vector4 Sample(G1EffectRandom random)
     {
         ArgumentNullException.ThrowIfNull(random);
@@ -109,9 +120,13 @@ public sealed class G1EffectShape
         else
         {
             float polarCosine = random.NextUnit() * (upperCosine - lowerCosine) + lowerCosine;
-            float fraction = innerRadius / outerRadius;
-            fraction = fraction * fraction * fraction;
-            float radius = outerRadius * G1EffectShapeMath.CubeRoot((1f - fraction) * random.NextUnit() + fraction);
+            float radius = outerRadius;
+            if (ShapeType == 0)
+            {
+                float fraction = innerRadius / outerRadius;
+                fraction = fraction * fraction * fraction;
+                radius = outerRadius * G1EffectShapeMath.CubeRoot((1f - fraction) * random.NextUnit() + fraction);
+            }
             float y = radius * polarCosine;
             float horizontal = MathF.Sqrt(1f - polarCosine * polarCosine) * radius;
             position = new(horizontal * sine, y, horizontal * cosine, 1);

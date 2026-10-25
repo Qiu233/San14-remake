@@ -39,6 +39,7 @@ internal partial class D3D11ArmyMapLabels : Control
     private Texture2D _groupFlagBase = null!, _groupFlagOutline = null!, _groupFlagFill = null!;
     private MapMarkerSlices _numberPanel = null!, _barPanel = null!;
     private Shader _portraitShader = null!;
+    private Shader _speechShader = null!;
     private IReadOnlyList<LcskSpriteNodePart> _portraitParts = null!;
     private IReadOnlyList<LcskSpriteNodePart> _groupPortraitParts = null!;
     private Func<GameState, SourceWorldContext?>? _queries;
@@ -54,7 +55,16 @@ internal partial class D3D11ArmyMapLabels : Control
 
     internal ArmyMapUiCurrentFrame? CurrentFields => _fields;
     internal IReadOnlyDictionary<int, ArmyMapCard> Cards => _cards;
-    internal bool HasSpeechLayout(int unitId) => _rows.TryGetValue(unitId, out var row) && row.ArmyValid == true;
+    internal ArmyMapSpeechBubbleView? SpeechLayout(int unitId) =>
+        _rows.TryGetValue(unitId, out var row) && row.ArmyValid == true && _cards.TryGetValue(unitId, out var card) &&
+        GodotObject.IsInstanceValid(card.SpeechLayout) && card.SpeechLayout.IsInsideTree() && !card.SpeechLayout.IsQueuedForDeletion()
+            ? card.SpeechLayout : null;
+    internal bool HasSpeechLayout(int unitId) => SpeechLayout(unitId) is not null;
+
+    internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureSpeechViews() => _capturedWorld is not null && _fields is not null
+        ? San14.Client.Gameplay.ArmyTraitSpeechViews.Capture(_capturedWorld, id =>
+            _rows.TryGetValue(id, out var row) && row.ArmyValid is bool valid ? valid && HasSpeechLayout(id) : null)
+        : null;
 
     internal void Configure(GameResourceRepository repository, ScenarioCityPreview scenario,
         UiAssets assets, MapFont font, MapTextPresets presets,
@@ -99,6 +109,7 @@ internal partial class D3D11ArmyMapLabels : Control
         ValidatePortrait(_portraitParts);
         ValidatePortrait(_groupPortraitParts);
         _portraitShader = MapPortraitQuad.CreateShader();
+        _speechShader = UiSourceSprite.CreateShader();
         Resized += UpdateCanonicalScale;
         UpdateCanonicalScale();
         SetMeta("source_army_label_layout_uri", _source.Normal.Source.ResourceUri);
@@ -164,12 +175,24 @@ internal partial class D3D11ArmyMapLabels : Control
         _rows.Clear(); _simpleStyles.Clear();
         foreach (var row in _fields.Rows) _rows.Add(row.UnitId, row);
         foreach (var pair in publication.SimpleStyles) _simpleStyles.Add(pair.Key, pair.Value);
-        foreach (int id in _cards.Keys.Where(id => !_rows.ContainsKey(id)).ToArray())
+        foreach (int id in _cards.Keys.Where(id => !_rows.TryGetValue(id, out var row) || row.ArmyValid != true).ToArray())
         {
+            _cards[id].ReleaseSpeechLayout();
             _cards[id].Visible = false;
             _cards[id].QueueFree();
             _cards.Remove(id);
         }
+        //A source Army view owns its UnitAction child even outside the viewport.
+        //Camera culling changes presentation, not whether v168 can return it.
+        foreach (var row in _fields.Rows.Where(row => row.ArmyValid == true)) EnsureCard(row.UnitId);
+    }
+
+    private ArmyMapCard EnsureCard(int unitId)
+    {
+        if (_cards.TryGetValue(unitId, out var retained)) return retained;
+        var card = new ArmyMapCard(this) { Name = "Army_" + unitId.ToString(CultureInfo.InvariantCulture), Visible = false };
+        _root.AddChild(card); _cards.Add(unitId, card);
+        return card;
     }
 
     internal void Present(D3D11MapInput input, D3D11MapReceipt receipt)
@@ -186,6 +209,7 @@ internal partial class D3D11ArmyMapLabels : Control
         {
             _capturedLabelPublication = publication;
             ApplyPublication(publication);
+            _capturedWorld = world;
         }
         if (input.PeriodArmyLabels is null) _capturedLabelPublication = null;
         foreach (var card in _cards.Values) card.Visible = false;
@@ -234,12 +258,7 @@ internal partial class D3D11ArmyMapLabels : Control
                     simpleStyle = selectedStyle;
                     simpleColors = SimpleColors(selectedStyle.Primary);
                 }
-                if (!_cards.TryGetValue(row.UnitId, out var card))
-                {
-                    card = new(this) { Name = "Army_" + row.UnitId.ToString(CultureInfo.InvariantCulture) };
-                    _root.AddChild(card);
-                    _cards.Add(row.UnitId, card);
-                }
+                var card = EnsureCard(row.UnitId);
                 Color tint = row.SourceForceColor49 is byte color
                     ? CanvasColor(_colors.ForceFillColor(color)) : Colors.White;
                 ShaderMaterial? portrait = presentation.Display != 2 && row.PersonValid == true && row.AppearanceA6 is ushort appearance
@@ -366,6 +385,7 @@ internal partial class D3D11ArmyMapLabels : Control
         private readonly D3D11ArmyMapLabels _owner;
         private readonly MapPortraitQuad _portrait = new() { Name = "Portrait" };
         private readonly ArmyDetails _details;
+        internal ArmyMapSpeechBubbleView SpeechLayout { get; }
         internal ArmyMapUiCurrentRow Fields { get; private set; } = null!;
         internal NVector3 UnitPosition { get; private set; }
         internal ArmyMapLabelPresentation Presentation { get; private set; }
@@ -387,6 +407,14 @@ internal partial class D3D11ArmyMapLabels : Control
             _details = new(this) { Name = "Details" };
             AddChild(_portrait);
             AddChild(_details);
+            SpeechLayout = new() { Name = "UnitAction", Visible = false, ZIndex = 40 };
+            owner._root.AddChild(SpeechLayout);
+            SpeechLayout.Configure(owner._repository, owner._assets, owner._speechShader, owner._font);
+        }
+        internal void ReleaseSpeechLayout()
+        {
+            if (!GodotObject.IsInstanceValid(SpeechLayout)) return;
+            SpeechLayout.Hide(); SpeechLayout.GetParent()?.RemoveChild(SpeechLayout); SpeechLayout.QueueFree();
         }
         internal void Present(ArmyMapUiCurrentRow row, NVector3 position,
             ArmyMapLabelPresentation presentation, ShaderMaterial? material, Texture2D? icon, Color tint,
@@ -468,5 +496,6 @@ internal partial class D3D11ArmyMapLabels : Control
         foreach (var material in _portraits.Values) material.Dispose();
         _portraits.Clear();
         _portraitShader?.Dispose();
+        _speechShader?.Dispose();
     }
 }

@@ -35,9 +35,9 @@ public sealed record OwnedArmyDestructionPhaseResult(GameState? State,
 /// valid winner Army or ordinary City winner and actual remote Return command creation. This is
 /// destruction, not29F220 city return.
 /// The separate26th phase owns282580 cleanup; no live zero-soldier projection
-/// is published. A captured ruler's actual AI release early-return is supported;
-/// ordinary status4 custody has its real source callbacks; other capture and
-/// death branches remain explicit unknown.</summary>
+/// is published. Ordinary custody, AI ruler treatment and the cause1 death
+/// call share this operation's current world and pool. Player ruler treatment
+/// retains its distinct interactive continuation boundary.</summary>
 public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter package)
 {
     public const string Revision = "san14:ce-owned-ordinary-Army-destruction-20261007";
@@ -114,19 +114,21 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 if (ArmyDestructionQueue.ResolveUnitSlot(working, defeat.VictimUnitId) is not int physical) continue;
                 if (current.ReadArmyUnitNativeValidity(new(physical)) is not bool valid) throw Missing("current.victim_validity");
                 if (!valid || ArmyPending70Admission.ContainsCurrentPointer(new(RegistryKind.Army, physical), new Pending(current))) continue;
-                if (defeat.Cause == UnitDefeatCause.DuelDeath)
-                    throw Missing("branch.duel_death_295EE0");
+                bool duelDeath = defeat.Cause == UnitDefeatCause.DuelDeath;
                 bool forcedCapture = defeat.Cause == UnitDefeatCause.DuelCapture;
-                if (!forcedCapture && defeat.Cause != UnitDefeatCause.OrdinaryBattle)
+                if (!forcedCapture && !duelDeath && defeat.Cause != UnitDefeatCause.OrdinaryBattle)
                     throw Missing("current.destruction_cause");
                 var receipt = DestroyCurrent(working, current, world.Pool, defeat, physical,
                     sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate, reportIntents,
-                    forcedDuelCapture: forcedCapture);
+                    forcedDuelCapture: forcedCapture, duelDeath: duelDeath);
                 working = receipt.State;
-                destroyed.Add(physical); receipts.Add(receipt.Receipt);
-                //Cause2 still reaches the real kind14 Army notification after
-                //2E0FC0. Its mode0 suppresses only the optional morale report.
-                reports.Add(receipt.Receipt.Report);
+                if (receipt.Receipt is { } completed)
+                {
+                    destroyed.Add(physical); receipts.Add(completed);
+                    //Cause2 still reaches the real kind14 Army notification
+                    //after2E0FC0; mode0 only suppresses the morale report.
+                    reports.Add(completed.Report);
+                }
                 queue = current.OwnedDestructionQueue ?? throw Missing("current.operation_settlements");
             }
             queue = CombatSettlementQueue.Create();
@@ -141,12 +143,12 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         catch (InvalidDataException error) { return new(null, receipts, error.Message); }
     }
 
-    private (GameState State, OwnedArmyDestructionReceipt Receipt) DestroyCurrent(GameState state,
+    private (GameState State, OwnedArmyDestructionReceipt? Receipt) DestroyCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool,
         UnitDefeatRequest request, int physical, TacticSourceSamplerWorld? sampler,
         NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback,
         Action<ArmyUnitReference>? refresh = null, Action<int>? personChanged = null,
-        bool projectOwnedRoles = false, bool forcedDuelCapture = false)
+        bool projectOwnedRoles = false, bool forcedDuelCapture = false, bool duelDeath = false)
     {
         if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
@@ -207,7 +209,16 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         bool protectedNearby = NearbyProtection(state, current, victim, force, sourceDate);
         effects.Add("259729.2A78D0_protector_temporary");
         PersonArmyInjuryReceipt? injuryReceipt = null;
-        if (!immune && !protectedNearby)
+        if (duelDeath)
+        {
+            var death = package.ApplyDuelDeathCurrent(state, current, pool, commander, winnerPerson);
+            state = death.State;
+            //295EE0 can retire the victim's Force, including this Army. The
+            //original259360 caller returns immediately in that case.
+            if (death.NativeReturn != 0) return (state, null);
+            effects.Add("259C32.duel_death295EE0_cause1");
+        }
+        else if (!immune && !protectedNearby)
         {
             var injury = forcedDuelCapture
                 ? PersonArmyInjurySource.ApplyForcedCapture(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler)
@@ -215,7 +226,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
             injuryReceipt = injury.Receipt;
         }
-        effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
+        if (!duelDeath)
+            effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
         var resource = ArmyDestructionResources.Prepare(state, current, victim, winner, winnerBase, captured);
         if (resource.Packet is null) throw Missing(resource.UnresolvedOwner ?? "current.resources259360");
         ArmyDestructionResources.ApplyContext(resource.Packet);
@@ -243,7 +255,9 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         PersonArmyCaptureWholeReceipt? custodyReceipt = null;
         ForcedDuelCaptureAnnouncement? captureAnnouncement = null;
         bool returnedByCapture = false;
-        if (captureImmunity == 0 && winnerValid)
+        bool personAlive = Known(current.ReadPersonNativeValidity(commander), "capture_Person_validity") &&
+            Known(current.ReadPersonStatus(commander), "capture_PersonE6") != 9;
+        if (!duelDeath && personAlive && captureImmunity == 0 && winnerValid)
         {
             bool capturedPerson;
             if (forcedDuelCapture)
@@ -278,14 +292,24 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     if (PersonPositionRepair.DecodeSecondLocation(Known(current.ReadPersonSecondLocation(commander), "captured_PersonE4")).Kind != 27)
                         throw Missing("branch.2E0FC0_captured_Person_custody");
                     var decision = RulerCaptureReleaseSource.Decide(state, current, commander, captured.WinnerForce, sampler);
-                    if (decision.Decision != RulerCaptureDecision.Release)
+                    if (decision.Decision == RulerCaptureDecision.ExecuteRequired)
+                    {
+                        state = package.ApplyRulerCaptureExecutionCurrent(state, current, pool, decision,
+                            sourceDate ?? throw Missing("current.Lord_execute_World34_date"), feedback);
+                        returnedByCapture = true;
+                        effects.Add("25B75x.2E0FC0_2F86F0_Lord_AI_execute");
+                    }
+                    else if (decision.Decision == RulerCaptureDecision.Release)
+                    {
+                        var released = package.ApplyRulerCaptureReleaseCurrent(state, current, pool, decision,
+                            sourceDate ?? throw Missing("current.Lord_return_World34_date"), feedback);
+                        state = released.State ?? throw Missing(released.UnresolvedOwner ?? "current.Lord_release");
+                        releaseReceipt = released.Receipt; returnedByCapture = true;
+                        effects.Add("25B75x.2E0FC0_2F86F0_Lord_AI_release_early_return");
+                    }
+                    else
                         throw Missing(decision.UnresolvedOwner ?? (decision.Decision == RulerCaptureDecision.PlayerDecisionRequired
                             ? "branch.Lord_player_806D00_decision" : "branch.Lord_execute_27F820_295EE0"));
-                    var released = RulerCaptureReleaseSource.Release(state, current, decision,
-                        sourceDate ?? throw Missing("current.Lord_return_World34_date"), new(false));
-                    state = released.State ?? throw Missing(released.UnresolvedOwner ?? "current.Lord_release");
-                    releaseReceipt = released.Receipt; returnedByCapture = true;
-                    effects.Add("25B75x.2E0FC0_2F86F0_Lord_AI_release_early_return");
                 }
                 else
                 {
@@ -296,12 +320,14 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 }
             }
         }
-        if (!returnedByCapture && atHome)
+        personAlive = Known(current.ReadPersonNativeValidity(commander), "return_Person_validity") &&
+            Known(current.ReadPersonStatus(commander), "return_PersonE6") != 9;
+        if (!duelDeath && personAlive && !returnedByCapture && atHome)
         {
             current.WritePersonSecondLocation(commander, Math.Min(Known(current.ReadBaseObjectLink(captured.VictimHome), "Base4E"), (ushort)1061));
             effects.Add("25B7CE.2EA9A0_same_home_secondE4");
         }
-        else if (!returnedByCapture)
+        else if (!duelDeath && personAlive && !returnedByCapture)
         {
             //The actual remote source creates its Return receiver before the
             //Army enters pending70. Its current second-location still points

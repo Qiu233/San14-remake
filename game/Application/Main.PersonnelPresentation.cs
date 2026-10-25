@@ -11,9 +11,9 @@ public partial class Main
     private MapSceneView? _personnelPresentationMap;
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
-    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null;
+    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null||_personDeathSound is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
-    private bool IsPersonnelPresentationCurrent=>_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
+    private bool IsPersonnelPresentationCurrent=>_personDeathSound is not null?IsPersonDeathSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
@@ -56,6 +56,23 @@ public partial class Main
                 continue;
             }
             armyViewRefreshSource = null;
+            if (entry.Request.PersonDeathReport is { } death)
+            {
+                var publication = composition.PrepareArmyQueries(owner).QueryPersonDeathPresentation(owner, death);
+                var presentation = publication.Value ?? throw new InvalidDataException(publication.UnresolvedInput);
+                if (presentation.UnresolvedOwner is { } missing)
+                { GD.PushWarning(missing); _personnelPresentationInspectedOwner = owner; return false; }
+                if (death.Operation is PersonDeathReportOperation.EventEnter or PersonDeathReportOperation.EventExit)
+                {
+                    if (presentation.Illustration is { } illustration) ShowMonthlyScene(session, map, illustration);
+                    else CloseMonthlyScene();
+                    if (!session.TryCompletePersonnelPresentation(owner, entry.BatchSequence, entry.RequestIndex)) return false;
+                    owner = PersonnelPresentationOwner(session);
+                    continue;
+                }
+                if (presentation.SoundId is int soundId)
+                    return TryPresentPersonDeathSound(entry, session, owner, map, soundId);
+            }
             if (entry.Request.MonthlyMaintenance?.Operation == MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations)
             {
                 composition.ApplicationGameplay.PersonnelGroupMoveDestinations.Clear();
@@ -191,7 +208,7 @@ public partial class Main
                         var speaker=query.Value;
                         var sprites=new LocalizedUiSpriteSource(_repository);
                         bool monthlySpeaker=entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.ConditionalSpeakerText;
-                        bool standingSpeaker=monthlySpeaker||entry.Source==CampaignEffectSource.DoctrineResearchCommands||
+                        bool standingSpeaker=monthlySpeaker||entry.Source is CampaignEffectSource.PersonDeath or CampaignEffectSource.DoctrineResearchCommands||
                             entry.Source==CampaignEffectSource.StrategicCommands&&payload.Operation==TalentCommandPresentationOperation.OfficerText;
                         if(payload.Operation==TalentCommandPresentationOperation.ConditionalOfficerText)
                         {
@@ -257,6 +274,7 @@ public partial class Main
 
     private void ClosePersonnelPresentation()
     {
+        ClosePersonDeathSound();
         CloseResourceNotice();
         CloseMonthlyFeedback();
         if(_personnelPresentationOwnsVoice)_sceneAudioBinding?.StopNarrationVoice();

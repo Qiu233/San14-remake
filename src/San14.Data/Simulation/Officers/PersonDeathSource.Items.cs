@@ -23,42 +23,48 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        private void ApplyItems(int person, PersonLinkedEntityReference associated)
+        private void ApplyItems(int person, PersonLinkedEntityReference associated,
+            TransferPersonReference? killer = null)
         {
-            // This prefix is unconditional, including when the later Item
-            // iterator is empty. The annual second Person argument is null.
+            //2BE120 always resolves the original City, even with no Items.
+            //A native-valid second Person is the recipient and bypasses the
+            //entire relative-selection temporary list, including allocation.
             var home = BaseLookup.Find(Known(current.ReadPersonFirstLocation(person), "items_original_E2"), current);
             var capturedCity = CurrentGateMapQueries.FindCity(home, current);
-            var selected = new TransferPersonReference(null);
-            HexListHandle? candidates = Temporary();
-            try
+            killer ??= new TransferPersonReference(null);
+            var selected = killer;
+            if (!Valid(killer))
             {
-                var descriptor = current.ReadRegistryDescriptor(RegistryKind.Person) ?? throw Missing("items_Person_registry");
-                var node = current.ReadRegistryHead(descriptor) ?? throw Missing("items_Person_head");
-                while (node.Identity.HasValue)
+                HexListHandle? candidates = Temporary();
+                try
                 {
-                    var pointer = ItemPayload(new(node.Identity), RegistryKind.Person);
-                    int other = Known(pointer.PhysicalSlot, "items_candidate_pointer");
-                    byte otherForce = Known(current.ReadPersonOldForceSlot(other), "items_candidate_force22CF60");
-                    byte victimForce = Known(current.ReadPersonOldForceSlot(person), "items_victim_force22CF60");
-                    if (otherForce == victimForce &&
-                        (ItemRelative(other, person, 0xB4) || ItemRelative(other, person, 0xB6) ||
-                         ItemRelative(other, person, 0xBA) || ItemSworn(other, person)) &&
-                        !ItemRawHit(person, other, like: false) && Status(other) != 9 &&
-                        Status(other) is not (6 or 7) && other != person)
-                        Append(candidates, pointer);
-                    // The source takes live Next after all reached helpers.
-                    node = current.ReadRegistryNodeNext(node) ?? throw Missing("items_Person_next");
+                    var descriptor = current.ReadRegistryDescriptor(RegistryKind.Person) ?? throw Missing("items_Person_registry");
+                    var node = current.ReadRegistryHead(descriptor) ?? throw Missing("items_Person_head");
+                    while (node.Identity.HasValue)
+                    {
+                        var pointer = ItemPayload(new(node.Identity), RegistryKind.Person);
+                        int other = Known(pointer.PhysicalSlot, "items_candidate_pointer");
+                        byte otherForce = Known(current.ReadPersonOldForceSlot(other), "items_candidate_force22CF60");
+                        byte victimForce = Known(current.ReadPersonOldForceSlot(person), "items_victim_force22CF60");
+                        if (otherForce == victimForce &&
+                            (ItemRelative(other, person, 0xB4) || ItemRelative(other, person, 0xB6) ||
+                             ItemRelative(other, person, 0xBA) || ItemSworn(other, person)) &&
+                            !ItemRawHit(person, other, like: false) && Status(other) != 9 &&
+                            Status(other) is not (6 or 7) && other != person)
+                            Append(candidates, pointer);
+                        // The source takes live Next after all reached helpers.
+                        node = current.ReadRegistryNodeNext(node) ?? throw Missing("items_Person_next");
+                    }
+                    Observe("death.items.candidates-collected");
+                    if (ItemHead(candidates).Identity.HasValue)
+                    {
+                        SortItemRecipients(candidates, person); //Also called for one node.
+                        selected = new(ItemPayload(ItemHead(candidates), RegistryKind.Person).PhysicalSlot);
+                        Observe("death.items.recipient-selected");
+                    }
                 }
-                Observe("death.items.candidates-collected");
-                if (ItemHead(candidates).Identity.HasValue)
-                {
-                    SortItemRecipients(candidates, person); //Also called for one node.
-                    selected = new(ItemPayload(ItemHead(candidates), RegistryKind.Person).PhysicalSlot);
-                    Observe("death.items.recipient-selected");
-                }
+                finally { if (candidates is not null) ClearRelease(candidates); }
             }
-            finally { if (candidates is not null) ClearRelease(candidates); }
 
             HexListHandle pendingRemoval = Temporary();
             try
@@ -68,9 +74,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (Known(current.ReadLinkedEntityNativeValidity(associated), "items_associated_validity") &&
                         ApplyAssociatedItem(person, item, associated)) continue;
 
-                    //32FB90(null second Person) is known false. Its special
-                    //232A50 branch is therefore not reached in this profile.
-                    if (Valid(selected))
+                    //Fresh calls occur per Item, after the associated-task
+                    //branch.232A50 suppresses both the recipient and the
+                    //victim-Force fallback for a killer based in band Force.
+                    bool bandKiller = Valid(killer) && ItemKillerAtBandBase(Physical(killer, "items_killer_pointer"));
+                    if (Valid(selected) && !bandKiller)
                     {
                         ClearItemFlag3(item);
                         int recipient = Physical(selected, "items_selected_pointer");
@@ -80,7 +88,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         if (Serving(recipient) && (IsPlayer(Force(person)) || IsPlayer(Force(recipient))))
                             ApplyRecipientItemReport(person, item, recipient);
                     }
-                    else if (Serving(person) && Status(person) != 1)
+                    else if (Serving(person) && Status(person) != 1 && !bandKiller)
                     {
                         int ruler = Known(current.ReadMoraleWaveRuler22EAC0(Force(person)), "items_fallback_ruler22EAC0");
                         ClearItemFlag3(item);
@@ -119,6 +127,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
             }
             finally { ClearRelease(pendingRemoval); }
+        }
+
+        private bool ItemKillerAtBandBase(int person)
+        {
+            //232A50 only checks first location1..61 then actual Force kind;
+            //it does not require a band Person identity or Force validity.
+            ushort first = Known(current.ReadPersonFirstLocation(person), "items_killer_E2");
+            if (first is < 1 or > 61) return false;
+            return Known(current.ReadForcePhysicalSlot(Force(person)), "items_killer_Force_kind") is >= 46 and <= 50;
         }
 
         private void ApplyCapturedItemReport(int person, RegistryObjectReference item, ForceReference receiver)

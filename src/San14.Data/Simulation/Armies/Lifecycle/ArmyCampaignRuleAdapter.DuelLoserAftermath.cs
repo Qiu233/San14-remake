@@ -36,9 +36,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (admitted.Kind is null) throw DuelMissing("aftermath_defeat_admission:" + admitted.MissingInput);
                 if (admitted.Kind == CombatSettlementAdmissionKind.Full)
                 {
-                    if (request.Cause == UnitDefeatCause.DuelDeath)
-                        throw DuelMissing("aftermath_death_295EE0");
-                    return SettleImmediateDefeat(state, request, forcedCapture: true);
+                    return SettleImmediateDefeat(state, request,
+                        forcedCapture: request.Cause == UnitDefeatCause.DuelCapture);
                 }
                 current.BindOwnedDestructionQueue(admitted.Queue, state);
                 return state with { PendingCombatSettlements = admitted.Queue };

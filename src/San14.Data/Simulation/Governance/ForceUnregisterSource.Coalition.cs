@@ -11,9 +11,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         WorldIndexContext pool, int victim, int captor, List<CampaignEffectRequest> effects)
         => new ForceRetirementCoalitionOperation(this, state, current, pool, effects).Run(victim, captor);
 
+    internal GameState ApplyRulerDeathCoalitionVictoryCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool, ForceReference winner, List<CampaignEffectRequest> effects)
+        => new ForceRetirementCoalitionOperation(this, state, current, pool, effects).ApplyVictory(winner);
+
     private sealed class ForceRetirementCoalitionOperation(ArmyCampaignRuleAdapter package,
         GameState state, SourceWorldContext current, WorldIndexContext pool, List<CampaignEffectRequest> effects)
     {
+        internal GameState ApplyVictory(ForceReference winner)
+        { CompleteCoalitionVictory(winner); return state; }
+
         internal GameState Run(int victim, int captor)
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())

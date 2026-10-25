@@ -8,6 +8,13 @@ public sealed partial class CampaignComposition
     private TransferServiceProfileStore? _applicationProfile;
     private MainMapCameraTerrainSource? _baseCaptureTerrain;
     private bool _baseCaptureTerrainBound;
+    private ArmyTraitSpeechViews? _armyTraitSpeechViews;
+
+    internal void ConfigureArmyTraitSpeechViews(ArmyTraitSpeechViews? views)
+    {
+        _armyTraitSpeechViews = views;
+        _army?.ConfigureArmyTraitSpeechView(views is null ? null : views.Read);
+    }
 
     public void ConfigureBaseCapturePresentationTerrain(MainMapCameraTerrainSource? terrain)
     {

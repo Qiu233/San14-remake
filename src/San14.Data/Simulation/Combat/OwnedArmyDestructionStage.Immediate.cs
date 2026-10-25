@@ -39,8 +39,10 @@ public sealed partial class OwnedArmyDestructionStage
         if (!Known(current.ReadArmyUnitNativeValidity(victim), "immediate_victim_validity") ||
             ArmyPending70Admission.ContainsCurrentPointer(new(RegistryKind.Army, physical), new Pending(current))) return new(state, null);
         var result = DestroyCurrent(state, current, pool, request, physical, sampler, sourceDate,
-            feedback, refresh, personChanged, projectOwnedRoles: true, forcedDuelCapture: forcedDuelCapture);
+            feedback, refresh, personChanged, projectOwnedRoles: true, forcedDuelCapture: forcedDuelCapture,
+            duelDeath: request.Cause == UnitDefeatCause.DuelDeath);
         queue = current.OwnedDestructionQueue ?? throw Missing("immediate_postcallback_manager140");
-        return new(PublishCurrent(result.State, current, pool, [physical], queue, projectOwnedRoles: true), result.Receipt);
+        return new(PublishCurrent(result.State, current, pool,
+            result.Receipt is null ? [] : [physical], queue, projectOwnedRoles: true), result.Receipt);
     }
 }

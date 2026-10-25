@@ -53,8 +53,16 @@ public partial class Main
     private void RefreshMonthlyScene(GameplaySession session, GameState owner, MapSceneView map)
     {
         if (_resourceNotice is not null && IsResourceNoticeCurrent) return;
-        if (owner.ActiveMonthlyScene is not { Family: MonthlySceneFamily.FinalOrder } active)
+        if (owner.ActiveMonthlyScene is not { } active)
         { CloseMonthlyScene(); return; }
+        if (active.Family == MonthlySceneFamily.PersonDeath)
+        {
+            var death = new PersonDeathReportRequest(PersonDeathReportOperation.EventEnter, active.EventKind, null, null);
+            var publication = _campaignComposition!.PrepareArmyQueries(owner).QueryPersonDeathPresentation(owner, death);
+            var illustration = publication.Value?.Illustration ?? throw new InvalidDataException(publication.UnresolvedInput);
+            ShowMonthlyScene(session, map, illustration);
+            return;
+        }
         var request = new MonthlyMaintenanceRequest(MonthlyMaintenanceOperation.FinalOrderSceneEnter,
             active.EventKind, null, null);
         var query = _campaignComposition!.PrepareArmyQueries(owner).QueryNormalTurnFinalOrderScene(owner, request);

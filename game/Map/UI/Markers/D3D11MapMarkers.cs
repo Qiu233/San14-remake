@@ -208,6 +208,8 @@ internal partial class D3D11MapMarkers : Control
     internal void AcceptArmyHits() => _armyLabels?.AcceptPreparedHits();
     internal bool ArmySpeechManagerVisible => _armyLabels?.IsVisibleInTree() == true;
     internal bool HasArmySpeechLayout(int unitId) => _armyLabels?.HasSpeechLayout(unitId) == true;
+    internal ArmyMapSpeechBubbleView? ArmySpeechLayout(int unitId) => _armyLabels?.SpeechLayout(unitId);
+    internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureArmySpeechViews() => _armyLabels?.CaptureSpeechViews();
 
     internal bool TryPickArmy(Vector2 localPoint, MainMapCameraFrame displayedFrame,
         out ArmyMapLabelHit hit)

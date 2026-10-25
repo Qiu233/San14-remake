@@ -82,6 +82,7 @@ public partial class Main
             var voice = _preferences.Voice.Capture();
             if (playbackMap?.SourceMainCameraTerrain is { } terrain)
                 composition.ConfigureBaseCapturePresentationTerrain(terrain);
+            composition.ConfigureArmyTraitSpeechViews(playbackMap?.CaptureArmyTraitSpeechViews());
             var storyBindings = CaptureNormalTurnStoryBindings(source, composition, playbackMap, cancellation.Token);
             var result = campaignChoice switch
             {

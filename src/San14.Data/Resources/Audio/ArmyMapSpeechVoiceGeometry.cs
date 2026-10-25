@@ -4,6 +4,34 @@ namespace San14.Data;
 /// admission. It does not define an audio-engine attenuation curve.</summary>
 public static class ArmyMapSpeechVoiceGeometry
 {
+    /// <summary>188880 projects the retained packet Hex, including the48400
+    /// sentinel. Only valid terrain cells enter1889A0's ground-height query.</summary>
+    public static NarrationSpatialVoicePosition QueryPacketPosition(int hexId,
+        MainMapCameraTerrainSource? terrain)
+    {
+        if ((uint)hexId > 48400) throw new ArgumentOutOfRangeException(nameof(hexId));
+        float x, z;
+        if (hexId < 48400)
+        {
+            var point = CeHexWorldCoordinates.Project(hexId);
+            x = (float)point.X; z = (float)point.Z;
+        }
+        else
+        {
+            float step = MathF.Sqrt(3f) * 468f;
+            x = hexId % 220 * 702f + 37594f;
+            z = step * (hexId / 220) + (hexId % 2 == 0 ? step * .5f : 0);
+            z += MathF.Sqrt(3f) * .5f * 468f + 12930f;
+        }
+        float y = 0;
+        if (hexId < 48400 && terrain is not null)
+        {
+            float ground = terrain.Query(x, z);
+            y = 445f <= ground ? ground : 445f;
+        }
+        return new(x, y, z);
+    }
+
     public static NarrationSpatialVoicePosition QueryListener(MainMapCameraFrame frame,
         MainMapCameraControllerBounds bounds, bool currentCameraResourcePresent)
     {

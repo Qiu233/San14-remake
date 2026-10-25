@@ -20,13 +20,13 @@ internal static class PersonnelPresentationQueue
                 CampaignEffectSource.OfficerGrowthNotifications or CampaignEffectSource.OfficerOfficeCommands or
                 CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance or
                 CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands or
-                CampaignEffectSource.ArmyBattleDefeat) && !traitSource)continue;
+                CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.PersonDeath) && !traitSource)continue;
             for(int index=0;index<batch.Requests.Length;index++)
             {
                 var request=batch.Requests[index];
                 //Monthly controller and map operations keep their source order.
                 //The host must handle the head before showing a later line.
-                if(traitSource && request.ArmyTraitViewRefresh is not null ||
+                if(request.PersonDeathReport is not null || traitSource && request.ArmyTraitViewRefresh is not null ||
                     request.MonthlyMaintenance is not null||request.NormalTurnFoodWarningPresentation is not null||
                     request.NormalTurnForceResourceNotice is not null||request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
                     request.OfficerGrowthFeedback?.Operation is OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration||
@@ -40,7 +40,15 @@ internal static class PersonnelPresentationQueue
     }
 
     internal static TalentCommandPresentationRequest? Message(PersonnelPresentationEntry entry) =>
-        entry.Request.TalentCommandPresentation ?? (entry.Request.MonthlyMaintenance switch
+        entry.Request.TalentCommandPresentation ?? (entry.Request.PersonDeathReport switch
+        {
+            { Operation: PersonDeathReportOperation.SpeakerText } text =>
+                new TalentCommandPresentationRequest(TalentCommandPresentationOperation.OfficerText, null, text.SpeakerId, null, null, text.TextAtSource)
+                    { Speaker = text.Speaker, Voice = text.Voice },
+            { Operation: PersonDeathReportOperation.NarrationText } text =>
+                new TalentCommandPresentationRequest(TalentCommandPresentationOperation.Announcement, null, null, null, null, text.TextAtSource),
+            _ => null
+        }) ?? (entry.Request.MonthlyMaintenance switch
         {
             { Operation: MonthlyMaintenanceOperation.ControllerQueueEvent, EventKind: 6 or 8 } sound =>
                 new(TalentCommandPresentationOperation.SoundCue, sound.EventKind, null, null, null, null),

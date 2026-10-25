@@ -26,6 +26,10 @@ public static class NarrationVoiceSelection
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bank);
+        if (request.VoiceId == 45 &&
+            (request.VoiceType >= 26 || (uint)request.VariantIndex >= 5 || request.SoundId == 0 ||
+             NarrationDeathVoiceDefinitions.Slots(request.Language, request.VoiceType)[request.VariantIndex] != request.SoundId))
+            throw new InvalidDataException("Death narration voice differs from its source definition.");
         var binding = Bank(request.Language, request.VoiceId);
         if (bank.Source.ResourceUri != GameResourceId.Rdb("RRPreview", binding.SelectionBankId).ToString())
             throw new InvalidDataException("Narration voice bank differs from the selected voice language.");

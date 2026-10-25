@@ -24,7 +24,7 @@ public partial class Main
         else _armySpeechPlayback!.Synchronize(snapshot);
         if (!ReferenceEquals(_armySpeechWorld, world)) _armySpeechFailedSequences.Clear();
         _armySpeechWorld = world;
-        map.PresentArmyMapSpeech(_armySpeechPlayback!.Visible);
+        map.PresentArmyMapSpeech(_armySpeechPlayback!.Visible, snapshot);
     }
 
     private void AdvanceArmyMapSpeech(double delta)
@@ -44,7 +44,7 @@ public partial class Main
         {
             //The worker owns its candidate and adoption identity until it ends.
             //Only the independent display clock may advance during that borrow.
-            map.PresentArmyMapSpeech(playback.Visible);
+            map.PresentArmyMapSpeech(playback.Visible, snapshot);
             return;
         }
         //Saved text keeps its original selected sounds. Restoring an unaccepted
@@ -83,20 +83,21 @@ public partial class Main
         foreach (long sequence in playback.ReadyToStart.ToArray())
         {
             if (_armySpeechFailedSequences.Contains(sequence)) continue;
-            var entry = snapshot.Entries.FirstOrDefault(row => row.Sequence == sequence);
+            var entry = owner.ArmyMapSpeech!.Entries.FirstOrDefault(row => row.Sequence == sequence);
             if (entry is null) continue;
             var rules = composition.PrepareArmyQueries(owner);
             try
             {
-                bool spatial = entry.ActionCode is 10 or 14 or 23;
-                if (spatial && map.SourceMainCameraTerrain is null)
+                if (map.SourceMainCameraTerrain is null)
                     throw new InvalidDataException("army-map-speech.source_Landscape_not_ready");
-                var audio = spatial ? _sceneAudioBinding ?? throw new InvalidDataException("army-map-speech.audio_scene") : null;
-                if (spatial && _preferences.Voice.Enabled && !audio!.PrepareArmySpeechBank(_preferences.Voice.Language)) continue;
-                using var batch = audio?.BeginArmySpeechAudio(map.CaptureArmySpeechAudioContext(), _preferences.Voice.Enabled);
-                rules.ConfigureArmyMapSpeechSpatialVoice(batch is null ? null : batch.TryReserve, map.SourceMainCameraTerrain);
+                //All finite roots use the same installed memory bank. Bind the
+                //real admission owner before any formatter can select Voice2/3/4/5.
+                var audio = _sceneAudioBinding ?? throw new InvalidDataException("army-map-speech.audio_scene");
+                if (_preferences.Voice.Enabled && !audio.PrepareArmySpeechBank(_preferences.Voice.Language)) continue;
+                using var batch = audio.BeginArmySpeechAudio(map.CaptureArmySpeechAudioContext(), _preferences.Voice.Enabled);
+                rules.ConfigureArmyMapSpeechSpatialVoice(batch.TryReserve, map.SourceMainCameraTerrain);
                 if (!session.TryStartArmyMapSpeech(owner, playback.CaptureSnapshot(), sequence,
-                    map.HasArmySpeechLayout(entry.ArmyId), rules, out var result, new(_presentationRandom.State)))
+                    map.PrepareArmySpeechLayout(entry), rules, out var result, new(_presentationRandom.State)))
                 {
                     _armySpeechFailedSequences.Add(sequence);
                     if (result?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
@@ -108,11 +109,11 @@ public partial class Main
                 if (owner.ArmyMapSpeech!.Entries.FirstOrDefault(row => row.Sequence == sequence) is
                     { TextAtSource: not null, SpatialVoices: { IsEmpty: false } })
                 {
-                    (batch ?? throw new InvalidDataException("army-map-speech.unbound_voice_family")).Commit();
+                    batch.Commit();
                     if (session.TryCompleteArmyMapSpeechVoices(owner, sequence))
                     { owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!); }
                     else
-                    { batch!.Abort(); throw new InvalidOperationException("army-map-speech.voice_receipt_owner"); }
+                    { batch.Abort(); throw new InvalidOperationException("army-map-speech.voice_receipt_owner"); }
                 }
             }
             catch (Exception error)
@@ -120,7 +121,7 @@ public partial class Main
             finally { rules.ConfigureArmyMapSpeechSpatialVoice(null, null); }
         }
         _armySpeechWorld = owner;
-        map.PresentArmyMapSpeech(playback.Visible);
+        map.PresentArmyMapSpeech(playback.Visible, owner.ArmyMapSpeech!);
     }
 
     private (ArmyMapSpeechState? Snapshot, GameState? Owner) CaptureArmySpeechCheckpoint(GameplaySession session)

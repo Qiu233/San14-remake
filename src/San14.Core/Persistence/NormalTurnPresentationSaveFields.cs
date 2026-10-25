@@ -6,6 +6,9 @@ internal static class NormalTurnPresentationSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 174 && state["ActiveMonthlyScene"]?["Family"] is JsonValue family &&
+            family.TryGetValue<int>(out int sceneFamily) && sceneFamily >= (int)MonthlySceneFamily.PersonDeath)
+            throw new InvalidDataException("Legacy world contains a future admitted death scene.");
         if (version >= 169) return;
         if (state["ActiveMonthlyScene"] is not null || Notices(state).Any(notice => notice["TextAtSource"] is not null))
             throw new InvalidDataException("Legacy world contains future monthly presentation state.");
@@ -18,8 +21,9 @@ internal static class NormalTurnPresentationSaveFields
     {
         if (version < 169) state["ActiveMonthlyScene"] = null;
         else if (!state.ContainsKey("ActiveMonthlyScene") || state["ActiveMonthlyScene"] is JsonNode active &&
-            (active is not JsonObject scene || !Integer(scene["Family"], (int)MonthlySceneFamily.FinalOrder) ||
-             scene["EventKind"] is not JsonValue kind || !kind.TryGetValue<int>(out int value) || value is not (10 or 26 or 31)))
+            (active is not JsonObject scene || scene["EventKind"] is not JsonValue kind || !kind.TryGetValue<int>(out int value) ||
+             !(Integer(scene["Family"], (int)MonthlySceneFamily.FinalOrder) && value is 10 or 26 or 31 ||
+               version >= 174 && Integer(scene["Family"], (int)MonthlySceneFamily.PersonDeath) && value is 4 or 5 or 6)))
             throw new InvalidDataException("Saved monthly scene is missing or invalid.");
         foreach (var notice in Notices(state))
         {

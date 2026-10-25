@@ -5,11 +5,11 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
 {
-    private Func<int, bool?>? armyTraitSpeechView;
+    private Func<GameState, int, bool?>? armyTraitSpeechView;
 
     /// <summary>Actual1A3D70 source-Army view availability. An unbound or
     /// unknown result retains the typed intention; it never means ready.</summary>
-    public void ConfigureArmyTraitSpeechView(Func<int, bool?>? availability) => armyTraitSpeechView = availability;
+    public void ConfigureArmyTraitSpeechView(Func<GameState, int, bool?>? availability) => armyTraitSpeechView = availability;
 
     //1B4720: capacity and live-speaker exclusion precede the real admission
     //draw. A temporary admitted packet draws its delay even when an older
@@ -154,7 +154,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         {
             int action = ArmyTraitFeedbackRequest.HasContext(request.TraitId) ? 26 : request.TraitId == 20 ? 27 : 0;
             if (action == 0) return true; //The actual1B3DA0 support gate rejected both actions.
-            if (armyTraitSpeechView?.Invoke(request.ArmyId) is not bool available) return false;
+            if (armyTraitSpeechView?.Invoke(latest(), request.ArmyId) is not bool available) return false;
             if (!available) return true; //Known no source view:1A3D70 never calls speech admission.
             publish(QueueArmyMapSpeechCurrent(latest(), current, request.ArmyId, request.OfficerId,
                 action, request.SpeakerHexId, contextTraitId: request.TraitId,

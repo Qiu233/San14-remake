@@ -169,7 +169,11 @@ public sealed record PersonAppearanceRequest(PersonAppearanceOperation Operation
 public enum PersonDeathReportOperation { EventEnter, SpeakerText, EventExit, ControllerQueueEvent, NarrationText }
 /// <summary>Ordered source-time conditional work; not App admission, playback or ACK.</summary>
 public sealed record PersonDeathReportRequest(PersonDeathReportOperation Operation,
-    int? EventKind, ushort? SpeakerId, string? TextAtSource);
+    int? EventKind, ushort? SpeakerId, string? TextAtSource)
+{
+    public TalentNarrationVoiceRequest? Voice { get; init; }
+    public TalentOfficerPresentationContext? Speaker { get; init; }
+}
 
 public enum PersonLifespanNotificationOperation { ControllerQueueEvent, Narration }
 /// <summary>Source-time conditional work. The Person operand belongs to the
@@ -777,6 +781,15 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
         };
         if (source != CampaignEffectSource.PersonDeath || !valid)
             throw new InvalidDataException("Invalid person death report union.");
+        if (report.Speaker is { } speaker &&
+            (report.Operation != PersonDeathReportOperation.SpeakerText || speaker.OfficerId != report.SpeakerId ||
+             speaker.OfficerId is < 0 or > 6000 || speaker.NameAtSource is null))
+            throw new InvalidDataException("Invalid source-time death-report speaker.");
+        if (report.Voice is { } voice &&
+            (report.Operation != PersonDeathReportOperation.SpeakerText || report.Speaker is null ||
+             voice.SpeakerId != report.SpeakerId || voice.SpeakerId is < 1 or > 6000 || voice.VoiceId != 45 ||
+             voice.VoiceType >= 26 || !Enum.IsDefined(voice.Language) || voice.VariantIndex is < 0 or > 4 || voice.SoundId == 0))
+            throw new InvalidDataException("Invalid source-selected death-report voice.");
     }
 
     private static void ValidatePersonAppearance(CampaignEffectSource source, CampaignEffectRequest request)

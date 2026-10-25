@@ -32,6 +32,15 @@ public sealed class G1EffectModuleLifetime
     /// <summary>Applies an actual stop request received by this module owner.</summary>
     public void BeginStop() => Stopping = true;
 
+    /// <summary>The system opacity message writes the same module envelope
+    /// used by emission and opacity controllers. A linear stop also adjusts
+    /// its elapsed coordinate to retain the accepted new strength.</summary>
+    public void SetOpacity(float opacity)
+    {
+        Strength = opacity;
+        if (Stopping && StopKind == 1) StopElapsed = StopSeconds - StopSeconds * opacity;
+    }
+
     /// <summary>Runs before emitter transforms and particle updates. Returns
     /// true when the source clears the generic roots and disables the module.</summary>
     public bool AdvanceStop(float seconds, bool actualModuleAlive)

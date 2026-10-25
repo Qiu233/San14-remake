@@ -59,7 +59,7 @@ public static class G1EffectDistribution
         return new(F(bytes, at), F(bytes, at + 4), F(bytes, at + 8), F(bytes, at + 12));
     }
 
-    private static Matrix4x4 Rotation(Vector4 axis, float sine, float cosine)
+    internal static Matrix4x4 Rotation(Vector4 axis, float sine, float cosine)
     {
         float x = axis.X, y = axis.Y, z = axis.Z;
         float square = x * x + y * y + z * z;
@@ -78,7 +78,7 @@ public static class G1EffectDistribution
         (p.Z*m.M33+p.X*m.M13)+(p.W*m.M43+p.Y*m.M23),
         (p.Z*m.M34+p.X*m.M14)+(p.W*m.M44+p.Y*m.M24));
 
-    private static Matrix4x4 Multiply(Matrix4x4 left, Matrix4x4 right)
+    internal static Matrix4x4 Multiply(Matrix4x4 left, Matrix4x4 right)
     {
         // The source returns four SIMD rows in xmm0..3; its decompiler only
         // declares the first row. Preserve the actual grouped additions.

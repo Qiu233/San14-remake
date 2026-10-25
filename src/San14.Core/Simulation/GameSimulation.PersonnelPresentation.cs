@@ -17,7 +17,9 @@ public sealed partial class GameSimulation
         var batch = effects.PendingBatches[batchIndex];
         if ((uint)requestIndex >= (uint)batch.Requests.Length) return false;
         var request = batch.Requests[requestIndex];
-        if (IsBaseCaptureRequest(request) && !IsBaseCaptureHead(effects, batchIndex, requestIndex)) return false;
+        if (IsBaseCaptureRequest(request) && !IsPresentationHead(effects, batchIndex, requestIndex, IsBaseCaptureRequest)) return false;
+        if (request.PersonDeathReport is not null &&
+            !IsPresentationHead(effects, batchIndex, requestIndex, static item => item.PersonDeathReport is not null)) return false;
         bool canComplete = batch.Source switch
         {
             CampaignEffectSource.TalentCommands => request.TalentCommandPresentation is not null ||
@@ -41,6 +43,10 @@ public sealed partial class GameSimulation
                     Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
+            CampaignEffectSource.PersonDeath => request.PersonDeathReport is
+                { Operation: PersonDeathReportOperation.EventEnter, EventKind: 4 or 5 or 6 } or
+                { Operation: PersonDeathReportOperation.EventExit or PersonDeathReportOperation.SpeakerText or PersonDeathReportOperation.NarrationText } or
+                { Operation: PersonDeathReportOperation.ControllerQueueEvent, EventKind: 22 },
             CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText or
                     MonthlyMaintenanceOperation.DisasterSceneEnter or MonthlyMaintenanceOperation.DisasterSceneExit } ||
@@ -84,6 +90,13 @@ public sealed partial class GameSimulation
             MonthlyMaintenanceOperation.DisasterSceneExit => null,
             _ => owner.ActiveDisasterScene
         };
+        var activeMonthly = request.PersonDeathReport?.Operation switch
+        {
+            PersonDeathReportOperation.EventEnter =>
+                new MonthlySceneState(MonthlySceneFamily.PersonDeath, request.PersonDeathReport.EventKind!.Value),
+            PersonDeathReportOperation.EventExit => null,
+            _ => owner.ActiveMonthlyScene
+        };
         var completedOwner = owner with
         {
             CampaignEffectRequests = effects with { PendingBatches = batches },
@@ -93,7 +106,7 @@ public sealed partial class GameSimulation
                 MonthlyMaintenanceOperation.FinalOrderSceneEnter =>
                     new MonthlySceneState(MonthlySceneFamily.FinalOrder, request.MonthlyMaintenance.EventKind!.Value),
                 MonthlyMaintenanceOperation.FinalOrderSceneExit => null,
-                _ => owner.ActiveMonthlyScene
+                _ => activeMonthly
             }
         };
         if (pending is not null) _normalPeriod = pending with { Candidate = completedOwner };
@@ -104,11 +117,12 @@ public sealed partial class GameSimulation
     private static bool IsBaseCaptureRequest(CampaignEffectRequest request) => request.MapObjectPresentation is
         { Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound };
 
-    private static bool IsBaseCaptureHead(CampaignEffectRequests effects, int expectedBatch, int expectedRequest)
+    private static bool IsPresentationHead(CampaignEffectRequests effects, int expectedBatch, int expectedRequest,
+        Func<CampaignEffectRequest, bool> matches)
     {
         for (int batch = 0; batch <= expectedBatch; batch++)
             for (int request = 0; request < effects.PendingBatches[batch].Requests.Length; request++)
-                if (IsBaseCaptureRequest(effects.PendingBatches[batch].Requests[request]))
+                if (matches(effects.PendingBatches[batch].Requests[request]))
                     return batch == expectedBatch && request == expectedRequest;
         return false;
     }

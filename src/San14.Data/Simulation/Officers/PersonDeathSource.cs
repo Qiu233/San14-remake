@@ -4,8 +4,8 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    /// <summary>The annual caller's ordinary Person death, on the enclosing
-    /// operation's actual current world and pool. Failure discards all of it.</summary>
+    /// <summary>Ordinary, duel and execution death on the enclosing operation's
+    /// actual current world and pool. Failure discards the candidate.</summary>
     internal sealed partial class PersonDeathSource
     {
         private readonly ArmyCampaignRuleAdapter package;
@@ -14,6 +14,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly WorldIndexContext pool;
         private readonly Action<string, GameState>? observe;
         private readonly List<PersonAssignmentPrecallResult> associations = [];
+        private int deathCause;
+        private TransferPersonReference killer = new(null);
+        private bool retireAssociatedArmy = true;
+        private bool emitReports = true;
+        private bool emitHistory = true;
+        private bool suppressAllReports;
+        private ForceReference? deathOriginalForce;
 
         internal PersonDeathSource(ArmyCampaignRuleAdapter package, GameState state,
             SourceWorldContext current, WorldIndexContext pool, Action<string, GameState>? observe = null)
@@ -30,16 +37,37 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
 
         internal (GameState State, int NativeReturn) ApplyAnnualOrdinary(int person)
+            => ApplyOrdinary(person);
+
+        /// <summary>295EE0's cause1/2 caller, with its actual second Person
+        /// receiver. The duel caller already owns Army destruction (argument4=0).
+        /// Execution has argument4=1 and retains the ordinary associated-Army gate.</summary>
+        internal (GameState State, int NativeReturn) ApplyCombatDeath(int person,
+            TransferPersonReference killingPerson, int cause, bool destroyAssociatedArmy,
+            bool report = true, bool history = true, bool suppressReports = false)
+        {
+            if (cause is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(cause));
+            deathCause = cause;
+            killer = killingPerson;
+            retireAssociatedArmy = destroyAssociatedArmy;
+            emitReports = report;
+            emitHistory = history;
+            suppressAllReports = suppressReports;
+            return ApplyOrdinary(person);
+        }
+
+        private (GameState State, int NativeReturn) ApplyOrdinary(int person)
         {
             try
             {
                 ushort first = Known(current.ReadPersonFirstLocation(person), "captured_E2");
                 var oldBase = BaseLookup.Find(first, current);
-                _ = CurrentGateMapQueries.FindCity(oldBase, current); //22A940 capture precedes reports.
+                deathOriginalCity = CurrentGateMapQueries.FindCity(oldBase, current); //22A940 precedes reports.
                 var oldPosition = Position(person);
                 byte capturedStatus = Status(person);
                 int office = Known(current.ReadMoraleWavePersonPostE7(person), "captured_office_E7");
                 var oldForce = Force(person);
+                deathOriginalForce = oldForce;
                 ushort bc = Relation(person, 0xBC);
                 var capturedBC = (bc <= 6000 ? current.ReadPersonLookupReference(bc) : current.ReadTransferPersonTableReference(0))
                     ?? throw Missing("captured_BC_lookup");
@@ -61,7 +89,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var positionForce = current.ReadForceTableReference(slot <= 51 ? slot : 0) ?? throw Missing("captive_position_force_lookup");
                     if (IsPlayer(positionForce)) reports = true;
                 }
-                if (reports) ApplyInitialReports(person, capturedStatus, office, oldForce, oldPosition);
+                if (reports && !suppressAllReports) ApplyInitialReports(person, capturedStatus, office, oldForce, oldPosition);
                 if (Serving(person) && Known(current.ReadForceNativeValidity(oldForce), "job_force_validity"))
                 {
                     var prior = current.AssignmentAdvisorResetCallbacks;
@@ -107,24 +135,51 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var army = PersonArmy(person);
                 if (Known(current.ReadArmyUnitNativeValidity(army), "associated_army_validity") &&
                     !Known(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(latest, current, Known(army.PhysicalSlot, "army_pointer")), "associated_army_excluded") &&
-                    Known(current.ReadArmyUnitCommanderId(army), "associated_army_commander") == Identity(person))
-                    throw Missing("annual_mode0_cause4_employed_null_winner");
+                    Known(current.ReadArmyUnitCommanderId(army), "associated_army_commander") == Identity(person) && retireAssociatedArmy)
+                {
+                    var effects = new List<CampaignEffectRequest>();
+                    var destroyed = new OwnedArmyDestructionStage(package).ApplyDeathCommanderCause4Current(
+                        latest, current, pool, Known(army.PhysicalSlot, "death_Army_pointer"),
+                        latest.NativeMapSeason?.ThirdDate ?? throw Missing("death_Army_date"), effects);
+                    latest = destroyed.State ?? throw Missing(destroyed.UnresolvedOwner ?? "death_Army_destruction");
+                    if (effects.Count != 0)
+                        latest = latest with { CampaignEffectRequests = (latest.CampaignEffectRequests
+                            ?? throw Missing("death_Army_effects")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                                latest.NativeClock?.UpdateOrdinal ?? throw Missing("death_Army_revision"), effects) };
+                    BindLatestPolicyReader();
+                    Observe("death.associated-Army-destroyed");
+                }
 
                 var associated = current.ReadPersonLinkedEntity(person) ?? throw Missing("associated_receiver");
                 if (Known(current.ReadLinkedEntityNativeValidity(associated), "associated_validity"))
                 {
-                    if (IsPlayer(oldForce)) throw Missing("associated_District233A90_v98_report_gate");
+                    if (emitHistory && IsPlayer(oldForce))
+                    {
+                        byte raw = Known(current.ReadPersonDistrictSlot(person), "associated_PersonE0");
+                        var district = current.ReadDistrictTableReference(raw < 52 ? raw : 0)
+                            ?? throw Missing("associated_District_lookup");
+                        if (BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, district, Missing))
+                        {
+                            int kind = new PersonReturnGovernorQueries(latest, package._governorInputs, current)
+                                .ReadCurrentAssociatedVirtual98(associated) ?? throw Missing("associated_virtual98");
+                            if (kind == 2) throw Missing("associated_type2_report1E6990");
+                        }
+                    }
                     var detached = PersonReturnCommands.DetachPersonFromFirstAssociated(latest, current, person);
                     latest = latest with { PersonnelCommands = detached.Owner ?? throw Missing(detached.UnresolvedOwner ?? "associated_member_detach") };
                     Observe("death.member-detached");
                 }
                 // Captured identities are tested at this actual source point,
                 // after the ordinary prefix; never as an entry prefilter.
-                if (capturedStatus is 1 or 2) throw Missing("ruler_or_District_successor");
+                bool willUnregister = capturedStatus == 1 && ReadRulerWillUnregister(person, deathCause);
+                ApplyKillerForceRelations(person, capturedStatus, office, oldForce, willUnregister);
+                if (capturedStatus == 1 && ApplyRulerSuccession(person, killer, willUnregister) != 0)
+                    return (latest, 1);
+                if (capturedStatus == 2) MergeDeceasedLeaderDistrict(person, oldForce);
                 if (capturedStatus == 6) ApplyCapturedItems(person, oldForce);
                 if ((Known(current.ReadOwnedReturnPersonFlags(person), "tail_flags15E") & 0x4000) != 0 && Status(person) != 5)
                     throw Missing("appendix_World_unregister");
-                ApplyItems(person, associated);
+                ApplyItems(person, associated, killer);
                 ResetPerson(person);
                 SetStatus(person, 9);
                 Change(person, p => p with { Presence = OfficerPresence.Dead, Deployed = false });
@@ -138,9 +193,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                         int second = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_second");
                         if (second != 51 && unchecked((uint)(second - 46)) > 4)
                         {
-                            int scale = PersonDeathReportInputs.ReadCurrentPopularityScale(latest)
-                                ?? throw Missing("current_parameter_general-popularity-loss-scale");
-                            int adjustment = unchecked(-(Math.Max(1, stage) * scale));
+                            int scale = capturedStatus == 1 ? DeathCombatParameter("ruler-popularity-loss", 15) :
+                                PersonDeathReportInputs.ReadCurrentPopularityScale(latest)
+                                    ?? throw Missing("current_parameter_general-popularity-loss-scale");
+                            int adjustment = unchecked(-(capturedStatus == 1 ? scale : Math.Max(1, stage) * scale));
                             latest = RulerCaptureReleaseSource.ApplyCurrentPopularityAdjustment(
                                 latest, current, second, adjustment);
                             Observe("death.popularity-adjusted");
@@ -157,7 +213,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                         latest = latest with { Cities = new(latest.Cities) { [at] = city with
                         { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter,
                             NativeReturnRuntime = (city.NativeReturnRuntime ?? throw Missing("governor_City_owner")) with { Governor2E = packet.GovernorWord2EAfter } } } };
-                    else throw Missing("governor_Gate_publication");
+                    else if (oldBase.Kind == BaseKind.Gate && latest.Gates.TryGetValue(at + 51, out var gate))
+                    {
+                        var simulation = latest.NativeArmySimulation ?? throw Missing("governor_Gate_owner");
+                        latest = latest with { Gates = new(latest.Gates) { [gate.Id] = gate with
+                            { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter } },
+                            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
+                            { Int32Values = new(simulation.Parameters.Int32Values)
+                                { [OwnedArmyLifecycleDetachedInputs.Key("Gate", at, "2E")] = packet.GovernorWord2EAfter } } } };
+                    }
+                    else throw Missing("governor_Base_publication");
                     Observe("death.governor-tail");
                 }
                 RemoveRegistration(person);

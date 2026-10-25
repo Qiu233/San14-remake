@@ -1353,6 +1353,7 @@ public partial class Main : Control
                 return;
             }
             view.RefreshPlayableWorld(world);
+            _campaignComposition?.ConfigureArmyTraitSpeechViews(view.CaptureArmyTraitSpeechViews());
             if (view.SourceMainCameraTerrain is { } terrain)
                 _campaignComposition?.ConfigureBaseCapturePresentationTerrain(terrain);
             if (_advancingPeriod) view.SetDetailsOpen(true, keepMapVisible: true);
