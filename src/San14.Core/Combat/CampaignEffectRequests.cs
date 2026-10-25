@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace San14.Core;
 
 public enum CampaignEffectSource { NormalCombatRefresh, ArmyFalseReport, ArmyProgressNotifications, ArmyCommandMaintenance,
@@ -23,7 +25,8 @@ public enum ArmyFalseReportVisualEvent { TargetResisted, InitiatorFailed }
 /// <summary>Unconsumed source-time65/66 visual intention, not a created effect or playback receipt.
 /// The application owns the Army view transform and resource effect admission.</summary>
 public sealed record ArmyFalseReportVisualRequest(ArmyFalseReportVisualEvent Event, ArmyReceiverId ReceiverId, int HexId);
-public enum MapObjectPresentationEvent { DestructionVisual, DestructionSound, RetirementVisualDetach }
+public enum MapObjectPresentationEvent { DestructionVisual, DestructionSound, RetirementVisualDetach,
+    RelationVisibilityAttach, RelationVisibilityDetach }
 /// <summary>Unconsumed semantic presentation work. Retirement asks the view
 /// owner to detach any existing model and paired view links; it is not a receipt.</summary>
 public sealed record MapObjectPresentationRequest(MapObjectPresentationEvent Event,
@@ -208,7 +211,7 @@ public enum MonthlyMaintenanceOperation
 {
     ControllerQueueEvent, NarrationText, ConditionalSpeakerText, TerritoryOccupation, SceneryControlFeedback,
     DisasterSceneEnter, DisasterSceneExit, PersonnelSceneEnter, PersonnelSceneExit,
-    EmperorSceneEnter, EmperorSceneExit
+    EmperorSceneEnter, EmperorSceneExit, FinalOrderSceneEnter, FinalOrderSceneExit, ResetPersonnelGroupMoveDestinations
 }
 /// <summary>Source-time monthly controller and territory presentation intent.
 /// Numerical completion never acknowledges any display, sound or animation.</summary>
@@ -245,6 +248,10 @@ public sealed record MonthlyDisasterConsequenceRequest(MonthlyDisasterConsequenc
 {
     public int? BaseLocationId { get; init; }
 }
+public sealed record NormalTurnFoodWarningPresentationRequest(ImmutableArray<int> WarningBaseLocationIds,
+    string TextAtSource);
+public sealed record NormalTurnForceResourceNoticeRequest(int ForceId, int BaseLocationId, int ResourceKind,
+    int MessageRoot, int Amount, int CurrentAmount);
 
 public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, CampaignReportRequest? Report)
 {
@@ -252,6 +259,8 @@ public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, Campaign
     public ForceIndependenceSceneRequest? ForceIndependenceScene { get; init; }
     public ForceEmergenceSceneRequest? ForceEmergenceScene { get; init; }
     public MonthlyDisasterConsequenceRequest? MonthlyDisasterConsequence { get; init; }
+    public NormalTurnFoodWarningPresentationRequest? NormalTurnFoodWarningPresentation { get; init; }
+    public NormalTurnForceResourceNoticeRequest? NormalTurnForceResourceNotice { get; init; }
     public MonthlyMaintenanceRequest? MonthlyMaintenance { get; init; }
     public ArmyFalseReportVisualRequest? ArmyFalseReportVisual { get; init; }
     public DuelCaptureAnnouncementRequest? DuelCaptureAnnouncement { get; init; }
@@ -352,7 +361,9 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.ForceCoalitionVisual is null ? 0 : 1) +
                     (request.ForceIndependenceScene is null ? 0 : 1) +
                     (request.ForceEmergenceScene is null ? 0 : 1) +
-                    (request.MonthlyDisasterConsequence is null ? 0 : 1) != 1)
+                    (request.MonthlyDisasterConsequence is null ? 0 : 1) +
+                    (request.NormalTurnFoodWarningPresentation is null ? 0 : 1) +
+                    (request.NormalTurnForceResourceNotice is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
                 if (request.DuelCaptureAnnouncement is { } captured &&
                     (batch.Source != CampaignEffectSource.ArmyBattleDefeat || captured.OfficerId is < 1 or > 6000 ||
@@ -424,6 +435,10 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                             monthly.SpeakerId is null && monthly.TextAtSource is null,
                         MonthlyMaintenanceOperation.EmperorSceneExit => noSite && monthly.EventKind is null &&
                             monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.FinalOrderSceneEnter => noSite && monthly.EventKind is 10 or 26 or 31 &&
+                            monthly.SpeakerId is null && monthly.TextAtSource is null,
+                        MonthlyMaintenanceOperation.FinalOrderSceneExit or MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations =>
+                            noSite && monthly.EventKind is null && monthly.SpeakerId is null && monthly.TextAtSource is null,
                         _ => false
                     };
                     if (batch.Source != CampaignEffectSource.MonthlyMaintenance || !valid)
@@ -476,6 +491,15 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                         consequence.ArmyReceiverId is < 1 or > 500 || consequence.BaseLocationId is < 1 or > 61)
                         throw new InvalidDataException("Invalid monthly disaster consequence intent.");
                 }
+                if (request.NormalTurnFoodWarningPresentation is { } warning &&
+                    (batch.Source != CampaignEffectSource.MonthlyMaintenance || warning.TextAtSource is null ||
+                     warning.WarningBaseLocationIds.IsDefault || warning.WarningBaseLocationIds.Any(id => id is < 1 or > 61)))
+                    throw new InvalidDataException("Invalid normal Turn food warning intent.");
+                if (request.NormalTurnForceResourceNotice is { } notice &&
+                    (batch.Source != CampaignEffectSource.MonthlyMaintenance || notice.ForceId is < 1 or > 45 ||
+                     notice.BaseLocationId is < 1 or > 61 || notice.Amount <= 0 ||
+                     (notice.ResourceKind, notice.MessageRoot) is not ((0x17, 0x5EE3) or (0x2A, 0x5EE4) or (0x21, 0x5EE5))))
+                    throw new InvalidDataException("Invalid normal Turn force resource notice.");
                 if (request.DiplomacyArrivalAudio is { } audio &&
                     (batch.Source != CampaignEffectSource.DiplomacyCommands || audio.Variant is < 0 or > 2))
                     throw new InvalidDataException("Invalid diplomatic arrival audio variant.");
@@ -485,7 +509,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     {
                         TalentCommandPresentationOperation.SoundCue =>
                             (talent.SoundId is 5 or 6 or 8 ||
-                             batch.Source == CampaignEffectSource.MonthlyMaintenance && (talent.SoundId is 7 or 16 or 20 or 21 or 22 or 23 or 129) ||
+                             batch.Source == CampaignEffectSource.MonthlyMaintenance && (talent.SoundId is 7 or 16 or 18 or 20 or 21 or 22 or 23 or 129) ||
                              batch.Source == CampaignEffectSource.StrategicCommands && talent.SoundId is (7 or 21) ||
                              (batch.Source is CampaignEffectSource.DiplomacyCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) && talent.SoundId == 4) &&
                             talent.TextAtSource is null,
@@ -550,7 +574,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                      sceneryVoice.VariantIndex is < 0 or > 4 || sceneryVoice.SoundId == 0))
                     throw new InvalidDataException("Invalid scenery discovery voice selection.");
                 if (request.TalentForceExperiencePresentation is { } forceExperience &&
-                    (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) || !Enum.IsDefined(forceExperience.Operation) ||
+                    (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) || !Enum.IsDefined(forceExperience.Operation) ||
                      forceExperience.ForceId is < 1 or > 51 || forceExperience.PreviousLevel is < 0 or > 10))
                     throw new InvalidDataException("Invalid talent force experience intent.");
                 if (request.ForcePolicyLevelUp is { } policy &&
@@ -655,6 +679,9 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     map.HexId is < 0 || map.Event != MapObjectPresentationEvent.RetirementVisualDetach &&
                     (map.HexId is null || string.IsNullOrWhiteSpace(map.DefinitionKey))))
                     throw new InvalidDataException("Invalid map object presentation request.");
+                if (request.MapObjectPresentation is { Event: MapObjectPresentationEvent.RelationVisibilityAttach or MapObjectPresentationEvent.RelationVisibilityDetach } &&
+                    batch.Source != CampaignEffectSource.MonthlyMaintenance)
+                    throw new InvalidDataException("Relation visibility requires its normal Turn source.");
                 if (batch.Source == CampaignEffectSource.ForceUnregister &&
                     request.MapObjectPresentation is not
                         { Event: MapObjectPresentationEvent.DestructionVisual or MapObjectPresentationEvent.DestructionSound })

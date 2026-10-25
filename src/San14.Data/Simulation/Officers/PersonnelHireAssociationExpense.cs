@@ -194,7 +194,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         int id = HireNeed(linked.Identity, "association.actor_command_identity");
         if (manager.Disappearances?.ContainsKey(id) == true) return true; // Actual v98=16.
         if (manager.Returns.ContainsKey(id) || manager.Talents?.ContainsKey(id) == true ||
-            manager.Diplomacies?.ContainsKey(id) == true) return false;
+            manager.Diplomacies?.ContainsKey(id) == true || manager.Strategies?.ContainsKey(id) == true ||
+            manager.Independences?.ContainsKey(id) == true) return false;
         throw HireMissing("association.actor_command_virtual98");
     }
 

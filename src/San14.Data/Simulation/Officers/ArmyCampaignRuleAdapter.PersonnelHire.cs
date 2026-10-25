@@ -4,12 +4,12 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    internal static bool PersonnelHireServiceAllowedCurrent(GameState state)
+    internal bool PersonnelHireServiceAllowedCurrent(GameState state)
     {
         int selector = HireNeed(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selector");
         int setting = HireNeed(BattleRemakeCurrentSettings.ReadInt32(state, selector == 0 ? 0x50C : 0x130), "settings_hire_option");
         if (setting == 1) return false;
-        return (state.CampaignEventWorld?.CurrentUserIndex ?? throw HireMissing("App_current_user")) == -1;
+        return !(ReadApplicationInformationRestriction(state) ?? throw HireMissing("App_user_selection_service"));
     }
 
     internal CommandResult ApplyPersonnelHire(GameState state, ForceState force, int districtId,

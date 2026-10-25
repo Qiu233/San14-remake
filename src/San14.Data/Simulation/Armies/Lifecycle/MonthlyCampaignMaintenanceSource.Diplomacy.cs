@@ -205,9 +205,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //292BA0's185D00 flags1,1,0, on the same current and pool. Presentation
         //requests describe source work; they never claim animation or sound ACK.
-        private void RestoreMonthlyOccupation(HexReference hex, int force, int cityId, bool enqueueEncirclement = true)
+        private void RestoreMonthlyOccupation(HexReference hex, int force, int cityId, bool enqueueEncirclement = true,
+            bool allowType3Override = false)
         {
-            if (!hex.PhysicalSlot.HasValue || !GateCaptureTerritorySource.Eligible(state, current, hex, force, false)) return;
+            if (!hex.PhysicalSlot.HasValue) return;
+            if (!GateCaptureTerritorySource.Eligible(state, current, hex, force, false) &&
+                (!allowType3Override || !TerritoryExpansionType3Override(hex))) return;
             if (Need(current.ReadHexForceSlot(hex), "restore_Hex14") == force) return;
             int physical = Need(hex.PhysicalSlot, "restore_Hex_identity");
             int surface = Need(current.ReadHexSurfaceCode(hex), "restore_Hex10");

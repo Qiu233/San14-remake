@@ -12,10 +12,10 @@ internal partial class AreaAdministrationTraitMarker : Control
     private UiSourceText label=null!;
     private Rect2 hitArea;
     public override bool _HasPoint(Vector2 point)=>hitArea.HasPoint(point);
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,Vector2? size=null)
     {
         this.assets=assets;this.shader=shader;
-        source=new UiSourceLayout(repository,0xD493EA98).ResizedSubtree(0,new(158,40),true);
+        source=new UiSourceLayout(repository,0xD493EA98).ResizedSubtree(0,size??new(158,40),true);
         Size=source.Rectangle(0).Size;MouseFilter=MouseFilterEnum.Stop;
         var box=source.Rectangle(1);var centre=box.GetCenter();
         hitArea=new(new Vector2((int)centre.X-(int)(box.Size.X*.5f),(int)centre.Y-(int)(box.Size.Y*.5f)),

@@ -274,7 +274,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return paid;
     }
 
-    private int ReadHireGoldLandmarkPercent(GameState state, SourceWorldContext current, BaseReference city)
+    private int ReadHireGoldLandmarkPercent(GameState state, SourceWorldContext current, BaseReference city, int effectKind = 1)
     {
         int force = HireEconomyK(current.ReadBaseForceSlot(city), "landmark_City_Force");
         if (force is >= 46 and <= 51) return 0;
@@ -296,7 +296,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 HireEconomyK(current.ReadAreaCurrentForceSlot(area), "landmark_Area_Force") != hexForce ||
                 HireEconomyK(current.ReadAreaCitySlot(area), "landmark_Area35") != city.PhysicalSlot) continue;
             var development = landmark.Development ?? throw HireEconomyMissing("landmark55_56");
-            if (development.EffectKind != 1) continue;
+            if (development.EffectKind != effectKind) continue;
             int effect = development.Effect;
             if (HireEconomyK(current.ReadAreaNativeValidity(area), "landmark_Area_validity"))
             {

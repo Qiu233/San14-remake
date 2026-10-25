@@ -5,7 +5,7 @@ namespace San14.Data;
 internal static class ArmyFoodExpenseSource
 {
     internal static int Read(GameState state, SourceWorldContext current, UnitState army,
-        byte[] terrainReductions, out ArmyLogisticsRouteResult route)
+        IReadOnlyList<byte> terrainReductions, out ArmyLogisticsRouteResult route)
     {
         route = ArmyLogisticsRouteSource.Read(state, current, army);
         if (route.UnresolvedOwner is string missing) throw new InvalidDataException(missing);

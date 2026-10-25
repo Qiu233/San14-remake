@@ -24,6 +24,7 @@ public sealed record NativeNormalTurnContinuation(int NextAction, uint RestoreAp
     CampaignGroupingCheckpoint Grouping)
 {
     public CoalitionInvitationRequest? PendingCoalitionInvitation { get; init; }
+    public NormalTurnStoryPlayback? StoryPlayback { get; init; }
 }
 
 public sealed partial record GameState

@@ -186,6 +186,9 @@ public sealed partial class ForceUnregisterSource
             forces[id] = forces[id] with { RelationsEA = relationEA[id],
                 NormalAftermath = forces[id].NormalAftermath! with { Relations13 = relation13[id] } };
         forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0, FactionOfficerId = 0, PopulationTotal = 0,
+            BestAdministrationLevelSum = 0,
+            BestExceptionalOfficerCount = 0,
+            DevelopmentWarningFlags = 0,
             ForeignTradeProgress = new(System.Collections.Immutable.ImmutableArray.Create<ushort>(0, 0, 0, 0, 0),
                 System.Collections.Immutable.ImmutableArray.Create<byte>(0, 0, 0, 0, 0)),
             NormalAftermath = forces[victim].NormalAftermath! with { Development1BE = 0 } };

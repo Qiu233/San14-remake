@@ -14,7 +14,7 @@ internal partial class SelfRecommendationView : Control
     private Func<bool>? admitted;
     private Action<bool>? replied;
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, OfficerDetailView officer,
+    internal void Configure(GameResourceRepository repository, PreviewText text, OfficerDetailPublication officer,
         string expanded, Func<bool> admitted, Action<bool> replied)
     {
         this.admitted = admitted; this.replied = replied;
@@ -22,12 +22,11 @@ internal partial class SelfRecommendationView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        // The general officer inspector still owns the detail fields. The
-        // original CEmployFreePersonDlg suppresses its ordinary title/back;
-        // this footer supplies the actual two response actions instead.
+        // CEmployFreePersonDlg hides the ordinary title and old footer,
+        // including its page buttons. Its own footer supplies the reply.
         var detail = new OfficerDetailsView { Size = new(1920, 1080) };
         canvas.AddChild(detail);
-        detail.Configure(repository, officer, text, () => { }, showReturnButton: false, showHeader: false);
+        detail.Configure(repository, officer, text, () => { }, admitted, showNavigation: false);
         assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         Vector2 mount = new(0, 904);

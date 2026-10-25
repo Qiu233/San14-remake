@@ -26,7 +26,7 @@ public partial class Main
             {
                 var request = batch.Requests[i];
                 if (batch.Source == CampaignEffectSource.ForcePolicyLevelUp && request.ForcePolicyLevelUp?.ForceId == player ||
-                    (batch.Source is CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) && request.TalentForceExperiencePresentation is
+                    (batch.Source is CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) && request.TalentForceExperiencePresentation is
                         { Operation: TalentForceExperiencePresentationOperation.ExperienceGain } gain && gain.ForceId == player)
                     return (batch.Sequence, i, request);
             }

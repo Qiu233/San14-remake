@@ -20,7 +20,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     private PersonAppearanceTurnResult TryAdvanceNormalTurnPrefix(GameState state,
         PeriodDate startDate, int startPeriodNumber, ICampaignAppRandomBinding? appRandom,
         TransferServiceState? transferService, TransferModeState? transferMode,
-        Action<string, GameState>? observe = null, CampaignGroupingCheckpoint? grouping = null)
+        Action<string, GameState>? observe = null, CampaignGroupingCheckpoint? grouping = null,
+        ArmyMapGroupingOwner? normalGroups = null)
     {
         uint? saved = null;
         int next = 0;
@@ -134,13 +135,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             var ending = CheckCampaignNormalTurnEndingCurrent(state, current, pool);
             state = ending.State ?? throw new InvalidDataException(ending.UnresolvedOwner);
             Observe("turn.index9.completed");
-            if (ending.Stop) return new(state, null, next, saved);
+            if (ending.Stop) return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
             next = 10;
             if (annual)
             {
                 state = ApplyNormalTurnAnnualCalendarCurrent(state, current, out bool stop);
                 Observe("turn.index10.completed");
-                if (stop) return new(state, null, next, saved);
+                if (stop) return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
             }
             else Observe("turn.index10.skipped");
             next = 11;
@@ -182,11 +183,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
                 saved ?? throw AppearanceTurnMissing("saved_App32"), grouping,
                 reached: action => next = action,
-                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)));
+                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)), groups: normalGroups);
             if (state.NativeNormalTurnContinuation is not null) return new(state, null, next, saved);
-            next = 31;
-            //Do not finalize or pull research51/hire52/53 ahead of this frontier.
-            throw AppearanceTurnMissing("action.31");
+            next = state.CampaignTurnStop is null ? 79 : next;
+            state = RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32"));
+            return new(state, null, next, saved);
 
             void Observe(string point)
             {

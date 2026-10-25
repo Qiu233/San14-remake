@@ -119,7 +119,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        internal void FillExcluded(HexListHandle output)
+        internal void FillExcluded(HexListHandle output, Func<int, bool>? includePerson = null,
+            bool skipEmptyMembers = false)
         {
             var descriptor = pool.AssociatedTaskHandle ?? throw Missing("associated_task_descriptor");
             var node = current.ReadAssociatedChainHead(new(descriptor.Identity)) ?? throw Missing("associated_task_head");
@@ -133,9 +134,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                     // The existing typed task projection owns valid pool value
                     // nodes as canonical IDs. Only its first member is consumed.
                     var members = current.ReadLinkedEntityMemberIds(task) ?? throw Missing("tag16_first_member_list");
-                    if (members.Count == 0 || members[0] is not uint raw) throw Missing("tag16_first_member");
-                    int signed = unchecked((int)raw);
-                    Append(output, new(RegistryKind.Person, Lookup(signed).PhysicalSlot));
+                    if (members.Count != 0 || !skipEmptyMembers)
+                    {
+                        if (members.Count == 0 || members[0] is not uint raw) throw Missing("tag16_first_member");
+                        int signed = unchecked((int)raw);
+                        var person = Lookup(signed);
+                        if (includePerson is null || includePerson(Physical(person, "tag16_first_member_pointer")))
+                            Append(output, new(RegistryKind.Person, person.PhysicalSlot));
+                    }
                 }
                 node = current.ReadRegistryNodeNext(node) ?? throw Missing("associated_task_next");
             }

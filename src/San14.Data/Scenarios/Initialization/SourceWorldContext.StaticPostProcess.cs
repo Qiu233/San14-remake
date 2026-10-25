@@ -44,6 +44,15 @@ public sealed partial class SourceWorldContext : IStaticTablePostProcessState
             default: throw new InvalidDataException($"Required complete static post-process callback {callback.Kind}/{callback.HandlerIdentity} is not bound.");
         }
     }
+    //The simulation context itself owns CWorldData. Startup pointer tokens
+    //are not another world owner and must not be fabricated for a Turn.
+    internal RegisteredPersonPruningResult ApplyOwnedTurnPostProcess()
+    {
+        if (OwnedIndexes is null) throw new InvalidDataException("Turn slot7 requires the current owned pool.");
+        StaticTablePostProcess.Apply(this);
+        return PostProcessRegisteredPersons(worldReceiverOwned: true);
+    }
+
     public RegisteredPersonPruningResult ApplyStaticPostLoadFunction()
     {
         StaticTablePostProcess.Apply(this);

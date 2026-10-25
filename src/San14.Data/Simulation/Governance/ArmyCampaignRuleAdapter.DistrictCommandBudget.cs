@@ -13,6 +13,12 @@ public sealed record DistrictCommandBudgetQuery(IReadOnlyList<DistrictCommandBud
 public sealed partial class ArmyCampaignRuleAdapter : IPlayableDistrictCommandBudgetRules
 {
     public DistrictCommandBudgetQuery QueryDistrictCommandBudgets(GameState state)
+        => QueryDistrictCommandBudgetsCore(state, null);
+
+    internal DistrictCommandBudgetQuery QueryDistrictCommandBudgets(GameState state, SourceWorldContext current)
+        => QueryDistrictCommandBudgetsCore(state, current);
+
+    private DistrictCommandBudgetQuery QueryDistrictCommandBudgetsCore(GameState state, SourceWorldContext? operationCurrent)
     {
         ArgumentNullException.ThrowIfNull(state);
         try
@@ -27,10 +33,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableDistrictCommandBu
                 areaDivisor = P("areaDivisor"), areaMultiplier = P("areaMultiplier"), minimum = P("minimumReturnLimit"),
                 politicsPercent = P("politicsPercent"), personPercent = P("personPercent"), cityMultiplier = P("cityMultiplier");
             if (politicsDivisor == 0 || personDivisor == 0 || areaDivisor == 0) throw BudgetMissing("zero_divisor");
-            var current = CaptureOfficerCommandCapacityCurrent(state);
-            var arena = state.ReadArmyLifecycle() ?? throw BudgetMissing("saved_indexes");
-            _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-            OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
+            var current = operationCurrent ?? CaptureOfficerCommandCapacityCurrent(state);
+            if (operationCurrent is null)
+            {
+                var arena = state.ReadArmyLifecycle() ?? throw BudgetMissing("saved_indexes");
+                _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
+                OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
+            }
             var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, parameters.RuleVersion);
             var forces = current.ReadRegistryReferences(RegistryKind.Force) ?? throw BudgetMissing("force_registry");
             var districts = current.ReadArmyReturnRegisteredDistricts() ?? throw BudgetMissing("district_registry");

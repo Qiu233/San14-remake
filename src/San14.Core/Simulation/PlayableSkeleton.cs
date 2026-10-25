@@ -1515,14 +1515,13 @@ public static class PlayableSkeleton
 
             territory = PlayableAreaOfficerOccupation.Settle(CurrentWorld(), cities, areas, officers,
                 units, territory, routes, reports);
-            if (sourceArmyPeriod is not null)
-                AdoptFoodSettlement(NativeArmyPreparation.PrepareAfterDeploymentOwned(
-                    CurrentWorld() with { PeriodReports = reports.ToArray() }, nativeArmyPreparationRules));
+            //The source normal Turn already consumed36/37, including their
+            //logistics flags and latched regional statistics, in source order.
             if (sourceArmyPeriod is null)
                 PlayablePeriodEconomySettlement.Settle(CurrentWorld(), cities, areas, officers,
                     periodEconomy, reports);
             MonthlyIncomeReportEntry[] incomeReports = [];
-            if (state.Date.Day == 21)
+            if (sourceArmyPeriod is null && state.Date.Day == 21)
             {
                 int[] incomeCities = cities.Values.Where(city => city.ForceId is not null)
                     .OrderBy(city => city.Id).Select(city => city.Id).ToArray();
@@ -1539,8 +1538,8 @@ public static class PlayableSkeleton
             {
                 AdoptFoodSettlement(sourceArmyPeriod.CompleteArmyFoodTurn(
                     CurrentWorld() with { PeriodReports = reports.ToArray() }));
-                PlayablePeriodEconomySettlement.Settle(CurrentWorld(), cities, areas, officers,
-                    periodEconomy, reports);
+                //Source Turn39/40 already applied income, upkeep and the
+                //association bills. This boundary only adopts their result.
             }
             else
             {

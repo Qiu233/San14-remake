@@ -28,6 +28,12 @@ public partial class Main
         bool Current() => !_failed && !_shuttingDown && _commandDetailsView == browser &&
             ReferenceEquals(_session, session) && ReferenceEquals(_world, world) &&
             ReferenceEquals(session.World, world) && _residentMap == map;
+        void AdoptWorld(GameState next)
+        {
+            world = next;
+            rules = composition.PrepareArmyQueries(world);
+            page = rules.PrepareInformationBrowserPage(world, player);
+        }
         OpenCommandDetails(browser, close => browser.Configure(_repository, _ui, _sourceHeaders,
             Current, ReadMenu, (tab, node) => RunUiAction(() => OpenList(tab, node)),
             () => RunUiAction(OpenHistory), close, CurrentListScrollSpeed, Literal(0x5F00), Literal(0x2733),
@@ -74,7 +80,7 @@ public partial class Main
                 var ownForce = publication.Rows.FirstOrDefault(row =>
                     row.Detail is { Kind: InformationListKind.Forces } force && force.Id == player);
                 if (ownForce is null) browser.ApplyNotice(_ui.Get("information_partial"));
-                else OpenInformationRecord(browser, rules, world, publication, ownForce);
+                else OpenInformationRecord(browser, rules, world, publication, ownForce, AdoptWorld);
                 return;
             }
             if (publication.Rows.IsEmpty && publication.BodyText is { } body)
@@ -100,7 +106,7 @@ public partial class Main
             browser.ShowList(publication.Title, columns, Rows(publication), index => RunUiAction(() =>
             {
                 if (!Current() || (uint)index >= publication.Rows.Length) return;
-                OpenInformationRecord(browser, rules, world, publication, publication.Rows[index]);
+                OpenInformationRecord(browser, rules, world, publication, publication.Rows[index], AdoptWorld);
             }), (key, ascending) => Rows(publication.Sort(key, ascending)),
                 publication.UnresolvedOwner is null ? null : _ui.Get("information_partial"));
         }
@@ -133,7 +139,7 @@ public partial class Main
                 return new MapInformationListSection(section.Caption, columns, Rows(list), index => RunUiAction(() =>
                 {
                     if (!Current() || (uint)index >= list.Rows.Length || list.Rows[index].Detail is null) return;
-                    OpenInformationRecord(browser, rules, world, list, list.Rows[index]);
+                    OpenInformationRecord(browser, rules, world, list, list.Rows[index], AdoptWorld);
                 }), (key, ascending) => Rows(list.Sort(key, ascending)),
                     list.UnresolvedOwner is null ? null : _ui.Get("information_partial"));
             }).ToArray();
@@ -165,7 +171,7 @@ public partial class Main
         });
 
     private void OpenInformationRecord(MapInformationBrowserView browser, ArmyCampaignRuleAdapter rules,
-        GameState world, InformationList publication, InformationRow row)
+        GameState world, InformationList publication, InformationRow row, Action<GameState> adoptWorld)
     {
         if (_repository is null || _selectedSnapshot is null || _campaignComposition is not { } composition) return;
         if (row.Detail is { Kind: InformationListKind.Cities } city && world.Cities.ContainsKey(city.Id))
@@ -185,8 +191,8 @@ public partial class Main
         else if (row.Detail is { Kind: InformationListKind.Officers } officer && world.Officers.ContainsKey(officer.Id))
         {
             var detail = new OfficerDetailsView();
-            browser.ShowDetail(detail, close => detail.Configure(_repository,
-                CampaignDetailViews.Officer(world, _selectedSnapshot, officer.Id, _ui), _ui, close));
+            browser.ShowDetail(detail, close => ConfigureCurrentOfficerDetail(detail, world, officer.Id, close,
+                () => _commandDetailsView == browser, adoptWorld));
         }
         else if (row.Detail is { Kind: InformationListKind.Areas } area && world.Areas.ContainsKey(area.Id))
         {

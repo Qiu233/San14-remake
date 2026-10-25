@@ -159,11 +159,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (OccupationKnown(current.ReadArmyUnitCommanderId(personArmy), "Commander_Army_person") != personId ||
                     !OccupationKnown(current.ReadArmyUnitNativeValidity(personArmy), "Commander_Army_validity"))
                     throw OccupationMissing("nondeployed_Commander_reward");
-                var grown = ApplyPersonGrowthDuringArmyOperation(working, army.OfficerId, 4,
+                var grown = _growthSource.TryApplyWithinArmyOperation(working, current, _growthQueries, army.OfficerId, 4,
                     unchecked(OccupationParameter(state, SimulationParameterKeys.ArmyMarch.OccupationGrowthScale) * transferred.Count), 0);
                 if (grown.Outcome == PersonGrowthOutcome.CurrentInputsUnresolved) throw OccupationMissing("Commander_growth");
                 working = grown.State; growth = grown.Receipt;
-                var rewarded = ApplyPendingMeritDuringArmyOperation(working, army.OfficerId,
+                var rewarded = _pendingMerit.TryApplyWithinArmyOperation(working, current, army.OfficerId,
                     unchecked(OccupationParameter(state, SimulationParameterKeys.ArmyMarch.OccupationMeritScale) * transferred.Count * 10));
                 if (rewarded.Outcome == PersonPendingMeritOutcome.CurrentInputsUnresolved) throw OccupationMissing("Commander_merit");
                 working = rewarded.State; merit = rewarded.Receipt;

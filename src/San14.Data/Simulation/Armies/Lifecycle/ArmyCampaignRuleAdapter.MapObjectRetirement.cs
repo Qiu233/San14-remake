@@ -52,7 +52,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     /// <summary>Only the proved reset and remove-all phase. The stage consumer
     /// must retain the preceding view-detachment intent in the same transaction.</summary>
-    private MapObjectRetirementNumberResult ApplyMapObjectRetirementNumbers(GameState state, MapObjectReceiverId id)
+    private MapObjectRetirementNumberResult ApplyMapObjectRetirementNumbers(GameState state, MapObjectReceiverId id,
+        SourceWorldContext? borrowedCurrent = null)
     {
         var source = CampaignSourceKnowledge.From(state.ResourceState).MapObjectSource
             ?? throw DemolitionMissing("retirement_source");
@@ -90,7 +91,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         // introduce unrelated queries for every other city or gate.
         if (gates.TryGetValue(physical, out var affectedGate))
         {
-            var current = _definitions.Capture(working) ?? throw DemolitionMissing("retirement_base_capture");
+            var current = borrowedCurrent ?? _definitions.Capture(working) ?? throw DemolitionMissing("retirement_base_capture");
+            if (borrowedCurrent is not null)
+            {
+                current.SetObjectRecord(new(physical, 48400, 0));
+                current.SetObjectForceSlot13(physical, 0); current.SetObjectRawField14(physical, 0);
+                current.WriteMapObjectFields16(new(physical), 0);
+            }
             var gate = new BaseReference(BaseKind.Gate, affectedGate.Id - 51);
             int force = DemolitionKnown(current.ReadBaseForceSlot(gate), "retirement_gate_affiliation");
             int district = DemolitionKnown(current.ReadBaseDistrictSlot(gate), "retirement_gate_district");

@@ -23,12 +23,20 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
     public const string Revision = "ce-City-2851B0-26DA10-29F220-capture-20261008";
     public OwnedCityCaptureResult TryApply(GameState input, BaseCaptureRequest request,
         NativeMapSeasonDate? operationThirdDate = null, TacticSourceSamplerWorld? sampler = null)
+        => TryApplyCore(input, request, operationThirdDate, sampler, null);
+
+    internal OwnedCityCaptureResult TryApplyCurrent(GameState input, SourceWorldContext current,
+        BaseCaptureRequest request, NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler)
+        => TryApplyCore(input, request, operationThirdDate, sampler, current);
+
+    private OwnedCityCaptureResult TryApplyCore(GameState input, BaseCaptureRequest request,
+        NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler, SourceWorldContext? borrowedCurrent)
     {
         try
         {
             if (request.Target.Kind != SettlementBaseKind.City || request.WinnerUnitId is not int winnerId)
                 throw Missing("branch.ordinary_City_settlement");
-            var world = package.CaptureOwnedArmyReturnWorld(input); var current = world.Context;
+            var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
             var target = ArmyDestructionQueue.ResolveBaseReference(input, current, request.Target);
             int winnerSlot = ArmyDestructionQueue.ResolveUnitSlot(input, winnerId) ?? throw Missing("winner_entity_mapping");
             var winner = new ArmyUnitReference(winnerSlot);

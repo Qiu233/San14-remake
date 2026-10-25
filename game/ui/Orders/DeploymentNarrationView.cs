@@ -81,6 +81,13 @@ internal partial class DeploymentNarrationView : Control
         =>ConfigureEvent(repository,text,speaker,expanded,[(2,standingLayers)],null,
             consumed,automaticAdvance,admitted);
 
+    // Story keeps its background and already visible actors in a persistent
+    // scene. This child supplies only the same source message/paging owner.
+    internal void ConfigureStoryMessage(GameResourceRepository repository, PreviewText text,
+        string speaker, string expanded, Action consumed,
+        Func<AutomaticMessageAdvanceMode>? automaticAdvance = null, Func<bool>? admitted = null)
+        => ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted);
+
     internal void ConfigureRecruitConversation(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<LoadedSprite> executorLayers,IReadOnlyList<LoadedSprite> targetLayers,
         bool executorSpeaking,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,

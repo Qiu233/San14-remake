@@ -34,7 +34,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return state.WithArmyLifecycle(lifecycle with { Indexes = pool.ExportOwnedState() });
     }
 
-    //430ED0/334C80. The normal Turn dispatcher owns action52's seasonal
+    //430ED0/334C80. The normal Turn dispatcher owns action52's monthly
     //guard. This leaf cannot skip any preceding Turn action or advance time.
     internal GameState RefreshPersonnelHireTemplatesCurrent(GameState state, SourceWorldContext current)
     {

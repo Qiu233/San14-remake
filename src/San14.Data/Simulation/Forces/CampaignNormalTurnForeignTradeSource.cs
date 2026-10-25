@@ -14,13 +14,16 @@ public sealed partial class ArmyCampaignRuleAdapter
             throw ForeignTradeMissing("fresh_boundary");
         var forces = native.Forces.ToDictionary(pair => pair.Key, pair => pair.Value with
         {
+            BestAdministrationLevelSum = 0,
+            BestExceptionalOfficerCount = 0,
+            DevelopmentWarningFlags = 0,
             ForeignTradeProgress = new(ImmutableArray.Create<ushort>(0, 0, 0, 0, 0),
                 ImmutableArray.Create<byte>(0, 0, 0, 0, 0))
         });
         return state with { ForceProcessingOrder = new(Array.Empty<int>()), NativeArmySimulation = native with
         {
             Forces = forces,
-            World = native.World with { PlayerCoalitionCooldownDate = new(0, 1, 1, 0) }
+            World = native.World with { PlayerCoalitionCooldownDate = new(0, 1, 1, 0), LeadingDoctrineYearCount = 0 }
         } };
     }
 

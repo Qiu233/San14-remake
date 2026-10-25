@@ -58,6 +58,8 @@ public sealed partial class GameSimulation
         {
             if (turn.PendingSelfRecommendation is not null || turn.PendingCoalitionInvitation is not null)
                 throw new InvalidOperationException("The normal Turn requires a player decision.");
+            if (pending.PendingStory is not null)
+                throw new InvalidOperationException("The normal Turn story still requires its actual presentation receipt.");
             return;
         }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor

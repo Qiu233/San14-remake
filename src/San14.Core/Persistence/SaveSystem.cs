@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 166;
+    public const int CurrentSchemaVersion = 168;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -71,6 +71,10 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NativeNormalTurnSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalTurnSceneSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalTurnCoalitionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        NormalTurnEconomySaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        NormalTurnStorySaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        NormalTurnCompletionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignStoryPreparationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
         {
@@ -177,6 +181,10 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NativeNormalTurnSaveFields.Migrate(stateDocument, version);
         NormalTurnSceneSaveFields.Migrate(stateDocument, version);
         NormalTurnCoalitionSaveFields.Migrate(stateDocument, version);
+        NormalTurnEconomySaveFields.Migrate(stateDocument, version);
+        NormalTurnStorySaveFields.Migrate(stateDocument, version);
+        NormalTurnCompletionSaveFields.Migrate(stateDocument, version);
+        CampaignStoryPreparationSaveFields.Migrate(stateDocument, version);
         AreaCitySaveFields.Migrate(stateDocument, version);
         DiplomacySaveFields.Migrate(stateDocument, version);
         if (version < 149) stateDocument["NativePeriodContinuation"] = null;

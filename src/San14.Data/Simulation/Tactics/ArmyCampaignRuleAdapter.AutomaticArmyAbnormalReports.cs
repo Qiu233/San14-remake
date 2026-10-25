@@ -9,7 +9,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// persistent history use the existing complete owners; pending UI work
     /// remains unacknowledged in the enclosing operation's ordered sink.</summary>
     internal GameState ApplyAutomaticArmyAbnormalReport(GameState state, SourceWorldContext current,
-        UnitState caster, UnitState target, int districtSlot, int nativeIndex, int causeCode,
+        UnitState? caster, UnitState target, int districtSlot, int nativeIndex, int causeCode,
         string actualTacticName, Func<int> readWorldTime450, List<CampaignEffectRequest> effects)
     {
         ArgumentNullException.ThrowIfNull(actualTacticName);
@@ -44,7 +44,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             //Source98 selection is NOT the target's absolute maximum rule.
             //151 and256..355 compete by strictly more-negative value;
             //157/163/204 select immediately in the source's ordered list.
-            int actingPerson = Commander(caster);
+            int actingPerson = Commander(caster ?? throw AbnormalReportMissing("source98_actual_caster"));
             for (int slot = 0; slot < 9; slot++)
             {
                 int key = K(TacticRemakeCurrentTraits.ResolveCommanderPersonalityLookup(current,

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -7,6 +8,15 @@ namespace San14.Data;
 /// channels. Build once for the whole expense batch, not once per Army.</summary>
 internal static class ArmyFoodTerrainModifiers
 {
+    //Hex19 is latched by normal Turn38. Expense queries consume the saved
+    //field; they must not run the facility writer ahead of that scheduled cut.
+    internal static ImmutableArray<byte> ReadScheduled(GameState state)
+    {
+        var field = state.FacilityFoodReduction ?? throw Missing("scheduled_field");
+        if (field.PercentByHex.IsDefault || field.PercentByHex.Length != 48400) throw Missing("scheduled_field_length");
+        return field.PercentByHex;
+    }
+
     internal static byte[] Capture(GameState state, SourceWorldContext current)
     {
         var values = new byte[48400];

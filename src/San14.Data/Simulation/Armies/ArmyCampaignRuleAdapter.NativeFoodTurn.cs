@@ -10,37 +10,42 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// at each reached bill, using its current receiver, quantities and stock;
     /// the provisional whole-period quantity ledger does not run alongside it.</summary>
     internal NativeArmyFoodTurnResult CompleteNativeArmyFoodTurn(GameState input,
-        IPlayableNativeArmyProgressStageRules progressStages)
+        IPlayableNativeArmyProgressStageRules? progressStages, SourceWorldContext? borrowedCurrent = null,
+        BaseReference? onlyBase = null, ArmyMapGroupingOwner? suppliedGroups = null)
     {
-        var working = input with { Cities = new(input.Cities), Gates = new(input.Gates), Units = new(input.Units) };
-        var current = CaptureOwnedArmyReturnWorld(working).Context;
-        working = ResetCityMerchantPeopleForTurn(working, current);
+        var working = borrowedCurrent is null ? input with { Cities = new(input.Cities), Gates = new(input.Gates), Units = new(input.Units) } : input;
+        var current = borrowedCurrent ?? CaptureOwnedArmyReturnWorld(working).Context;
+        if (borrowedCurrent is null) working = ResetCityMerchantPeopleForTurn(working, current);
         var pool = current.ReadOwnedCurrentListPool() ?? throw FoodTurnMissing("current_pool");
-        var groups = progressStages is OrdinaryArmyCombatStages progress
-            ? progress.CopyMapGroupsForTurn() : throw FoodTurnMissing("owned_Progress_groups");
+        var groups = suppliedGroups ?? (progressStages is OrdinaryArmyCombatStages progress
+            ? progress.CopyMapGroupsForTurn() : throw FoodTurnMissing("owned_Progress_groups"));
         bool groupsChanged = false;
-        byte[]? terrain = null;
+        IReadOnlyList<byte>? terrain = null;
         TacticRemakeCurrentAbilities? abilities = null;
         // manager80 order is semantically significant, including reset and
         // shared mapped stocks. Do not replace it with all-garrisons/all-Armies.
-        foreach (var entry in current.ReadRegisteredBases() ?? throw FoodTurnMissing("manager80"))
+        foreach (var entry in onlyBase is not null ? new BaseReference?[] { onlyBase }
+            : current.ReadRegisteredBases() ?? throw FoodTurnMissing("manager80"))
         {
             var city = entry ?? throw FoodTurnMissing("Base_pointer");
             int location = FoodTurnKnown(current.ReadBaseObjectLink(city), "Base_location");
-            working = ResetCityMerchantCityForTurn(working, current, location);
-            ResetExpenditure(city, location);
+            if (borrowedCurrent is null)
+            {
+                working = ResetCityMerchantCityForTurn(working, current, location);
+                ResetExpenditure(city, location);
+            }
             if (location >= 52) continue;
             int rawForce = FoodTurnKnown(current.ReadBaseForceSlot(city), "City_Force");
             var force = current.ReadForceTableReference(rawForce <= 51 ? rawForce : 0)
                 ?? throw FoodTurnMissing("City_Force_pointer");
             if (!FoodTurnKnown(current.ReadForceNativeValidity(force), "City_Force_validity"))
             {
-                if ((working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
+                if (borrowedCurrent is null && (working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
                     working = RefreshCityMerchantMonth(working, current, city);
                 continue;
             }
             if (location == 0 || !working.Cities.ContainsKey(location)) throw FoodTurnMissing("City_domain_receiver");
-            if ((working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
+            if (borrowedCurrent is null && (working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
                 working = CompleteNativeMonthlySalary(working, current, city);
 
             BillGarrison(city, location);
@@ -82,7 +87,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         any = true;
                         int physical = FoodTurnKnown(army.PhysicalSlot, "bill_Army_pointer");
                         var image = ArmyImage(physical);
-                        terrain ??= ArmyFoodTerrainModifiers.Capture(working, current);
+                        terrain ??= ArmyFoodTerrainModifiers.ReadScheduled(working);
                         int due = ArmyFoodExpenseSource.Read(working, current, image, terrain, out _);
                         var payer = CurrentGateMapQueries.FindCity(city, current);
                         if (!FoodTurnKnown(current.ReadBaseNativeValidity(payer), "Army_payer_validity")) continue;
@@ -117,16 +122,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                 finally { current.ClearNearbyTemporary(armies, true); }
             }
             finally { current.ClearNearbyTemporary(gates, true); }
-            if ((working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
+            if (borrowedCurrent is null && (working.NativeMapSeason?.ThirdDate ?? throw FoodTurnMissing("Turn_date")).Day == 1)
                 working = RefreshCityMerchantMonth(working, current, city);
         }
         return new(working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() }), groups, groupsChanged);
 
         UnitState ArmyImage(int physical)
         {
-            var slots = working.ReadArmyLifecycle()?.ReceiverSlots() ?? throw FoodTurnMissing("Army_arena");
-            if ((uint)physical >= slots.Length) throw FoodTurnMissing("Army_receiver");
-            var receiver = slots[physical];
+            var arena = working.ReadArmyLifecycle() ?? throw FoodTurnMissing("Army_arena");
+            if ((uint)physical >= arena.Slots.Count) throw FoodTurnMissing("Army_receiver");
+            var receiver = arena.Receivers.Find(arena.Slots[physical].ReceiverId) ?? throw FoodTurnMissing("Army_receiver_owner");
             return receiver.ActiveUnitId is int id && working.Units.TryGetValue(id, out var image) ? image :
                 receiver.PendingImage ?? throw FoodTurnMissing("Army_image");
         }
@@ -140,7 +145,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             else
             {
                 var arena = working.ReadArmyLifecycle() ?? throw FoodTurnMissing("supply_Army_arena");
-                var receiver = arena.ReceiverSlots()[physical].Receiver;
+                var receiver = arena.Receivers.Find(arena.Slots[physical].ReceiverId) ?? throw FoodTurnMissing("supply_Army_receiver");
                 if (receiver.PendingImage?.Id != image.Id) throw FoodTurnMissing("supply_pending_receiver");
                 working = working.WithArmyLifecycle(arena with
                     { Receivers = arena.Receivers.With(receiver with { PendingImage = updated }) });
@@ -274,6 +279,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 (force, effect) => _baseCapacityInputs.ReadPanelModifier(working, force, effect)), "sort_leadership");
         }
     }
+
+    //3032C0 calls these food bills between this City's salary and domestic
+    //work. The enclosing normal Turn supplies its actual grouping copy and
+    //current pool; this entry performs no capture, resets or merchant draws.
+    internal NativeArmyFoodTurnResult CompleteNativeArmyFoodForBaseCurrent(GameState state,
+        SourceWorldContext current, BaseReference city, ArmyMapGroupingOwner groups)
+        => CompleteNativeArmyFoodTurn(state, null, current, city, groups);
 
     internal void PublishNativeFoodTurnGroups(NativeArmyFoodTurnResult completed)
     {

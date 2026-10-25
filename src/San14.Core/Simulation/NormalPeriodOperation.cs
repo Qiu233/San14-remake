@@ -18,8 +18,13 @@ public sealed record NormalPeriodOperation(GameState Candidate)
     public CoalitionInvitationRequest? PendingCoalitionInvitation =>
         Candidate.NativeNormalTurnContinuation?.PendingCoalitionInvitation;
 
+    public CampaignStoryRequest? PendingStory =>
+        Candidate.NativeNormalTurnContinuation?.StoryPlayback?.Story is { } story && story.NextStep < story.Steps.Length
+            ? story : null;
+
     public bool RequiresAutomaticNormalTurnContinuation =>
-        Candidate.NativeNormalTurnContinuation is { PendingSelfRecommendation: null, PendingCoalitionInvitation: null };
+        Candidate.NativeNormalTurnContinuation is { PendingSelfRecommendation: null, PendingCoalitionInvitation: null } &&
+        PendingStory is null;
 
     public static bool HasContinuation(GameState state) =>
         state.NativePeriodContinuation?.Cursor is not null || state.NativeNormalTurnContinuation is not null;
@@ -38,13 +43,13 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             throw new InvalidDataException("The normal period continuation is incomplete.");
         if (Candidate.NativeNormalTurnContinuation is { } turn)
         {
-            if (Candidate.NativePeriodContinuation.Cursor is not null || turn.NextAction is not (16 or 25 or 26) ||
+            if (Candidate.NativePeriodContinuation.Cursor is not null || turn.NextAction is not (16 or 25 or 26 or 48 or 49) ||
                 turn.Grouping?.Roots is not { Length: 1503 } ||
                 turn.RemainingOfficerIds.IsDefault || turn.RemainingOfficerIds.Any(id => id is < 0 or > 6000) ||
-                turn.NextAction == 16 && turn.PendingCoalitionInvitation is not null ||
                 turn.NextAction != 16 && (!turn.RemainingOfficerIds.IsEmpty || turn.PendingSelfRecommendation is not null) ||
                 turn.NextAction == 25 && turn.PendingCoalitionInvitation is null ||
-                turn.NextAction == 26 && turn.PendingCoalitionInvitation is not null ||
+                turn.NextAction != 25 && turn.PendingCoalitionInvitation is not null ||
+                (turn.NextAction == 48) != (turn.StoryPlayback is not null) ||
                 turn.PendingSelfRecommendation is { } offer &&
                 (offer.OfficerId is < 0 or > 6000 || offer.ForceId is < 0 or > 51 ||
                  offer.DistrictId is < 0 or > 51 || offer.RulerOfficerId is < 0 or > 6000 || offer.TextAtSource is null))
@@ -55,6 +60,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
                  invitation.OrderedMemberForceIds.IsDefault || invitation.OrderedMemberForceIds.Any(id => id is < 0 or > 51) ||
                  invitation.QuestionTextAtSource is null || invitation.CameraHexId is < 0 or > 48400))
                 throw new InvalidDataException("The normal Turn coalition invitation is incomplete.");
+            turn.StoryPlayback?.Validate();
             return;
         }
         if (Candidate.NativePeriodContinuation.Cursor is not { } cursor ||

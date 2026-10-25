@@ -242,6 +242,14 @@ public sealed partial class SourceWorldContext
             int physical = ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Current officer has no matching source record.");
             ownedPeople.Add(physical);
+            //Slot7 and tactic consumers read the current abilities, not the
+            //opening scenario bytes. Null remains unresolved independently.
+            SetPersonPostLoadByte(physical, 0x124, Ability(person.BaseAbilities?.Leadership));
+            SetPersonPostLoadByte(physical, 0x125, Ability(person.BaseAbilities?.Strength));
+            SetPersonPostLoadByte(physical, 0x126, Ability(person.BaseAbilities?.Intelligence));
+            SetPersonPostLoadByte(physical, 0x127, Ability(person.BaseAbilities?.Politics));
+            SetPersonPostLoadByte(physical, 0x128, Ability(person.BaseAbilities?.Charm));
+            SetPersonPostLoadByte(physical, 0x1BA, Ability(person.PolicyBaseCost));
             SetPersonFormationMask164(physical, person.CurrentFormationMask);
             if (person.CurrentTraitIds is { Length: not 9 })
                 throw new InvalidDataException("Current person trait selection must contain nine entries.");
@@ -292,5 +300,6 @@ public sealed partial class SourceWorldContext
             SetArmyReturnBaseWounded40(target, gate.NativeCombatRuntime?.Wounded40);
         }
         BaseReturnCaptivesInputs.BindCurrent(state, this);
+        static byte? Ability(int? value) => value is null ? null : checked((byte)value.Value);
     }
 }

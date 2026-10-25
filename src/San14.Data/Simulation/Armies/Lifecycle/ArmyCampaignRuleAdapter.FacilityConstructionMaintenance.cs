@@ -6,7 +6,7 @@ namespace San14.Data;
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private GameState MaintainFacilityConstructionCommand(GameState state, SourceWorldContext current,
-        UnitState image, NativeArmyProgressStageMoment moment, byte action)
+        UnitState image, FacilityOperation operation, byte action)
     {
         int physical = image.NativeArmyOrigin?.NativeSlotIndex ?? throw Missing("maintenance_Army_identity");
         var army = new ArmyUnitReference(physical);
@@ -46,7 +46,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 OwnedArmyLifecycleTargets.BindCurrent(working, current);
                 //The source really re-enters the full2725E0 prefix. Borrow the
                 //same current/pool so both outer descriptors remain live.
-                return MaintainOrdinaryArmyCommand(working, updated, moment, current);
+                return MaintainOrdinaryArmyCommand(working, updated, operation, null, current);
             }
             var people = current.CreateNearbyTemporary();
             try
@@ -61,7 +61,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!legal)
                 {
                     working = ClearConstructionContinuation(working, image.Id);
-                    return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: true);
+                    return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: true);
                 }
                 int own = K(ArmyMarchSourceAdapter.ReadCurrentHex(working, image), "maintenance_current_Hex");
                 if (ArmyRouteSearch.Distance(own, K(site.PhysicalSlot, "maintenance_site_identity")) == 1 &&
@@ -72,7 +72,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (BaseCurrencyAdditionSource.ReadCurrentGold(home, current) < cost)
                     {
                         working = ClearConstructionContinuation(working, image.Id);
-                        return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: true);
+                        return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: true);
                     }
                 }
             }
@@ -84,21 +84,21 @@ public sealed partial class ArmyCampaignRuleAdapter
             var obj = current.ReadObjectTableReference(raw <= 3000 ? raw : 0) ?? throw Missing("maintenance_repair_Object_pointer");
             if (!K(current.ReadObjectNativeValidity(obj), "maintenance_repair_Object_validity") ||
                 ConstructionObjectIsRetired(current, obj))
-                return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: true);
+                return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: true);
             var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
             int before = K(current.ReadObjectRawField14(obj), "maintenance_repair_HP");
             int capacity = K(FacilityRepairCapacity.ReadCapacity(working, current, obj, _baseCapacityInputs), "maintenance_repair_capacity");
             if (before == capacity)
             {
                 if (!K(current.ReadObjectDefinitionValidity(definition), "maintenance_repair_definition_validity"))
-                    return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: true);
+                    return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: true);
                 if (K(current.ReadObjectDefinitionRaw2C(definition), "maintenance_repair_category") == 3)
                     throw Missing("maintenance_continuous_obstacle");
                 working = ClearConstructionContinuation(working, image.Id);
-                return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: false);
+                return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: false);
             }
         }
-        return MaintainConstructionRouteTail(working, current, image, moment);
+        return MaintainConstructionRouteTail(working, current, image, operation);
     }
 
     private static bool ConstructionObjectIsRetired(SourceWorldContext current, ObjectReference obj)
@@ -124,7 +124,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private GameState MaintainConstructionRouteTail(GameState state, SourceWorldContext current,
-        UnitState image, NativeArmyProgressStageMoment moment)
+        UnitState image, FacilityOperation operation)
     {
         ushort next = K(ArmyMarchSourceAdapter.EncodeDestination(image.March?.NextStep), "maintenance_next");
         if (next != 48400)
@@ -160,7 +160,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     K(current.ReadObjectForceSlot13(obstacle), "maintenance_obstacle_Force")), "maintenance_obstacle_relation"))
                     throw Missing("maintenance_hostile_Object_override");
             }
-            return FinishFacilityConstructionCommand(working, current, image, moment, reportFailure: false);
+            return FinishFacilityConstructionCommand(working, current, image, operation, reportFailure: false);
         }
         finally { current.ClearNearbyTemporary(descriptor, true); }
     }

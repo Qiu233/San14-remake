@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -10,7 +11,7 @@ public static class BaseCaptureCurrentInputs
 
     public static GameState InstallFresh(GameState state, LoadedScenario source)
     {
-        if (state.NativeBaseCaptureCurrent is not null || state.Units.Count != 0 ||
+        if (state.NativeBaseCaptureCurrent is not null || state.FacilityFoodReduction is not null || state.Units.Count != 0 ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             state.NativeArmySimulation?.Parameters.Language != source.Snapshot.Locale ||
             source.Metadata.FormatMarker != 0x66 || state.MapWidth != 220 || state.MapHeight != 220 ||
@@ -33,7 +34,11 @@ public static class BaseCaptureCurrentInputs
         //the full word1562. These are explicit allocation writes, not defaults.
         var hexes = new ushort?[48400];
         Array.Fill(hexes, (ushort)0);
-        var result = state with { NativeBaseCaptureCurrent = new(Revision, hexes, cities, 0) };
+        //The same CHex constructor qword16 also clears food-reduction19.
+        //238480 only reads19 for dynamic archives(8C=0); the fresh CE static
+        //load skips it, and23E600 only supplies10/12. Later Turn38 owns updates.
+        var result = state with { NativeBaseCaptureCurrent = new(Revision, hexes, cities, 0),
+            FacilityFoodReduction = new(new byte[48400].ToImmutableArray()) };
         NativeBaseCaptureCurrentStateValidation.Validate(result);
         return result;
     }

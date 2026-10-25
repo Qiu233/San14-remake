@@ -147,10 +147,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (entry is not { } id) continue;
             int physical = (current.CurrentMapObjectDirectory ?? throw AreaTransferMissing("Object_directory")).PhysicalOf(id);
-            //The standalone retirement helper's Gate publication captures a
-            //new context. A real pending Gate requires a borrowed Gate leaf.
-            if (working.Gates.ContainsKey(physical)) throw AreaTransferMissing("28E7F0_pending_Gate_borrowed_publication");
-            var removal = ApplyMapObjectRetirementNumbers(working, id);
+            var removal = ApplyMapObjectRetirementNumbers(working, id, current);
             working = removal.State;
             current.SetObjectRecord(new(physical, 48400, 0));
             current.SetObjectForceSlot13(physical, 0); current.SetObjectRawField14(physical, 0);

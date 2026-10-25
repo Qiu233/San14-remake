@@ -94,7 +94,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return Math.Clamp(unchecked(basis - protection - trait), 0, 100);
         }
 
-        private int HealthRecoveryProbability(int person)
+        private int HealthRecoveryProbability(int person, bool knownSpecialPerson = false)
         {
             if (!Need(current.ReadPersonNativeValidity(person), "health.recovery_validity")) return 0;
             byte status = Need(current.ReadPersonStatus(person), "health.recovery_status");
@@ -106,8 +106,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (mode == 2) basis = HealthRule(HealthParameter.SpecialModeRecovery);
             else
             {
-                int age = HealthAge(person);
-                if (HealthSpecialForce(person) || HealthBandAtOrdinaryBase(person)) age = HealthRule(HealthParameter.SpecialPersonRecoveryAge);
+                int age;
+                if (knownSpecialPerson) age = HealthRule(HealthParameter.SpecialPersonRecoveryAge);
+                else
+                {
+                    age = HealthAge(person);
+                    if (HealthSpecialForce(person) || HealthBandAtOrdinaryBase(person)) age = HealthRule(HealthParameter.SpecialPersonRecoveryAge);
+                }
                 //Keep the source's f32 divide, multiply, add then truncate.
                 float scaled = ((float)age - 15f) / 85f;
                 scaled *= HealthRule(HealthParameter.RecoveryAgeSlope); scaled += HealthRule(HealthParameter.RecoveryAgeOffset);

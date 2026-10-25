@@ -22,8 +22,7 @@ internal static class NativeNormalTurnSaveFields
         if (!state.ContainsKey(key))
             throw new InvalidDataException("Saved normal Turn continuation knowledge is missing.");
         if (state[key] is not JsonNode saved) return;
-        if (saved is not JsonObject turn || !Integer(turn, "NextAction", 16, version < 166 ? 16 : 26) ||
-            version >= 166 && turn["NextAction"]!.GetValue<int>() is not (16 or 25 or 26) ||
+        if (saved is not JsonObject turn || !SupportedAction(turn["NextAction"], version) ||
             turn["RestoreAppRandomState"] is not JsonValue random || !random.TryGetValue<uint>(out _) ||
             turn["RemainingOfficerIds"] is not JsonArray remaining || remaining.Any(person => !Integer(person, 0, 6000)) ||
             !turn.ContainsKey("PendingSelfRecommendation") ||
@@ -62,6 +61,9 @@ internal static class NativeNormalTurnSaveFields
     }
 
     private static bool Integer(JsonObject owner, string key, int min, int max) => Integer(owner[key], min, max);
+    private static bool SupportedAction(JsonNode? node, int version) => node is JsonValue field &&
+        field.TryGetValue<int>(out int action) &&
+        (action == 16 || version >= 166 && action is (25 or 26) || version >= 167 && action is (48 or 49));
     private static bool Integer(JsonNode? value, int min, int max) => value is JsonValue field &&
         field.TryGetValue<int>(out int result) && result >= min && result <= max;
 }

@@ -72,7 +72,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (control != 0)
                 {
                     reachedOperation = "restore-current-command";
-                    working = RestoreCurrentSavedCommand(working, current, slot, image, player, moment, effects,
+                    working = RestoreCurrentSavedCommand(working, current, slot, image, player, s => StatusCampaignDay(s, moment), effects,
                         ref reachedAction, ref reachedTargetIdentity);
                 }
                 checks.Add(new(physical, image?.Id, null, null, control));
@@ -109,7 +109,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private GameState RestoreCurrentSavedCommand(GameState state, SourceWorldContext current,
         ArmyLifecycleReceiverView slot, UnitState? image, ForceReference? player,
-        NativeArmyProgressStageMoment moment, List<CampaignEffectRequest> effects,
+        Func<GameState, int> readCampaignDay, List<CampaignEffectRequest> effects,
         ref byte? reachedAction, ref ushort? reachedTargetIdentity)
     {
         if (image is null) throw CommandStageMissing("restoration_current_image");
@@ -237,7 +237,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var force = current.ReadArmyUnitForceReference(army);
         var retainedPlayer = player ?? throw CommandStageMissing("restoration_current_player_pointer");
         if (direct && force == retainedPlayer)
-            working = RestorationReport(working, current, army, null, moment, effects);
+            working = RestorationReport(working, current, army, null, readCampaignDay, effects);
         else if (rescued)
         {
             byte objectForceRaw = RestorationNeed(current.ReadObjectForceSlot13(obj), "restoration_Object_Force13");
@@ -245,7 +245,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw CommandStageMissing("restoration_Object_Force_pointer");
             if (force == retainedPlayer || objectForce == retainedPlayer)
                 working = RestorationReport(working, current,
-                    rescuer ?? throw CommandStageMissing("restoration_rescuer_pointer"), army, moment, effects);
+                    rescuer ?? throw CommandStageMissing("restoration_rescuer_pointer"), army, readCampaignDay, effects);
         }
         if (rescued)
         {
@@ -258,14 +258,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private GameState RestorationReport(GameState state, SourceWorldContext current,
-        ArmyUnitReference reporter, ArmyUnitReference? victim, NativeArmyProgressStageMoment moment,
+        ArmyUnitReference reporter, ArmyUnitReference? victim, Func<GameState, int> readCampaignDay,
         List<CampaignEffectRequest> effects)
     {
         var formatted = FormatHistoryReport(state, current, victim is null ? 0xC96F : 0xC96E,
             new(Army0: reporter, Army1: victim));
         state = formatted.State;
         int commander = RestorationNeed(current.ReadArmyUnitCommanderId(reporter), "restoration_report_Commander12");
-        int day = StatusCampaignDay(state, moment);
+        int day = readCampaignDay(state);
         int at = RestorationNeed(current.ReadArmyUnitRawHex2A(reporter), "restoration_report_Army2A");
         int district = ReadFacilityHistoryDistrict(current, reporter);
         return WriteHistory(state, current, new(5, district, at, day, formatted.Text,

@@ -7,11 +7,12 @@ public sealed partial class ArmyCampaignRuleAdapter
     //The normal host reaches this after the actual forty Army Progress blocks.
     //It does not replay planning, personnel task ticks or Army stages. A later
     //unowned Turn action fails the enclosing private operation atomically.
-    internal GameState CompleteNormalTurnAfterArmyPeriodCurrent(GameState state, CampaignGroupingCheckpoint grouping)
+    internal GameState CompleteNormalTurnAfterArmyPeriodCurrent(GameState state, CampaignGroupingCheckpoint grouping,
+        ArmyMapGroupingOwner groups)
     {
         if (state.NativeNormalTurnContinuation is { } continuation)
         {
-            if (continuation.NextAction is not (16 or 26) ||
+            if (continuation.NextAction is not (16 or 26 or 48 or 49) ||
                 continuation.PendingSelfRecommendation is not null || continuation.PendingCoalitionInvitation is not null)
                 throw AppearanceTurnMissing("normal_turn_requires_player_decision");
             var season = state.NativeMapSeason ?? throw AppearanceTurnMissing("resume_calendar");
@@ -19,7 +20,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var endDate = state.Date.Next();
             if (clock.UpdatesIntoPeriod != 40 || season.ProcessedNativeOrdinal != clock.UpdateOrdinal ||
                 season.ThirdDate != new NativeMapSeasonDate(checked((short)endDate.Year), checked((sbyte)endDate.Month),
-                    checked((sbyte)endDate.Day), 0) || season.ThirdDate.Day > 10)
+                    checked((sbyte)endDate.Day), 0) ||
+                continuation.NextAction is 16 or 26 && season.ThirdDate.Day > 10)
                 throw AppearanceTurnMissing("resume_completed_progress_boundary");
             var current = CaptureWritableTransportRouteCurrent(state);
             var pool = current.ReadOwnedCurrentListPool() ?? throw AppearanceTurnMissing("resume_shared_pool");
@@ -32,22 +34,30 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (state.NativeNormalTurnContinuation is not null) return state;
                 firstAction = 17;
             }
-            else
+            else if (continuation.NextAction == 26)
             {
                 //The explicit coalition answer already consumed action25.
                 //Keep its App stream and begin at the next original action.
                 state = state with { NativeNormalTurnContinuation = null };
                 firstAction = 26;
             }
+            else
+            {
+                if (continuation.StoryPlayback?.Story is { } story && story.NextStep < story.Steps.Length)
+                    throw AppearanceTurnMissing("event_playback_requires_presentation");
+                firstAction = continuation.NextAction;
+                //The completed Story remains available to action48's true
+                //occurrence/date tail. It is cleared only after that tail.
+                if (firstAction == 49) state = state with { NativeNormalTurnContinuation = null };
+            }
             int previousMonth = season.ThirdDate.Month == 1 ? 12 : season.ThirdDate.Month - 1;
-            bool seasonal = MapSeasonMath.SelectMonth(season.ThirdDate.Month).SeasonIndex !=
+            bool monthStart = season.ThirdDate.Day <= 10;
+            bool seasonal = monthStart && MapSeasonMath.SelectMonth(season.ThirdDate.Month).SeasonIndex !=
                 MapSeasonMath.SelectMonth(previousMonth).SeasonIndex;
-            state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, true, seasonal,
-                continuation.RestoreAppRandomState, grouping, firstAction);
+            state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
+                continuation.RestoreAppRandomState, grouping, firstAction, groups: groups);
             if (state.NativeNormalTurnContinuation is not null) return state;
-            //The real App restoration belongs to the still-unimplemented Turn
-            //tail. A later frontier must not publish or acknowledge completion.
-            throw AppearanceTurnMissing("action.31");
+            return RestoreNormalTurnAppAfterExit(state, continuation.RestoreAppRandomState);
         }
         var app = state.CampaignAppRandom32 ?? throw AppearanceTurnMissing("App32_current_state");
         //This is the latest operation's stream, including all Progress draws,
@@ -62,7 +72,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //The ordinary application does not supply an achievement-service
         //bitmap. Keep that independent owner unknown for branches that read it.
         var result = TryAdvanceNormalTurnPrefix(state, state.Date, state.PeriodNumber,
-            random, null, mode, grouping: grouping);
+            random, null, mode, grouping: grouping, normalGroups: groups);
         return result.State ?? throw new InvalidDataException(result.UnresolvedOwner
             ?? "normal.turn.unresolved_action_" + result.NextAction);
     }
@@ -70,14 +80,17 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState ApplyNormalTurnRemainingActionsCurrent(GameState state, SourceWorldContext current,
         WorldIndexContext pool, bool monthStart, bool seasonal, uint restoreApp,
         CampaignGroupingCheckpoint? grouping, int firstAction = 17, Action<int>? reached = null,
-        Action<string, GameState>? observe = null)
+        Action<string, GameState>? observe = null, ArmyMapGroupingOwner? groups = null)
     {
-        for (int action = firstAction; action <= 30; action++)
+        for (int action = firstAction; action <= 78; action++)
         {
             reached?.Invoke(action);
             //42BFE0 prepares +4 from333DB0(month start), +8 from333DE0
-            //(season change).29/30 use the literal true guard4F8560.
-            bool enabled = action <= 27 ? monthStart : action == 28 ? seasonal : true;
+            //(season change).41/52 reuse the month-start guard; all other
+            //reached actions through56 use the literal true guard4F8560.
+            bool enabled = action <= 27 ? monthStart : action == 28 ? seasonal :
+                action is 41 or 52 or 69 or 73 or 74 ? monthStart :
+                action == 76 ? monthStart && currentDate().Month == 1 : true;
             if (enabled)
                 state = action switch
                 {
@@ -95,8 +108,24 @@ public sealed partial class ArmyCampaignRuleAdapter
                     28 => ApplyNormalTurnSeasonalForeignTradeCurrent(state, current),
                     29 => ApplyNormalTurnDisasterConsequencesCurrent(state, current, pool),
                     30 => GovernancePendingSource.ApplyCurrent(state, current, pool),
+                    >= 31 and <= 38 => ApplyNormalTurnAction31To38Current(state, current, pool, action),
+                    39 or 40 => ApplyNormalTurnEconomyCurrent(state, current, pool, action,
+                        groups ?? throw AppearanceTurnMissing("food_grouping_owner")),
+                    41 => state, //4F8560 is the action as well as its true result.
+                    >= 42 and <= 47 => ApplyNormalTurnPostEconomyCurrent(state, current, pool, action),
+                    48 => ApplyNormalTurnStoryPlaybackCurrent(state, current, pool, restoreApp,
+                        new(groups?.Export() ?? grouping?.Roots ?? throw AppearanceTurnMissing("story_grouping_owner"),
+                            groups is not null || grouping!.Changed)),
+                    >= 49 and <= 56 => ApplyNormalTurnLateMaintenanceCurrent(state, current, pool, action),
+                    >= 57 and <= 60 => ApplyNormalTurnLateEconomyCurrent(state, current, pool, action),
+                    >= 61 and <= 66 => ApplyNormalTurnClosingMaintenanceCurrent(state, current, pool, action),
+                    >= 67 and <= 72 => ApplyNormalTurnTerritoryFinalizationCurrent(state, current, pool, action),
+                    >= 73 and <= 77 => ApplyNormalTurnFinalOrdersCurrent(state, current, pool, action),
+                    78 => CompleteNormalTurnPostProcessCurrent(state, current, pool),
                     _ => throw AppearanceTurnMissing("remaining_action_dispatch")
                 };
+            if (state.CampaignTurnStop is not null)
+                return PublishNormalTurnCurrent(state, current, pool);
             if (state.NativeNormalTurnContinuation is not null)
             {
                 //The original temporary lists have been released by action25.
@@ -111,5 +140,50 @@ public sealed partial class ArmyCampaignRuleAdapter
             observe?.Invoke($"turn.index{action}." + (enabled ? "completed" : "skipped"), state);
         }
         return state;
+        NativeMapSeasonDate currentDate() => state.NativeMapSeason?.ThirdDate
+            ?? throw AppearanceTurnMissing("final_action_calendar");
+    }
+
+    private static GameState RestoreNormalTurnAppAfterExit(GameState state, uint saved)
+        //CTurnState exit427B30 restores+14 only when it is nonzero.
+        => saved == 0 ? state : state with { CampaignAppRandom32 = new(saved) };
+
+    private static GameState PublishNormalTurnCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool)
+    {
+        state = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
+        state = OwnedArmyLifecycleDetachedInputs.PublishCurrent(state, current);
+        var lifecycle = state.ReadArmyLifecycle() ?? throw AppearanceTurnMissing("completion_lifecycle");
+        return state.WithArmyLifecycle(lifecycle with { Indexes = pool.ExportOwnedState() });
+    }
+
+    private static GameState CompleteNormalTurnPostProcessCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool)
+    {
+        //429F30: close Turn processing, then3257F0's actual table callbacks,
+        //registered-person pruning and associated task slot7 callbacks.
+        PersonReturnCommands.BindCurrent(state, current);
+        _ = current.ApplyOwnedTurnPostProcess();
+        state = PublishNormalTurnCurrent(state, current, pool);
+        var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
+        foreach (var person in state.Officers.Values)
+        {
+            int physical = current.ResolveOfficerSource(person.Id) ?? throw AppearanceTurnMissing("slot7_Person_identity");
+            int Read(int offset) => current.ReadPersonPostLoadByte(physical, offset)
+                ?? throw AppearanceTurnMissing("slot7_Person_field_" + offset.ToString("X"));
+            int DecodeCap(int offset)
+            {
+                byte raw = (byte)Read(offset);
+                return (byte)(((raw << 3) | (raw >> 5)) ^ unchecked((byte)physical));
+            }
+            people[person.Id] = person with
+            {
+                BaseAbilities = new(Read(0x124), Read(0x125), Read(0x126), Read(0x127), Read(0x128)),
+                PolicyBaseCost = Read(0x1BA),
+                CurrentFormationMask = current.ReadPersonFormationMask164(physical),
+                AbilityState = new(DecodeCap(0x225), DecodeCap(0x224), person.AbilityState?.ObservedDoctrineId)
+            };
+        }
+        return state with { Officers = people, NativeNormalTurnContinuation = null };
     }
 }

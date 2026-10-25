@@ -8,6 +8,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// Territory, region and report writes commit together. The optional service
     /// belongs to the application profile, independently of the world save.</summary>
     public RegionEncirclementResult TryConsumeRegionEncirclement(GameState state, TransferServiceState? service = null)
+        => ConsumeRegionEncirclement(state, service, null);
+
+    internal GameState ConsumeNormalTurnEncirclementCurrent(GameState state, SourceWorldContext current)
+    {
+        var result = ConsumeRegionEncirclement(state, null, current);
+        return result.State ?? throw OccupationMissing(result.UnresolvedOwner ?? "encirclement_current_operation");
+    }
+
+    private RegionEncirclementResult ConsumeRegionEncirclement(GameState state, TransferServiceState? service,
+        SourceWorldContext? suppliedCurrent)
     {
         try
         {
@@ -26,7 +36,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 throw OccupationMissing("encirclement_rank_definitions");
             var working = state;
             var serviceCopy = service?.Copy();
-            var current = CaptureWritableTransportRouteCurrent(working);
+            var current = suppliedCurrent ?? CaptureWritableTransportRouteCurrent(working);
             var evaluations = new List<RegionEncirclementEvaluation>();
             //32C9D0 copies the saved order;42D6B0 begins at its tail.
             foreach (int force in order.Reverse())
@@ -46,11 +56,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //Copy each force's pending seeds in insertion order, including duplicates.
                 foreach (var seed in pending.EncirclementSeeds.Where(x => x.ForceId == force))
                 {
-                    current = CaptureWritableTransportRouteCurrent(working);
+                    current = suppliedCurrent ?? CaptureWritableTransportRouteCurrent(working);
                     var candidates = new List<RegionEncirclementCandidate>();
                     foreach (int candidate in allowed ? RegionEncirclementSource.ExpandCandidates(working, current, seed.AreaId, force) : [])
                     {
-                        current = CaptureWritableTransportRouteCurrent(working);
+                        current = suppliedCurrent ?? CaptureWritableTransportRouteCurrent(working);
                         var evaluated = RegionEncirclementSource.EvaluateCandidate(working, current, candidate, force);
                         candidates.Add(evaluated);
                         if (evaluated.Enclosed && evaluated.CapturedAreas.Length != 0)

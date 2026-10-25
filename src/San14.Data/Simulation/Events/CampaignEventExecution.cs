@@ -94,7 +94,7 @@ public sealed record CampaignEventPersonParameters(int OperationIndex, int Sourc
     : CampaignEventCommand(OperationIndex, SourceOffset, 101);
 public sealed record CampaignEventPersonMessage(int OperationIndex, int SourceOffset,
     CampaignEventPerson Speaker, int MessageId, int NativeStyle,
-    IReadOnlyList<int> PersonParameters, IReadOnlyList<CampaignEventPersonParameterWrite> ParameterWrites)
+    IReadOnlyList<int?> PersonParameters, IReadOnlyList<CampaignEventPersonParameterWrite> ParameterWrites)
     : CampaignEventCommand(OperationIndex, SourceOffset, 96)
 {
     public IReadOnlyList<string>? NameParameters { get; init; }
@@ -113,14 +113,14 @@ public sealed record CampaignEventStill(int OperationIndex, int SourceOffset,
     int StillId, int Option) : CampaignEventCommand(OperationIndex, SourceOffset, 87);
 public sealed record CampaignEventNamedPersonMessage(int OperationIndex, int SourceOffset,
     int SpeakerCharacterId, int MessageId, int Style, int NameMessageId,
-    IReadOnlyList<int> PersonParameters, IReadOnlyList<string> NameParameters,
+    IReadOnlyList<int?> PersonParameters, IReadOnlyList<string>? NameParameters,
     IReadOnlyList<CampaignEventPersonParameterWrite> ParameterWrites)
     : CampaignEventCommand(OperationIndex, SourceOffset, 97);
 public sealed record CampaignEventNarration(int OperationIndex, int SourceOffset,
-    int Mode, int MessageId, IReadOnlyList<int> PersonParameters, IReadOnlyList<string> NameParameters)
+    int Mode, int MessageId, IReadOnlyList<int?> PersonParameters, IReadOnlyList<string>? NameParameters)
     : CampaignEventCommand(OperationIndex, SourceOffset, 94);
 
-public enum CampaignEventAudioKind { Bgm, Se, StopSlot, StopAllSe }
+public enum CampaignEventAudioKind { Bgm, Se, StopSlot, StopAllSe, StopActiveSlots }
 public sealed record CampaignEventAudio(int OperationIndex, int SourceOffset, int Code,
     CampaignEventAudioKind Kind, int Id, int Flags, float ScalarA, float ScalarB)
     : CampaignEventCommand(OperationIndex, SourceOffset, Code);
@@ -295,6 +295,15 @@ public static class CampaignEventExecution
                     case 90: break; // Verified HideStill slot0 returns1 without presentation writes.
                     case 91:
                     case 92:
+                        //The live62-slot manager is queried when this step
+                        //arrives, after preceding sounds have really played.
+                        //A staging-time activity snapshot is not that owner.
+                        if (operation.Code == 92 && arguments[0] == -3)
+                        {
+                            Commands.Add(new CampaignEventAudio(operation.Index, operation.Offset, operation.Code,
+                                CampaignEventAudioKind.StopActiveSlots, 0, 0, 0, 0));
+                            break;
+                        }
                         S14AudioEventExecution.Execute(operation.Code, arguments[0],
                             new StagingAudio(audioInputs!, operation, Commands));
                         break;
@@ -326,10 +335,8 @@ public static class CampaignEventExecution
                         // 844110 always writes speaker ID into person parameter0 after the helper.
                         Parameters[0] = speaker.CharacterId!.Value;
                         writes.Add(new(0, speaker.CharacterId.Value));
-                        if (Parameters.Any(id => id is null))
-                            throw new InvalidDataException("Consumed message person parameters are unknown.");
                         Commands.Add(new CampaignEventPersonMessage(operation.Index, operation.Offset,
-                            speaker, arguments[1], arguments[2], Array.AsReadOnly(Parameters.Select(id => id!.Value).ToArray()),
+                            speaker, arguments[1], arguments[2], MessagePersons(),
                             writes.AsReadOnly()) { NameParameters = Names });
                         break;
                     default: throw new InvalidDataException("No staged original presentation leaf is bound.");
@@ -355,10 +362,9 @@ public static class CampaignEventExecution
             }
             return writes;
         }
-        private IReadOnlyList<int> MessagePersons() => Parameters is not null && Parameters.All(id => id.HasValue)
-            ? Array.AsReadOnly(Parameters.Select(id => id!.Value).ToArray())
-            : throw new InvalidDataException("Consumed message person parameters are unknown.");
-        private IReadOnlyList<string> MessageNames() => Names ?? throw new InvalidDataException("Consumed message name parameters are unknown.");
+        private IReadOnlyList<int?> MessagePersons() => Array.AsReadOnly(
+            Parameters?.ToArray() ?? new int?[5]);
+        private IReadOnlyList<string>? MessageNames() => Names;
 
         private CampaignEventPerson ReadPerson(int selector)
             => ReadPerson(ResolvePerson(selector));

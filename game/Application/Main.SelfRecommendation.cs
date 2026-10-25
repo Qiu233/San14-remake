@@ -50,7 +50,7 @@ public partial class Main
             {
                 RetirePeriodReportView(); CloseActionReport();
                 view.Configure(_repository, _ui,
-                    CampaignDetailViews.Officer(pending.Candidate, _selectedSnapshot, request.OfficerId, _ui),
+                    ReadCurrentOfficerDetail(pending.Candidate, request.OfficerId),
                     request.TextAtSource, () => IsSelfRecommendationCurrent && !_advancingPeriod,
                     accepted => RunUiAction(() =>
                     {

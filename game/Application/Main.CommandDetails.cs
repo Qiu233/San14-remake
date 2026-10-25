@@ -17,8 +17,8 @@ public partial class Main
     {
         if (_repository is null || _world is not { } world || _selectedSnapshot is null || !world.Officers.ContainsKey(officer)) return;
         var view = new OfficerDetailsView();
-        OpenCommandDetails(view, close => view.Configure(_repository,
-            CampaignDetailViews.Officer(world, _selectedSnapshot, officer, _ui), _ui, close));
+        OpenCommandDetails(view, close => ConfigureCurrentOfficerDetail(view, world, officer, close,
+            () => _commandDetailsView == view && _detailsView == view));
     }
 
     private void OpenCommandForceDetails(int force)

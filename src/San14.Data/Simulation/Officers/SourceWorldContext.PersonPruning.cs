@@ -11,6 +11,9 @@ public sealed partial class SourceWorldContext
     /// <summary>324D00 after its43 table calls. Captures first, then performs
     /// fresh pointer searches;335AE0 removes all matching nodes per invocation.</summary>
     public RegisteredPersonPruningResult PostProcessRegisteredPersons()
+        => PostProcessRegisteredPersons(worldReceiverOwned: false);
+
+    internal RegisteredPersonPruningResult PostProcessRegisteredPersons(bool worldReceiverOwned)
     {
         ConditionalRegistryEnter();
         HexListHandle temporary = CreateTemporaryHexList()
@@ -52,9 +55,12 @@ public sealed partial class SourceWorldContext
         }
         if (AssociatedObjectPostProcessor is not null) AssociatedObjectPostProcessor();
         else _ = PostProcessAssociatedObjects();
-        StartupWorldReference world = ReadStaticCompletionWorld()
-            ?? throw new InvalidDataException("Current post-load world slot7 receiver is unknown.");
-        if (!world.Identity.HasValue) throw new InvalidDataException("Current post-load world slot7 receiver is null.");
+        if (!worldReceiverOwned)
+        {
+            StartupWorldReference world = ReadStaticCompletionWorld()
+                ?? throw new InvalidDataException("Current post-load world slot7 receiver is unknown.");
+            if (!world.Identity.HasValue) throw new InvalidDataException("Current post-load world slot7 receiver is null.");
+        }
         // The supported CWorldData slot7 target370500 returns without field writes.
         ConditionalRegistryEnter();
         ClearTemporaryHexList(temporary);

@@ -42,7 +42,7 @@ public sealed partial class GameSimulation
         ArgumentNullException.ThrowIfNull(rules);
         return TryUpdateForcePresentation(expectedOwner, batchSequence, requestIndex, (owner, source, request) =>
         {
-            if (source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) || request.TalentForceExperiencePresentation is not
+            if (source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) || request.TalentForceExperiencePresentation is not
                 { Operation: TalentForceExperiencePresentationOperation.ExperienceGain } experience) return null;
             return (rules.CompleteExperiencePresentation(owner, experience, previousDisplayLevel), null);
         });

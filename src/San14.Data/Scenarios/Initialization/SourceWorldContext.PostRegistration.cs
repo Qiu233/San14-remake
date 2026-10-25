@@ -24,6 +24,8 @@ public sealed partial class SourceWorldContext : IPostRegistrationLookupState
     }
     public void SetForceRankSlot47(int physical,byte? rank)
     {Check(physical,52,"force rank receiver");_forceRanks47[physical]=rank;}
+    internal byte? ReadForceRankSlot47(int physical)
+    {Check(physical,52,"force rank receiver");return _forceRanks47.GetValueOrDefault(physical);}
     public void SetForceDerivedPersonDescriptor(int physical,RegistryListHandle? handle)
     {Check(physical,52,"force derived-person receiver");_forceDerivedPersonDescriptors[physical]=handle;}
     public void MaterializeRankPersonCapacities(LoadedRankPersonCapacities loaded)

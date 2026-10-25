@@ -178,59 +178,8 @@ public sealed partial class CityDomesticDraft
         int reduction = discount <= 0f ? 0 : discount < 1f ? 1 : Cvtt(discount);
         return Math.Max(0, unchecked(basis - reduction));
     }
-    private int TrainingGain(BaseReference original)
-    {
-        var associated = CurrentGateMapQueries.FindCity(original, _current);
-        int id = K(associated.PhysicalSlot, "training_associated_city");
-        ushort raw = K(_current.ReadAssignmentCityCC(id), "training_associated_trainer");
-        int trainer = PersonAreaAppointmentSource.Resolve(_current, raw);
-        if (!K(_current.ReadPersonNativeValidity(trainer), "training_trainer_validity")) return 0;
-        int fee = Fee(associated, false);
-        if (fee > Gold(associated)) return 0;
-        if (raw == 0) return 0;
-        int morale = Morale(original), upper = MoraleCap(original);
-        if (morale >= upper) return 0;
-        if (Troops(original) == 0) return 0;
-        return TrainingInner(original, trainer);
-    }
-    private int TrainingInner(BaseReference city, int trainer)
-    {
-        int initialMorale = Morale(city); if (initialMorale >= 200) return 0;
-        int troops = Troops(city); if (troops == 0) return 0;
-        ushort flags = K(OfficerBehaviorSourceAdapter.EncodeFlags(_current.ReadPersonBehavior(trainer)), "training_flags");
-        bool half = (flags & 1) != 0;
-        if (!half)
-        {
-            half = K(PersonArmyLocationSource.ReadCommanderArmyValidity(_state, _current, trainer), "training_army_validity");
-            if (!half)
-            {
-                var linked = PersonLinkedEntityLookup.Find(trainer, _preview);
-                half = K(_preview.ReadLinkedEntityNativeValidity(linked), "training_linked_validity");
-            }
-        }
-        int leadership = Ability(trainer, 0); if (half) leadership /= 2;
-        int strength = Ability(trainer, 1); if (half) strength /= 2;
-        int baseParameter = Parameter("trainingBaseGain");
-        int sqrtMorale = Morale(city);
-        int sqrtScale = Parameter("trainingMoraleSqrtScale");
-        float sqrt = MathF.Sqrt((float)unchecked(sqrtMorale * sqrtScale));
-        int divisor = Parameter("trainingTroopsDivisor");
-        float troopPart = (float)troops / (float)divisor;
-        float firstSum = (float)(sqrt + troopPart);
-        int offset = Parameter("trainingDenominatorOffset");
-        int rawDenominator = Cvtt((float)(firstSum + (float)offset));
-        _ = MoraleCap(city);
-        int traitScale = Parameter("trainingTraitScale");
-        int denominator = Math.Max(1, rawDenominator);
-        int basis = unchecked(baseParameter + unchecked(unchecked(leadership + strength) * 2) / denominator);
-        int trait = K(TacticRemakeCurrentTraits.CommanderEffectMaximum(_current, trainer, 16), "training_trait16");
-        int traitGain = unchecked(unchecked(trait * traitScale) * basis) / 100;
-        var force = _current.ReadPersonForce(trainer) ?? throw Missing("training_person_force");
-        int policy = Policy(force, 31);
-        int scale = Parameter("trainingPolicyScale");
-        int policyGain = unchecked(unchecked(scale * policy) * basis) / 100;
-        return unchecked(unchecked(policyGain + traitGain) + basis);
-    }
+    private int TrainingGain(BaseReference original) => CityTrainingGainSource.Read(_state, _current,
+        original, city => Fee(city, false), Ability, Policy);
     private int Ability(int physical, int dimension)
     {
         int identity = K(_current.ReadPersonIdentity(physical), "ability_identity");

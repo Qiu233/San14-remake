@@ -348,7 +348,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.SetOwnedForceRulerSlot10(force, 0); current.SetAssignmentForceAdvisor52(force, 0);
         current.SetForceRankSlot47(force, 0); current.SetForceKingdomNameIndex(force, 0); current.SetForce164(force, 0);
         var domain = state.Forces[force];
-        var after = owner with { FactionOfficerId = 0, PopulationTotal = 0, Flags12 = 0, Flags193 = 0, Flags194 = 0,
+        var after = owner with { FactionOfficerId = 0, PopulationTotal = 0, BestAdministrationLevelSum = 0, BestExceptionalOfficerCount = 0, DevelopmentWarningFlags = 0, Flags12 = 0, Flags193 = 0, Flags194 = 0,
             ForeignTradeProgress = new(ImmutableArray.Create<ushort>(0, 0, 0, 0, 0), ImmutableArray.Create<byte>(0, 0, 0, 0, 0)),
             DiplomacyFlags178 = 0, DiplomacyCooldownDate = new(0, 1, 1, 0), RelationsEA = new byte[52],
             NormalAftermath = new(new byte[52], 0) };

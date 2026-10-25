@@ -132,7 +132,7 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         return source.RawField46 is >= 0 and <= 65535 ? (ushort)source.RawField46 : throw Missing("food_basis_domain");
     }
 
-    internal AreaAdministrationQuery<int?> Soldiers(int area, ushort? recruiterOverride = null) => Read(() =>
+    internal AreaAdministrationQuery<int?> Soldiers(int area, ushort? recruiterOverride = null, int mode = 2) => Read(() =>
     {
         //7826E0 reads CURRENT CityCA before entering the scalar, including before.
         byte citySlot = K(current.ReadAreaCitySlot(new(area)), "troops_area_city");
@@ -174,12 +174,12 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         ushort owned = statistics.IsOwnedCountCurrent && statistics.OwnedCellCount is >= 0 and <= 65535
             ? (ushort)statistics.OwnedCellCount : throw Missing("troops_owned_count");
         ushort flags = K(OfficerBehaviorSourceAdapter.EncodeFlags(current.ReadPersonBehavior(recruiter)), "troops_recruiter_flags");
-        bool busy = (flags & 1) != 0 || PersonCurrentBusySource.Read(current, recruiter,
-            field => Missing("troops_recruiter_" + field));
+        bool busy = mode != 1 && ((flags & 1) != 0 || PersonCurrentBusySource.Read(current, recruiter,
+            field => Missing("troops_recruiter_" + field)));
         byte cf = state.NativeBaseCaptureCurrent?.Cities.GetValueOrDefault(cityPhysical)?.CF ?? throw Missing("troops_city_CF");
         int day = state.NativeMapSeason?.ThirdDate?.Day ?? throw Missing("troops_world_third_day");
         //The original re-reads CF for day>10. This projection has no CF writer.
-        int cycles = day <= 10 ? 3 : day <= 20 ? cf + 2 : cf + 1;
+        int cycles = mode == 1 ? 1 : mode == 2 ? day <= 10 ? 3 : day <= 20 ? cf + 2 : cf + 1 : cf;
         int policy = Policy(city, 0x1C);
         int recruitTrait = K(TacticRemakeCurrentTraits.PersonContribution(current, recruiter, 0x11), "troops_recruiter_trait11");
         int areaTrait = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x26), "troops_area_trait26");
@@ -339,14 +339,15 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         });
     }
 
-    internal AreaAdministrationQuery<int?> AutoDevelopment(int area, int person, int focus, Func<int, int> count) => Read(() =>
+    internal AreaAdministrationQuery<int?> AutoDevelopment(int area, int person, int focus, Func<int, int> count,
+        int? residentTrait = null, int? forcePolicy = null, bool candidateCity = true, bool? awayAtSource = null) => Read(() =>
     {
         //3424A0 resolves the candidate's City before its native-validity gate.
-        var city = City(area, person, candidateCity: true);
+        var city = City(area, person, candidateCity);
         if (!K(current.ReadPersonNativeValidity(person), "person_validity")) return 0;
-        int cityTrait = CityTrait(city, 0x2D), policy = Policy(city, 0x1D);
+        int cityTrait = residentTrait ?? CityTrait(city, 0x2D), policy = forcePolicy ?? Policy(city, 0x1D);
         //2670D0 performs this prelude even for kind0, whose base then returns0.
-        bool away = Away(person);
+        bool away = awayAtSource ?? Away(person);
         int basis = 0;
         if (focus is >= 1 and <= 3)
         {
@@ -376,7 +377,8 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         return AreaAdministrationPreviewMath.DevelopmentModifiers(basis, own, cityTrait, policy, AdvancedPercent(0x1D));
     });
 
-    internal AreaAdministrationQuery<int?> Security(int area, int person, bool fullEffort, Func<int, int> count)
+    internal AreaAdministrationQuery<int?> Security(int area, int person, bool fullEffort, Func<int, int> count,
+        int? residentTrait = null, int? forcePolicy = null, bool? awayAtSource = null)
     {
         return Read(() =>
         {
@@ -384,10 +386,10 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
             int? raw = state.Areas.GetValueOrDefault(area)?.Security;
             if (raw is not (>= 0 and <= 255)) throw Missing("security_current");
             int effective = Ability(person, 0), task = TaskPercent(person, fullEffort, count);
-            bool away = Away(person);
+            bool away = awayAtSource ?? Away(person);
             var relations = Relations(area, person, excludeSelf: false);
             var city = City(area, person, candidateCity: false);
-            int cityTrait = CityTrait(city, 0x4A), policy = Policy(city, 0x1E);
+            int cityTrait = residentTrait ?? CityTrait(city, 0x4A), policy = forcePolicy ?? Policy(city, 0x1E);
             int own = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x22), "person_trait22");
             return AreaAdministrationPreviewMath.Security(effective, task, away, (byte)raw.Value,
                 relations.Close, relations.Other, own, cityTrait, policy, AdvancedPercent(0x1C));

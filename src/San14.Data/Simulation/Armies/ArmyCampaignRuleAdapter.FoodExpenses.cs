@@ -9,7 +9,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFoodExpenseRu
         // No SC default coefficients have been established for this profile.
         if (state.NativeArmySimulation?.Parameters.Language != "TC") return new(state, null);
         var current = CaptureOwnedArmyReturnWorld(state).Context;
-        byte[]? reductions = null;
+        IReadOnlyList<byte>? reductions = null;
         string? reductionFailure = null;
         var result = new Dictionary<int, PlayableArmyFoodExpense>();
         var order = new List<PlayableArmyFoodExpenseEntry>();
@@ -34,7 +34,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFoodExpenseRu
                     //every facility again for each remaining Army on failure.
                     if (reductionFailure is not null) throw new InvalidDataException(reductionFailure);
                     if (reductions is null)
-                        try { reductions = ArmyFoodTerrainModifiers.Capture(state, current); }
+                        try { reductions = ArmyFoodTerrainModifiers.ReadScheduled(state); }
                         catch (InvalidDataException missing) { reductionFailure = missing.Message; throw; }
                     var home = current.FindArmyUnitCurrentBase(new(physical));
                     var collector = CurrentGateMapQueries.FindCity(home, current);

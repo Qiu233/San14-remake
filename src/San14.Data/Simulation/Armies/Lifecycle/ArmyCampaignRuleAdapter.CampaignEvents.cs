@@ -42,6 +42,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>Current, detached condition queries. Date identity and histories
     /// come from the saved world; no static scenario value fills a missing owner.</summary>
     public SourceWorldContext CaptureCurrentCampaignEventQueries(GameState state, NativeArmyProgressStageMoment? moment = null)
+        => BindCurrentCampaignEventQueries(state, CaptureWritableTransportRouteCurrent(state), moment);
+
+    internal SourceWorldContext BindCurrentCampaignEventQueries(GameState state, SourceWorldContext current,
+        NativeArmyProgressStageMoment? moment = null)
     {
         var world = state.CampaignEventWorld ?? throw OccupationMissing("campaign_event_current_world");
         var history = state.CampaignEvents ?? throw OccupationMissing("campaign_event_history");
@@ -51,7 +55,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             season.SourceScenarioSha256 != _scenario.ScenarioSource.Sha256 ||
             season.SourceWorldSha256 != _scenario.Snapshot.WorldParameters?.WorldSha256)
             throw OccupationMissing("campaign_event_calendar_source");
-        var current = CaptureWritableTransportRouteCurrent(state);
         current.MaterializeFixedScenery(_landmarkDefinitions);
         // Overwrite every current lifecycle field, including missing old owners;
         // fixed loading must never make scenario flags a saved-world fallback.

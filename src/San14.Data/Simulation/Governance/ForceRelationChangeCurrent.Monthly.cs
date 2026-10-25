@@ -92,9 +92,17 @@ internal static partial class ForceRelationChangeCurrent
 
     //Actual27B0F0 caller ABI: ordinary receiver, special receiver, old/new
     //levels and fifth0. All relation stores/reports already happened above.
+    internal static void ApplyInitialSpecialPersonnel(Func<GameState> latest, SourceWorldContext current,
+        ForceReference ordinary, ForceReference special, int level, Func<string, int> parameter,
+        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
+        Action<int> addedNotice)
+        => ApplyMonthlySpecial(latest, current, ordinary, special, 3, level, parameter,
+            addedPerson, application, addedNotice);
+
     private static void ApplyMonthlySpecial(Func<GameState> latest, SourceWorldContext current,
         ForceReference ordinary, ForceReference special, int before, int after, Func<string, int> parameter,
-        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application)
+        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
+        Action<int>? addedNotice = null)
     {
         if (!Known(current.ReadForceNativeValidity(ordinary), "monthly_special_first_validity") ||
             !Known(current.ReadForceNativeValidity(special), "monthly_special_second_validity")) return;
@@ -159,7 +167,11 @@ internal static partial class ForceRelationChangeCurrent
                             addedPerson(Known(person.PhysicalSlot, "monthly_special_added_person"), ordinary);
                         node = current.ReadRegistryNodeNext(node) ?? throw Missing("monthly_special_add_next");
                     }
-                    if (Player()) throw Missing("monthly_special_personnel_report_324C");
+                    if (Player())
+                    {
+                        if (addedNotice is null) throw Missing("monthly_special_personnel_report_324C");
+                        addedNotice(Known(current.ReadTemporaryHexListCount(additions), "monthly_special_added_count"));
+                    }
                 }
                 if (Known(current.ReadTemporaryHexListCount(removals), "monthly_special_remove_count") != 0)
                     throw Missing("monthly_special_personnel_2CD1C0_flags1_1_0");

@@ -49,6 +49,16 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
 
     public OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeats(GameState state,
         TacticSourceSamplerWorld? sampler = null, NativeMapSeasonDate? captureWorld38Date = null)
+        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, null, null);
+
+    internal OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeatsCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, TacticSourceSamplerWorld? sampler,
+        NativeMapSeasonDate? captureWorld38Date)
+        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, current, pool);
+
+    private OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeatsCore(GameState state,
+        TacticSourceSamplerWorld? sampler, NativeMapSeasonDate? captureWorld38Date,
+        SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool)
     {
         var receipts = new List<OwnedArmyDestructionReceipt>();
         var captures = new List<OwnedGateCaptureReceipt>();
@@ -62,7 +72,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             return new(null, receipts, "current.manager140_destruction_queue");
         try
         {
-            var world = package.CaptureOwnedArmyReturnWorld(state);
+            var world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(state)
+                : package.BorrowOwnedArmyReturnWorld(state, borrowedCurrent, borrowedPool!);
             var current = world.Context;
             var working = state;
             var destroyed = new HashSet<int>();
@@ -80,17 +91,18 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     working = PublishCurrent(working, current, world.Pool, destroyed, queue);
                     if (target.Kind == BaseKind.Gate)
                     {
-                        var captured = new OwnedGateCaptureStage(package).TryApply(working, capture, sourceDate, sampler);
+                        var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
                         captures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
                     }
                     else
                     {
-                        var captured = new OwnedCityCaptureStage(package).TryApply(working, capture, sourceDate, sampler);
+                        var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
                         cityCaptures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
                     }
-                    world = package.CaptureOwnedArmyReturnWorld(working); current = world.Context;
+                    world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
+                        : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!); current = world.Context;
                     destroyed.Clear(); queue = current.OwnedDestructionQueue ?? throw Missing("current.Base_postcallback_settlements");
                     continue;
                 }

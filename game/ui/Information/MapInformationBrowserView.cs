@@ -2,7 +2,8 @@ using Godot;
 using San14.Data;
 
 /// <summary>Owns information-menu navigation inside the existing map-detail
-/// modal. Child pages retain their publication and never submit orders.</summary>
+/// modal. Child pages retain their publication; immediate detail settings
+/// are submitted by the campaign host and adopt its new world.</summary>
 internal partial class MapInformationBrowserView : DetailsView
 {
     private MapInformationMenuView menu = null!;

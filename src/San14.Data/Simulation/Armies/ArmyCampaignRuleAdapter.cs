@@ -271,6 +271,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         ready = MonthlyCampaignMaintenanceRules.InstallFresh(ready);
         ready = InstallFreshNormalTurnForeignRelations(ready);
         ready = InstallFreshForeignTradeProgress(ready);
+        ready = InstallFreshNormalTurnDistrictHistory(ready);
+        ready = InstallFreshNormalTurnChallengeService(ready);
         ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
         ready = PersonnelCommandParameters.InstallFresh(ready);
         ready = GovernanceRosterParameters.InstallFresh(ready);

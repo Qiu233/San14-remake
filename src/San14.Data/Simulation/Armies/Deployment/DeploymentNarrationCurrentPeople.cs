@@ -6,7 +6,7 @@ namespace San14.Data;
 /// <summary>Current actors and address relationships used by the finite
 /// ordinary narration. Missing old-save fields are never read from scenario.</summary>
 internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWorldContext current,
-    TacticRemakeCurrentAbilities abilities, int speaker, int ruler, int? area = null, Func<int,int,int?>? panelReader = null,
+    TacticRemakeCurrentAbilities abilities, int? speaker, int? ruler, int? area = null, Func<int,int,int?>? panelReader = null,
     ushort? cityArgument = null, Func<string>? readZeroStrengthText = null,
     GameResourceRepository? appearanceRepository = null, LoadedScenario? appearanceScenario = null,
     string? appearanceLanguage = null, int? forceArgument = null,

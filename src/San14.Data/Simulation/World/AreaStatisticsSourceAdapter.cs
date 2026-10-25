@@ -16,6 +16,8 @@ public static class AreaStatisticsSourceAdapter
                 AreaMapStatisticsInitialization.CountToNativeWord(area.TerrainCellCount));
             current.SetAreaRawField68(physical, area.IsOwnedCountCurrent
                 ? AreaMapStatisticsInitialization.CountToNativeWord(area.OwnedCellCount) : null);
+            current.SetAreaRawField78(physical, area.IsOwnedCountCurrent
+                ? checked((byte)(area.ForceId ?? 0)) : null);
         }
     }
 

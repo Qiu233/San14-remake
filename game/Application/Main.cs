@@ -977,13 +977,15 @@ public partial class Main : Control
         var view = new OfficerDetailsView();
         _detailsView = view;
         AddChild(view);
-        view.Configure(_repository, CampaignDetailViews.Officer(_world, _selectedSnapshot, _officer.GetSelectedId(), _ui), _ui,
-            () => RunUiAction(() =>
+        Action close = () => RunUiAction(() =>
             {
                 view.QueueFree();
                 _detailsView = null;
                 _openOfficerDetails.GrabFocus();
-            }));
+            });
+        if (_world.Phase == TurnPhase.Initializing)
+            view.Configure(_repository, CampaignDetailViews.Officer(_world, _selectedSnapshot, _officer.GetSelectedId(), _ui), _ui, close);
+        else ConfigureCurrentOfficerDetail(view, _world, _officer.GetSelectedId(), close, () => _detailsView == view);
         view.RegisterHeader(_sourceHeaders);
     }
 

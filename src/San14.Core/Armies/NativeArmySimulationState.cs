@@ -17,6 +17,12 @@ public sealed record NativeArmyForceState(byte? Flags193)
     public int? FactionOfficerId { get; init; }
     public int? PopulationTotal { get; init; }
     public ForeignTradeProgressState? ForeignTradeProgress { get; init; }
+    /// <summary>The best administration-level total previously reached by this force.</summary>
+    public uint? BestAdministrationLevelSum { get; init; }
+    public int? AssociationIntelligenceGain { get; init; }
+    public int? AssociationGoldExpense { get; init; }
+    public ushort? BestExceptionalOfficerCount { get; init; }
+    public byte? DevelopmentWarningFlags { get; init; }
     public byte? Flags12 { get; init; }
     public byte? Flags194 { get; init; }
     public ushort? DiplomacyFlags178 { get; init; }
@@ -32,6 +38,7 @@ public sealed record NativeArmyWorldState
     //The actual coalition-event deadline. Missing old knowledge stays null;
     //a reached coalition writer installs its real calendar result.
     public NativeMapSeasonDate? PlayerCoalitionCooldownDate { get; init; }
+    public byte? LeadingDoctrineYearCount { get; init; }
     public NativeArmySamplerEpoch? SamplerEpoch { get; init; }
     public byte? Flags165C { get; init; }
     public byte? SelectedForce1656 { get; init; }

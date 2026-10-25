@@ -311,6 +311,11 @@ public static class StateValidator
                 throw new InvalidDataException("Content revision reference is invalid.");
         if (state.MapWidth < 1 || state.MapHeight < 1) throw new InvalidDataException("Map dimensions are invalid.");
         int mapSize = checked(state.MapWidth * state.MapHeight);
+        if (state.FacilityFoodReduction is { } facilityFood &&
+            (facilityFood.PercentByHex.IsDefault || facilityFood.PercentByHex.Length != 48400))
+            throw new InvalidDataException("The facility food reduction field has an invalid size.");
+        if (state.TerritoryExpansion is { PendingAssignments: null })
+            throw new InvalidDataException("The territory expansion assignments are missing.");
         if (state.Forces.Count == 0) throw new InvalidDataException("No forces exist.");
         if (string.IsNullOrWhiteSpace(state.DifficultyId)) throw new InvalidDataException("Difficulty is missing.");
         if (state.NewGameOptions is { } options &&

@@ -1,7 +1,7 @@
 using San14.Data;
 using San14.Client.Gameplay;
 
-/// <summary>Binds an independent officer publication; final ability modifiers remain unresolved.</summary>
+/// <summary>Hosts the current three-page inspector and the separate pre-game preview.</summary>
 public partial class OfficerDetailsView : DetailsView
 {
     internal void Configure(GameResourceRepository repository, OfficerDetailView view, PreviewText text, Action close,

@@ -28,7 +28,10 @@ public static class GameStateCopy
         Diplomacy = Copy(value.Diplomacy),
         NativePeriodContinuation = value.NativePeriodContinuation?.Copy(),
         NativeNormalTurnContinuation = value.NativeNormalTurnContinuation is not { } normalTurn ? null : normalTurn with
-        { Grouping = normalTurn.Grouping with { Roots = normalTurn.Grouping.Roots.ToArray() } },
+        {
+            Grouping = normalTurn.Grouping with { Roots = normalTurn.Grouping.Roots.ToArray() },
+            StoryPlayback = normalTurn.StoryPlayback?.Copy()
+        },
         CampaignExpeditions = value.CampaignExpeditions?.Copy(),
         // Both the reserve dictionary and its six-point vectors are immutable.
         ForceCreditReserves = value.ForceCreditReserves,

@@ -291,7 +291,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             else if (action is 8 or 9)
             {
                 working = MaintainFacilityConstructionCommand(working, current, image,
-                    nativeMoment ?? throw MaintenanceMissing("facility_actual_moment"), action);
+                    operation, action);
             }
             else if (action == 10)
             {

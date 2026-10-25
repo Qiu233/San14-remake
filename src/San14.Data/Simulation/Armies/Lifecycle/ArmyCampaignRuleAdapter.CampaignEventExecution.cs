@@ -16,8 +16,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     public CampaignEventExecutionInputs CaptureCampaignStoryInputs(GameState state, bool? skipCamera,
         NativeArmyProgressStageMoment? moment = null)
+        => BindCampaignStoryInputs(state, CaptureCurrentCampaignEventQueries(state, moment), skipCamera);
+
+    internal CampaignEventExecutionInputs BindCampaignStoryInputs(GameState state, SourceWorldContext current,
+        bool? skipCamera)
     {
-        var current = CaptureCurrentCampaignEventQueries(state, moment);
         _baseCapacityInputs.BindCurrent(state, current);
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
             SimulationRuleIdentity.ForLocale(Seed.Language));
