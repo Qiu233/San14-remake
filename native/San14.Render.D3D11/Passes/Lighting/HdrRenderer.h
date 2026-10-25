@@ -4,6 +4,7 @@
 #include <optional>
 #include <cstdint>
 #include "HdrLightingState.h"
+#include "CurrentClusterLights.h"
 #include "Interop/HdrProgramBindingInputs.h"
 #include "../../Device/ContextEnvironmentResources.h"
 static void applySourceModelStencil(ID3D11Device* device,NativeModelInputs& models,const fs::path& source) {

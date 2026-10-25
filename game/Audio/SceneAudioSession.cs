@@ -30,6 +30,7 @@ public partial class SceneAudioSession : Node
         public MapMusicEntrySelection? MapMusic;
         public long VoiceSequence;
         public bool StaticNonSpatialEffect;
+        public MusicTransition? Transition;
     }
 
     private readonly Dictionary<string, ChannelState> _channels = new(StringComparer.Ordinal);
@@ -114,7 +115,8 @@ public partial class SceneAudioSession : Node
     private Task<SceneAudioChannel> ChangeSelectionAsync(string channel, AudioCueRequest? request,
         AudioSampleRequest? sampleRequest,
         bool play, float volumeDb, string bus, CancellationToken cancellationToken, AudioVolumeGroup? volumeGroup,
-        MapMusicEntrySelection? mapMusic = null, bool staticNonSpatialEffect = false)
+        MapMusicEntrySelection? mapMusic = null, bool staticNonSpatialEffect = false,
+        MusicTransition? transition = null)
     {
         RequireEngineThread();
         if (_service is null || _repository is null || _streams is null || SceneKey is null || _sceneCancellation is null)
@@ -128,7 +130,7 @@ public partial class SceneAudioSession : Node
         var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sceneCancellation.Token);
         var state = new ChannelState(new SceneAudioChannel(SceneKey, SceneRevision, channel, request, "preparing")
             { SampleRequest = sampleRequest, MusicSelection = mapMusic?.Selection, MusicCommit = mapMusic?.Commit },
-            linked, volumeDb, bus, volumeGroup) { MapMusic = mapMusic, StaticNonSpatialEffect = staticNonSpatialEffect };
+            linked, volumeDb, bus, volumeGroup) { MapMusic = mapMusic, StaticNonSpatialEffect = staticNonSpatialEffect, Transition = transition };
         _channels.Add(channel, state);
         ChannelChanged?.Invoke(state.Snapshot);
         return LoadAndInstallAsync(state, play, linked.Token);
@@ -158,7 +160,12 @@ public partial class SceneAudioSession : Node
                     if (state.MapMusic is not null)
                     {
                         _service.OriginalOutputs.ValidateHost();
-                        _service.PlayMapMusic(clip, state.Snapshot.Channel, state.VolumeDb, _service.OriginalOutputs.MusicBus);
+                        if (state.Transition is { } transition)
+                            _service.TransitionMapMusic(clip, state.Snapshot.Channel, transition.OutgoingChannel,
+                                state.MapMusic.Commit.MusicIndex, transition.UseStoredPosition,
+                                transition.FadeInMilliseconds, transition.FadeOutMilliseconds, _service.OriginalOutputs.MusicBus);
+                        else _service.PlayMapMusic(clip, state.Snapshot.Channel, state.VolumeDb, _service.OriginalOutputs.MusicBus,
+                            musicIndex: state.MapMusic.Commit.MusicIndex);
                     }
                     else _service.Play(clip, state.Snapshot.Channel, state.VolumeDb, state.Bus, state.VolumeGroup);
                     state.VoiceSequence = _service.ReadVoiceSequence(state.Snapshot.Channel);
@@ -172,6 +179,7 @@ public partial class SceneAudioSession : Node
                     LoopBegin = clip.UsesSourceLoop ? clip.LoopBegin : null,
                     LoopEnd = clip.UsesSourceLoop ? clip.LoopEnd : null
                 };
+                if (play && state.Transition is not null) _currentMusicChannel = state.Snapshot.Channel;
                 clip = null; // Ownership moves to this channel only after installation.
                 ChannelChanged?.Invoke(state.Snapshot);
                 return state.Snapshot;
@@ -289,16 +297,53 @@ public partial class SceneAudioSession : Node
         _engineThread = 0;
     }
 
-    internal async Task<SceneAudioChannel> PlayMapMusicCommitAsync(string channel, MapMusicEntrySelection entry,
-        IReadOnlyList<AudioCueBank> banks, CancellationToken token = default)
+    private sealed record MusicTransition(string? OutgoingChannel, bool UseStoredPosition,
+        int FadeInMilliseconds, int FadeOutMilliseconds);
+    private string? _currentMusicChannel;
+    internal SceneAudioChannel? CurrentMapMusicChannel => SceneKey is not null && _currentMusicChannel is { } key
+        ? GetChannel(key) : null;
+
+    internal void StopMapMusic()
     {
         RequireEngineThread();
+        StopChannel("map-music"); StopChannel("map-music:1");
+        _currentMusicChannel = null;
+    }
+
+    internal void ResetAudioSpecialMode()
+    {
+        RequireEngineThread();
+        if (_service is null) throw new InvalidOperationException("Application audio host is not configured.");
+        _service.ResetAudioSpecialMode();
+    }
+
+    internal void ResetMapMusicPositions()
+    {
+        RequireEngineThread();
+        if (_service is null) throw new InvalidOperationException("Application audio host is not configured.");
+        _service.ResetMapMusicPositions();
+    }
+
+    internal async Task<SceneAudioChannel> PlayMapMusicCommitAsync(string channel, MapMusicEntrySelection entry,
+        IReadOnlyList<AudioCueBank> banks, CancellationToken token = default, bool useStoredPosition = false,
+        int fadeInMilliseconds = 1000, int fadeOutMilliseconds = 1000, bool forceRestart = false)
+    {
+        RequireEngineThread();
+        token.ThrowIfCancellationRequested();
+        if (!entry.Commit.ShouldCommit) throw new InvalidDataException("Current music selection has no valid source commit.");
+        if (!forceRestart && _currentMusicChannel is { } playing &&
+            _service!.IsMapMusicPlaying(playing, entry.Commit.MusicIndex) && GetChannel(playing) is { } retained)
+            return retained;
         long revision = SceneRevision;
         var selected = await ResolveMusicCommitAsync(entry.Commit, banks, token);
         if (SceneRevision != revision || token.IsCancellationRequested)
             throw new OperationCanceledException("Map music selection belongs to a retired scene.", token);
-        return await ChangeSelectionAsync(channel, selected.Request with { LoopPolicy = AudioLoopPolicy.RequireSource },
-            null, true, 0, _service!.OriginalOutputs.MusicBus, token, AudioVolumeGroup.Music, entry);
+        string? outgoing = _currentMusicChannel;
+        string target = outgoing == channel ? channel + ":1" : channel;
+        var result = await ChangeSelectionAsync(target, selected.Request with { LoopPolicy = AudioLoopPolicy.RequireSource },
+            null, true, 0, _service!.OriginalOutputs.MusicBus, token, AudioVolumeGroup.Music, entry,
+            transition: new(outgoing, useStoredPosition, fadeInMilliseconds, fadeOutMilliseconds));
+        return result;
     }
 
     private void VoiceStopped(string channel, long sequence, string? reason)

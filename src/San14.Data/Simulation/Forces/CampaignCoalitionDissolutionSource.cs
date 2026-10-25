@@ -69,7 +69,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 checked((sbyte)(rest % 720 / 24 + 1)), checked((sbyte)(rest % 24))) } } };
         //1A3E60 refreshes existing City views; it does not acknowledge a UI.
         var refresh = new CampaignEffectRequest(null, null) { ForceCoalitionVisual =
-            new(ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh, null) };
+            new(ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh, null) };
         if (effects is not null) effects.Add(refresh);
         else
         {

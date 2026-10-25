@@ -71,6 +71,18 @@ public sealed partial class CampaignComposition
         Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
+    public Task<CampaignPeriodAdvanceResult> ConfirmCapturedRulerTreatmentAsync(GameplaySession sourceSession,
+        ConfirmCapturedRulerTreatmentOrder order, CancellationToken cancellationToken = default,
+        CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
+        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+
+    public Task<CampaignPeriodAdvanceResult> ConfirmRulerSuccessionAsync(GameplaySession sourceSession,
+        ConfirmRulerSuccessionOrder order, CancellationToken cancellationToken = default,
+        CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
+        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+
     private Task<CampaignPeriodAdvanceResult> AdvanceNormalPeriodAsync(GameplaySession sourceSession,
         GameOrder? confirmation, CancellationToken cancellationToken,
         CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Action<GameState>? periodStep,
@@ -122,7 +134,9 @@ public sealed partial class CampaignComposition
                         .GetValueOrDefault(diplomatic.TaskId)?.AwaitingNegotiation == true;
                 bool hasResponse = confirmation is not null && session.PendingNormalPeriod is {} waiting &&
                     PersonnelPresentationQueue.Next(waiting.Candidate) is not null;
-                if (!stillNegotiating && !hasResponse && !session.AdvancePeriod())
+                bool awaitingRulerChoice = session.PendingNormalPeriod is { } rulerWaiting &&
+                    (rulerWaiting.PendingRulerSuccession is not null || rulerWaiting.PendingCapturedRulerTreatment is not null);
+                if (!stillNegotiating && !hasResponse && !awaitingRulerChoice && !session.AdvancePeriod())
                     throw new InvalidOperationException("The campaign has ended.");
                 cancellationToken.ThrowIfCancellationRequested();
                 return new CampaignPeriodAdvanceResult(sourceSession, sourceWorld,

@@ -85,6 +85,7 @@ public:
         D3D11_BUFFER_DESC staging{};staging.ByteWidth=4;staging.Usage=D3D11_USAGE_STAGING;staging.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
         check(device->CreateBuffer(&staging,nullptr,&liveReadback),"Direct Effect live-count readback");
     }
+    ID3D11ShaderResourceView* resource(UINT id) const {const auto& b=buffers.at(id);if(!b.view)throw std::runtime_error("Direct Effect required SRV absent");return b.view.Get();}
     ID3D11Buffer* vertex() const {const auto& b=buffers.at(declaration.vertexBufferId);if(!(b.usage&4))throw std::runtime_error("Direct Effect vertex output absent");return b.buffer.Get();}
     ID3D11Buffer* arguments() const {const auto& b=buffers.at(declaration.argumentBufferId);if(!(b.usage&8)||declaration.indirectOffset>b.bytes||20>b.bytes-declaration.indirectOffset)throw std::runtime_error("Direct Effect draw argument range");return b.buffer.Get();}
     int live(ID3D11DeviceContext* context) {

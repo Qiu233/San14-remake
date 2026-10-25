@@ -18,15 +18,16 @@ public sealed partial class NormalArmyCombatCurrentPhase
         {
             var completed = TryCompleteOrdinaryPair(working, index, forceDefinitions);
             if (completed.Outcome is NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved or
-                NormalArmyNonlethalPairOutcome.DestructionRequired) return null;
+                NormalArmyNonlethalPairOutcome.DestructionRequired or
+                NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision) return null;
             working = completed.State;
         }
         return working;
     }
 
-    /// <summary>One reached ordinary pair, including its deferred lethal
-    /// tail. The prefix runs once; a queued zero-troop receiver remains owned
-    /// by this private phase until the real defeat/retirement stages consume it.</summary>
+    /// <summary>One reached ordinary pair, including1745B0 admission. A full
+    /// queue settles this defeat immediately; a player decision returns the
+    /// already applied prefix to its enclosing phase for durable continuation.</summary>
     internal NormalArmyNonlethalPairResult TryCompleteOrdinaryPair(GameState current, int pairIndex,
         INormalArmyForceResultDefinitionQueries forceDefinitions)
     {
@@ -46,9 +47,22 @@ public sealed partial class NormalArmyCombatCurrentPhase
         var pair = plan.OrderedPairs[pairIndex];
         var admission = OwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(draft, definitions,
             pair.Target.NativePoolSlot, pair.Attacker.NativePoolSlot, null);
-        //A full secondary queue returns0 and calls259360 immediately.
-        //Keep that reached branch unresolved instead of pretending it queued.
-        if (!admission.IsPending || admission.State is not { } queued)
+        GameState queued;
+        if (admission.RequiresImmediateSettlement)
+        {
+            if (currentApplication is null || operationCurrent is null || operationEffects is null || operationSampler is null)
+                return Unresolved("current.ordinary_destruction_immediate_operation_owner");
+            var immediate = currentApplication.ApplyNormalCombatImmediateDefeatCurrent(draft, operationCurrent,
+                new(pair.Target.ArmyId, pair.Attacker.ArmyId, null),
+                operationSampler.Read(draft) ?? throw new InvalidDataException("current.ordinary_destruction_immediate_sampler"),
+                plan.Moment.WorldThirdDate, plan.Moment.CalendarCycleOrdinal, operationEffects);
+            if (immediate.ArmyDefeatContinuation is not null)
+                return new(NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision, immediate, prefix, null, null);
+            queued = immediate;
+        }
+        else if (admission.IsPending && admission.State is { } pending)
+            queued = pending;
+        else
             return Unresolved(admission.UnresolvedOwner ?? (admission.RequiresImmediateSettlement
                 ? "current.ordinary_destruction_immediate_259360"
                 : "current.ordinary_destruction_admission"));
@@ -60,6 +74,14 @@ public sealed partial class NormalArmyCombatCurrentPhase
 
         NormalArmyNonlethalPairResult Unresolved(string owner) =>
             new(NormalArmyNonlethalPairOutcome.CurrentInputsUnresolved, current, prefix, null, owner);
+    }
+
+    internal GameState CompletePairAfterImmediateDefeat(GameState state, int pairIndex, ushort word20)
+    {
+        var aftermath = TryApplyPairAftermath(state, pairIndex);
+        if (aftermath.Outcome == NormalArmyPairAftermathOutcome.CurrentInputsUnresolved)
+            throw new InvalidDataException(aftermath.MissingOwner ?? "current.immediate_destruction_aftermath");
+        return AppendOrdinaryReport(aftermath.State, plan.OrderedPairs[pairIndex], word20);
     }
 
     internal TacticSourceSamplerWorld? ReadOrdinaryCycleSampler(GameState current) =>

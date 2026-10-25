@@ -19,7 +19,8 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         Candidate.PersonDeathContinuation?.PendingSuccession;
 
     public bool RequiresAutomaticArmyDefeatContinuation =>
-        Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 25 } &&
+        Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 13 or 25 } &&
+        Candidate.ArmyDefeatContinuation is not null &&
         PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
 
     public SelfRecommendationRequest? PendingSelfRecommendation =>
@@ -77,9 +78,10 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             return;
         }
         if (Candidate.NativePeriodContinuation.Cursor is not { } cursor ||
-            cursor.StageIndex is not (0 or 25) || cursor.CycleIndex is < 0 or > 2 ||
+            cursor.StageIndex is not (0 or 13 or 25) || cursor.CycleIndex is < 0 or > 2 ||
             cursor.StageIndex == 0 && (cursor.Date.Hour != 8 || cursor.PersonnelAfterSlot < 0 || cursor.AwaitingDiplomacyTaskId < 0) ||
             cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null ||
+            cursor.StageIndex == 13 && (Candidate.NormalCombatImmediateContinuation is null || Candidate.ArmyDefeatContinuation is null) ||
             Candidate.NativeMapSeason is not { } season ||
             cursor.Date != (season.ThirdDate with { Hour = (sbyte)(season.ThirdDate.Hour + 2 * cursor.CycleIndex) }) ||
             cursor.Grouping.Roots is not { Length: 1503 })
@@ -92,7 +94,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
 public sealed record NormalPeriodPreparation(PersonnelReportEntry[] PersonnelReports,
     PeriodReportEntry[] Reports, TacticReportEntry[] TacticReports, int[] PossibleArrivalOfficers);
 
-/// <summary>Stage0 personnel and stage25 defeat decisions suspend Army Progress. Completed
+/// <summary>Stage0 personnel and stage13/25 defeat decisions suspend Army Progress. Completed
 /// personnel slots are skipped on resume, while retirements remain deferred
 /// until the actual manager traversal finishes.</summary>
 public sealed record NativePeriodCursor(int CycleIndex, byte StageIndex, NativeMapSeasonDate Date,

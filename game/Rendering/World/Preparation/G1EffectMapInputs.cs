@@ -13,7 +13,9 @@ public sealed record G1EffectMapInputFrame(G1EffectDrawCamera CpuCamera,
     G1EffectGpuCameraConstants GpuCamera,
     Func<G1EffectDrawPacket, G1EffectGpuPacketInputs> PacketInputs,
     IReadOnlyList<G1EffectGpuFrameMissing> Missing,
-    G1EffectDirectComputeView? DirectView = null);
+    G1EffectDirectComputeView? DirectView = null,
+    G1EffectDirectLightingClusterPrepared? LightingCluster = null,
+    uint LightingIndexFormat = 0);
 
 /// <summary>One normal map generation's Effect2 preparation. Original resources
 /// are read only at construction. Each frame borrows its accepted Main, actual
@@ -29,6 +31,10 @@ public sealed class G1EffectMapInputs
     private readonly uint blendMode;
     private readonly RenderTextureDefinition depthTarget;
     private readonly uint tableFeatureWord;
+    private readonly G1EffectDirectLightingCluster lightingCluster;
+    private readonly LoadedShaderContainer lightingConsumer;
+    private readonly SkyWeatherNativePowerSource lightingPower;
+    private readonly uint lightingIndexFormat;
 
     public G1EffectMapInputs(GameResourceRepository repository, D3D11CurrentSeasonResources resources)
     {
@@ -48,6 +54,11 @@ public sealed class G1EffectMapInputs
         var view = repository.LoadObjects("system", DefaultView0Source.ViewResourceId)
             .Document.Objects.Single(value => value.ObjectId == DefaultView0Source.ViewObjectId);
         tableFeatureWord = Word(view, 30, 0xF103F4C8, 5);
+        lightingCluster = new(repository);
+        lightingConsumer = HdrShaderResources.Load(repository)[HdrShaderResources.MainLightingNode].Shader;
+        lightingPower = SkyWeatherNativePowerSource.Create(resources.Source.Locale);
+        uint maximum(uint hash) => BinaryPrimitives.ReadUInt32LittleEndian(view.Properties.Single(value => value.NameHash == hash).RawValue);
+        lightingIndexFormat = maximum(0x91221B9A) > 65535 || maximum(0x2103C71C) > 65535 ? 42u : 57u;
         if (resources.Source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Effect Main preparation requires its actual paired season producer.");
         ambientRate = Scalar(resources.Source.CameraSource.Selection.FirstPackage.Camera, 977, 0x08367252);
@@ -164,7 +175,15 @@ public sealed class G1EffectMapInputs
             new(cameraToWorld.M21, cameraToWorld.M22, cameraToWorld.M23, cameraToWorld.M24),
             new(effectProjection.M11 * .5f, effectProjection.M22 * .5f),
             new Vector4(worldToView.M13, worldToView.M23, worldToView.M33, worldToView.M43));
-        return new(cpuCamera, gpuCamera, PacketInputs, missing.AsReadOnly(), directView);
+        var clusterMain = new D3D11PrimaryForwardMainFields(lens.Near,lens.Far,lens.ReverseDepth,
+            BitConverter.UInt32BitsToSingle(ActualWord(0xE84,166,0xE836FC0A,8)),
+            BitConverter.UInt32BitsToSingle(ActualWord(0xE88,167,0x0AB376BC,8)),width,height,
+            // Fresh global construction; this renderer has no temporary scale setter.
+            1,0,0);
+        var cluster = lightingCluster.PrepareCurrent(new(worldToView,projection,lens.IsOrthographic,
+            checked((uint)width),checked((uint)height),0,0,lightingIndexFormat,ReadOnlyMemory<float>.Empty),
+            lightingConsumer,clusterMain,DeferredClusterFloatLogPath.Sse,lightingPower);
+        return new(cpuCamera, gpuCamera, PacketInputs, missing.AsReadOnly(), directView,cluster,lightingIndexFormat);
 
         G1EffectGpuPacketInputs PacketInputs(G1EffectDrawPacket packet)
         {

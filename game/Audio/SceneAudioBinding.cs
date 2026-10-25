@@ -1,6 +1,7 @@
 using Godot;
 using San14.Data;
 using San14.Client.Gameplay;
+using San14.Core;
 
 internal readonly record struct SceneAudioContext(string? ScenarioKey, int? PlayerForceId, bool IsSourcePreview)
 {
@@ -23,11 +24,13 @@ internal sealed record SceneAudioBindingState(string? SceneKey, long? SceneRevis
 internal sealed partial class SceneAudioBinding : IDisposable
 {
     private readonly SceneAudioSession _session;
+    private readonly SceneAudioSession _musicSession;
+    private bool _retainMusicForTitle;
     private GameplaySession? _playableSession;
     private CancellationTokenSource? _mapEntry;
     internal MapMusicEntrySelection? MapMusicSelection { get; private set; }
     internal string? MapMusicError { get; private set; }
-    internal SceneAudioChannel? MapMusicChannel => _session.SceneKey is null ? null : _session.GetChannel("map-music");
+    internal SceneAudioChannel? MapMusicChannel => _musicSession.CurrentMapMusicChannel;
     internal string MapMusicStatus => MapMusicChannel?.Status ?? (MapMusicError is not null ? "unavailable" :
         _playableSession is not null ? "preparing" : "inactive");
     internal event Action? MusicChanged;
@@ -36,9 +39,15 @@ internal sealed partial class SceneAudioBinding : IDisposable
     {
         _session = new SceneAudioSession { Name = "OriginalSceneAudioSession" };
         host.AddChild(_session);
-        _session.Configure(playback, new GameResourceRepository(sourceDirectory, overridesDirectory),
-            new AudioRepository(sourceDirectory, overridesDirectory));
+        var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
+        var streams = new AudioRepository(sourceDirectory, overridesDirectory);
+        _session.Configure(playback, repository, streams);
         _session.ChannelChanged += PublishChannel;
+        _musicSession = new SceneAudioSession { Name = "OriginalApplicationMusicSession" };
+        host.AddChild(_musicSession);
+        _musicSession.Configure(playback, repository, streams);
+        _musicSession.BeginScene("application-music");
+        _musicSession.ChannelChanged += PublishChannel;
     }
 
     public event Action<SceneAudioBindingState, SceneAudioChannel>? ChannelChanged;
@@ -66,13 +75,15 @@ internal sealed partial class SceneAudioBinding : IDisposable
     private void PublishChannel(SceneAudioChannel channel)
     {
         ChannelChanged?.Invoke(Capture(), channel);
-        if (channel.Channel == "map-music") MusicChanged?.Invoke();
+        if (channel.Channel is "map-music" or "map-music:1") MusicChanged?.Invoke();
     }
 
     internal void EnterPlayableMap(GameplaySession campaign, string locale, MapMusicPreferences preferences)
     {
         if (ReferenceEquals(_playableSession, campaign)) return;
         LeavePlayableMap();
+        _retainMusicForTitle = false;
+        _musicSession.ResetMapMusicPositions();
         _playableSession = campaign;
         var lifetime = new CancellationTokenSource(); _mapEntry = lifetime;
         try
@@ -97,7 +108,7 @@ internal sealed partial class SceneAudioBinding : IDisposable
     {
         try
         {
-            await _session.PlayMapMusicCommitAsync("map-music", entry,
+            await _musicSession.PlayMapMusicCommitAsync("map-music", entry,
                 [new(AudioSelectionResources.InstalledMusicBankId, 0x272C6EFB)], lifetime.Token);
         }
         catch (OperationCanceledException) { }
@@ -115,10 +126,14 @@ internal sealed partial class SceneAudioBinding : IDisposable
         { _session.StopStorySounds(); _session.StopMonthlyTerritorySounds(); _session.StopArmySpeechVoices(); }
         StopPersonnelPresentationAudio();
         StopNarrationVoice();
-        _musicEditActive = false; _musicReturnSelection = null; _musicEditTemporaryScene = false;
+        _musicEditActive = false; _musicReturnSelection = null;
         _mapEntry?.Cancel(); _mapEntry?.Dispose(); _mapEntry = null;
-        _playableSession = null; MapMusicSelection = null; MapMusicError = null;
-        if (GodotObject.IsInstanceValid(_session) && _session.IsInsideTree()) _session.StopChannel("map-music");
+        _playableSession = null;
+        if (!_retainMusicForTitle)
+        {
+            MapMusicSelection = null; MapMusicError = null;
+            if (GodotObject.IsInstanceValid(_musicSession) && _musicSession.IsInsideTree()) _musicSession.StopMapMusic();
+        }
         // Resolution can still be running before a channel exists. Leaving must
         // publish its cleared selection even when StopChannel has nothing to stop.
         MusicChanged?.Invoke();
@@ -126,9 +141,42 @@ internal sealed partial class SceneAudioBinding : IDisposable
 
     public void Dispose()
     {
+        _retainMusicForTitle = false;
         LeavePlayableMap();
         _session.ChannelChanged -= PublishChannel;
+        _musicSession.ChannelChanged -= PublishChannel;
+        if (GodotObject.IsInstanceValid(_musicSession) && _musicSession.IsInsideTree()) _musicSession.LeaveScene();
         ChannelChanged = null;
         MusicChanged = null;
     }
+
+    internal void RetainMusicForTitle() => _retainMusicForTitle = true;
+
+    internal async Task PlayMapMusicIntentAsync(MapMusicIntent intent, string locale,
+        MapMusicPreferences preferences, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        var entry = preferences.SelectSourceSlot(locale, intent.SourceSlot);
+        _mapEntry?.Cancel(); _mapEntry?.Dispose();
+        var lifetime = new CancellationTokenSource(); _mapEntry = lifetime;
+        MapMusicSelection = entry; MapMusicError = null; MusicChanged?.Invoke();
+        try
+        {
+            // Cancellation of the presenting operation withholds its receipt;
+            // the accepted music belongs to the application until replaced.
+            await _musicSession.PlayMapMusicCommitAsync("map-music", entry,
+                [new(AudioSelectionResources.InstalledMusicBankId, 0x272C6EFB)], lifetime.Token,
+                intent.UseStoredPlaybackPosition, intent.FadeInMilliseconds,
+                intent.FadeOutMilliseconds).WaitAsync(cancellation);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception error)
+        {
+            if (ReferenceEquals(_mapEntry, lifetime))
+            { MapMusicError = error.Message; MusicChanged?.Invoke(); }
+            throw;
+        }
+    }
+
+    internal void ResetAudioSpecialMode() => _musicSession.ResetAudioSpecialMode();
 }

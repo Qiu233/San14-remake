@@ -78,6 +78,8 @@ SAN14_RENDER_API int __cdecl san14_effect_direct_submit_v1(void* owner,uint64_t 
 SAN14_RENDER_API int __cdecl san14_effect_direct_live_v1(void* owner,uint64_t allocation,int32_t* live);
 SAN14_RENDER_API int __cdecl san14_effect_direct_release_v1(void* owner,uint64_t allocation);
 SAN14_RENDER_API int __cdecl san14_effect_direct_draw_v1(void* owner,uint64_t allocation,const San14CurrentEffectInputV1* material,int64_t submissionOrdinal);
+SAN14_RENDER_API int __cdecl san14_effect_direct_lighting_v1(void* owner,uint64_t allocation,const uint8_t* bytes,uint32_t byteCount,int64_t submissionOrdinal);
+SAN14_RENDER_API int __cdecl san14_effect_lighting_cluster_v1(void* owner,const uint8_t* bytes,uint32_t byteCount);
 SAN14_RENDER_API int __cdecl san14_render_animation_event(void* owner,
     const San14RenderInput* input,uint32_t fpsMode);
 SAN14_RENDER_API void __cdecl san14_render_animation_state(void* owner,San14AnimationState* result);

@@ -28,7 +28,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var clock = state.NativeClock ?? throw PeriodMissing("waiting_owner");
         var resume = state.NativePeriodContinuation?.Cursor;
         long expectedWaiting = season.ProcessedNativeOrdinal;
-        if (resume?.StageIndex == (byte)NativeArmyProgressStage.Defeat)
+        if (resume?.StageIndex is (byte)NativeArmyProgressStage.Defeat or (byte)NativeArmyProgressStage.Combat)
         {
             var reachedDate = season.ThirdDate;
             for (int cycle = 0; cycle <= resume.CycleIndex; cycle++)
@@ -133,6 +133,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                             working = CompleteCurrentArmyCombatCut(working,
                                 CaptureWritableTransportRouteCurrent(working), date, ordinal,
                                 out int armyPairCount, out sampler);
+                            if (working.NormalCombatImmediateContinuation is not null)
+                            {
+                                var suspendedCombat = working.NativePeriodContinuation
+                                    ?? throw PeriodMissing("stage13_preparation");
+                                var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock);
+                                return new(working with { NativePeriodContinuation = suspendedCombat with { Cursor = cursor } }, stages);
+                            }
+                            resume = null;
+                            working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedCombat
+                                ? completedCombat with { Cursor = null } : null };
                             //This saved field describes only the real Army
                             //selection count. Application itself ran above,
                             //including every reached mixed participant pair.

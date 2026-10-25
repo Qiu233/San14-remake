@@ -5,6 +5,23 @@ cbuffer MotionConstants : register(b0)
 {
     uint capacity; float seconds; uint genericAddress; uint motionPadding;
 };
+// A vector component cannot be an indirectly addressed destination in DXBC.
+// Explicit destinations let FXC retain the dynamic noise and auxiliary loops
+// instead of trying to unroll their complete call tree.
+void SetNoiseFloatComponent(inout float4 value, uint component, float scalar)
+{
+    if (component == 0) value.x = scalar;
+    else if (component == 1) value.y = scalar;
+    else if (component == 2) value.z = scalar;
+    else value.w = scalar;
+}
+void SetNoiseIntComponent(inout int4 value, uint component, int scalar)
+{
+    if (component == 0) value.x = scalar;
+    else if (component == 1) value.y = scalar;
+    else if (component == 2) value.z = scalar;
+    else value.w = scalar;
+}
 float3 Lattice(float4 coordinates, uint dimensions)
 {
     float4 scaled = coordinates * 16, floors = floor(scaled), weight = 1 - (scaled - floors);
@@ -19,9 +36,9 @@ float3 Lattice(float4 coordinates, uint dimensions)
         value += gain * VectorNoise[NoisePermutation[hash & 255]].xyz;
         [loop] for (uint bit = 0; bit < dimensions; ++bit)
         {
-            weight[bit] = 1 - weight[bit];
-            if (((corner >> bit) & 1) == 0) { current[bit] = initial[bit] + 1; break; }
-            current[bit] = initial[bit];
+            SetNoiseFloatComponent(weight, bit, 1 - weight[bit]);
+            if (((corner >> bit) & 1) == 0) { SetNoiseIntComponent(current, bit, initial[bit] + 1); break; }
+            SetNoiseIntComponent(current, bit, initial[bit]);
         }
     }
     return value;
@@ -40,7 +57,11 @@ float3 SampleLeaf(uint node, float3 position)
     uint mask = Word(node + 0x6C), dimensions = 0;
     float4 coordinates = 0;
     [unroll] for (uint axis = 0; axis < 4; ++axis)
-        if ((mask & (1u << axis)) != 0) coordinates[dimensions++] = source[axis] * scales[axis];
+        if ((mask & (1u << axis)) != 0)
+        {
+            SetNoiseFloatComponent(coordinates, dimensions, source[axis] * scales[axis]);
+            ++dimensions;
+        }
     float amplitude = Number(node + 0x60), frequency = 1;
     float3 result = 0;
     [loop] for (uint octave = 0; octave < Word(node + 0x68); ++octave)

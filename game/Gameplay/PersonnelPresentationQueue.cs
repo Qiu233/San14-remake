@@ -28,7 +28,9 @@ internal static class PersonnelPresentationQueue
                 //The host must handle the head before showing a later line.
                 if(request.MapObjectPresentation is { BaseCapture: not null,
                     Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound } ||
-                    request.PersonDeathReport is not null || traitSource && request.ArmyTraitViewRefresh is not null ||
+                    request.PersonDeathReport is not null || request.MapMusicIntent is not null ||
+                    request.ApplicationExit is not null || request.ForceCoalitionVisual is not null ||
+                    traitSource && request.ArmyTraitViewRefresh is not null ||
                     request.MonthlyMaintenance is not null||request.NormalTurnFoodWarningPresentation is not null||
                     request.NormalTurnForceResourceNotice is not null||request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
                     request.OfficerGrowthFeedback?.Operation is OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration||

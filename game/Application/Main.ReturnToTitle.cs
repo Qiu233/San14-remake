@@ -9,6 +9,7 @@ public partial class Main
 
     private void AttachCampaignApplication(bool playable)
     {
+        _terminalReturn = null;
         _campaignApplication?.Detach(playable ? _campaignComposition?.ApplicationGameplay : null);
         _campaignApplication = playable ? new CampaignApplicationState(_campaignComposition!.ApplicationGameplay) : null;
     }
@@ -18,6 +19,14 @@ public partial class Main
         if (_failed || _shuttingDown || IsReturningToTitle ||
             _session is not { PlayerForceId: not null } session || _campaignApplication is not { } application) return;
         application.RequestReturnToTitle();
+        BeginRequestedReturnToTitle(session, application);
+    }
+
+    private void BeginRequestedReturnToTitle(GameplaySession session, CampaignApplicationState application)
+    {
+        if (!ReferenceEquals(_session, session) || !ReferenceEquals(_campaignApplication, application) ||
+            application.ReturnToTitlePending != true || _returnToTitleTask is { IsCompleted: false }) return;
+        _terminalReturn = null;
         _returnToTitleTask = ReturnToTitleAsync(session, application);
     }
 

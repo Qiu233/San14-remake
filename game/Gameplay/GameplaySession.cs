@@ -49,6 +49,22 @@ public sealed class GameplaySession
         _simulation.TryCompleteNormalTurnStoryStep(expectedOwner, new(sequence, step));
     public bool TryCompletePersonnelPresentation(GameState expectedOwner,long batchSequence,int requestIndex) =>
         _simulation.TryCompletePersonnelPresentation(expectedOwner,batchSequence,requestIndex);
+    public bool TryCompleteMapMusicIntent(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex) =>
+        _simulation.TryCompleteMapMusicIntent(expectedOwner, expectedSource, batchSequence, requestIndex);
+    public bool TryCompletePendingMapMusicIntent(GameState expectedOwner, MapMusicIntent expectedIntent) =>
+        _simulation.TryCompletePendingMapMusicIntent(expectedOwner, expectedIntent);
+    public bool TryCompleteApplicationExit(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex, ApplicationExitOperation operation) =>
+        _simulation.TryCompleteApplicationExit(expectedOwner, expectedSource, batchSequence, requestIndex, operation);
+    public bool TryCompleteForceCoalitionVisual(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex, ForceCoalitionVisualOperation operation,
+        CampaignCameraSnapshot? capturedCamera = null) =>
+        _simulation.TryCompleteForceCoalitionVisual(expectedOwner, expectedSource, batchSequence, requestIndex,
+            operation, capturedCamera);
+    public bool TryCompleteEmperorScene(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex, MonthlyMaintenanceOperation operation) =>
+        _simulation.TryCompleteEmperorScene(expectedOwner, expectedSource, batchSequence, requestIndex, operation);
     public bool TryStartArmyMapSpeech(GameState expectedOwner, ArmyMapSpeechState snapshot, long sequence,
         bool armyLayoutAvailable, IArmyMapSpeechRules rules, out ArmyMapSpeechStartResult? result,
         CampaignAppRandomState? appRandomSnapshot = null) =>

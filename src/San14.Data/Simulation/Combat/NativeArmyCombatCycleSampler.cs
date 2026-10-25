@@ -40,6 +40,16 @@ public sealed class NativeArmyCombatCycleSampler
         return new(clock, season, new(unchecked(epoch.Day450 + (int)advancedDays), epoch.Salt45C));
     }
 
+    internal static NativeArmyCombatCycleSampler RestoreCombatCut(GameState state,
+        NormalArmyCombatPhaseMoment moment, int day, int salt)
+    {
+        //Validate the same reached calendar boundary, retaining the sampler
+        //captured before the suspended pair instead of sampling again.
+        if (Create(new(moment, state, NativeArmyProgressAtomicRuntime.Revision)) is null)
+            throw new InvalidDataException("ordinary_army_combat_cut.resume_sampler_boundary");
+        return new(state.NativeClock!, state.NativeMapSeason!, new(day, salt));
+    }
+
     /// <summary>The actual scheduler stage6 sampler. Stage2 may already have
     /// advanced waiting in this cycle while the saved calendar still names the
     /// block's initial boundary. Neither clock is rewritten to hide that offset.</summary>

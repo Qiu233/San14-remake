@@ -548,12 +548,17 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         current.ArmyReturnTransferMode = new(false, null);
         var queries = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,
             Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
-        var projection = new NormalCombatMixedProducer(state, current, Context(current), queries).Generate();
+        var retainedCombat = state.NormalCombatImmediateContinuation;
+        var projection = retainedCombat is null
+            ? new NormalCombatMixedProducer(state, current, Context(current), queries).Generate()
+            : RestoreImmediateCombatProjection(retainedCombat);
         var season = state.NativeMapSeason ?? throw new InvalidDataException("ordinary_army_combat_cut.calendar");
         var moment = new NormalArmyCombatPhaseMoment(revision, date, 13, season.SourceScenarioUri,
             season.SourceScenarioSha256, season.SourceWorldSha256, NormalArmyCombatCalendarRuntime.Revision);
-        var sampler = NativeArmyCombatCycleSampler.Create(new(moment, state, NativeArmyProgressAtomicRuntime.Revision))
-            ?? throw new InvalidDataException("ordinary_army_combat_cut.actual_cycle_sampler");
+        var sampler = retainedCombat is not null
+            ? NativeArmyCombatCycleSampler.RestoreCombatCut(state, moment, retainedCombat.SampleDay, retainedCombat.SampleSalt)
+            : NativeArmyCombatCycleSampler.Create(new(moment, state, NativeArmyProgressAtomicRuntime.Revision))
+                ?? throw new InvalidDataException("ordinary_army_combat_cut.actual_cycle_sampler");
         cycleSampler = sampler;
         armyPairCount = projection.OrderedPairs.Count(pair => pair.Actor.Kind == 27 && pair.Target.Kind == 27);
         if (projection.OrderedPairs.Length == 0) return state;
@@ -561,12 +566,13 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             participant.UnitId ?? throw new InvalidDataException("ordinary_army_combat_cut.Army_identity"),
             checked((ushort)participant.PhysicalSlot), participant.Morale, participant.Troops,
             participant.HexId, participant.ForceSlot, participant.AcceptedCount);
-        var descriptors = new Dictionary<int, NormalArmyCombatDescriptor>();
+        var descriptors = retainedCombat is null ? new Dictionary<int, NormalArmyCombatDescriptor>()
+            : RestoreImmediateCombatDescriptors(retainedCombat);
         foreach (var row in projection.Actors)
             if (row.Actor.Kind == 27)
             {
                 var descriptor = Descriptor(row.Actor);
-                descriptors[descriptor.ArmyId] = descriptor;
+                if (retainedCombat is null) descriptors[descriptor.ArmyId] = descriptor;
             }
         var pairs = projection.OrderedPairs.Where(pair => pair.Actor.Kind == 27 && pair.Target.Kind == 27)
             .Select((pair, index) => new NormalArmyCombatPair(index,
@@ -579,7 +585,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             }
         var plan = new NormalArmyCombatPlan(moment, pairs, state.RandomState, "ordinary-current-mixed-Army-pairs:" + Revision);
         var effects = new List<CampaignEffectRequest>();
-        var phase = pairs.Length == 0 ? null : CaptureNormalArmyCombatPhase(state, moment, sampler, current, plan, descriptors, effects)
+        var retainedIdentities = retainedCombat?.ArmyDescriptors.ToDictionary(item => item.Key,
+            item => (Officer: item.Value.OfficerId, Slot: (int)item.Value.NativePoolSlot));
+        var phase = pairs.Length == 0 ? null : CaptureNormalArmyCombatPhase(state, moment, sampler, current, plan, descriptors, effects, retainedIdentities)
             ?? throw new InvalidDataException("ordinary_army_combat_cut.current_phase_inputs");
         var sourceQueries = new TacticRemakeCurrentBattleQueries(Context(current, sampler), current, Revision,
             currentPhaseDescriptors: descriptors);
@@ -587,10 +595,23 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         foreach (var row in projection.Actors)
             if (row.Actor.Kind is 5 or 6)
                 baseCounts[(row.Actor.Kind, row.Actor.PhysicalSlot)] = row.Actor.AcceptedCount;
-        int armyPairIndex = 0;
+        int nextPairIndex = retainedCombat?.PairIndex ?? 0;
+        int armyPairIndex = projection.OrderedPairs.Take(nextPairIndex)
+            .Count(pair => pair.Actor.Kind == 27 && pair.Target.Kind == 27);
         var working = state;
-        foreach (var pair in projection.OrderedPairs)
+        if (retainedCombat is not null)
         {
+            var interrupted = projection.OrderedPairs[nextPairIndex];
+            if (interrupted.Actor.Kind != 27 || interrupted.Target.Kind != 27 || phase is null)
+                throw ImmediateCombatMissing("resume_Army_pair");
+            working = ResumeNormalCombatImmediateDefeatCurrent(working, current, date, revision);
+            working = phase.CompletePairAfterImmediateDefeat(working, armyPairIndex++, retainedCombat.ReportWord20);
+            working = working with { NormalCombatImmediateContinuation = null };
+            nextPairIndex++;
+        }
+        for (int mixedPairIndex = nextPairIndex; mixedPairIndex < projection.OrderedPairs.Length; mixedPairIndex++)
+        {
+            var pair = projection.OrderedPairs[mixedPairIndex];
             if (pair.Actor.Kind == 27 && pair.Target.Kind == 27)
             {
                 var completed = phase!.TryCompleteOrdinaryPair(working, armyPairIndex++,
@@ -637,6 +658,17 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     throw failure;
                 }
                 working = completed.State;
+                if (completed.Outcome == NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision)
+                {
+                    ushort word20 = completed.Prefix?.Application?.Receipt?.Request.FrameWord20After
+                        ?? throw ImmediateCombatMissing("suspended_pair_report");
+                    var retained = retainedCombat is null
+                        ? CaptureImmediateCombatContinuation(state, projection, descriptors, mixedPairIndex, word20,
+                            sampler.Read(working) ?? throw ImmediateCombatMissing("suspended_sampler"))
+                        : ContinueImmediateCombatSnapshot(retainedCombat, mixedPairIndex, word20);
+                    working = FlushNormalCombatEffects(working, revision, effects);
+                    return working with { NormalCombatImmediateContinuation = retained };
+                }
             }
             else if (pair.Actor.Kind is 5 or 6 && pair.Target.Kind == 27)
             {
@@ -700,7 +732,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         NormalArmyCombatPhaseMoment moment, NativeArmyCombatCycleSampler? sampler,
         SourceWorldContext? borrowedCurrent = null, NormalArmyCombatPlan? currentPlan = null,
         IReadOnlyDictionary<int, NormalArmyCombatDescriptor>? currentDescriptors = null,
-        List<CampaignEffectRequest>? currentEffects = null)
+        List<CampaignEffectRequest>? currentEffects = null,
+        IReadOnlyDictionary<int, (int Officer, int Slot)>? retainedIdentities = null)
     {
         GameState latest = state;
         Func<ForceReference, int, int?> readEffect = (force, effect) =>
@@ -739,7 +772,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     new BattleRemakeCurrentArmyDamageQueries(attributes, queries, Revision), Revision);
             }, (context, definitions) => new(_regionSeed, context, definitions, Revision),
             Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language), Revision, sampler is null ? null : this,
-            sampler is null ? null : this, borrowedCurrent, currentPlan, currentDescriptors, sampler, currentEffects);
+            sampler is null ? null : this, borrowedCurrent, currentPlan, currentDescriptors, sampler, currentEffects, retainedIdentities);
     }
 
     public PlayableArmyCreationResolution? Create(GameState state, PreparedDeployment deployment, UnitState army) =>

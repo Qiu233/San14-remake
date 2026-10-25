@@ -1,6 +1,7 @@
 #pragma once
 // Include after the HDR GPU and camera/refraction numeric helpers.
 #include "HdrCurrentSelection.h"
+#include "CurrentClusterLights.h"
 #include "HdrHeightFogState.h"
 #include "Interop/HdrProgramBankInput.h"
 #include "Interop/HdrProgramBindingInputs.h"
@@ -11,6 +12,7 @@
 
 namespace San14::Render {
 struct HdrSamplerRecipe { unsigned slot{}; std::array<D3D11_SAMPLER_DESC,2> descriptions{}; bool paired{}; };
+struct HdrClusterWrite { unsigned kind{},offset{},sourceOffset{},bytes{}; };
 struct HdrProgramRecipe {
     std::string unsupported;
     std::vector<NativeSourceHdrConstant> constants;
@@ -18,6 +20,7 @@ struct HdrProgramRecipe {
     std::vector<NativeDeferredCameraWrite> camera;
     std::vector<NativeWaterRefractionWrite> refraction;
     std::vector<HdrHeightFogWrite> heightFog;
+    std::vector<HdrClusterWrite> cluster;
     std::vector<HdrTextureRecipe> textures;
     std::vector<HdrSamplerRecipe> samplers;
     std::vector<char> material;
@@ -95,7 +98,7 @@ public:
         const MapViewDefinition& definition, const MapViewCameraSettings& cameraSettings,
         const NativeDeferredCameraFields& camera, const source_current_season::Frame& current,
         unsigned phaseFlags, float commonClock, const source_water_camera::RefractionDerived* refraction,
-        const NativeSourceHdrSpecularImages& specular) {
+        const NativeSourceHdrSpecularImages& specular, const NativeSourceClusterLights* cluster=nullptr) {
         if (!current.hdrSelection) throw std::runtime_error("HDR current selection settings are absent");
         const auto& imported = imported_.value();
         const auto color = prepareHdrColorMode(imported.constructorFlags, imported.bank.ocean(), phaseFlags);
@@ -138,6 +141,33 @@ public:
                 pass.fixedPixelViews[texture.slot]=specular.views[side];
             }
             auto& constant = pass.constants.at(pass.lightingConstantIndex);
+            for(const auto& texture:recipe.textures) {
+                const int lane=clusterLane(texture.role);
+                if(lane<0)continue;
+                if(!cluster||!cluster->computeSucceeded)
+                    throw std::runtime_error("Selected HDR ClusterLightList has no successful current compute owner");
+                auto resource=cluster->resources[std::size_t(lane)];
+                // A producer which is truly absent may bind null for its own
+                // unused spot/point lanes; the shared index owner is required.
+                const bool required=lane==0||(lane<=3?cluster->pointCount!=0:cluster->spotCount!=0);
+                if(required&&!resource)throw std::runtime_error("Selected HDR cluster typed resource is absent: "+texture.role);
+                pass.fixedPixelViews[texture.slot]=resource;
+            }
+            if(!recipe.cluster.empty()) {
+                if(!cluster||!cluster->computeSucceeded)
+                    throw std::runtime_error("Selected HDR cluster constants have no current compute owner");
+                for(const auto& write:recipe.cluster) {
+                    const void* value{};
+                    switch(write.kind) {
+                        case 0:value=cluster->depthParameters.data();break;
+                        case 1:value=cluster->patchCounts.data();break;
+                        case 2:if(cluster->scaling)value=&*cluster->scaling;break;
+                        case 3:if(cluster->fadeDistance)value=cluster->fadeDistance->data();break;
+                    }
+                    if(!value)throw std::runtime_error("Selected HDR cluster field has no current writer");
+                    std::memcpy(constant.bytes.data()+write.offset,static_cast<const char*>(value)+write.sourceOffset,write.bytes);
+                }
+            }
             writeHdrLighting(recipe.lighting, route.lighting, constant.bytes);
             if (!recipe.heightFog.empty()) {
                 const auto effectMode=current.hdrSelection->commonEffectMode;
@@ -165,6 +195,12 @@ public:
     ID3D11RenderTargetView* targetView() const { return target_.Get(); }
     const std::vector<HdrInstalledRoute>& routes() const { return routes_; }
 private:
+    static int clusterLane(const std::string& role) {
+        constexpr std::array<std::string_view,6> roles{"ClusterIndices","ClusterPositions","ClusterAttributes",
+            "ClusterExAttributes","ClusterSpotAttributes","ClusterSpotExAttributes"};
+        const auto found=std::find(roles.begin(),roles.end(),role);
+        return found==roles.end()?-1:int(std::distance(roles.begin(),found));
+    }
     static bool sourceNullTexture(const std::string& role, const std::string& key) {
         return key == "00000000" && (role == "Hatching" || role == "Ramp" || role == "IES");
     }
@@ -205,6 +241,10 @@ private:
         fields("camera-writes.txt", result.camera, std::array<unsigned, 6>{16, 64, 48, 64, 64, 64});
         fields("refraction-writes.txt", result.refraction, std::array<unsigned, 5>{12, 12, 12, 8, 48});
         fields("height-fog-writes.txt", result.heightFog, std::array<unsigned, 4>{12,48,48,240});
+        // Older prepared banks predate the live cluster writer. They cannot
+        // contain a ready Cluster role, and do not require an empty new file.
+        if(fs::exists(directory/"cluster-writes.txt"))
+            fields("cluster-writes.txt",result.cluster,std::array<unsigned,4>{16,8,4,8});
         result.textures=Interop::readHdrTextureRecipes(directory / "textures.txt");
         for (const auto& file:Interop::readHdrSamplerFiles(directory / "samplers.txt")) {
             HdrSamplerRecipe sampler;sampler.slot=file.slot;sampler.paired=file.paired;
@@ -272,6 +312,7 @@ private:
             else if (role == "RefractionDepth") { producer = NativeSourceHdrProducer::Refraction; dynamic = true; }
             else if (role == "TransmittedSpecular") { producer = NativeSourceHdrProducer::Transmitted; dynamic = true; }
             else if (role == "TranslucentSpecular") continue; // Installed from its current physical owner in update.
+            else if (clusterLane(role)>=0) continue; // Installed from successful current node71 in update.
             else if (role == "BlurredDepth") { producer = NativeSourceHdrProducer::BlurredDepth; dynamic = true; }
             else if (!sourceNullTexture(role, texture.keys[0]))
                 throw std::runtime_error("Selected HDR texture role has no actual owner: " + role);

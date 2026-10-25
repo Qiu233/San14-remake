@@ -238,7 +238,7 @@ public sealed record MonthlyMaintenanceRequest(MonthlyMaintenanceOperation Opera
     public int? ArmyId { get; init; }
 }
 
-public enum ForceCoalitionVisualOperation { CameraFocus, CameraRestore, NarrationEnter, NarrationExit, CityRelationIndicatorsRefresh }
+public enum ForceCoalitionVisualOperation { CameraFocus, CameraRestore, NarrationEnter, NarrationExit, CityProvinceAdvantageIndicatorsRefresh = 4 }
 /// <summary>The source coalition scene's unconsumed camera/narration scope.
 /// Camera focus uses the actual source Hex, transition1000 and zoom band4.
 /// Camera state is captured by the presentation host only when it really plays.</summary>
@@ -489,12 +489,15 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 ValidatePersonDeath(batch.Source, request);
                 if (request.ForceCoalitionVisual is { } coalitionVisual &&
                     (batch.Source is not (CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands or CampaignEffectSource.ArmyBattleDefeat) || !Enum.IsDefined(coalitionVisual.Operation) ||
-                     batch.Source == CampaignEffectSource.ArmyBattleDefeat && coalitionVisual.Operation != ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh ||
+                     batch.Source == CampaignEffectSource.ArmyBattleDefeat &&
+                     !(coalitionVisual.Operation == ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh ||
+                       coalitionVisual.Operation == ForceCoalitionVisualOperation.NarrationEnter && coalitionVisual.SceneKind == 24 ||
+                       coalitionVisual.Operation == ForceCoalitionVisualOperation.NarrationExit) ||
                      (coalitionVisual.Operation == ForceCoalitionVisualOperation.CameraFocus
                         ? coalitionVisual.TargetHexId is null or < 0 or > 48400 : coalitionVisual.TargetHexId is not null) ||
                      (coalitionVisual.Operation == ForceCoalitionVisualOperation.NarrationEnter
-                        ? coalitionVisual.SceneKind is not (null or 24 or 40 or 53) : coalitionVisual.SceneKind is not null) ||
-                     coalitionVisual.Operation == ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh &&
+                        ? coalitionVisual.SceneKind is not (null or 24 or 40 or 52 or 53 or 54) : coalitionVisual.SceneKind is not null) ||
+                     coalitionVisual.Operation == ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh &&
                      batch.Source is not (CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.ArmyBattleDefeat)))
                     throw new InvalidDataException("Invalid force coalition visual intent.");
                 if (request.ForceIndependenceScene is { } independenceScene &&

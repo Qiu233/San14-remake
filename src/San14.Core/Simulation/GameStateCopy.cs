@@ -41,6 +41,9 @@ public static class GameStateCopy
         PersonnelHire = value.PersonnelHire,
         // Decision continuations contain immutable operands and immutable candidate lists.
         ArmyDefeatContinuation = value.ArmyDefeatContinuation,
+        //All descriptors and both ordered collections are immutable snapshots.
+        NormalCombatImmediateContinuation = value.NormalCombatImmediateContinuation,
+        CoalitionCameraPresentation = value.CoalitionCameraPresentation,
         PersonDeathContinuation = value.PersonDeathContinuation,
         CampaignCrtRandom = value.CampaignCrtRandom,
         ArmyMapSpeech = value.ArmyMapSpeech,

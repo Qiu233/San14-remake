@@ -52,6 +52,7 @@ internal sealed class G1EffectModuleRuntime : IDisposable
     internal IReadOnlyList<G1EffectGenericRuntime> Generics => generics;
     private static IEnumerable<G1EffectGenericRuntime> Tree(G1EffectGenericRuntime node)
     { yield return node; foreach (var child in node.Children) foreach (var next in Tree(child)) yield return next; }
+    internal bool Enabled => lifetime.Enabled;
     internal bool IsAlive => lifetime.Enabled && (failed.Count != 0 ||
         Generics.Any(generic => generic.Declaration.UsesDirectBirth && !generic.HasDirectStorage) ||
         G1EffectModuleLifetime.IsAlive(roots.Any(root => root.IsAlive), emitters.Any(emitter => emitter.CanEmit),

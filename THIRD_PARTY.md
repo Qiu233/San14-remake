@@ -18,6 +18,8 @@
 
 开发源码使用 `runtime/windows-x64`，导出程序使用相邻 `native/windows-x64`。也可通过 `SAN14_AUDIO_DECODER_MANIFEST`指定外置音频 runtime清单。正式导出不要求私有 `tools/audio`、原版转换缓存或离线资源工具。
 
+六声道KTAC由项目源码编译的 `San14.Audio.Decoder.exe` 一次解码，使用同一音频运行依赖中的FFmpeg库，并在输出WAV中保留实际声道布局。其构建所需公共头文件、来源记录和许可位于 `native/third_party/ffmpeg`；导出会将相关通知和LGPL全文放入 `native/windows-x64/audio/licenses/San14.Audio.Decoder`。原整曲布局验证工具已退出正式运行时，播放不再执行第二次验证解码。
+
 ## 格式研究参考
 
 本项目独立实现了 RDB 索引、G1T 纹理等读取代码，参考了 [Cethleann](https://github.com/neptuwunium/Cethleann) 对相关格式的公开研究及其《三国志14》文件名表。Cethleann 版权所有 © 2019 HealingBrew，采用 MIT License：

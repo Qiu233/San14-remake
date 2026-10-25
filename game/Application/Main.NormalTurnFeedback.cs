@@ -63,6 +63,21 @@ public partial class Main
             ShowMonthlyScene(session, map, illustration);
             return;
         }
+        if (active.Family == MonthlySceneFamily.Coalition)
+        {
+            var coalitionRequest = new ForceCoalitionVisualRequest(ForceCoalitionVisualOperation.NarrationEnter, null)
+                { SceneKind = active.EventKind };
+            var publication = _campaignComposition!.PrepareArmyQueries(owner).QueryForceCoalitionIllustration(owner, coalitionRequest);
+            ShowMonthlyScene(session, map, publication.Value ?? throw new InvalidDataException(publication.UnresolvedInput));
+            return;
+        }
+        if (active.Family == MonthlySceneFamily.Emperor)
+        {
+            var emperorRequest = new MonthlyMaintenanceRequest(MonthlyMaintenanceOperation.EmperorSceneEnter, active.EventKind, null, null);
+            var publication = _campaignComposition!.PrepareArmyQueries(owner).QueryEmperorScene(owner, emperorRequest);
+            ShowMonthlyScene(session, map, publication.Value?.Illustration ?? throw new InvalidDataException(publication.UnresolvedInput));
+            return;
+        }
         var request = new MonthlyMaintenanceRequest(MonthlyMaintenanceOperation.FinalOrderSceneEnter,
             active.EventKind, null, null);
         var query = _campaignComposition!.PrepareArmyQueries(owner).QueryNormalTurnFinalOrderScene(owner, request);

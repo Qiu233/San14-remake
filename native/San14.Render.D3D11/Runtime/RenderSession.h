@@ -87,6 +87,8 @@ struct RenderHost {
     std::function<int(std::uint64_t)> directEffectLive;
     std::function<void(std::uint64_t)> releaseDirectEffect;
     std::function<void(std::uint64_t,const San14CurrentEffectInputV1&,std::int64_t)> setDirectEffectDraw;
+    std::function<void(std::uint64_t,const std::uint8_t*,std::uint32_t,std::int64_t)> setDirectEffectLighting;
+    std::function<void(const std::uint8_t*,std::uint32_t)> configureEffectLighting;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
 };
@@ -102,7 +104,7 @@ public:
         host.replaceRoutes={};
         host.replaceCurrentEffects={};
         host.createDirectEffect={};host.submitDirectEffect={};host.directEffectLive={};host.releaseDirectEffect={};
-        host.setDirectEffectDraw={};
+        host.setDirectEffectDraw={};host.setDirectEffectLighting={};host.configureEffectLighting={};
     }
     RenderCallbackScope(const RenderCallbackScope&)=delete;
     RenderCallbackScope& operator=(const RenderCallbackScope&)=delete;

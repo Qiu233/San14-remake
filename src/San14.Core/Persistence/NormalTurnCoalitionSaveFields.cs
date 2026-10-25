@@ -19,7 +19,7 @@ internal static class NormalTurnCoalitionSaveFields
             if (request["MonthlyDisasterConsequence"] is not null ||
                 Integer(request["MonthlyMaintenance"]?["Operation"], (int)MonthlyMaintenanceOperation.EmperorSceneEnter, int.MaxValue) ||
                 Integer(request["ForceCoalitionVisual"]?["SceneKind"], 53, 53) ||
-                Integer(request["ForceCoalitionVisual"]?["Operation"], (int)ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh, int.MaxValue) ||
+                Integer(request["ForceCoalitionVisual"]?["Operation"], (int)ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh, int.MaxValue) ||
                 source == (int)CampaignEffectSource.MonthlyMaintenance &&
                 (Integer(request["TalentCommandPresentation"]?["SoundId"], 16, 16) ||
                  Integer(request["TalentCommandPresentation"]?["SoundId"], 22, 23)))

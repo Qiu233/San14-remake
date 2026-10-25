@@ -36,6 +36,23 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
     public Matrix4x4 WorldTransform { get; private set; }
     public IReadOnlyList<G1EffectRuntimeMissing> Missing => missing.AsReadOnly();
     public bool IsInitialized => initialized;
+    /// <summary>Independent system light exposure, initialized by the source
+    /// system constructor and updated by its exposure setter.</summary>
+    public float AutoHdrScaleExposure { get; private set; } = 1;
+    public void SetAutoHdrScaleExposure(float value)
+    {
+        if(!float.IsFinite(value))throw new ArgumentOutOfRangeException(nameof(value));
+        AutoHdrScaleExposure=value;
+    }
+    public IEnumerable<G1EffectGenericRuntime> EnumerateCurrentGenerics()
+    {
+        ObjectDisposedException.ThrowIf(disposed,this);
+        foreach(var system in systems)
+            if(system.Timeline.Enabled&&system.Timeline.Started)
+                foreach(var module in system.Modules)
+                    if(module.Enabled)
+                        foreach(var generic in module.Generics)yield return generic;
+    }
     public bool HasPendingDirectStorage => initialized && Generics.Any(generic =>
         generic.Declaration.UsesDirectBirth && !generic.HasDirectStorage);
     public bool IsFinished => initialized && missing.Count == 0 && !HasPendingDirectStorage && systems.All(system =>
@@ -78,7 +95,7 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
 
     void IG1EffectClockConsumer.Reset()
     {
-        ReleaseSystems(); initialized = false; missing.Clear(); opacity = 1; stopping = false;
+        ReleaseSystems(); initialized = false; missing.Clear(); opacity = 1; AutoHdrScaleExposure = 1; stopping = false;
     }
 
     void IG1EffectClockConsumer.Initialize()

@@ -234,6 +234,26 @@ public static class D3D11HdrResourceBindings
         }
         TextureRecipe Texture(DxbcRdefBinding binding)
         {
+            // Extra buffer registers belong to the selected normal shader's
+            // ClusterLightList plugin, independently of ordinary G1 mappings.
+            (string? Role,uint Hash,uint Return) cluster=binding.Name.Text switch
+            {
+                "tCllLightIndices"=>("ClusterIndices",0xAB69006Du,4u),
+                "tCllLightPositions"=>("ClusterPositions",0x6AF9A27Cu,5u),
+                "tCllLightAttributes"=>("ClusterAttributes",0x5764F4BDu,5u),
+                "tCllLightExAttributes"=>("ClusterExAttributes",0x56C4C954u,4u),
+                "tCllSptLightAttributes"=>("ClusterSpotAttributes",0x689F3D34u,5u),
+                "tCllSptLightExAttributes"=>("ClusterSpotExAttributes",0x65BD2433u,4u),
+                _=>((string?)null,0u,0u)
+            };
+            if(cluster.Role is not null)
+            {
+                Shape(binding,1,cluster.Return);
+                var config=declaration.Shader.ReadConfigurations().Records.Single(record=>record.Name=="ClusterLightList");
+                if(config.Find(cluster.Hash)?.RawValue!=binding.BindPoint)
+                    throw new InvalidDataException("HDR cluster register differs from its selected plugin source.");
+                return new(cluster.Role,"owner");
+            }
             switch (binding.Name.Text)
             {
                 case "sDepth": return GBuffer("GBufferDepth", 8, 0xB7CCDD1F, 4);

@@ -64,10 +64,11 @@ public sealed partial class NormalArmyCombatCurrentPhase
             BattleRemakeCurrentDamage> damageFactory,
         IPlayableNativeTacticActivationTailSource? currentActivationTail,
         ArmyCampaignRuleAdapter? currentApplicationSource, SourceWorldContext? borrowedCurrent,
-        NativeArmyCombatCycleSampler? currentSampler, List<CampaignEffectRequest>? currentEffects)
+        NativeArmyCombatCycleSampler? currentSampler, List<CampaignEffectRequest>? currentEffects,
+        IReadOnlyDictionary<int, (int Officer, int Slot)>? retainedIdentities)
     {
         plan = Copy(ownedPlan); descriptors = cache;
-        identities = cache.Keys.ToDictionary(id => id,
+        identities = retainedIdentities is not null ? new(retainedIdentities) : cache.Keys.ToDictionary(id => id,
             id => (initial.Units[id].OfficerId, initial.Units[id].NativeArmyOrigin!.NativeSlotIndex!.Value));
         clock = initial.NativeClock!; season = initial.NativeMapSeason!;
         captureDefinitions = capture; createDamage = damageFactory;
@@ -92,7 +93,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
         ArmyCampaignRuleAdapter? currentApplicationSource = null, SourceWorldContext? borrowedCurrent = null,
         NormalArmyCombatPlan? currentPlan = null,
         IReadOnlyDictionary<int, NormalArmyCombatDescriptor>? currentDescriptors = null,
-        NativeArmyCombatCycleSampler? currentSampler = null, List<CampaignEffectRequest>? currentEffects = null)
+        NativeArmyCombatCycleSampler? currentSampler = null, List<CampaignEffectRequest>? currentEffects = null,
+        IReadOnlyDictionary<int, (int Officer, int Slot)>? retainedIdentities = null)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(moment);
         if (!NormalArmyCombatSourcePlanner.IsDueAtSourceCalendarPhase(moment)) return null;
@@ -109,7 +111,7 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 cache.Add(army.Id, descriptor with { });
             }
         return new(state, resolved, cache, capture, createContext, regionFactory, damageFactory,
-            currentActivationTail, currentApplicationSource, borrowedCurrent, currentSampler, currentEffects);
+            currentActivationTail, currentApplicationSource, borrowedCurrent, currentSampler, currentEffects, retainedIdentities);
     }
 
     /// <summary>Read the pair only when it is actually reached. The caller owns

@@ -94,6 +94,10 @@ public partial class Main
                     source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 ConfirmCoalitionInvitationOrder invitation => await composition.ConfirmCoalitionInvitationAsync(
                     source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                ConfirmCapturedRulerTreatmentOrder treatment => await composition.ConfirmCapturedRulerTreatmentAsync(
+                    source, treatment, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                ConfirmRulerSuccessionOrder succession => await composition.ConfirmRulerSuccessionAsync(
+                    source, succession, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 _ => throw new InvalidOperationException("Unsupported campaign decision.")
             };
             if (_failed || _shuttingDown || !GodotObject.IsInstanceValid(this) || !IsInsideTree() ||

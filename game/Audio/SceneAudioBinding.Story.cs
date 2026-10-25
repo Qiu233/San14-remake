@@ -23,7 +23,7 @@ internal sealed partial class SceneAudioBinding
         {
             //The map owns BGM beyond this event's lifetime. Cancelling a story
             //wait suppresses its receipt; leaving the map cancels the channel.
-            await _session.PlayMapMusicCommitAsync("map-music", entry,
+            await _musicSession.PlayMapMusicCommitAsync("map-music", entry,
                 [new(AudioSelectionResources.InstalledMusicBankId, 0x272C6EFB)], lifetime.Token).WaitAsync(cancellation);
         }
         catch (OperationCanceledException) { throw; }

@@ -32,7 +32,15 @@ public static class AudioDecoderRuntime
         string folder = Path.GetDirectoryName(manifest)!;
         if (!File.Exists(Path.Combine(folder, "COPYING")) || !Directory.Exists(Path.Combine(folder, "licenses")))
             throw new FileNotFoundException("Audio runtime is missing its retained third-party license notices.", folder);
-        return VgmstreamAudioDecoder.FromManifest(manifest);
+        string? multichannel = System.Environment.GetEnvironmentVariable("SAN14_MULTICHANNEL_AUDIO_DECODER");
+        if (string.IsNullOrWhiteSpace(multichannel))
+        {
+            string installed = Path.Combine(folder, "San14.Audio.Decoder.exe");
+            string? built = projectDirectory is null ? null : Path.Combine(projectDirectory,
+                "native", "San14.Audio.Decoder", "bin", "x64", "Release", "San14.Audio.Decoder.exe");
+            multichannel = File.Exists(installed) ? installed : built is not null && File.Exists(built) ? built : null;
+        }
+        return VgmstreamAudioDecoder.FromManifest(manifest, multichannelExecutablePath: multichannel);
     }
 
     public static bool TryCreate(out VgmstreamAudioDecoder? decoder, out string? unavailableReason,

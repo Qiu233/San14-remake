@@ -42,8 +42,11 @@ public sealed partial class D3D11RenderSession : IG1EffectDirectComputeDevice
         ObjectDisposedException.ThrowIf(_module==IntPtr.Zero,this);
         if(_owner==IntPtr.Zero)throw new InvalidOperationException("Direct effects require an open native session.");
     }
-    private sealed class DirectAllocation(D3D11RenderSession session,ulong id) : IG1EffectDirectDrawAllocation
+    private sealed partial class DirectAllocation : IG1EffectDirectDrawAllocation
     {
+        private readonly D3D11RenderSession session;
+        private readonly ulong id;
+        public DirectAllocation(D3D11RenderSession session,ulong id) {this.session=session;this.id=id;}
         private bool disposed;
         private G1EffectGpuResourceUpload? sentResources;
         public bool IsPrepared { get { lock(session._directGate)return !disposed&&session._module!=IntPtr.Zero&&session._owner!=IntPtr.Zero; } }

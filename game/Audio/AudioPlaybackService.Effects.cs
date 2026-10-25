@@ -19,6 +19,21 @@ public partial class AudioPlaybackService
     //the duplicate and stop queries. Empty slots have no imported handle state.
     private readonly EffectVoice?[] _effects = new EffectVoice?[NormalSoundManager.SlotCount];
     private readonly NormalSoundManager _normalSounds = new();
+    // Fresh application-audio construction explicitly starts in mode 0 with
+    // saved special slot -1 (4015B0). These are host-owned facts, independent
+    // of whether the present campaign has emitted a special-mode request.
+    private int _specialAudioMode;
+    private int _specialAudioSlot = -1;
+
+    internal void ResetAudioSpecialMode()
+    {
+        RequireEngineThread();
+        if (_specialAudioMode == 0) return;
+        // 401B70(0) retires only the saved special slot, before publishing mode
+        // zero. Ordinary UI, narration and spatial voices are not stopped.
+        if (_specialAudioSlot >= 0) StopOrdinarySoundSlot(_specialAudioSlot);
+        _specialAudioMode = 0;
+    }
 
     internal bool TryPlayEffect(AudioClip clip)
     {

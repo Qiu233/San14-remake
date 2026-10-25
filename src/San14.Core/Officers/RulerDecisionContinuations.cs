@@ -82,9 +82,13 @@ internal static class RulerDecisionContinuationValidation
 {
     internal static void Validate(GameState state)
     {
+        NormalCombatImmediateContinuationValidation.Validate(state);
         if (state.ArmyDefeatContinuation is { } defeat)
         {
-            if (defeat.SettlementIndex < 0 || defeat.Defeat is null || defeat.Defeat.VictimUnitId <= 0 ||
+            bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } &&
+                state.NormalCombatImmediateContinuation is not null;
+            if ((immediate ? defeat.SettlementIndex != -1 : defeat.SettlementIndex < 0) ||
+                defeat.Defeat is null || defeat.Defeat.VictimUnitId <= 0 ||
                 defeat.Defeat.WinnerUnitId is <= 0 || !Enum.IsDefined(defeat.Defeat.Cause) ||
                 !Settlement(defeat.Defeat.WinnerBase) || !Settlement(defeat.WinnerBase) || defeat.ArmyPhysicalSlot < 0 ||
                 defeat.ReceiverId.Value <= 0 || defeat.VictimForceId is < 0 or > 51 ||

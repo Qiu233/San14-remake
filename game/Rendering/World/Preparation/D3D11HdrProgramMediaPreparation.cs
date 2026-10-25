@@ -87,7 +87,9 @@ public static class D3D11HdrProgramMediaPreparation
                     // current owners overwrite lighting, camera and refraction
                     // through this program's own named layouts.
                     var packet=D3D11DeferredConstantInputPreparation.PrepareRecipe(canonical,pixel,scene,caustics,false);
-                    reasons.AddRange(packet.MissingFields.Select(field=>"Constant field has no producer: "+field));
+                    var clusterFields=WriteClusterLayout(recipe.Directory,pixel,globals,reasons);
+                    reasons.AddRange(packet.MissingFields.Where(field=>!clusterFields.Contains(field))
+                        .Select(field=>"Constant field has no producer: "+field));
                     string file="ps-b"+globalBinding.BindPoint+".bin";
                     File.WriteAllBytes(Path.Combine(recipe.Directory,file),packet.Bytes);
                     File.WriteAllText(Path.Combine(recipe.Directory,"cbuffers.txt"),
@@ -121,6 +123,30 @@ public static class D3D11HdrProgramMediaPreparation
     }
 
     private sealed record FieldWrite(int Kind,int Destination,int Bytes);
+
+    private static HashSet<string> WriteClusterLayout(string directory,DxbcResourceDefinitions definitions,
+        DxbcRdefBuffer globals,List<string> reasons)
+    {
+        string[] names=["vClstZPrm","nClstPtch","fClstScl","vFadeDist"];
+        int[] widths=[16,4,4,8],elements=[0,2,0,0],columns=[4,1,1,2];
+        var supplied=new HashSet<string>(StringComparer.Ordinal);var rows=new List<string>();
+        for(int kind=0;kind<names.Length;kind++)
+        {
+            var field=globals.Variables.SingleOrDefault(field=>field.Name.Text==names[kind]);
+            if(field is null)continue;
+            var type=definitions.Types.Single(type=>type.Offset==field.TypeOffset);
+            int count=Math.Max(elements[kind],1),width=widths[kind];
+            if(type.BaseType!=(kind==1?2:3) || type.Class!=(columns[kind]==1?0:1) ||
+                type.Rows!=1 || type.Columns!=columns[kind] || type.Elements!=elements[kind] ||
+                field.ByteSize!=(count-1)*16+width)
+            {reasons.Add("Cluster field shape has no producer: "+names[kind]);continue;}
+            for(int element=0;element<count;element++)
+                rows.Add(FormattableString.Invariant($"{kind} {field.StartOffset+element*16} {element*width} {width}"));
+            supplied.Add(names[kind]);
+        }
+        File.WriteAllLines(Path.Combine(directory,"cluster-writes.txt"),rows);
+        return supplied;
+    }
 
     private static void WriteHeightFogLayout(string directory,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)

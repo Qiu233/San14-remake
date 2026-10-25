@@ -186,10 +186,11 @@ public partial class AudioPlaybackService : Node
 
     /// <summary>Explicit caller-selected channel; each channel replaces its preceding voice.</summary>
     public void Play(AudioClip clip, string channel, float volumeDb = 0, string bus = "Master",
-        AudioVolumeGroup? volumeGroup = null)
+        AudioVolumeGroup? volumeGroup = null, float startSeconds = 0)
     {
         RequireEngineThread();
         ArgumentNullException.ThrowIfNull(clip);
+        if (!float.IsFinite(startSeconds) || startSeconds < 0) throw new ArgumentOutOfRangeException(nameof(startSeconds));
         if (string.IsNullOrWhiteSpace(channel) || channel.Length > 64) throw new ArgumentException("Audio channel needs a short nonempty key.", nameof(channel));
         if (!float.IsFinite(volumeDb) || volumeDb is < -80 or > 24) throw new ArgumentOutOfRangeException(nameof(volumeDb));
         if (volumeGroup is { } group && !Enum.IsDefined(group)) throw new ArgumentOutOfRangeException(nameof(volumeGroup));
@@ -212,13 +213,13 @@ public partial class AudioPlaybackService : Node
         player.ProcessMode = ProcessModeEnum.Inherit;
         player.Stop(); player.Stream = clip.Stream; player.Bus = bus;
         player.PitchScale = playbackRate; ApplyVolume(voice);
-        player.StreamPaused = false; player.Play();
+        player.StreamPaused = false; player.Play(startSeconds);
     }
 
     public void Stop(string channel, string? reason = null)
     {
         RequireEngineThread();
-        _mapMusic.Remove(channel);
+        if (_mapMusic.Remove(channel, out var music)) RememberMapMusicPosition(music);
         if (_players.TryGetValue(channel, out var voice) && voice.Player.Stream is not null)
         {
             voice.Player.Stop(); voice.Player.Stream = null;

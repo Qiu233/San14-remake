@@ -1,6 +1,6 @@
 namespace San14.Core;
 
-public enum MonthlySceneFamily { FinalOrder, PersonDeath }
+public enum MonthlySceneFamily { FinalOrder, PersonDeath, Coalition, Emperor }
 
 /// <summary>A monthly scene genuinely installed by the presentation host.</summary>
 public sealed record MonthlySceneState(MonthlySceneFamily Family, int EventKind);

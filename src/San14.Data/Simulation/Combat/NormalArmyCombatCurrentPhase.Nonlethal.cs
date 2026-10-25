@@ -2,7 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public enum NormalArmyNonlethalPairOutcome { CurrentInputsUnresolved, NativeSkip, Committed, DestructionRequired }
+public enum NormalArmyNonlethalPairOutcome { CurrentInputsUnresolved, NativeSkip, Committed, DestructionRequired, AwaitingPlayerDecision }
 public sealed record NormalArmyNonlethalPairResult(NormalArmyNonlethalPairOutcome Outcome,
     GameState State, NormalArmyPairApplicationPrefixResult? Prefix,
     NormalArmyPairAftermathResult? Aftermath, string? MissingOwner);

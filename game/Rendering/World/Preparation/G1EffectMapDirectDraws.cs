@@ -15,10 +15,12 @@ public sealed class G1EffectMapDirectDraws
     private sealed record Storage(G1EffectDirectComputeStorage Value);
     private readonly ConditionalWeakTable<G1EffectGenericRuntime, Storage> storages = new();
     private readonly G1EffectDirectComputeFactory factory;
+    private readonly IG1EffectDirectLightingDevice? lightingDevice;
 
     public G1EffectMapDirectDraws(IG1EffectDirectComputeDevice device,
         Func<G1EffectDirectComputeView> currentView)
     {
+        lightingDevice=device as IG1EffectDirectLightingDevice;
         factory = new(device, currentView, (generic, storage) => storages.Add(generic, new(storage)));
     }
 
@@ -35,19 +37,48 @@ public sealed class G1EffectMapDirectDraws
     {
         var missing = new List<G1EffectGpuFrameMissing>();
         int drawCount = 0;
+        var admitted=instance.EnumerateCurrentGenerics().ToHashSet();
         foreach (var generic in instance.Generics)
         {
             if (!generic.Declaration.UsesDirectBirth) continue;
             if (generic.Record.Type == 10)
             {
-                // Its linked GPU state is real, but sprite submission is not
-                // the source light consumer. Keep the presentation request
-                // pending until that scene-light owner consumes the state.
-                missing.Add(new(generic.Record.FileOffset, "DirectLinkedLighting",
-                    "Linked Direct GPU state has no current scene-light consumer."));
+                long lightOrdinal=submissionOrdinal++;
+                var main=G1EffectDirectLightingSource.FindMain(generic,instance.Generics);
+                if(!admitted.Contains(generic))
+                {
+                    if(storages.TryGetValue(main,out var inactive)&&inactive.Value.IsPrepared&&
+                        inactive.Value.Allocation is IG1EffectDirectLightingAllocation oldLight)
+                        oldLight.SetLighting(null,lightOrdinal);
+                    continue;
+                }
+                if(!storages.TryGetValue(main,out var mainStorage)||!mainStorage.Value.IsPrepared||
+                    mainStorage.Value.Allocation is not IG1EffectDirectLightingAllocation lightAllocation)
+                {
+                    missing.Add(new(generic.Record.FileOffset,"DirectLinkedLighting","The linked point producer has no actual prepared allocation."));
+                }
+                else if(lightingDevice is null||frame.LightingCluster is not { IsReady:true } cluster)
+                {
+                    lightAllocation.SetLighting(null,lightOrdinal);
+                    missing.Add(new(generic.Record.FileOffset,"DirectLinkedLighting","The current normal node71 cluster owner is incomplete."));
+                }
+                else
+                {
+                    lightingDevice.SetLightingCluster(cluster,frame.LightingIndexFormat);
+                    lightAllocation.SetLighting(G1EffectDirectLightingSource.Read(main,generic,mainStorage.Value,
+                        instance.AutoHdrScaleExposure),lightOrdinal);
+                    missing.Add(new(generic.Record.FileOffset,"DirectLinkedLighting",
+                        "The actual point queue is prepared; its separate source point-light draw route is not yet installed."));
+                }
                 continue;
             }
             long ordinal = submissionOrdinal++;
+            if(!admitted.Contains(generic))
+            {
+                if(storages.TryGetValue(generic,out var inactive)&&inactive.Value.IsPrepared&&
+                    inactive.Value.Allocation is IG1EffectDirectDrawAllocation oldDraw)oldDraw.SetDraw(null,ordinal);
+                continue;
+            }
             if (!storages.TryGetValue(generic, out var storage) || !storage.Value.IsPrepared ||
                 storage.Value.Allocation is not IG1EffectDirectDrawAllocation allocation)
             {

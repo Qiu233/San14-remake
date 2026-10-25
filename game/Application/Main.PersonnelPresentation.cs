@@ -11,9 +11,9 @@ public partial class Main
     private MapSceneView? _personnelPresentationMap;
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
-    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null||_personDeathSound is not null;
+    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null||_personDeathSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
-    private bool IsPersonnelPresentationCurrent=>_personDeathSound is not null?IsPersonDeathSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
+    private bool IsPersonnelPresentationCurrent=>_coalitionCameraCommand is not null?IsCoalitionCameraCurrent:_terminalMusic is not null?IsTerminalMusicCurrent:_personDeathSound is not null?IsPersonDeathSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
@@ -25,13 +25,16 @@ public partial class Main
             if(IsPersonnelPresentationCurrent)return true;
             ClosePersonnelPresentation();
         }
-        if(_failed||_shuttingDown||_advancingPeriod||IsReturningToTitle||HasAdministrationPage||HasMilitaryOrderPage||
+        if(_failed||_shuttingDown||_advancingPeriod||(IsReturningToTitle&&!HasTerminalReturn)||HasAdministrationPage||HasMilitaryOrderPage||
             HasEnvironmentSettings||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||HasPersonnelConfirmation||_detailsView is not null||
             _diplomacyNegotiation is not null||_repository is null||_campaignComposition is not {} composition||
             _session is not {PlayerForceId:not null} session||
             (session.HasPendingOperation&&session.PendingNormalPeriod is null)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=PersonnelPresentationOwner(session);
+        if (owner.PendingMapMusicIntent is { } pendingMusic)
+            return TryPresentMapMusic(null, pendingMusic, session, owner, map);
+        RestoreCoalitionCamera(owner, map);
         RefreshDisasterScene(session,owner,map);
         RefreshMonthlyScene(session,owner,map);
         RestoreFoodWarnings(session,owner,map);
@@ -40,6 +43,30 @@ public partial class Main
         GameState? armyViewRefreshSource = null;
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if (entry.Request.ForceCoalitionVisual is { } coalition)
+            {
+                if (coalition.Operation is ForceCoalitionVisualOperation.CameraFocus or ForceCoalitionVisualOperation.CameraRestore)
+                    return TryPresentCoalitionCamera(entry, coalition, session, owner, map);
+                if (!TryPresentCoalitionVisual(entry, coalition, session, owner, map)) return false;
+                owner = PersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.EmperorSceneEnter or
+                MonthlyMaintenanceOperation.EmperorSceneExit)
+            {
+                if (!TryPresentEmperorScene(entry, session, owner, map)) return false;
+                owner = PersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.MapMusicIntent is { } music)
+                return TryPresentMapMusic(entry, music, session, owner, map);
+            if (entry.Request.ApplicationExit is { } exit)
+            {
+                if (!TryPresentApplicationExit(entry, exit, session, owner)) return false;
+                if (_returnToTitleTask is { IsCompleted: false }) return true;
+                owner = PersonnelPresentationOwner(session);
+                continue;
+            }
             if (entry.Request.ArmyTraitViewRefresh is { } refresh)
             {
                 //Consecutive view requests read one actual domain publication.
@@ -276,6 +303,8 @@ public partial class Main
 
     private void ClosePersonnelPresentation()
     {
+        CloseTerminalMusic();
+        CloseCoalitionCameraCommand();
         ClosePersonDeathSound();
         CloseResourceNotice();
         CloseMonthlyFeedback();

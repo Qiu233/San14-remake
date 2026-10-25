@@ -1,6 +1,7 @@
 #pragma once
 #include "CurrentEffectRendererResources.h"
 #include "CurrentEffectDirect.h"
+#include "CurrentEffectDirectLighting.h"
 
 namespace current_effect {
 struct GlobalViews {
@@ -56,6 +57,7 @@ struct DeviceScope {
 };
 
 class Renderer {
+    LightingQueue lighting;
     Resources resources;Frame frame;ComPtr<ID3D11Buffer> dynamic;UINT dynamicBytes{};
     std::uint64_t sequence{};
     std::uint64_t nextDirectId{1};
@@ -125,7 +127,19 @@ public:
     }
     void submitDirect(ID3D11Device* device,ID3D11DeviceContext* context,std::uint64_t id,Bytes bytes) {direct.at(id)->submit(device,context,bytes);}
     int directLive(ID3D11DeviceContext* context,std::uint64_t id) {return direct.at(id)->live(context);}
-    void releaseDirect(std::uint64_t id) {directFrames.erase(id);direct.erase(id);}
+    void releaseDirect(std::uint64_t id) {lighting.release(id);directFrames.erase(id);direct.erase(id);}
+    void setDirectLighting(ID3D11Device* device,std::uint64_t id,Bytes bytes,std::int64_t ordinal) {
+        (void)direct.at(id);lighting.setSource(device,id,bytes,ordinal);
+    }
+    void configureLighting(ID3D11Device* device,Bytes bytes) {lighting.configure(device,bytes);}
+    bool needsLighting() const {return lighting.hasConfiguration();}
+    const NativeSourceClusterLights& clusterLights() const {return lighting.current();}
+    void prepareLights(ID3D11Device* device,ID3D11DeviceContext* context,ID3D11UnorderedAccessView* indices,ID3D11ShaderResourceView* indexView) {
+        std::vector<PointLightJob> jobs;
+        for(const auto& [id,source]:lighting.registrations()) {const auto& allocation=*direct.at(id);
+            jobs.push_back({source,allocation.resource(3),allocation.resource(9),allocation.resource(1)});}
+        lighting.prepare(device,context,std::move(jobs),indices,indexView);
+    }
     void setDirectDraw(ID3D11Device* device,std::uint64_t id,const San14CurrentEffectInputV1& input,std::int64_t submissionOrdinal) {
         const auto& allocation=*direct.at(id);
         if(input.size!=sizeof(input)||input.version!=1||input.updateKind>2||(!input.resources&&input.resourceBytes)||(!input.frame&&input.frameBytes))throw std::runtime_error("Direct Effect draw input ABI");

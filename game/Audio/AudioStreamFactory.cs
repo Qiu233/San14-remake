@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Godot;
 using San14.Data;
 using AudioStream = Godot.AudioStream;
@@ -59,8 +58,6 @@ public static class AudioStreamFactory
             throw new NotSupportedException($"The current player preserves mono/stereo; {wave.Channels}-channel source needs explicit speaker routing.");
         if (wave.SampleRate is < 1 or > 192000 || wave.Pcm16.Length == 0 || wave.Pcm16.Length % (wave.Channels * 2) != 0)
             throw new InvalidDataException("Audio clip needs complete PCM16 frames at its source sample rate.");
-        if (Convert.ToHexString(SHA256.HashData(wave.Pcm16)) != decoded.Provenance.PcmSha256)
-            throw new InvalidDataException("Decoded PCM samples changed after their identity was captured.");
         if (enableSourceLoop && (decoded.LoopStartSample is null || decoded.LoopEndSample is null ||
             decoded.LoopStartSample < 0 || decoded.LoopStartSample >= decoded.LoopEndSample ||
             decoded.LoopEndSample > wave.SampleFrames))
@@ -96,8 +93,6 @@ public static class AudioStreamFactory
         if (wave.Channels != 6 || wave.SampleRate is < 1 or > 192000 ||
             wave.Pcm16.Length == 0 || wave.Pcm16.Length % 12 != 0)
             throw new InvalidDataException("Explicit six-channel routing requires complete source PCM16 frames.");
-        if (Convert.ToHexString(SHA256.HashData(wave.Pcm16)) != decoded.Provenance.PcmSha256)
-            throw new InvalidDataException("Decoded PCM samples changed after their identity was captured.");
         bool loop = loopPolicy == AudioLoopPolicy.RequireSource ||
             (loopPolicy == AudioLoopPolicy.SourceIfPresent &&
              (decoded.LoopStartSample is not null || decoded.LoopEndSample is not null));

@@ -9,6 +9,8 @@ namespace San14.Data;
 public sealed record AudioDecodeProvenance(string DecoderPath, string DecoderSha256,
     string WaveSha256, string PcmSha256, string EncodedSha256, string ResourceUri)
 {
+    // Wave/PCM hashes are optional offline diagnostics. Normal playback leaves
+    // them empty and does not scan decoded media to prove its correctness.
     public IReadOnlyDictionary<string, string> RuntimeFileSha256 { get; init; } = new Dictionary<string, string>();
     public string DecoderInputSha256 { get; init; } = "";
     public SourceProvenance? EncodedSource { get; init; }
@@ -38,7 +40,9 @@ public interface IAudioDecoder
         => throw new NotSupportedException("This audio decoder does not accept internal sample containers.");
 }
 
-/// <summary>One selected stream is decoded by a caller-supplied official vgmstream CLI.
+/// <summary>One selected stream is decoded by the configured audio runtime.
+/// Six-channel KTAC uses the project's normal FFmpeg-backed decoder so actual
+/// speaker metadata accompanies the PCM; other containers use vgmstream.
 /// Input and PCM output are temporary, no original archive is converted or packaged.
 /// Source channel count, delay trimming and loop sample bounds remain explicit.
 /// This class does not start audio playback.</summary>
@@ -49,11 +53,12 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
     public TimeSpan Timeout { get; }
     private readonly string _temporaryRoot;
     private readonly IReadOnlyDictionary<string, string> _runtimeHashes;
-    private readonly AudioKtacLayoutValidator? _layoutValidator;
+    private readonly string? _multichannelExecutablePath;
+    private readonly string? _multichannelExecutableSha256;
 
     public VgmstreamAudioDecoder(string executablePath, string? expectedExecutableSha256 = null,
         string? temporaryRoot = null, TimeSpan? timeout = null,
-        IReadOnlyDictionary<string, string>? runtimeFileSha256 = null, AudioKtacLayoutValidator? layoutValidator = null)
+        IReadOnlyDictionary<string, string>? runtimeFileSha256 = null, string? multichannelExecutablePath = null)
     {
         if (!OperatingSystem.IsWindows() || System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture !=
             System.Runtime.InteropServices.Architecture.X64)
@@ -68,13 +73,17 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         if (Timeout <= TimeSpan.Zero || Timeout > TimeSpan.FromMinutes(5)) throw new ArgumentOutOfRangeException(nameof(timeout));
         _runtimeHashes = (runtimeFileSha256 ?? new Dictionary<string, string>()).ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
         VerifyRuntimeFiles();
-        _layoutValidator = layoutValidator;
+        if (multichannelExecutablePath is not null)
+        {
+            _multichannelExecutablePath = Path.GetFullPath(multichannelExecutablePath);
+            _multichannelExecutableSha256 = Hash(File.ReadAllBytes(_multichannelExecutablePath));
+        }
     }
 
     /// <summary>Use the retained official release manifest and all executable/DLL hashes.
     /// The caller chooses the manifest path; discovery never downloads a decoder.</summary>
     public static VgmstreamAudioDecoder FromManifest(string manifestPath,
-        string? temporaryRoot = null, TimeSpan? timeout = null)
+        string? temporaryRoot = null, TimeSpan? timeout = null, string? multichannelExecutablePath = null)
     {
         string fullPath = Path.GetFullPath(manifestPath);
         using JsonDocument json = JsonDocument.Parse(File.ReadAllBytes(fullPath));
@@ -85,10 +94,8 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
             StringComparer.OrdinalIgnoreCase);
         if (!hashes.TryGetValue("vgmstream-cli.exe", out string? executableHash) || hashes.Count < 2)
             throw new InvalidDataException("Audio decoder manifest does not pin its executable and runtime files.");
-        string layoutManifest = Path.Combine(Path.GetDirectoryName(fullPath)!, "layout-validator.json");
-        AudioKtacLayoutValidator? layout = File.Exists(layoutManifest) ? AudioKtacLayoutValidator.FromManifest(layoutManifest) : null;
         return new(Path.Combine(Path.GetDirectoryName(fullPath)!, "vgmstream-cli.exe"), executableHash,
-            temporaryRoot, timeout, hashes, layout);
+            temporaryRoot, timeout, hashes, multichannelExecutablePath);
     }
 
     public Task<DecodedAudio> DecodeAsync(LoadedAudioStream source,
@@ -98,8 +105,8 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         cancellationToken.ThrowIfCancellationRequested();
         if (source.Stream.Codec is not ("KTAC" or "KOVS"))
             throw new NotSupportedException($"Audio codec {source.Stream.Codec} has no decoder contract.");
-        if (source.Bytes.Length != source.Stream.EncodedBytes || Hash(source.Bytes) != source.EncodedSha256)
-            throw new InvalidDataException("Selected encoded audio bytes changed after the source range was read.");
+        if (source.Bytes.Length != source.Stream.EncodedBytes)
+            throw new InvalidDataException("Selected encoded audio byte count differs from its resource range.");
         KtacInfo? shape = source.Stream.Ktac;
         return DecodeInputAsync(new(source.Bytes, source.Stream.Codec == "KTAC" ? ".ktac" : ".kvs", source.Stream.Codec,
             source.EncodedSha256, source.EncodedSource, shape is null ? null :
@@ -115,8 +122,8 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         cancellationToken.ThrowIfCancellationRequested();
         bool supported = (input.Codec, input.InputExtension) is ("KTAC", ".ktac") or ("KOVS", ".kvs") or ("SRSA-MSADPCM", ".srsa") or ("SRSA-KTSR", ".srsa");
         if (!supported) throw new NotSupportedException($"Audio {input.Codec}/{input.InputExtension} has no selected-container decoder contract.");
-        if (input.DecoderBytes.Length is < 4 or > 64 * 1024 * 1024 || Hash(input.DecoderBytes) != input.DecoderInputSha256)
-            throw new InvalidDataException("Selected decoder container changed or exceeds the encoded read budget.");
+        if (input.DecoderBytes.Length is < 4 or > 64 * 1024 * 1024)
+            throw new InvalidDataException("Selected decoder container exceeds the encoded read budget.");
         if (input.ExpectedFormat is { } expected && (expected.SampleRate is < 1 or > 192000 || expected.Channels is < 1 or > 8 ||
             expected.SampleFrames < 1 || expected.SampleFrames > (PcmWaveReader.MaximumWaveBytes - 128L) / (expected.Channels * 2)))
             throw new InvalidDataException("Selected audio's declared PCM shape exceeds the decode budget.");
@@ -125,9 +132,10 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         if ((input.LoopStartSample is null) != (input.LoopEndSample is null) || input.LoopStartSample < 0 ||
             input.LoopStartSample >= input.LoopEndSample || input.LoopEndSample > input.ExpectedFormat?.SampleFrames)
             throw new InvalidDataException("Selected audio loop interval is inconsistent with its original PCM shape.");
-        if (Hash(File.ReadAllBytes(ExecutablePath)) != ExecutableSha256)
-            throw new InvalidDataException("Audio decoder changed after its identity was captured.");
-        VerifyRuntimeFiles();
+        bool multichannelKtac = input.Codec == "KTAC" && input.ExpectedFormat?.Channels == 6;
+        string decoderPath = multichannelKtac
+            ? _multichannelExecutablePath ?? throw new FileNotFoundException("The normal multichannel KTAC decoder is not installed.")
+            : ExecutablePath;
         string directory = Path.Combine(_temporaryRoot, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string inputPath = Path.Combine(directory, "selected" + input.InputExtension);
@@ -135,14 +143,23 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
         try
         {
             await File.WriteAllBytesAsync(inputPath, input.DecoderBytes, cancellationToken).ConfigureAwait(false);
-            var info = new ProcessStartInfo(ExecutablePath)
+            var info = new ProcessStartInfo(decoderPath)
             {
                 UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = directory,
                 RedirectStandardOutput = true, RedirectStandardError = true
             };
-            info.ArgumentList.Add("-i"); // Ignore looping: produce exactly one original decoded sample range.
-            info.ArgumentList.Add("-W"); info.ArgumentList.Add("1"); // Fixed PCM16, preserving all source channels.
-            info.ArgumentList.Add("-o"); info.ArgumentList.Add(outputPath); info.ArgumentList.Add(inputPath);
+            if (multichannelKtac)
+            {
+                info.ArgumentList.Add("--input"); info.ArgumentList.Add(inputPath);
+                info.ArgumentList.Add("--output"); info.ArgumentList.Add(outputPath);
+                info.ArgumentList.Add("--runtime-dir"); info.ArgumentList.Add(Path.GetDirectoryName(ExecutablePath)!);
+            }
+            else
+            {
+                info.ArgumentList.Add("-i"); // One decoded sample range; looping belongs to playback.
+                info.ArgumentList.Add("-W"); info.ArgumentList.Add("1");
+                info.ArgumentList.Add("-o"); info.ArgumentList.Add(outputPath); info.ArgumentList.Add(inputPath);
+            }
             using Process process = Process.Start(info) ?? throw new IOException("Audio decoder did not start.");
             Task<string> output = DrainBoundedAsync(process.StandardOutput);
             Task<string> error = DrainBoundedAsync(process.StandardError);
@@ -166,18 +183,16 @@ public sealed class VgmstreamAudioDecoder : IAudioDecoder
                 throw new InvalidDataException("Selected audio decoder output exceeds the PCM read budget.");
             byte[] waveBytes = await File.ReadAllBytesAsync(outputPath, cancellationToken).ConfigureAwait(false);
             PcmWave wave = PcmWaveReader.Read(waveBytes);
-            VerifyRuntimeFiles();
             if (input.ExpectedFormat is { } format && (wave.SampleRate != format.SampleRate || wave.Channels != format.Channels ||
                 wave.SampleFrames != format.SampleFrames))
                 throw new InvalidDataException("Decoded audio rate, channels or trimmed sample count differs from its original header.");
-            var decoded = new DecodedAudio(wave, input.StreamSource, new(ExecutablePath, ExecutableSha256, Hash(waveBytes), Hash(wave.Pcm16),
+            var decoded = new DecodedAudio(wave, input.StreamSource, new(decoderPath,
+                multichannelKtac ? _multichannelExecutableSha256! : ExecutableSha256, "", "",
                 input.EncodedSource.Sha256, input.EncodedSource.ResourceUri)
                 { RuntimeFileSha256 = _runtimeHashes, DecoderInputSha256 = input.DecoderInputSha256,
                     EncodedSource = input.EncodedSource, IndexSource = input.IndexSource },
-                input.LoopStartSample, input.LoopEndSample) { Input = input };
-            if (input.Codec == "KTAC" && wave.Channels == 6 && _layoutValidator is not null)
-                decoded = decoded with { SpeakerLayout = await _layoutValidator.ObserveAsync(inputPath,
-                    Path.GetDirectoryName(ExecutablePath)!, input, wave, decoded.Provenance, cancellationToken).ConfigureAwait(false) };
+                input.LoopStartSample, input.LoopEndSample)
+                { Input = input, SpeakerLayout = wave.ChannelMask is { } mask ? new(mask, wave.Channels) : null };
             return decoded;
         }
         finally

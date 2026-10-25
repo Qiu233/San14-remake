@@ -489,8 +489,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     NativePrimaryForwardGpu primaryForwardGpu;
     NativePrimaryForwardFrame primaryForwardFrame;
     bool primaryForwardReady=false;
-    auto drawCurrentPrimaryForward=[&](float commonClock) {
-
+    auto ensurePrimaryForwardResources=[&]() {
         if(!primaryForwardReady) {
             const auto directory=resources.directory(ResourceGroup::ForwardLighting);
             primaryForwardSource=prepareNativePrimaryForwardCurrentBankSource(directory);
@@ -498,6 +497,20 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
 
             primaryForwardReady=true;
         }
+    };
+    auto prepareCurrentEffectLights=[&]() {
+        if(!currentEffects.needsLighting())return;
+        ensurePrimaryForwardResources();
+        currentEffects.prepareLights(device.Get(),context.Get(),primaryForwardGpu.clusterUav.Get(),primaryForwardGpu.resources[16].Get());
+        const auto& cluster=currentEffects.clusterLights();
+        if(cluster.computeSucceeded)for(UINT i=1;i<6;++i)primaryForwardGpu.resources[16+i]=cluster.resources[i];
+    };
+    auto currentLightingFrame=[&](auto&&... arguments) {
+        auto frame=frameState.lightingFrame(std::forward<decltype(arguments)>(arguments)...);
+        frame.cluster=&currentEffects.clusterLights();return frame;
+    };
+    auto drawCurrentPrimaryForward=[&](float commonClock) {
+        ensurePrimaryForwardResources();
         if (!frameState.season()) throw std::runtime_error("Forward requires current typed lighting");
         const auto palette=clouds.receiverPatternPalette();
         primaryForwardFrame=prepareNativePrimaryForwardCurrent(primaryForwardSource,bases.primary().source,bases.plan(),
@@ -540,6 +553,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());
     isolateCurrentShadowVisibility();
     callerTargets.restore(context.Get()); //70
+    prepareCurrentEffectLights(); //71
     {
         {
             auto earlySource=resources.directory(ResourceGroup::HdrProgramBank);
@@ -549,7 +563,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             mainTargets.restore(context.Get());
             hdr78.prepare(device.Get(),earlySource,78,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
             {
-                hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock));
+                hdr78.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock));
             }
             hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),nullptr,nullptr,
                 nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -593,7 +607,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 publishThinSurface();
                 hdr123.prepare(device.Get(),earlySource,123,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
                 {
-                    hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
+                    hdr123.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
                 }
                 hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
                     nullptr,initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -648,7 +662,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 mainTargets.restore(context.Get());
                 hdr166.prepare(device.Get(),earlySource,166,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
                 {
-                    hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera(),filteredSpecularImages()));
+                    hdr166.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera(),filteredSpecularImages()));
                 }
                 hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
                     ocean.blurredDepth(),initialCommonClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -718,10 +732,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);
         executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());callerTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
+        prepareCurrentEffectLights(); //71 current Main
         auto mainTargets=NativeMainTargetScope::main73(postProcessing.sceneTarget(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
         mainTargets.restore(context.Get());
         {
-            hdr78.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock));
+            hdr78.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),currentClock));
         }
         hdr78.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),nullptr,nullptr,
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -738,7 +753,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         drawCurrentTerritory(122,2);
         publishThinSurface();
         {
-            hdr123.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera()));
+            hdr123.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera()));
         }
         hdr123.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),
             nullptr,currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -761,7 +776,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         publishThinSurface();
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());mainTargets.restore(context.Get());
         {
-            hdr166.update(context.Get(),frameState.lightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera(),filteredSpecularImages()));
+            hdr166.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera(),filteredSpecularImages()));
         }
         hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),ocean.blurredDepth(),
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
@@ -791,6 +806,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             host.submitDirectEffect=[&](std::uint64_t id,const std::uint8_t* bytes,std::uint32_t count) {currentEffects.submitDirect(device.Get(),context.Get(),id,{bytes,count});};
             host.directEffectLive=[&](std::uint64_t id) {return currentEffects.directLive(context.Get(),id);};
             host.releaseDirectEffect=[&](std::uint64_t id) {currentEffects.releaseDirect(id);};
+            host.setDirectEffectLighting=[&](std::uint64_t id,const std::uint8_t* bytes,std::uint32_t count,std::int64_t ordinal) {currentEffects.setDirectLighting(device.Get(),id,{bytes,count},ordinal);};
+            host.configureEffectLighting=[&](const std::uint8_t* bytes,std::uint32_t count) {currentEffects.configureLighting(device.Get(),{bytes,count});};
             host.setDirectEffectDraw=[&](std::uint64_t id,const San14CurrentEffectInputV1& input,std::int64_t ordinal) {currentEffects.setDirectDraw(device.Get(),id,input,ordinal);};
             host.replaceAtmosphereResources=[&](const fs::path& root) {
                 auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),root,atmosphere.skyImages());

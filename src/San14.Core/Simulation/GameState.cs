@@ -704,8 +704,11 @@ public static class StateValidator
             throw new InvalidDataException("The admitted disaster scene is invalid.");
         if (state.ActiveMonthlyScene is { } monthlyScene &&
             !(monthlyScene.Family == MonthlySceneFamily.FinalOrder && monthlyScene.EventKind is 10 or 26 or 31 ||
-              monthlyScene.Family == MonthlySceneFamily.PersonDeath && monthlyScene.EventKind is 4 or 5 or 6))
+              monthlyScene.Family == MonthlySceneFamily.PersonDeath && monthlyScene.EventKind is 4 or 5 or 6 ||
+              monthlyScene.Family == MonthlySceneFamily.Coalition && monthlyScene.EventKind is 24 or 40 or 52 or 53 or 54 ||
+              monthlyScene.Family == MonthlySceneFamily.Emperor && monthlyScene.EventKind is 6 or 45 or 55))
             throw new InvalidDataException("The admitted monthly scene is invalid.");
+        CoalitionCameraPresentationValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
         CampaignHistoryValidation.Validate(state);
         CampaignChronicleValidation.Validate(state);

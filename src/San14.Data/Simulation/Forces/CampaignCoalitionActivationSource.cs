@@ -64,7 +64,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //1A3E60 refreshes the City views' two derived relation indicators.
         //The presentation owner consumes this intent only when it refreshes.
         effects.Add(new(null, null) { ForceCoalitionVisual = new(
-            ForceCoalitionVisualOperation.CityRelationIndicatorsRefresh, null) });
+            ForceCoalitionVisualOperation.CityProvinceAdvantageIndicatorsRefresh, null) });
         return state;
 
         int Relation(ForceReference first, ForceReference second)

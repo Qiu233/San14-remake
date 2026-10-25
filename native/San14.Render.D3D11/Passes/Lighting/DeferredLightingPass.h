@@ -12,6 +12,7 @@ struct DeferredLightingFrame {
     float commonClock{};
     const source_water_camera::RefractionDerived* refraction{};
     NativeSourceHdrSpecularImages specular;
+    const NativeSourceClusterLights* cluster{};
 };
 
 // Each execution entry owns a complete imported resource bank. Its current
@@ -29,7 +30,7 @@ public:
     void update(ID3D11DeviceContext* context, const DeferredLightingFrame& frame) {
         if (!frame.season) throw std::runtime_error("Live HDR selection requires current typed lights and Camera settings");
         live_.update(context, frame.view, frame.definition, frame.cameraSettings, frame.camera,
-            *frame.season, frame.phaseFlags, frame.commonClock, frame.refraction, frame.specular);
+            *frame.season, frame.phaseFlags, frame.commonClock, frame.refraction, frame.specular, frame.cluster);
     }
     void execute(ID3D11Device* device, ID3D11DeviceContext* context, NativeSourceDepthState& logical,
         ID3D11ShaderResourceView* sampledD1, ID3D11DepthStencilView* dsv,

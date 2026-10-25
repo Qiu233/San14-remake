@@ -190,6 +190,18 @@ int __cdecl san14_effect_direct_draw_v1(void* value,uint64_t id,const San14Curre
         host.setDirectEffectDraw(id,*material,ordinal);lastError.clear();return 0;
     }catch(...){recordException();return -1;}
 }
+int __cdecl san14_effect_direct_lighting_v1(void* value,uint64_t id,const uint8_t* bytes,uint32_t count,int64_t ordinal) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;
+        if((!bytes&&count)||!host.setDirectEffectLighting)throw std::runtime_error("Direct Effect lighting owner/input absent");
+        host.setDirectEffectLighting(id,bytes,count,ordinal);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_effect_lighting_cluster_v1(void* value,const uint8_t* bytes,uint32_t count) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;
+        if(!bytes||!count||!host.configureEffectLighting)throw std::runtime_error("Effect CLC owner/input absent");
+        host.configureEffectLighting(bytes,count);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
 int __cdecl san14_render_animation_event(void* value,const San14RenderInput* input,uint32_t fpsMode) {
     try {
         auto& owner=*static_cast<Owner*>(value);
