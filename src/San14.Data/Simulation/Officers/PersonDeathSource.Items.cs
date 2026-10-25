@@ -207,13 +207,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             int kind = ItemAssociatedKind(associated);
             if (unchecked((uint)(kind - 4)) <= 5 || kind == 0x13)
             {
-                ushort owner = Known(current.ReadCaptureItemOwner4A(ItemPhysical(item)), "items_protected_owner22DF30");
-                return owner == ItemAssociatedWord76(associated);
+                //22DF30 computes the physical Item-table ordinal; it does
+                //not read that Item's independent holder4A field.
+                return ItemPhysical(item) == ItemAssociatedWord76(associated);
             }
             //These are independent fresh virtual calls, not one cached tag.
             if (ItemAssociatedKind(associated) != 0x11 && ItemAssociatedKind(associated) != 0x12) return false;
-            ushort linkedOwner = ItemAssociatedWord72(associated);
-            if (linkedOwner != Known(current.ReadCaptureItemOwner4A(ItemPhysical(item)), "items_member_owner22DF30")) return false;
+            ushort linkedItem = ItemAssociatedWord72(associated);
+            if (linkedItem != ItemPhysical(item)) return false;
             var members = current.ReadLinkedEntityMemberIds(associated) ?? throw Missing("items_associated_members");
             foreach (uint? entry in members)
             {

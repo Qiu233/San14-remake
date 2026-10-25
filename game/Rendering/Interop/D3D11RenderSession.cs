@@ -24,6 +24,7 @@ public sealed class D3D11MapInput
     public D3D11TerritoryPublication? TerritoryOwnership { get; init; }
     public D3D11CommandMapPublication? CommandMap { get; init; }
     public D3D11RoutePublication? Routes { get; init; }
+    public G1EffectGpuPublication? Effects { get; init; }
     public uint CommandMapFpsMode { get; init; }
     public D3D11ArmyPublication? ArmyWorld { get; init; }
     public ArmyMapGroupingFrame? ArmyGroupingWorld { get; init; }
@@ -61,6 +62,7 @@ public sealed class D3D11MapInput
         TerritoryOwnership = input.TerritoryOwnership;
         CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
         Routes = input.Routes;
+        Effects = input.Effects;
         ArmyWorld = input.ArmyWorld;
         ArmyGroupingWorld = input.ArmyGroupingWorld;
         CityGateWorld = input.CityGateWorld;
@@ -89,6 +91,7 @@ public sealed class D3D11MapInput
 
     internal D3D11MapInput WithElapsed(double elapsedSeconds) => new(this, elapsedSeconds);
     internal D3D11MapInput WithRoutes(D3D11RoutePublication? routes) => new(this, ElapsedSeconds) { Routes = routes };
+    public D3D11MapInput WithEffects(G1EffectGpuPublication? effects) => new(this, ElapsedSeconds) { Effects = effects };
     internal D3D11MapInput WithSceneryWorld(SceneryMapCapture? frame)=>new(this,ElapsedSeconds){SceneryWorld=frame};
     internal D3D11MapInput WithResourceContextGeneration(ulong generation) => new(this, ElapsedSeconds)
         { ArmyWorld = this.ArmyWorld?.WithResourceContextGeneration(generation) };
@@ -139,7 +142,7 @@ public struct D3D11AnimationState
 /// Dispose, run on Godot's render thread. The explicit source directory is an
 /// imported source resources. Actual territory/Army publications
 /// are copied synchronously and retained independently of camera requests.</summary>
-public sealed class D3D11RenderSession : IDisposable
+public sealed partial class D3D11RenderSession : IDisposable
 {
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeInput
@@ -279,6 +282,7 @@ public sealed class D3D11RenderSession : IDisposable
         // Keep the established initial-create ABI and its first publication.
         if (input.CommandMap is not null) throw new InvalidOperationException("Command map display requires an initialized map.");
         if (input.Routes is not null) throw new InvalidOperationException("Route display requires an initialized map.");
+        if (input.Effects is not null) throw new InvalidOperationException("Effect display requires an initialized map.");
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
         NativeReceipt receipt;
@@ -309,7 +313,9 @@ public sealed class D3D11RenderSession : IDisposable
         NativeReceipt receipt; int result;
         try
         {
-            if (input.Routes is { } routes)
+            if (input.Effects is { } effects)
+                result = NextWithEffects(output, input, in native, effects, ref pin, out receipt);
+            else if (input.Routes is { } routes)
             {
                 _mapOverlaysNext ??= Export<MapOverlaysNextCall>("san14_render_next_map_overlays_v1");
                 var routeInput = PinRoutes(routes, ref pin);
@@ -372,6 +378,7 @@ public sealed class D3D11RenderSession : IDisposable
         }
         finally { pin.Dispose(); }
         if (result != 0) throw NativeFailure();
+        if (input.Effects is { } acceptedEffects) _sentEffectResources = acceptedEffects.Resources;
         if (input.CommandMap is { } acceptedCommand)
         {
             _sentCommandMapData = acceptedCommand.Data;
@@ -408,11 +415,14 @@ public sealed class D3D11RenderSession : IDisposable
 
     public void Dispose()
     {
+        lock (_directGate)
+        {
         if (_module == IntPtr.Zero) return;
         RequireRenderThread();
         // Native Owner drains queued work before retiring its coroutine and On12 owners.
         if (_owner != IntPtr.Zero) { _destroy(_owner); _owner = IntPtr.Zero; }
         NativeLibrary.Free(_module); _module = IntPtr.Zero;
+        }
     }
     private D3D11ArmyLabelUnitPosition[] ReadArmyUnitPositions()
     {

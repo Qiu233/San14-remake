@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter campaign)
     : IPlayableNativePeriodContinuationRules, IPlayableNativeArmyPeriodRules, IPlayableNativeNormalTurnRules,
-      INormalTurnSelfRecommendationRules, INormalTurnCoalitionInvitationRules
+      INormalTurnSelfRecommendationRules, INormalTurnCoalitionInvitationRules, INormalPeriodCapturedRulerRules
 {
     private IPlayableNativeArmyProgressStageRules? completedArmyStages;
     private NativeArmyFoodTurnResult? completedFoodTurn;
@@ -64,6 +64,10 @@ public sealed class PlayableNativePeriodContinuation(ArmyCampaignRuleAdapter cam
     public CommandResult ConfirmNormalTurnCoalitionInvitation(GameState state,
         ConfirmCoalitionInvitationOrder order, CommandContext context)
         => campaign.ConfirmNormalTurnCoalitionInvitation(state, order, context);
+
+    public CommandResult ConfirmCapturedRulerTreatment(GameState state,
+        ConfirmCapturedRulerTreatmentOrder order, CommandContext context)
+        => campaign.ConfirmCapturedRulerTreatment(state, order, context);
 
     public GameState CompleteArmyFoodTurn(GameState state)
     {

@@ -24,6 +24,9 @@ public sealed partial class G1EffectMotionRuntime
 
     public void Advance(float seconds) => auxiliaries.Advance(seconds);
 
+    public IEnumerable<G1EffectObjectDataPatch> EnumeratePreparedData() => auxiliaries.EnumeratePreparedData();
+    public IEnumerable<G1EffectObjectDataPatch> EnumerateLiveData() => auxiliaries.EnumerateLiveData();
+
     public void Apply(G1EffectRecord generic, Memory<byte> particle, float seconds)
     {
         ArgumentNullException.ThrowIfNull(generic);

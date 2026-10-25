@@ -23,6 +23,7 @@ public sealed record NativeNormalTurnContinuation(int NextAction, uint RestoreAp
     ImmutableArray<int> RemainingOfficerIds, SelfRecommendationRequest? PendingSelfRecommendation,
     CampaignGroupingCheckpoint Grouping)
 {
+    public System.Collections.Immutable.ImmutableArray<int>? RemainingDeathPersonPhysicalSlots { get; init; }
     public CoalitionInvitationRequest? PendingCoalitionInvitation { get; init; }
     public NormalTurnStoryPlayback? StoryPlayback { get; init; }
 }

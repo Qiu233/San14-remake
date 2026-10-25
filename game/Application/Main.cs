@@ -169,7 +169,7 @@ public partial class Main : Control
         if (_coalitionInvitation is { } invitationQuestion && (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false }
             or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
         { GetViewport().SetInputAsHandled(); RunUiAction(invitationQuestion.RequestCancel); return; }
-        if (HasSelfRecommendation || HasCoalitionInvitation) return;
+        if (HasSelfRecommendation || HasCoalitionInvitation || HasRulerDecision) return;
         if (_diplomacyNegotiation is not null) { HandleDiplomaticNegotiationInput(input); return; }
         if(_consumeBackRelease&&input is InputEventMouseButton { ButtonIndex:MouseButton.Right,Pressed:false })
         { GetViewport().SetInputAsHandled();_consumeBackRelease=false;return; }
@@ -1105,6 +1105,7 @@ public partial class Main : Control
         CloseTalentAutoSearch();
         CloseDiplomacyOrders();
         CloseSelfRecommendation();
+        CloseRulerDecision();
         CloseCoalitionInvitation();
         _automaticNormalTurnAttempt = null;
         CloseDiplomaticNegotiation();

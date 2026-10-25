@@ -1,4 +1,5 @@
 using San14.Core;
+using System.Collections.Immutable;
 
 namespace San14.Data;
 
@@ -11,6 +12,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool,
         Action<string, GameState>? observe = null)
     {
+        internal ImmutableArray<int>? RemainingDeathPersonPhysicalSlots { get; private set; }
+        internal bool Stopped { get; private set; }
+
         internal GameState Run()
         {
             int mode = Mode();
@@ -57,17 +61,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     Sort(candidates);
                     Observe("lifespan.sorted");
-                    var node = Head(candidates);
-                    while (node.Identity.HasValue)
-                    {
-                        int physical = Payload(node);
-                        var death = new PersonDeathSource(package, state, current, pool, observe).ApplyAnnualOrdinary(physical);
-                        state = death.State;
-                        if (death.NativeReturn != 0) throw Missing("death_nonzero_native_continuation");
-                        // The temporary annual list survives registry removal.
-                        // Do not deduplicate a repeated current Person payload.
-                        node = Next(node);
-                    }
+                    var deaths = package.ConsumeNormalTurnDeathPeopleCurrent(state, current, pool,
+                        Nodes(candidates).Select(Payload).ToArray(), observe);
+                    state = deaths.State;
+                    RemainingDeathPersonPhysicalSlots = deaths.Remaining;
+                    Stopped = deaths.Stop;
+                    if (deaths.Remaining is not null || deaths.Stop) return state;
                 }
                 ClearRelease(candidates); candidates = null;
                 var arena = state.ReadArmyLifecycle() ?? throw Missing("lifecycle");

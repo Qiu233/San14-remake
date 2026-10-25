@@ -104,6 +104,8 @@ public partial class Main
             }
             if(entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.TerritoryOccupation)
                 return TryPresentMonthlyTerritory(entry,session,owner,map);
+            if(entry.Request.MapObjectPresentation?.BaseCapture is not null)
+                return TryPresentMonthlyTerritory(entry,session,owner,map);
             var payload=PersonnelPresentationQueue.Message(entry);
             var growth=entry.Request.OfficerGrowthFeedback;
             var scenery=entry.Request.TalentSceneryReward;

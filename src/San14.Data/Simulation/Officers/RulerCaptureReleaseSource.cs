@@ -8,7 +8,7 @@ public sealed record RulerCaptureDecisionReceipt(int PersonPhysical, ushort Pers
     int? FirstSample, int? ReleaseSample, int? ReleaseThreshold, byte NativeAiFlag, string Branch);
 public sealed record RulerCaptureDecisionResult(RulerCaptureDecision? Decision,
     RulerCaptureDecisionReceipt? Receipt, string? UnresolvedOwner);
-public sealed record RulerCaptureReleaseApplicationOwners(bool? NativeTaskScenePresent);
+public sealed record RulerCaptureReleaseApplicationOwners(bool? NativePlayerForcePresent);
 public sealed record RulerCaptureReleaseReceipt(RulerCaptureDecisionReceipt Decision,
     bool RelationshipWritten, byte? WinnerRelationAfter13, byte? PriorForceRelationAfter13,
     short? WinnerPopularityAfter1BE, ushort FirstAfterE2, int ReturnNativeReturn, int? ReturnCommandId, int? ReturnTravelDays);
@@ -115,17 +115,21 @@ public static class RulerCaptureReleaseSource
     public static RulerCaptureReleaseResult Release(GameState state, SourceWorldContext current,
         RulerCaptureDecisionResult decision, NativeMapSeasonDate returnCommandDate,
         RulerCaptureReleaseApplicationOwners application,
-        Func<GameState, int, PersonReturnCommandResult>? returnHome = null)
+        Func<GameState, int, PersonReturnCommandResult>? returnHome = null,
+        Func<GameState, GameState>? presentation = null)
     {
         try {
             if (decision.Decision != RulerCaptureDecision.Release || decision.Receipt is not { } receipt)
                 throw Missing(decision.UnresolvedOwner ?? (decision.Decision == RulerCaptureDecision.PlayerDecisionRequired
                     ? "branch.Lord_player_806D00_decision" : "branch.Lord_execute_27F820_295EE0"));
-            if (K(application.NativeTaskScenePresent, "current.Lord_native_TaskScene_owner"))
-                throw Missing("branch.Lord_original_TaskScene_presentation_history");
+            var working = state;
+            //32EFA0 returns the actual player Force; its reached22E930
+            //primary-District call is not a TaskScene/service-presence gate.
+            if (K(application.NativePlayerForcePresent, "current.Lord_player_Force_validity"))
+                working = (presentation ?? throw Missing("current.Lord_release_presentation_history"))(working);
             int person = receipt.PersonPhysical, winner = receipt.WinnerForcePhysical, original = receipt.PriorForcePhysical;
-            BindCurrent(state, current);
-            var working = state; bool relationWritten = false; byte? afterA = null, afterB = null; short? fame = null;
+            BindCurrent(working, current);
+            bool relationWritten = false; byte? afterA = null, afterB = null; short? fame = null;
             if (K(current.ReadAllegianceDisposition(person), "current.Lord_allegiance_disposition") >= P(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold) && P(SimulationParameterKeys.ArmyDestruction.RulerReleaseRelationGain) != 0 &&
                 K(current.ReadForceNativeValidity(new(winner)), "current.Lord_winner_Force_validity") &&
                 K(current.ReadForceNativeValidity(new(original)), "current.Lord_original_Force_validity") && winner != original) {

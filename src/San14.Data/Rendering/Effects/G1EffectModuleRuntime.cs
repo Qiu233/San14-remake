@@ -32,6 +32,9 @@ internal sealed class G1EffectModuleRuntime : IDisposable
             var byOffset = Generics.ToDictionary(runtime => runtime.Record.FileOffset);
             foreach (var generic in Generics)
             {
+                generic.DirectModuleInstanceKey = this;
+                generic.DirectPreparedObjectData = motion.EnumeratePreparedData;
+                generic.DirectLiveObjectData = motion.EnumerateLiveData;
                 generic.ParticleMotion = (record, slot, dt) =>
                 {
                     motion.ParentStateResolver = generic.ResolveParentState;

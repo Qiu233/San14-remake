@@ -5,12 +5,12 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private sealed class MonthlyFeedbackWorkspace(GameplaySession session, GameState world,
-        MapSceneView map, MonthlyMaintenanceRequest request)
+        MapSceneView map, CampaignEffectRequest request)
     {
         internal GameplaySession Session { get; } = session;
         internal GameState World { get; } = world;
         internal MapSceneView Map { get; } = map;
-        internal MonthlyMaintenanceRequest Request { get; } = request;
+        internal CampaignEffectRequest Request { get; } = request;
         internal CancellationTokenSource Lifetime { get; } = new();
         internal bool Running { get; set; } = true;
     }
@@ -24,7 +24,7 @@ public partial class Main
     private bool TryPresentMonthlyTerritory(PersonnelPresentationEntry entry, GameplaySession session,
         GameState world, MapSceneView map)
     {
-        var request = entry.Request.MonthlyMaintenance!;
+        var request = entry.Request;
         if (_monthlyFeedback is { } previous && IsMonthlyFeedbackCurrent &&
             ReferenceEquals(previous.Request, request)) return previous.Running;
         CloseMonthlyFeedback();
@@ -41,12 +41,17 @@ public partial class Main
         {
             try
             {
-                var result = await map.DispatchMonthlyTerritoryFeedbackAsync(request, audio, feedback.Lifetime.Token);
+                var result = request.MapObjectPresentation is { } capture
+                    ? await map.DispatchBaseCaptureFeedbackAsync(capture, audio, feedback.Lifetime.Token)
+                    : await map.DispatchMonthlyTerritoryFeedbackAsync(request.MonthlyMaintenance!, audio, feedback.Lifetime.Token);
                 if (_monthlyFeedback != feedback || !IsMonthlyFeedbackCurrent) return;
                 //A spatial sound alone does not complete the separate map effect.
                 //Keep the source request until both actual consumers accept it.
                 if (result.AudioAccepted && result.VisualAccepted)
-                    session.TryCompletePersonnelPresentation(world, entry.BatchSequence, entry.RequestIndex);
+                {
+                    if (session.TryCompletePersonnelPresentation(world, entry.BatchSequence, entry.RequestIndex))
+                        map.ForgetCaptureFeedback(request);
+                }
                 else if (result.UnresolvedInput is { } missing)
                     GD.PushWarning("Monthly map feedback: " + missing);
             }

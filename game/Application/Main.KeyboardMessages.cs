@@ -13,7 +13,7 @@ public partial class Main
         if (!key.Pressed || key.Echo || _preferences is null || _failed || _shuttingDown || _advancingPeriod ||
             IsReturningToTitle || HasEnvironmentSettings || HasCampaignSavePage || HasMapSystemMenu ||
             _detailsView is not null || GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit) return false;
-        var view = new[] { _storyPresentation?.View.Message, _personnelPresentation, _forcePolicyAnnouncement, _governanceNarration,
+        var view = new[] { _rulerDecision?.Warning, _storyPresentation?.View.Message, _personnelPresentation, _forcePolicyAnnouncement, _governanceNarration,
             _transportNarration, _deploymentNarration, _campaignDeploymentNarration, _administrationNarration, _cityDomesticNarration, _cityMerchantNarration }
             .FirstOrDefault(candidate => candidate is not null && candidate.IsVisibleInTree() && !candidate.IsQueuedForDeletion());
         if (view is null) return false;

@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include "CommandMapInput.h"
 #include "RouteOverlayInput.h"
+#include "CurrentEffectInput.h"
+#include "CurrentEffectDirectInput.h"
 #ifdef _WIN32
 #define SAN14_RENDER_API extern "C" __declspec(dllexport)
 #else
@@ -65,6 +67,17 @@ SAN14_RENDER_API int __cdecl san14_render_next_command_map_v2(void* owner,void* 
 SAN14_RENDER_API int __cdecl san14_render_next_map_overlays_v1(void* owner,void* output,
     const San14RenderInput* input,const San14CommandMapInputV2* command,
     const San14RouteOverlayInputV1* route,uint32_t outputUse,San14RenderReceipt* receipt);
+SAN14_RENDER_API int __cdecl san14_render_next_map_effects_v1(void* owner,void* output,
+    const San14RenderInput* input,const San14CommandMapInputV2* command,
+    const San14RouteOverlayInputV1* route,const San14CurrentEffectInputV1* effects,
+    uint32_t outputUse,San14RenderReceipt* receipt);
+// Synchronous calls on the same render thread as next; all package bytes are
+// consumed before return. Allocation identities belong to this session.
+SAN14_RENDER_API uint64_t __cdecl san14_effect_direct_create_v1(void* owner,const uint8_t* bytes,uint32_t byteCount);
+SAN14_RENDER_API int __cdecl san14_effect_direct_submit_v1(void* owner,uint64_t allocation,const uint8_t* bytes,uint32_t byteCount);
+SAN14_RENDER_API int __cdecl san14_effect_direct_live_v1(void* owner,uint64_t allocation,int32_t* live);
+SAN14_RENDER_API int __cdecl san14_effect_direct_release_v1(void* owner,uint64_t allocation);
+SAN14_RENDER_API int __cdecl san14_effect_direct_draw_v1(void* owner,uint64_t allocation,const San14CurrentEffectInputV1* material,int64_t submissionOrdinal);
 SAN14_RENDER_API int __cdecl san14_render_animation_event(void* owner,
     const San14RenderInput* input,uint32_t fpsMode);
 SAN14_RENDER_API void __cdecl san14_render_animation_state(void* owner,San14AnimationState* result);

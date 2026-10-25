@@ -27,7 +27,17 @@ public sealed partial class ArmyCampaignRuleAdapter
         var season = state.NativeMapSeason ?? throw PeriodMissing("calendar_owner");
         var clock = state.NativeClock ?? throw PeriodMissing("waiting_owner");
         var resume = state.NativePeriodContinuation?.Cursor;
-        if (season.ProcessedNativeOrdinal != clock.UpdateOrdinal || season.ThirdDate.Hour % 6 != 0 ||
+        long expectedWaiting = season.ProcessedNativeOrdinal;
+        if (resume?.StageIndex == (byte)NativeArmyProgressStage.Defeat)
+        {
+            var reachedDate = season.ThirdDate;
+            for (int cycle = 0; cycle <= resume.CycleIndex; cycle++)
+            {
+                if (NativeArmyProgressAtomicRuntime.IsArmyWaitingDue(reachedDate)) expectedWaiting++;
+                reachedDate = MapSeasonRuntime.StepCalendarWriter(reachedDate).Date;
+            }
+        }
+        if (expectedWaiting != clock.UpdateOrdinal || season.ThirdDate.Hour % 6 != 0 ||
             clock.UpdatesIntoPeriod is < 0 or > NativeSubdayStateValidation.UpdatesPerPeriod)
             throw PeriodMissing("entry_boundary");
         NativeArmyProgressAtomicRuntime.ValidateCursor(state.NativeNormalArmyCombatCalendar);
@@ -54,7 +64,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var diagnostics = resume?.Diagnostics.ToList() ?? new List<NativeNormalArmyCombatPhaseDiagnostic>();
         GameState working = state;
         _periodPresentation?.Invoke(working);
-        while (working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
+        while (resume is not null || working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
         {
             season = working.NativeMapSeason!;
             var date = resume?.Date ?? season.ThirdDate;
@@ -67,7 +77,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ArmyMarchSourceRuntime? movement = null;
                 SourceWorldContext? movementCurrent = null;
                 NativeArmyCombatCycleSampler? sampler = null;
-                for (byte stage = 0; stage < (byte)NativeArmyProgressStage.Count; stage++)
+                for (byte stage = resume?.StageIndex ?? 0; stage < (byte)NativeArmyProgressStage.Count; stage++)
                 {
                     var moment = new NativeArmyProgressStageMoment(ordinal, date, stage, cycle,
                         NativeArmyProgressStageBoundary.StageEntry);
@@ -137,6 +147,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                             var reports = defeated.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
                                 working.NativeClock!.UpdateOrdinal, receipt.UnitId, receipt.ForceId, receipt.PhysicalSlot));
                             working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [], .. reports] };
+                            if (working.ArmyDefeatContinuation is not null)
+                            {
+                                var suspendedPeriod = working.NativePeriodContinuation ?? throw PeriodMissing("stage25_preparation");
+                                var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock);
+                                return new(working with { NativePeriodContinuation = suspendedPeriod with { Cursor = cursor } }, stages);
+                            }
+                            resume = null;
+                            working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedDefeat
+                                ? completedDefeat with { Cursor = null } : null };
                             break;
                         case NativeArmyProgressStage.MaintainArmyCommands:
                             var maintained = TryAdvanceArmyCommandMaintenance(working, moment);

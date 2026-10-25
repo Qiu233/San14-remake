@@ -8,9 +8,19 @@ public sealed record NormalPeriodOperation(GameState Candidate)
     /// after its pending presentation. Only an actual undecided negotiation waits
     /// for a player response; its arrival prefix must not be replayed.</summary>
     public bool RequiresAutomaticDiplomacyContinuation =>
-        Candidate.NativePeriodContinuation?.Cursor is { } cursor &&
+        Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 0 } cursor &&
         Candidate.PersonnelCommands?.Diplomacies?.GetValueOrDefault(cursor.AwaitingDiplomacyTaskId)
             is not { AwaitingNegotiation: true, NativeKind: not 6 };
+
+    public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment =>
+        Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment;
+
+    public RulerSuccessionRequest? PendingRulerSuccession =>
+        Candidate.PersonDeathContinuation?.PendingSuccession;
+
+    public bool RequiresAutomaticArmyDefeatContinuation =>
+        Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 25 } &&
+        PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
 
     public SelfRecommendationRequest? PendingSelfRecommendation =>
         Candidate.NativeNormalTurnContinuation?.PendingSelfRecommendation;
@@ -24,7 +34,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
 
     public bool RequiresAutomaticNormalTurnContinuation =>
         Candidate.NativeNormalTurnContinuation is { PendingSelfRecommendation: null, PendingCoalitionInvitation: null } &&
-        PendingStory is null;
+        PendingStory is null && PendingRulerSuccession is null;
 
     public static bool HasContinuation(GameState state) =>
         state.NativePeriodContinuation?.Cursor is not null || state.NativeNormalTurnContinuation is not null;
@@ -41,10 +51,13 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             preparation.PersonnelReports is null || preparation.Reports is null ||
             preparation.TacticReports is null || preparation.PossibleArrivalOfficers is null)
             throw new InvalidDataException("The normal period continuation is incomplete.");
+        RulerDecisionContinuationValidation.Validate(Candidate);
         if (Candidate.NativeNormalTurnContinuation is { } turn)
         {
-            if (Candidate.NativePeriodContinuation.Cursor is not null || turn.NextAction is not (16 or 25 or 26 or 48 or 49) ||
+            if (Candidate.NativePeriodContinuation.Cursor is not null || turn.NextAction is not (3 or 7 or 8 or 16 or 25 or 26 or 48 or 49) ||
                 turn.Grouping?.Roots is not { Length: 1503 } ||
+                (turn.NextAction is 3 or 7 or 8) != (turn.RemainingDeathPersonPhysicalSlots is not null) ||
+                turn.RemainingDeathPersonPhysicalSlots is { } deaths && (deaths.IsDefault || deaths.Any(id => id is < 0 or > 6000)) ||
                 turn.RemainingOfficerIds.IsDefault || turn.RemainingOfficerIds.Any(id => id is < 0 or > 6000) ||
                 turn.NextAction != 16 && (!turn.RemainingOfficerIds.IsEmpty || turn.PendingSelfRecommendation is not null) ||
                 turn.NextAction == 25 && turn.PendingCoalitionInvitation is null ||
@@ -64,8 +77,9 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             return;
         }
         if (Candidate.NativePeriodContinuation.Cursor is not { } cursor ||
-            cursor.StageIndex != 0 || cursor.CycleIndex is < 0 or > 2 || cursor.Date.Hour != 8 ||
-            cursor.PersonnelAfterSlot < 0 || cursor.AwaitingDiplomacyTaskId < 0 ||
+            cursor.StageIndex is not (0 or 25) || cursor.CycleIndex is < 0 or > 2 ||
+            cursor.StageIndex == 0 && (cursor.Date.Hour != 8 || cursor.PersonnelAfterSlot < 0 || cursor.AwaitingDiplomacyTaskId < 0) ||
+            cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null ||
             Candidate.NativeMapSeason is not { } season ||
             cursor.Date != (season.ThirdDate with { Hour = (sbyte)(season.ThirdDate.Hour + 2 * cursor.CycleIndex) }) ||
             cursor.Grouping.Roots is not { Length: 1503 })
@@ -78,7 +92,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
 public sealed record NormalPeriodPreparation(PersonnelReportEntry[] PersonnelReports,
     PeriodReportEntry[] Reports, TacticReportEntry[] TacticReports, int[] PossibleArrivalOfficers);
 
-/// <summary>Only stage0 can suspend Army Progress. Its completed
+/// <summary>Stage0 personnel and stage25 defeat decisions suspend Army Progress. Completed
 /// personnel slots are skipped on resume, while retirements remain deferred
 /// until the actual manager traversal finishes.</summary>
 public sealed record NativePeriodCursor(int CycleIndex, byte StageIndex, NativeMapSeasonDate Date,

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <mutex>
 #ifdef SAN14_RENDER_OUTPUT_PROBE
 #include "../Runtime/Diagnostics/OutputProbe.h"
 #endif
@@ -22,6 +23,9 @@ static_assert(sizeof(San14ArmyUnitPosition)==sizeof(ArmyLabelUnitPosition));
 static_assert(offsetof(San14ArmyUnitPosition,position)==offsetof(ArmyLabelUnitPosition,position));
 
 struct Owner {
+    // The pump may prepare compute work on its worker between render requests.
+    // The immediate context and coroutine-owned maps have one serialized owner.
+    std::mutex contextGate;
     D3D11InteropOwner interop;
     RenderHost host;
     RenderSession session;
@@ -102,13 +106,14 @@ void* __cdecl san14_render_create(void* device,void* queue,void* output,
     }catch(...){recordException();return nullptr;}
 }
 int __cdecl san14_render_next(void* value,void* output,const San14RenderInput* input,uint32_t outputUse,San14RenderReceipt* receipt) {
-    try{static_cast<Owner*>(value)->publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);lastError.clear();return 0;}
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);lastError.clear();return 0;}
     catch(...){recordException();return -1;}
 }
 int __cdecl san14_render_next_command_map_v1(void* value,void* output,const San14RenderInput* input,
         const San14CommandMapInputV1* command,uint32_t outputUse,San14RenderReceipt* receipt) {
     try {
         auto& owner=*static_cast<Owner*>(value);
+        std::lock_guard guard(owner.contextGate);
         if(!command)throw std::runtime_error("Command map request extension is absent");
         owner.host.commandMap.accept(*command);
         owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
@@ -119,6 +124,7 @@ int __cdecl san14_render_next_command_map_v2(void* value,void* output,const San1
         const San14CommandMapInputV2* command,uint32_t outputUse,San14RenderReceipt* receipt) {
     try {
         auto& owner=*static_cast<Owner*>(value);
+        std::lock_guard guard(owner.contextGate);
         if(!command)throw std::runtime_error("Command map V2 request extension is absent");
         owner.host.commandMap.accept(*command);
         owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
@@ -130,6 +136,7 @@ int __cdecl san14_render_next_map_overlays_v1(void* value,void* output,const San
         uint32_t outputUse,San14RenderReceipt* receipt) {
     try {
         auto& owner=*static_cast<Owner*>(value);
+        std::lock_guard guard(owner.contextGate);
         // Prepare both extensions before publishing either. Route resource/VB
         // failures cannot consume a command revision or resume the coroutine.
         std::optional<decltype(owner.host.commandMap)> commandCandidate;
@@ -143,20 +150,61 @@ int __cdecl san14_render_next_map_overlays_v1(void* value,void* output,const San
         lastError.clear();return 0;
     } catch(...){recordException();return -1;}
 }
+int __cdecl san14_render_next_map_effects_v1(void* value,void* output,const San14RenderInput* input,
+        const San14CommandMapInputV2* command,const San14RouteOverlayInputV1* route,
+        const San14CurrentEffectInputV1* effects,uint32_t outputUse,San14RenderReceipt* receipt) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);
+        std::lock_guard guard(owner.contextGate);
+        std::optional<decltype(owner.host.commandMap)> commandCandidate;
+        if(command){commandCandidate.emplace(owner.host.commandMap);commandCandidate->accept(*command);}
+        if(route){if(!owner.host.replaceRoutes)throw std::runtime_error("Route owner is absent");owner.host.replaceRoutes(*route);}
+        if(effects){if(!owner.host.replaceCurrentEffects)throw std::runtime_error("Current Effect owner is absent");owner.host.replaceCurrentEffects(*effects);}
+        if(commandCandidate)owner.host.commandMap=std::move(*commandCandidate);
+        owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
+        lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+uint64_t __cdecl san14_effect_direct_create_v1(void* value,const uint8_t* bytes,uint32_t count) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;if(!bytes||!count||!host.createDirectEffect)throw std::runtime_error("Direct Effect create owner/package absent");
+        const auto id=host.createDirectEffect(bytes,count);lastError.clear();return id;
+    }catch(...){recordException();return 0;}
+}
+int __cdecl san14_effect_direct_submit_v1(void* value,uint64_t id,const uint8_t* bytes,uint32_t count) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;if(!bytes||!count||!host.submitDirectEffect)throw std::runtime_error("Direct Effect submit owner/package absent");
+        host.submitDirectEffect(id,bytes,count);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_effect_direct_live_v1(void* value,uint64_t id,int32_t* live) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;if(!live||!host.directEffectLive)throw std::runtime_error("Direct Effect live owner/output absent");
+        *live=host.directEffectLive(id);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_effect_direct_release_v1(void* value,uint64_t id) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;if(!host.releaseDirectEffect)throw std::runtime_error("Direct Effect release owner absent");
+        host.releaseDirectEffect(id);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_effect_direct_draw_v1(void* value,uint64_t id,const San14CurrentEffectInputV1* material,int64_t ordinal) {
+    try{auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);auto& host=owner.host;if(!material||!host.setDirectEffectDraw)throw std::runtime_error("Direct Effect draw owner/material absent");
+        host.setDirectEffectDraw(id,*material,ordinal);lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
 int __cdecl san14_render_animation_event(void* value,const San14RenderInput* input,uint32_t fpsMode) {
     try {
         auto& owner=*static_cast<Owner*>(value);
+        std::lock_guard guard(owner.contextGate);
         owner.accept(*input);
         owner.host.animationUpdate(fpsMode);
         lastError.clear();return 0;
     }catch(...){recordException();return -1;}
 }
 void __cdecl san14_render_animation_state(void* value,San14AnimationState* result) {
-    std::memcpy(result,&static_cast<Owner*>(value)->host.animationState,sizeof(*result));
+    auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);std::memcpy(result,&owner.host.animationState,sizeof(*result));
 }
 int __cdecl san14_render_army_unit_positions(void* value,San14ArmyUnitPosition* result,uint32_t capacity) {
     try {
-        const auto positions=static_cast<Owner*>(value)->host.armyUnitPositions();
+        auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);const auto positions=owner.host.armyUnitPositions();
         if(positions.size()>capacity)throw std::runtime_error("Army Unit position output capacity");
         if(!positions.empty())std::memcpy(result,positions.data(),positions.size()*sizeof(*result));
         lastError.clear();return int(positions.size());

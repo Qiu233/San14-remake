@@ -18,6 +18,22 @@ internal partial class UiSourceCaptionButton : UiSourceButton
             _=>throw new ArgumentOutOfRangeException(nameof(sourceLayout))
         };
         var source=new UiSourceLayout(repository,sourceLayout).ResizedSubtree(0,Size,true);
+        ConfigureSource(repository,assets,shader,font,source,firstPreset,text,released);
+    }
+
+    // Common behavior25 is the original cmn_btn_ft, independently resized to
+    // the caller's actual mount. It uses text presets3..7, not round captions.
+    internal void ConfigureFooterText(GameResourceRepository repository,UiAssets assets,Shader shader,
+        MapFont font,string text,Action released)
+    {
+        var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"cmn_btn_ft"))
+            .ResizedSubtree(0,Size,true);
+        ConfigureSource(repository,assets,shader,font,source,3,text,released);
+    }
+
+    private void ConfigureSource(GameResourceRepository repository,UiAssets assets,Shader shader,
+        MapFont font,UiSourceLayout source,int firstPreset,string text,Action released)
+    {
         Size=source.Rectangle(0).Size;
         Rect2 sourceHit=source.Rectangle(1);
         // CCmnButton copies the source HitArea using integer position/size

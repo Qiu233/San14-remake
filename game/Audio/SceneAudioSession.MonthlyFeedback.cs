@@ -3,48 +3,46 @@ using San14.Data;
 
 public partial class SceneAudioSession
 {
-    private readonly HashSet<string> _monthlySpatialChannels = [];
+    private OriginalSpatialOutput? _captureSoundOutput;
 
-    internal async Task PlayMonthlyTerritorySoundAsync(int effectKind, string channel,
-        Node3D world, Vector3 position, Func<float> cameraDistance, CancellationToken cancellationToken)
+    internal async Task<NormalSoundAdmission> PlayCaptureSoundAsync(int managerId,
+        Node3D world, Vector3 position, SpatialSoundMode mode, Func<float> cameraDistance, CancellationToken cancellationToken)
     {
         RequireEngineThread();
         if (_repository is null || _streams is null || _service is null || _sceneCancellation is null)
             throw new InvalidOperationException("Territory sound needs an active audio scene.");
         long revision = SceneRevision;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sceneCancellation.Token);
-        AudioClip? prepared = null;
-        try
-        {
-            var selected = await Task.Run(() =>
+        var selected = await Task.Run(() =>
             {
                 lock (_repository)
                 {
                     linked.Token.ThrowIfCancellationRequested();
                     var bank = AudioSelectionResources.Load(_repository, MapTerritorySoundSource.SelectionBankId);
-                    return MapTerritorySoundSource.ReadPlayback(bank, effectKind);
+                    return SpatialEffectSoundSource.Prepare(bank,
+                        _repository.LoadRdbAsset("RRPreview", NarrationVoiceSelection.OutputResourceId), managerId);
                 }
             }, linked.Token).ConfigureAwait(false);
-            prepared = await _service.PrepareInputAsync(selected.Input, AudioLoopPolicy.Disabled, linked.Token).ConfigureAwait(false);
-            var clip = prepared;
-            await _service.InvokeOnEngineThreadAsync(() =>
+        var playback = await _service.InvokeOnEngineThreadAsync(() =>
             {
                 if (SceneRevision != revision || !GodotObject.IsInstanceValid(world) || !world.IsInsideTree())
                     throw new OperationCanceledException("Territory audio map has retired.");
-                _service.PlaySpatial(clip, channel, world, position, selected.PlaybackRate,
-                    () => selected.GainAt(cameraDistance()), () => _monthlySpatialChannels.Remove(channel));
-                _monthlySpatialChannels.Add(channel);
-                prepared = null; //The spatial voice now owns this clip.
-                return true;
+                if (_captureSoundOutput is null) _captureSoundOutput = new(GetInstanceId(), selected.OutputPlan);
+                else if (_captureSoundOutput.Graph.Source.DecodedSha256 != selected.OutputPlan.Graph.Source.DecodedSha256 ||
+                    _captureSoundOutput.Graph.Classification.Id != selected.Group.ClassificationId)
+                    throw new InvalidDataException("Capture audio resource changed; re-enter the map to bind its route.");
+                return _service.PlaySpatialEffectAsync(selected, _captureSoundOutput, this, world, position,
+                    mode, cameraDistance, linked.Token);
             }, linked.Token).ConfigureAwait(false);
-        }
-        finally { prepared?.Dispose(); }
+        return await playback.ConfigureAwait(false);
     }
 
     internal void StopMonthlyTerritorySounds()
     {
         RequireEngineThread();
-        foreach (string channel in _monthlySpatialChannels.ToArray()) _service?.StopSpatial(channel);
-        _monthlySpatialChannels.Clear();
+        _service?.StopOrdinarySoundsOwnedBy(this);
+        AudioServer.Lock();
+        try { _captureSoundOutput?.Dispose(); _captureSoundOutput = null; }
+        finally { AudioServer.Unlock(); }
     }
 }

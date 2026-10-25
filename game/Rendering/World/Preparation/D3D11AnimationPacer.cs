@@ -12,6 +12,8 @@ public sealed class D3D11AnimationPacer
     private readonly ulong _frequency;
     private ulong _prior;
     public uint FpsMode {get;private set;}
+    public int FramesPerSecond(uint mode) => mode < _fps.Length ? checked((int)_fps[mode])
+        : throw new ArgumentOutOfRangeException(nameof(mode));
     [DllImport("ucrtbase",CallingConvention=CallingConvention.Cdecl)]
     private static extern int clock();
 

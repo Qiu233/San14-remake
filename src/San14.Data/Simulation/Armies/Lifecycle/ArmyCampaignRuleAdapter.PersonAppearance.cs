@@ -92,94 +92,29 @@ public sealed partial class ArmyCampaignRuleAdapter
             next = 3;
             if (annual)
             {
-                state = new AnnualPersonLifespanSource(this, state, current, pool, observe).Run();
+                var source = new AnnualPersonLifespanSource(this, state, current, pool, observe);
+                state = source.Run();
+                if (source.RemainingDeathPersonPhysicalSlots is { } remaining)
+                {
+                    state = PauseNormalTurnDeathsCurrent(state, current, pool, 3, remaining,
+                        saved ?? throw AppearanceTurnMissing("saved_App32"), grouping, normalGroups);
+                    Observe("turn.index3.waiting-for-player");
+                    return new(state, null, next, saved);
+                }
+                if (source.Stopped)
+                    return new(RestoreNormalTurnAppAfterExit(PublishNormalTurnCurrent(state, current, pool),
+                        saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
                 Observe("turn.index3.completed");
             }
             else Observe("turn.index3.skipped");
-            next = 4;
-            if (annual)
-            {
-                state = new AnnualPersonLifespanNotificationSource(this, state, current, pool, observe).Run();
-                Observe("turn.index4.completed");
-            }
-            else Observe("turn.index4.skipped");
-            next = 5;
-            if (annual)
-            {
-                state = new AnnualPersonPortraitTransitionSource(state, current, observe).Run();
-                Observe("turn.index5.completed");
-            }
-            else Observe("turn.index5.skipped");
-            next = 6;
-            if (monthStart)
-            {
-                state = new MonthlyCampaignMaintenanceSource(this, state, current, pool, observe).Run();
-                Observe("turn.index6.completed");
-            }
-            else Observe("turn.index6.skipped");
-            next = 7;
-            if (monthStart)
-            {
-                state = new CampaignNormalTurnPersonnelAgingSource(this, state, current, pool, observe).RunLifespan();
-                Observe("turn.index7.completed");
-            }
-            else Observe("turn.index7.skipped");
-            next = 8;
-            if (monthStart)
-            {
-                state = new CampaignNormalTurnPersonnelAgingSource(this, state, current, pool, observe).RunHealth();
-                Observe("turn.index8.completed");
-            }
-            else Observe("turn.index8.skipped");
-            next = 9;
-            var ending = CheckCampaignNormalTurnEndingCurrent(state, current, pool);
-            state = ending.State ?? throw new InvalidDataException(ending.UnresolvedOwner);
-            Observe("turn.index9.completed");
-            if (ending.Stop) return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
-            next = 10;
-            if (annual)
-            {
-                state = ApplyNormalTurnAnnualCalendarCurrent(state, current, out bool stop);
-                Observe("turn.index10.completed");
-                if (stop) return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
-            }
-            else Observe("turn.index10.skipped");
-            next = 11;
-            //4F8560 is literally return1; it has no world or random writer.
-            Observe("turn.index11.completed");
-            next = 12;
-            state = ApplyNormalTurnForceAbsorptionEventsCurrent(state, current, pool);
-            Observe("turn.index12.completed");
-            next = 13;
-            state = ApplyNormalTurnSpecialForceRelationsCurrent(state, current, pool);
-            Observe("turn.index13.completed");
-            next = 14;
-            if (monthStart)
-            {
-                state = ApplyNormalTurnMonthlyCaptiveEscapesCurrent(state, current, pool);
-                Observe("turn.index14.completed");
-            }
-            else Observe("turn.index14.skipped");
-            next = 15;
-            if (monthStart)
-            {
-                state = ApplyNormalTurnMonthlyDisastersCurrent(state, current, pool);
-                Observe("turn.index15.completed");
-            }
-            else Observe("turn.index15.skipped");
-            next = 16;
-            if (monthStart)
-            {
-                state = ApplyNormalTurnSelfRecommendationsCurrent(state, current, pool,
-                    saved ?? throw AppearanceTurnMissing("saved_App32"), grouping);
-                if (state.NativeNormalTurnContinuation is not null)
-                {
-                    Observe("turn.index16.waiting-for-player");
-                    return new(state, null, next, saved);
-                }
-                Observe("turn.index16.completed");
-            }
-            else Observe("turn.index16.skipped");
+            var early = ApplyNormalTurnEarlyActionsCurrent(state, current, pool, annual, monthStart,
+                saved ?? throw AppearanceTurnMissing("saved_App32"), grouping, normalGroups,
+                reached: action => next = action,
+                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)));
+            state = early.State;
+            if (early.Stop)
+                return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
+            if (state.NativeNormalTurnContinuation is not null) return new(state, null, next, saved);
             state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
                 saved ?? throw AppearanceTurnMissing("saved_App32"), grouping,
                 reached: action => next = action,

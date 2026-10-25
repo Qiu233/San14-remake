@@ -100,41 +100,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             //have no numeric consumer, and are not invented report contexts.
         }
         void Cancel(ForceReference own, ForceReference other)
-        {
-            if (!ValidForce(own) || !ValidForce(other) || own == other) return;
-            int selected = -1;
-            int target = Ordinal(other);
-            for (int index = 0; index < 3; index++)
-                if (K(current.ReadForceAssociationTargetSlot(own, index), "cancel_target19C") == target) { selected = index; break; }
-            if (selected < 0) return;
-            int person = Actor(own, selected);
-            if (!ValidPerson(person)) return;
-            current.WriteForceAssociationTargetSlot(own, selected, 0);
-            current.WriteForceAssociationPersonId(own, selected, 0);
-            state = PersonAssignmentPrecallInputs.PublishAreaAppointments(state, current, [], [],
-                [(K(own.PhysicalSlot, "cancel_Force_pointer"), selected)]);
-            if (!AbsorptionPlayer(current, state, own)) return;
-
-            var main = FormatNormalTurnReport(state, current, 0x3452, new(Person0: Id(person), Force0: target)); state = main.State;
-            ushort location = K(current.ReadPersonFirstLocation(person), "cancel_report_PersonE2");
-            int day = (ReadArmyDestructionSampler(state, current) ?? throw Missing("cancel_World450")).Day450;
-            var home = BaseLookup.Find(location, current);
-            int rawDistrict = K(current.ReadPersonDistrictSlot(person), "cancel_PersonE0");
-            var district = current.ReadDistrictTableReference(rawDistrict < 52 ? rawDistrict : 0) ?? throw Missing("cancel_District_pointer");
-            var hex = current.ReadReportBaseHex(home) ?? throw Missing("cancel_Base_Hex");
-            state = WriteHistory(state, current, new(0, K(current.ReadDistrictPhysicalSlot(district), "cancel_District_ordinal"),
-                K(current.ReadReportMapCellPhysicalSlot(hex), "cancel_Hex_ordinal"), day, main.Text,
-                CampaignHistoryWriter.Supplemental(state), 5012), effects);
-
-            //This entry is exclusively NormalTurn40, outside the original
-            //CEventPlaybackState script controller. That future script caller
-            //must supply its own actual presentation-suppression lifecycle.
-            var source = state;
-            var line = FormatNormalTurnReport(state, current, 0x344D,
-                new(Person0: Id(person), Person1: K(current.ReadForceRecord(K(own.PhysicalSlot, "cancel_ruler_Force"))?.RawRuler10, "cancel_ruler10"), Force0: target));
-            state = line.State;
-            effects.Add(CreateStrategicCommandPresentation(current, source, Id(person), line));
-        }
+            => state = CancelForceAssociationTargetCurrent(state, current, own, other, 0x344D,
+                writeHistory: true, eventPlaybackPresent: false, effects);
         bool Adjacent(ForceReference own, ForceReference other)
         {
             int first = Ordinal(own), second = Ordinal(other);

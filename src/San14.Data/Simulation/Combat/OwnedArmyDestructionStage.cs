@@ -83,7 +83,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             var destroyed = new HashSet<int>();
             // Read the current queue after every callback. A callback can append
             // another request which must settle in this same phase.
-            for (int cursor = 0; cursor < queue.Requests.Count; cursor++)
+            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
             {
                 current.BindOwnedDestructionQueue(queue, working);
                 var request = queue.Requests[cursor];
@@ -111,6 +111,17 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     continue;
                 }
                 var defeat = (UnitDefeatRequest)request;
+                if (working.ArmyDefeatContinuation is { } suspended)
+                {
+                    if (suspended.SettlementIndex != cursor || suspended.Defeat != defeat)
+                        throw Missing("ruler_treatment_settlement_cursor");
+                    var resumed = ResumeRulerTreatmentTail(working, current, world.Pool, suspended, sourceDate, reportIntents);
+                    working = resumed.State;
+                    if (resumed.Receipt is { } resumedReceipt)
+                    { destroyed.Add(resumedReceipt.PhysicalSlot); receipts.Add(resumedReceipt); reports.Add(resumedReceipt.Report); }
+                    queue = current.OwnedDestructionQueue ?? throw Missing("resumed_operation_settlements");
+                    continue;
+                }
                 if (ArmyDestructionQueue.ResolveUnitSlot(working, defeat.VictimUnitId) is not int physical) continue;
                 if (current.ReadArmyUnitNativeValidity(new(physical)) is not bool valid) throw Missing("current.victim_validity");
                 if (!valid || ArmyPending70Admission.ContainsCurrentPointer(new(RegistryKind.Army, physical), new Pending(current))) continue;
@@ -120,8 +131,19 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     throw Missing("current.destruction_cause");
                 var receipt = DestroyCurrent(working, current, world.Pool, defeat, physical,
                     sampler ?? package.ReadArmyDestructionSampler(working, current), sourceDate, reportIntents,
-                    forcedDuelCapture: forcedCapture, duelDeath: duelDeath);
+                    forcedDuelCapture: forcedCapture, duelDeath: duelDeath, allowPlayerRulerPause: true);
                 working = receipt.State;
+                if (working.ArmyDefeatContinuation is { } pendingDecision)
+                {
+                    working = working with { ArmyDefeatContinuation = pendingDecision with { SettlementIndex = cursor } };
+                    working = PublishCurrent(working, current, world.Pool, destroyed, queue, projectOwnedRoles: true);
+                    if (reportIntents.Count != 0)
+                        working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                            ?? throw Missing("report_pending_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                                working.NativeClock?.UpdateOrdinal ?? throw Missing("report_source_revision"), reportIntents) };
+                    return new(working, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(),
+                        SourceReports = reports.ToArray() };
+                }
                 if (receipt.Receipt is { } completed)
                 {
                     destroyed.Add(physical); receipts.Add(completed);
@@ -148,7 +170,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         UnitDefeatRequest request, int physical, TacticSourceSamplerWorld? sampler,
         NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback,
         Action<ArmyUnitReference>? refresh = null, Action<int>? personChanged = null,
-        bool projectOwnedRoles = false, bool forcedDuelCapture = false, bool duelDeath = false)
+        bool projectOwnedRoles = false, bool forcedDuelCapture = false, bool duelDeath = false,
+        bool allowPlayerRulerPause = false, ArmyDefeatContinuation? resumed = null)
     {
         if (request.WinnerUnitId == request.VictimUnitId)
             throw Missing("branch.ordinary_null_winner_mode1_cause0");
@@ -173,61 +196,72 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         ushort commanderId = Known(current.ReadArmyUnitCommanderId(victim), "Army12");
         int commander = (commanderId <= 6000 ? current.ReadPersonLookupReference(commanderId) : current.ReadTransferPersonTableReference(0))?.PhysicalSlot
             ?? throw Missing("current.Commander_pointer");
-        if (!state.Officers.TryGetValue(commanderId, out var person) || current.ReadPersonNativeValidity(commander) != true ||
-            current.ReadPersonStatus(commander) is not (>= 1 and <= 4))
+        if (!state.Officers.TryGetValue(commanderId, out var person) || resumed is null &&
+            (current.ReadPersonNativeValidity(commander) != true || current.ReadPersonStatus(commander) is not (>= 1 and <= 4)))
             throw Missing("branch.ordinary_employed_Commander");
-        var force = current.ReadArmyUnitForceReference(victim);
-        if (force.PhysicalSlot is not (>= 1 and <= 45) || current.ReadForceNativeValidity(force) != true ||
-            current.ReadPersonStatus(commander) == 1 && current.ReadForceRecord(force.PhysicalSlot.Value)?.RawRuler10 != commanderId)
+        var force = resumed is null ? current.ReadArmyUnitForceReference(victim) : new ForceReference(resumed.VictimForceId);
+        if (resumed is null && (force.PhysicalSlot is not (>= 1 and <= 45) || current.ReadForceNativeValidity(force) != true ||
+            current.ReadPersonStatus(commander) == 1 && current.ReadForceRecord(force.PhysicalSlot.Value)?.RawRuler10 != commanderId))
             throw Missing("branch.ordinary_current_Force");
-        var captured = ArmyDestructionResources.CaptureOwners(current, victim, winner, winnerBase);
+        var captured = resumed is null ? ArmyDestructionResources.CaptureOwners(current, victim, winner, winnerBase) :
+            new ArmyDestructionResourceOwners(new(BaseKind.City, resumed.HomeCityId), new(resumed.WinnerForceId));
         if (captured.VictimHome is not { Kind: BaseKind.City, PhysicalSlot: int home } ||
-            current.ReadBaseNativeValidity(captured.VictimHome) != true || current.ReadBaseForceSlot(captured.VictimHome) != force.PhysicalSlot)
+            resumed is null && (current.ReadBaseNativeValidity(captured.VictimHome) != true ||
+                current.ReadBaseForceSlot(captured.VictimHome) != force.PhysicalSlot))
             throw Missing("branch.same_friendly_original_home");
-        int hex = Known(current.ReadArmyUnitRawHex2A(victim), "Army2A");
+        int hex = resumed?.HexId ?? Known(current.ReadArmyUnitRawHex2A(victim), "Army2A");
         bool atHome = current.ReadBaseCurrentHexIndex(captured.VictimHome) == hex;
         var effects = new List<string>();
-        if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 1, true)) throw Missing("current.Army150");
-        effects.Add("25944F.2409E0_Army150_bit1");
-        //2C8DA0 is called before any cached trait cleanup, even when the later
-        //known-null winner branch does not need capture immunity.
-        int captureImmunity = CachedEffect(current, victim, 0x36);
-        if (refresh is null)
-        {
-            var cleanup = ArmyReturnTraitCleanup.ApplyCurrent(victim, current, pool, new(false, false));
-            if (cleanup.Packet is null) throw Missing(cleanup.UnresolvedOwner ?? "current.trait_cleanup");
-        }
-        else
-        {
-            var cleanup = new ArmyReturnTraitCleanup.Current(current, pool, refresh, personChanged);
-            for (int i = 0; i < 9; i++) cleanup.ClearCommanderSlot(victim, i);
-            for (int i = 0; i < 36; i++) cleanup.ClearReceivedSlot(victim, i);
-        }
-        effects.Add("259526.nine2A2340_then36_2A2540");
-        bool immune = PersonalityImmunity(state, current, commander);
-        effects.Add("2595A0.2307D0_Personality_temporary");
-        bool protectedNearby = NearbyProtection(state, current, victim, force, sourceDate);
-        effects.Add("259729.2A78D0_protector_temporary");
         PersonArmyInjuryReceipt? injuryReceipt = null;
-        if (duelDeath)
+        int captureImmunity = resumed?.CaptureImmunity ?? 0;
+        if (resumed is null)
         {
-            var death = package.ApplyDuelDeathCurrent(state, current, pool, commander, winnerPerson);
-            state = death.State;
-            //295EE0 can retire the victim's Force, including this Army. The
-            //original259360 caller returns immediately in that case.
-            if (death.NativeReturn != 0) return (state, null);
-            effects.Add("259C32.duel_death295EE0_cause1");
+            if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 1, true)) throw Missing("current.Army150");
+            effects.Add("25944F.2409E0_Army150_bit1");
+            //2C8DA0 is called before any cached trait cleanup, even when the later
+            //known-null winner branch does not need capture immunity.
+            captureImmunity = CachedEffect(current, victim, 0x36);
+            if (refresh is null)
+            {
+                var cleanup = ArmyReturnTraitCleanup.ApplyCurrent(victim, current, pool, new(false, false));
+                if (cleanup.Packet is null) throw Missing(cleanup.UnresolvedOwner ?? "current.trait_cleanup");
+            }
+            else
+            {
+                var cleanup = new ArmyReturnTraitCleanup.Current(current, pool, refresh, personChanged);
+                for (int i = 0; i < 9; i++) cleanup.ClearCommanderSlot(victim, i);
+                for (int i = 0; i < 36; i++) cleanup.ClearReceivedSlot(victim, i);
+            }
+            effects.Add("259526.nine2A2340_then36_2A2540");
+            bool immune = PersonalityImmunity(state, current, commander);
+            effects.Add("2595A0.2307D0_Personality_temporary");
+            bool protectedNearby = NearbyProtection(state, current, victim, force, sourceDate);
+            effects.Add("259729.2A78D0_protector_temporary");
+            if (duelDeath)
+            {
+                var death = package.ApplyDuelDeathCurrent(state, current, pool, commander, winnerPerson);
+                state = death.State;
+                if (death.NativeReturn is null)
+                {
+                    if (!allowPlayerRulerPause) throw Missing("player_successor_immediate_stage_owner");
+                    return (state with { ArmyDefeatContinuation = Checkpoint(ArmyDefeatResumePoint.AfterPersonDeath) }, null);
+                }
+                //295EE0 can retire the victim's Force, including this Army. The
+                //original259360 caller returns immediately in that case.
+                if (death.NativeReturn != 0) return (state, null);
+                effects.Add("259C32.duel_death295EE0_cause1");
+            }
+            else if (!immune && !protectedNearby)
+            {
+                var injury = forcedDuelCapture
+                    ? PersonArmyInjurySource.ApplyForcedCapture(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler)
+                    : PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler);
+                if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
+                injuryReceipt = injury.Receipt;
+            }
+            if (!duelDeath)
+                effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
         }
-        else if (!immune && !protectedNearby)
-        {
-            var injury = forcedDuelCapture
-                ? PersonArmyInjurySource.ApplyForcedCapture(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler)
-                : PersonArmyInjurySource.Apply(state, current, commander, winnerPerson, package.CreateArmyDestructionAbilities(current), sampler);
-            if (injury.NativeReturn is null) throw Missing(injury.UnresolvedOwner ?? "current.27D900");
-            injuryReceipt = injury.Receipt;
-        }
-        if (!duelDeath)
-            effects.Add(forcedDuelCapture ? "259C32.forced_capture27D900_type2_current" : "259C32.ordinary27D900_healthy_current");
         var resource = ArmyDestructionResources.Prepare(state, current, victim, winner, winnerBase, captured);
         if (resource.Packet is null) throw Missing(resource.UnresolvedOwner ?? "current.resources259360");
         ArmyDestructionResources.ApplyContext(resource.Packet);
@@ -292,7 +326,20 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     if (PersonPositionRepair.DecodeSecondLocation(Known(current.ReadPersonSecondLocation(commander), "captured_PersonE4")).Kind != 27)
                         throw Missing("branch.2E0FC0_captured_Person_custody");
                     var decision = RulerCaptureReleaseSource.Decide(state, current, commander, captured.WinnerForce, sampler);
-                    if (decision.Decision == RulerCaptureDecision.ExecuteRequired)
+                    if (decision.Decision == RulerCaptureDecision.PlayerDecisionRequired)
+                    {
+                        if (!allowPlayerRulerPause || state.NativePeriodContinuation is null)
+                            throw Missing("player_ruler_treatment_deferred_stage25_owner");
+                        var prepared = package.PrepareCapturedRulerTreatmentCurrent(state, current,
+                            decision.Receipt ?? throw Missing("player_ruler_treatment_context"));
+                        state = prepared.State;
+                        if (captureAnnouncement is { } announced)
+                            feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announced.OfficerId,
+                                announced.OfficerNameAtSource, announced.MessageRoot, announced.SoundId) });
+                        return (state with { ArmyDefeatContinuation = Checkpoint(ArmyDefeatResumePoint.AfterRulerTreatment) with
+                            { PendingCapturedRulerTreatment = prepared.Request } }, null);
+                    }
+                    else if (decision.Decision == RulerCaptureDecision.ExecuteRequired)
                     {
                         state = package.ApplyRulerCaptureExecutionCurrent(state, current, pool, decision,
                             sourceDate ?? throw Missing("current.Lord_execute_World34_date"), feedback);
@@ -340,6 +387,37 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             state = returned.State ?? throw Missing(returned.UnresolvedOwner ?? "current.remote_return_create");
             effects.Add("25B7CE.2EA9A0_1F24F0_1F68B0_remote_return_command");
         }
+        return CompleteDestructionTail(state, current, pool, Checkpoint(ArmyDefeatResumePoint.AfterRulerTreatment),
+            sourceDate, feedback, projectOwnedRoles, effects, injuryReceipt, captureReceipt, releaseReceipt,
+            custodyReceipt, captureAnnouncement);
+
+        ArmyDefeatContinuation Checkpoint(ArmyDefeatResumePoint point) => CreateDefeatCheckpoint(state,
+            current, request, physical, commanderId, force, captured, hex, winner, winnerCommander,
+            winnerBaseValid ? winnerBase : null, sampler, point, captureImmunity);
+    }
+
+    private (GameState State, OwnedArmyDestructionReceipt? Receipt) CompleteDestructionTail(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, ArmyDefeatContinuation checkpoint,
+        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback, bool projectOwnedRoles,
+        List<string>? sourceEffects = null, PersonArmyInjuryReceipt? injuryReceipt = null,
+        PersonArmyCaptureReceipt? captureReceipt = null, RulerCaptureReleaseReceipt? releaseReceipt = null,
+        PersonArmyCaptureWholeReceipt? custodyReceipt = null, ForcedDuelCaptureAnnouncement? captureAnnouncement = null)
+    {
+        int physical = checkpoint.ArmyPhysicalSlot, id = checkpoint.Defeat.VictimUnitId,
+            commanderId = checkpoint.CommanderOfficerId, hex = checkpoint.HexId, home = checkpoint.HomeCityId;
+        int commander = current.ReadPersonLookupReference(commanderId)?.PhysicalSlot
+            ?? throw Missing("resume_Commander_pointer");
+        var victim = new ArmyUnitReference(physical);
+        var winner = new ArmyUnitReference(checkpoint.WinnerArmyPhysicalSlot);
+        int? winnerPhysical = checkpoint.WinnerArmyPhysicalSlot, winnerCommander = checkpoint.WinnerOfficerId;
+        var winnerBase = checkpoint.WinnerBase is { } savedBase
+            ? ArmyDestructionQueue.ResolveBaseReference(state, current, savedBase) : new BaseReference(BaseKind.City, null);
+        bool winnerBaseValid = checkpoint.WinnerBase is not null;
+        var force = new ForceReference(checkpoint.VictimForceId);
+        var captured = new ArmyDestructionResourceOwners(new(BaseKind.City, home), new(checkpoint.WinnerForceId));
+        TacticSourceSamplerWorld? sampler = checkpoint.SampleDay is int day && checkpoint.SampleSalt is int salt
+            ? new(day, salt) : null;
+        var effects = sourceEffects ?? new List<string>();
         //25B801..25B869: native-valid, nondead Person and no special
         //Army-reclaim suppression. This entry supports ordinary Force1..45,
         //so the source's Force51/special-native bVar35 is always false here.
@@ -411,7 +489,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         if (captureAnnouncement is { } announcement)
             feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announcement.OfficerId,
                 announcement.OfficerNameAtSource, announcement.MessageRoot, announcement.SoundId) });
-        return (state, new(physical, id, commanderId, army.ForceId, hex, home, injuryReceipt, effects)
+        return (state, new(physical, id, commanderId, checkpoint.VictimForceId, hex, home, injuryReceipt, effects)
             { WinnerUnitId = winnerUnitId, WinnerCommanderId = winnerCommander,
                 WinnerBaseLocation = winnerBaseValid ? Known(current.ReadBaseObjectLink(winnerBase), "winner_Base4E") : null,
                 WinnerReward = winnerReward,

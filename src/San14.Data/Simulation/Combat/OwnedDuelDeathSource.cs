@@ -7,7 +7,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     //259360 cause1 passes (victim,killer,1,0,1,null,1,1,0) to295EE0.
     //The enclosing destruction owns the Army; this call owns only the actual
     //Person transition and its source-time reports, items and relationships.
-    internal (GameState State, int NativeReturn) ApplyDuelDeathCurrent(GameState state,
+    internal (GameState State, int? NativeReturn) ApplyDuelDeathCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int person,
         TransferPersonReference killer) => new PersonDeathSource(this, state, current, pool)
             .ApplyCombatDeath(person, killer, 1, false);

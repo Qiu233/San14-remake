@@ -60,12 +60,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 foreach (int person in HealthPeople(sick)) HealthReport(person, 0x5D7F);
                 foreach (int person in HealthPeople(recovered)) HealthReport(person, 0x5D80);
                 HealthSortDeaths(deaths);
-                foreach (int person in HealthPeople(deaths))
-                {
-                    var result = new PersonDeathSource(package, state, current, pool, observe).ApplyAnnualOrdinary(person);
-                    state = result.State;
-                    if (result.NativeReturn != 0) throw Missing("health.death_nonzero_continuation");
-                }
+                var result = package.ConsumeNormalTurnDeathPeopleCurrent(state, current, pool,
+                    HealthPeople(deaths).ToArray(), observe);
+                state = result.State;
+                RemainingDeathPersonPhysicalSlots = result.Remaining;
+                Stopped = result.Stop;
+                if (result.Remaining is not null || result.Stop) return state;
                 Observe("health.completed");
                 return state;
             }

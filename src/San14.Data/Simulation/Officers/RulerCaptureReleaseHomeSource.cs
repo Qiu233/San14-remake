@@ -11,7 +11,41 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool, RulerCaptureDecisionResult decision,
         NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
     {
-        return RulerCaptureReleaseSource.Release(state, current, decision, date, new(false), ReturnHome);
+        var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("player_Force");
+        bool playerValid = Need(current.ReadForceNativeValidity(player), "player_Force_validity");
+        return RulerCaptureReleaseSource.Release(state, current, decision, date, new(playerValid), ReturnHome, Present);
+
+        GameState Present(GameState image)
+        {
+            var receipt = decision.Receipt ?? throw Missing("decision_context");
+            var playerDistrict = ForcePrimaryDistrictSource.Resolve(current, player);
+            var selected = new PersonDeathHistorySelection(image, current, pool, SearchAbilities(current), _governorInputs,
+                (force, effect) => _baseCapacityInputs.ReadPanelModifier(image, force, effect)).Select(playerDistrict);
+            int reporter = selected.PhysicalSlot is int at && Need(current.ReadPersonNativeValidity(at), "reporter_validity")
+                ? Need(current.ReadPersonIdentity(at), "reporter_Person10") : 5012;
+            var before = image;
+            var speech = FormatNormalTurnReport(image, current, 0x2C51,
+                new(Person0: receipt.PersonId, Person1: receipt.WinnerRulerId));
+            image = speech.State;
+            effects.Add(CreateSingleOfficerPresentation(current, before, receipt.PersonId, speech,
+                TalentCommandPresentationOperation.ConditionalOfficerText, "ruler.release"));
+            if (Need(player.PhysicalSlot, "player_Force_ordinal") == receipt.WinnerForcePhysical) return image;
+            var main = FormatNormalTurnReport(image, current, 0x2C63,
+                new(Force0: receipt.WinnerForcePhysical, Person0: receipt.PersonId));
+            image = main.State;
+            int playerRuler = Need(current.ReadMoraleWaveRuler22EAC0(player), "player_ruler");
+            var detail = FormatNormalTurnReport(image, current, 0x5303,
+                new(Person0: reporter, Person1: playerRuler, Person2: receipt.PersonId, Force0: receipt.WinnerForcePhysical));
+            image = detail.State;
+            var victimForce = current.ReadPersonForce(receipt.PersonPhysical) ?? throw Missing("history_victim_Force");
+            var district = ForcePrimaryDistrictSource.Resolve(current, victimForce);
+            var position = PersonReturnCommands.ResolvePersonPosition(image, current, receipt.PersonPhysical, date);
+            if (current.ReadOwnedPersonCommandManager() is { } positioned) image = image with { PersonnelCommands = positioned };
+            int day = (ReadArmyDestructionSampler(image, current) ?? throw Missing("history_World450")).Day450;
+            return WriteHistory(image, current, new(1, Need(district.PhysicalSlot, "history_District"),
+                Need(position.PhysicalSlot, "history_Hex"), day, main.Text, detail.Text, reporter,
+                MarkBit0: 1, MarkBit3: 1), effects);
+        }
 
         PersonReturnCommandResult ReturnHome(GameState image, int person)
         {

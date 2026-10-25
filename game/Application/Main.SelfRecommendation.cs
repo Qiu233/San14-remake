@@ -20,6 +20,11 @@ public partial class Main
     // suspended candidate, while the visible committed world stays unchanged.
     private bool RefreshNormalTurnContinuation()
     {
+        if (HasRulerDecision)
+        {
+            if (IsRulerDecisionCurrent) return true;
+            CloseRulerDecision();
+        }
         if (HasStoryPresentation)
         {
             if (IsStoryPresentationCurrent) return true;
@@ -43,6 +48,7 @@ public partial class Main
             _residentMap is not { IsPlayableMapReady: true } map ||
             _session is not { PlayerForceId: int player, PendingNormalPeriod: { } pending } session)
             return false;
+        if (TryOpenRulerDecision(session, pending, composition, map, player)) return true;
         if (pending.PendingSelfRecommendation is { } request)
         {
             if (request.ForceId != player)
@@ -78,7 +84,7 @@ public partial class Main
         }
         if (pending.PendingStory is not null)
             return TryOpenStoryPresentation(session, pending, composition, map);
-        if (!pending.RequiresAutomaticNormalTurnContinuation) return false;
+        if (!pending.RequiresAutomaticNormalTurnContinuation && !pending.RequiresAutomaticArmyDefeatContinuation) return false;
         // A failed worker must not immediately retry the same immutable
         // operation through the refresh path. The normal Advance remains
         // available for an explicit retry after its cause has been resolved.

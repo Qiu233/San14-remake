@@ -16,7 +16,7 @@ public partial class Main
         int usage = KeyboardPhysicalInput.Hid(key.PhysicalKeycode);
         if (!key.Pressed && gameplayKeyboardConsumedPresses.Remove(usage)) return true;
         if (!key.Pressed || key.Echo || usage == 0 || _preferences is null || _failed || _shuttingDown ||
-            _advancingPeriod || IsReturningToTitle || HasSelfRecommendation || HasCoalitionInvitation || _diplomacyNegotiation is not null ||
+            _advancingPeriod || IsReturningToTitle || HasSelfRecommendation || HasCoalitionInvitation || HasRulerDecision || _diplomacyNegotiation is not null ||
             _session is not { PlayerForceId: not null } || _world is null ||
             HasEnvironmentSettings || GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit) return false;
 

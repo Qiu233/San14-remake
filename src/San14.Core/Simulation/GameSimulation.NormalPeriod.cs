@@ -17,6 +17,24 @@ public sealed partial class GameSimulation
         CommandContext context, IOrderAuthority authority, CampaignAppRandomState? appRandomSnapshot)
     {
         var pending = _normalPeriod!;
+        if (pending.PendingRulerSuccession is { } succession)
+        {
+            if (order is not ConfirmRulerSuccessionOrder selected || selected.ForceId != succession.ForceId ||
+                !succession.CandidateOfficerIds.Contains(selected.OfficerId))
+                return CommandResult.Reject("The campaign is awaiting its ruler successor.", "command.pending_succession");
+            var rulerResult = GameEngine.ApplyCandidate(pending.Candidate, order, rules, context, authority);
+            if (rulerResult.Accepted) _normalPeriod = new(rulerResult.State!);
+            return rulerResult;
+        }
+        if (pending.PendingCapturedRulerTreatment is { } treatment)
+        {
+            if (order is not ConfirmCapturedRulerTreatmentOrder selected || selected.ForceId != treatment.CapturingForceId ||
+                selected.OfficerId != treatment.OfficerId)
+                return CommandResult.Reject("The campaign is awaiting its captive ruler decision.", "command.pending_ruler_treatment");
+            var capturedResult = GameEngine.ApplyCandidate(pending.Candidate, order, rules, context, authority);
+            if (capturedResult.Accepted) _normalPeriod = new(capturedResult.State!);
+            return capturedResult;
+        }
         if (pending.Candidate.NativeNormalTurnContinuation is { } turn)
         {
             if (turn.PendingCoalitionInvitation is { } invitation)
@@ -54,6 +72,8 @@ public sealed partial class GameSimulation
 
     private static void RequireNormalPeriodConfirmed(NormalPeriodOperation pending)
     {
+        if (pending.PendingRulerSuccession is not null || pending.PendingCapturedRulerTreatment is not null)
+            throw new InvalidOperationException("The ruler decision requires a player response.");
         if (pending.Candidate.NativeNormalTurnContinuation is { } turn)
         {
             if (turn.PendingSelfRecommendation is not null || turn.PendingCoalitionInvitation is not null)

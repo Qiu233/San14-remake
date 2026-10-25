@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -22,7 +22,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //The common death caller retains its outer relationship temporaries.
         //A normal293BD0 completion returns0; only its actual terminal service
         //can return1 and bypass the remaining Person reset.
-        private int ApplyRulerSuccession(int person, TransferPersonReference killer, bool willUnregister)
+        private int? ApplyRulerSuccession(int person, TransferPersonReference killer, bool willUnregister)
         {
             _ = deathOriginalForce ?? throw Missing("ruler_captured_Force");
             _ = deathOriginalCity ?? throw Missing("ruler_captured_City");
@@ -30,14 +30,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             ApplyRulerDeathCoalitionTarget(person, killer);
             if (willUnregister)
             {
-                //This caller reaches293BD0 with the ruler and its residual
-                //Base/Army/Person owners still live. The empty-retirement
-                //leaf is not that operation and cannot stand in for it.
-                throw Missing("death_force_unregister293BD0_current_operation");
+                var effects = new List<CampaignEffectRequest>();
+                var retired = new ForceUnregisterSource(package).ApplyDeathCurrent(latest, current, pool,
+                    deathOriginalForce, latest.NativeMapSeason?.ThirdDate ?? throw Missing("ruler_unregister_date"), effects);
+                latest = retired.State;
+                AppendRulerSuccessionEffects(effects);
+                if (retired.NativeReturn != 0) return retired.NativeReturn;
+                if (!Valid(killer)) DropUnregisteredRulerItems(person);
             }
             else
             {
-                int successor = ApplyRulerSuccessorSelection(person);
+                int? chosen = ApplyRulerSuccessorSelection(person);
+                if (chosen is null) return null;
+                int successor = chosen.Value;
                 if (!Valid(killer))
                     foreach (var item in PersonItems(person))
                     {
@@ -48,6 +53,32 @@ public sealed partial class ArmyCampaignRuleAdapter
             //The original caller still invokes2BE120, including its prefix
             //when the special ruler transfer has emptied the Item iterator.
             return 0;
+        }
+
+        private void DropUnregisteredRulerItems(int person)
+        {
+            var pending = Temporary();
+            try
+            {
+                var city = deathOriginalCity ?? throw Missing("ruler_Items_original_City");
+                foreach (var item in PersonItems(person))
+                {
+                    Append(pending, item);
+                    int count = ItemCityAreas(city).Count();
+                    int chosen = DrawItemApp32(count), index = 0;
+                    foreach (var area in ItemCityAreas(city))
+                    {
+                        if (index++ != chosen) continue;
+                        ClearItemFlag3(item);
+                        int location = Known(current.ReadAreaPhysicalSlot(new(area.PhysicalSlot)), "ruler_Item_Area_identity");
+                        _ = WriteItem324580(item, 0, location, 2, 0);
+                        break;
+                    }
+                }
+                for (var node = ItemHead(pending); node.Identity.HasValue; node = ItemNext(node))
+                    _ = UnregisterItem(ItemPayload(node, RegistryKind.Item));
+            }
+            finally { ClearRelease(pending); }
         }
 
         private int CountRulerServingPeople(ForceReference force)
@@ -143,7 +174,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (effects.Count == 0) return;
             var queue = latest.CampaignEffectRequests ?? throw Missing("ruler_effect_owner");
             long revision = latest.NativeClock?.UpdateOrdinal ?? throw Missing("ruler_effect_revision");
-            latest = latest with { CampaignEffectRequests = queue.Append(CampaignEffectSource.MonthlyMaintenance, revision, effects) };
+            int start = 0;
+            while (start < effects.Count)
+            {
+                CampaignEffectSource source = Source(effects[start]);
+                int end = start + 1;
+                while (end < effects.Count && Source(effects[end]) == source) end++;
+                queue = queue.Append(source, revision, effects.Skip(start).Take(end - start).ToArray());
+                start = end;
+            }
+            latest = latest with { CampaignEffectRequests = queue };
+            static CampaignEffectSource Source(CampaignEffectRequest request) =>
+                request.ArmyTraitFeedback is not null || request.ArmyTraitViewRefresh is not null
+                    ? CampaignEffectSource.ArmyBattleDefeat : CampaignEffectSource.MonthlyMaintenance;
         }
     }
 }

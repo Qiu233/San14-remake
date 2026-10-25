@@ -7,13 +7,13 @@ internal sealed record ArmySpeechAudioContext(Node3D World, NarrationSpatialVoic
 public partial class SceneAudioSession
 {
     private sealed class ArmySpeechVoice(string channel, ArmyMapSpeechSpatialVoiceRequest request,
-        NarrationSpatialVoicePlayback playback, OriginalSpatialVoiceOutput output, Node3D world,
+        NarrationSpatialVoicePlayback playback, OriginalSpatialOutput output, Node3D world,
         long revision, CancellationTokenSource lifetime)
     {
         internal readonly string Channel = channel;
         internal readonly ArmyMapSpeechSpatialVoiceRequest Request = request;
         internal readonly NarrationSpatialVoicePlayback Playback = playback;
-        internal readonly OriginalSpatialVoiceOutput Output = output;
+        internal readonly OriginalSpatialOutput Output = output;
         internal readonly Node3D World = world;
         internal readonly long Revision = revision;
         internal readonly CancellationTokenSource Lifetime = lifetime;
@@ -22,7 +22,7 @@ public partial class SceneAudioSession
 
     private readonly Dictionary<string, ArmySpeechVoice> _armySpeechVoices = [];
     private readonly Dictionary<NarrationVoiceLanguage, Task<(AudioSelectionBank Bank, LoadedRdbAsset Categories)>> _armySpeechBanks = [];
-    private OriginalSpatialVoiceOutput? _armySpeechOutput;
+    private OriginalSpatialOutput? _armySpeechOutput;
     private long _armySpeechVoiceSequence;
 
     //Loading is asynchronous and precedes the formatting transaction. A pending

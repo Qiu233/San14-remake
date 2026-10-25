@@ -156,7 +156,8 @@ internal static class PersonReturnDistrictReorganizationSource
     //293490(District, retained primary,0): serving and captive members move
     //before Cities, then the real District24 stock, group and registry tails.
     internal static IReadOnlyList<ArmyReturnGovernorPacket> MergeCurrent(SourceWorldContext current,
-        DistrictReference old, DistrictReference target, ArmyReturnDistrictOperationQueries operation)
+        DistrictReference old, DistrictReference target, ArmyReturnDistrictOperationQueries operation,
+        Action<BaseReference, List<ArmyReturnGovernorPacket>>? neutralizeBase = null)
     {
         int from = K(old.PhysicalSlot, "merge_old_District"), to = K(target.PhysicalSlot, "merge_target_District");
         if (from == to) throw Missing("merge_primary_self");
@@ -188,7 +189,12 @@ internal static class PersonReturnDistrictReorganizationSource
             var city = current.ReadCityTableReference(slot) ?? throw Missing("merge_City_table");
             if (K(current.ReadBaseDistrictSlot(city), "merge_City78") != from) continue;
             if (!K(current.ReadDistrictNativeValidity(target), "merge_target_validity"))
-                throw Missing("neutral_District_City_resources");
+            {
+                if (neutralizeBase is null) throw Missing("neutral_District_City_resources");
+                current.SetCityDistrictSlot(K(city.PhysicalSlot, "neutral_City_physical"), (byte)Math.Clamp(to, 0, 51));
+                neutralizeBase(city, governors);
+                continue;
+            }
             current.SetCityDistrictSlot(slot, (byte)Math.Clamp(to, 0, 51));
             Update(city);
             foreach (var gate in Gates(current))
@@ -224,7 +230,10 @@ internal static class PersonReturnDistrictReorganizationSource
         {
             var next = current.ReadRegistryNodeNext(node) ?? throw Missing("merge_D0_next");
             if (current.ReadRegistryNodePayload(node) == new RegistryObjectReference(RegistryKind.District, from))
-            { current.UnlinkArmyReturnTraitNode(descriptor, node); break; }
+            {
+                current.UnlinkArmyReturnTraitNode(descriptor, node);
+                if (neutralizeBase is null) break;
+            }
             node = next;
         }
         current.ResetDistrict(from); operation.TouchedDistricts.Add(from);

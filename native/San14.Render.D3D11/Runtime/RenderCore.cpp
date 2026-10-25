@@ -99,6 +99,7 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Passes/Occlusion/Interop/OcclusionResourceInputs.h"
 #include "../Passes/Effects/EffectResources.h"
 #include "../Passes/Effects/EffectRenderer.h"
+#include "../Passes/Effects/CurrentEffectRenderer.h"
 #include "../Passes/Effects/EffectCameraFrame.h"
 #include "../Passes/Environment/AtmosphereCameraFrame.h"
 #include "../Passes/Environment/WeatherFogFrame.h"
@@ -215,6 +216,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto& sourceHostFlags3E4=host.mainFlags;
     auto& phase=host.mainPhase;
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
+    current_effect::Renderer currentEffects;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
     AtmospherePass atmosphere;
@@ -656,8 +658,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                     drawCurrentPrimaryForward(initialCommonClock); //184..187, before Effects188 and mirror191.
                     //188 reads160.189's independent View1 remains outside this
                     //cohort; do not duplicate View0's population into it.
-
-                    updateNativeDepthMirror(context.Get(),mainDepth,"191 before normal post; particle owner pending");
+                    currentEffects.draw188(device.Get(),context.Get(),sourceDepth,
+                        {mainDepth.depth.Get(),postProcessing.mapExposureView(),fogAcceleration.samplingView(),nullptr,postProcessing.mapExposureSampler()});
+                    updateNativeDepthMirror(context.Get(),mainDepth,"191 after current effects before normal post");
                     groundDetails.finishRenderNode();
                     callerTargets.restore(context.Get());
                     postProcessing.prepare(device.Get(),normalInitialSource,
@@ -763,10 +766,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         hdr166.execute(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),geometryTargets.depthView(),contextEnvironment.select(clouds.environmentImage()),ocean.refractionDepth(),ocean.transmittedScene(),ocean.blurredDepth(),
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         drawCurrentPrimaryForward(currentClock);
-
+        currentEffects.draw188(device.Get(),context.Get(),sourceDepth,
+            {mainDepth.depth.Get(),postProcessing.mapExposureView(),fogAcceleration.samplingView(),nullptr,postProcessing.mapExposureSampler()});
         mainTargets.restore(context.Get());
 
-        updateNativeDepthMirror(context.Get(),mainDepth,"191 new Main; particle owner pending");callerTargets.restore(context.Get());
+        updateNativeDepthMirror(context.Get(),mainDepth,"191 after current effects in new Main");callerTargets.restore(context.Get());
         groundDetails.finishRenderNode();
         executeCurrentPost(currentClock);
         phase.completeOuterApply();
@@ -782,6 +786,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             // All initialized owners remain in this coroutine frame. Godot
             // drives subsequent requests; no native window or polling thread.
             host.replaceRoutes=[&](const San14RouteOverlayInputV1& input) {routes.accept(device.Get(),input);};
+            host.replaceCurrentEffects=[&](const San14CurrentEffectInputV1& input) {currentEffects.accept(device.Get(),context.Get(),input);};
+            host.createDirectEffect=[&](const std::uint8_t* bytes,std::uint32_t count) {return currentEffects.createDirect(device.Get(),{bytes,count});};
+            host.submitDirectEffect=[&](std::uint64_t id,const std::uint8_t* bytes,std::uint32_t count) {currentEffects.submitDirect(device.Get(),context.Get(),id,{bytes,count});};
+            host.directEffectLive=[&](std::uint64_t id) {return currentEffects.directLive(context.Get(),id);};
+            host.releaseDirectEffect=[&](std::uint64_t id) {currentEffects.releaseDirect(id);};
+            host.setDirectEffectDraw=[&](std::uint64_t id,const San14CurrentEffectInputV1& input,std::int64_t ordinal) {currentEffects.setDirectDraw(device.Get(),id,input,ordinal);};
             host.replaceAtmosphereResources=[&](const fs::path& root) {
                 auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),root,atmosphere.skyImages());
                 auto shared=cloudImages.textures;

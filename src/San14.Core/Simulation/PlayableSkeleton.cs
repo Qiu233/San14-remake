@@ -126,6 +126,8 @@ public static class PlayableSkeleton
         commands = new SelfRecommendationOrders(commands, nativePeriodContinuationRules as INormalTurnSelfRecommendationRules);
         commands = new CoalitionInvitationOrders(commands, nativePeriodContinuationRules as INormalTurnCoalitionInvitationRules);
         commands = new OfficerPriorityOrders(commands, armyCreationRules as IOfficerPriorityRules);
+        commands = new RulerDecisionOrders(commands, nativePeriodContinuationRules as INormalPeriodCapturedRulerRules,
+            nativePeriodContinuationRules as IRulerSuccessionRules ?? armyCreationRules as IRulerSuccessionRules);
         commands = new PlayableDiplomaticOfficerGuard(commands);
         if (armyCreationRules is IPlayableArmyCreationPreparationRules preparationRules)
             commands = new PlayableArmyCreationPreparationGuard(commands, preparationRules);

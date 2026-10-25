@@ -12,7 +12,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (state.NativeNormalTurnContinuation is { } continuation)
         {
-            if (continuation.NextAction is not (16 or 26 or 48 or 49) ||
+            if (continuation.NextAction is not (3 or 7 or 8 or 16 or 26 or 48 or 49) ||
+                state.PersonDeathContinuation is not null ||
                 continuation.PendingSelfRecommendation is not null || continuation.PendingCoalitionInvitation is not null)
                 throw AppearanceTurnMissing("normal_turn_requires_player_decision");
             var season = state.NativeMapSeason ?? throw AppearanceTurnMissing("resume_calendar");
@@ -21,13 +22,43 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (clock.UpdatesIntoPeriod != 40 || season.ProcessedNativeOrdinal != clock.UpdateOrdinal ||
                 season.ThirdDate != new NativeMapSeasonDate(checked((short)endDate.Year), checked((sbyte)endDate.Month),
                     checked((sbyte)endDate.Day), 0) ||
-                continuation.NextAction is 16 or 26 && season.ThirdDate.Day > 10)
+                continuation.NextAction is 3 or 7 or 8 or 16 or 26 && season.ThirdDate.Day > 10 ||
+                continuation.NextAction == 3 && season.ThirdDate.Month != 1)
                 throw AppearanceTurnMissing("resume_completed_progress_boundary");
             var current = CaptureWritableTransportRouteCurrent(state);
             var pool = current.ReadOwnedCurrentListPool() ?? throw AppearanceTurnMissing("resume_shared_pool");
             BindNormalTurnPersonnelCurrent(state, current);
+            int previousMonth = season.ThirdDate.Month == 1 ? 12 : season.ThirdDate.Month - 1;
+            bool monthStart = season.ThirdDate.Day <= 10;
+            bool seasonal = monthStart && MapSeasonMath.SelectMonth(season.ThirdDate.Month).SeasonIndex !=
+                MapSeasonMath.SelectMonth(previousMonth).SeasonIndex;
             int firstAction;
-            if (continuation.NextAction == 16)
+            if (continuation.NextAction is 3 or 7 or 8)
+            {
+                var remaining = continuation.RemainingDeathPersonPhysicalSlots
+                    ?? throw AppearanceTurnMissing("resume_death_remainder");
+                //The selected ruler's death has already finished in Confirm.
+                //Only the captured suffix belongs to this resumed list cut.
+                state = state with { NativeNormalTurnContinuation = null };
+                PersonArmyCaptureInputs.BindCurrent(state, current);
+                var deaths = ConsumeNormalTurnDeathPeopleCurrent(state, current, pool, remaining);
+                state = deaths.State;
+                if (deaths.Remaining is { } nextPeople)
+                    return PauseNormalTurnDeathsCurrent(state, current, pool, continuation.NextAction, nextPeople,
+                        continuation.RestoreAppRandomState, grouping, groups);
+                if (deaths.Stop)
+                    return RestoreNormalTurnAppAfterExit(PublishNormalTurnCurrent(state, current, pool),
+                        continuation.RestoreAppRandomState);
+                var early = ApplyNormalTurnEarlyActionsCurrent(state, current, pool,
+                    monthStart && season.ThirdDate.Month == 1, monthStart,
+                    continuation.RestoreAppRandomState, grouping, groups,
+                    continuation.NextAction == 3 ? 4 : continuation.NextAction == 7 ? 8 : 9);
+                state = early.State;
+                if (early.Stop) return RestoreNormalTurnAppAfterExit(state, continuation.RestoreAppRandomState);
+                if (state.NativeNormalTurnContinuation is not null) return state;
+                firstAction = 17;
+            }
+            else if (continuation.NextAction == 16)
             {
                 state = ApplyNormalTurnSelfRecommendationsCurrent(state, current, pool,
                     continuation.RestoreAppRandomState, grouping, continuation.RemainingOfficerIds);
@@ -50,10 +81,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //occurrence/date tail. It is cleared only after that tail.
                 if (firstAction == 49) state = state with { NativeNormalTurnContinuation = null };
             }
-            int previousMonth = season.ThirdDate.Month == 1 ? 12 : season.ThirdDate.Month - 1;
-            bool monthStart = season.ThirdDate.Day <= 10;
-            bool seasonal = monthStart && MapSeasonMath.SelectMonth(season.ThirdDate.Month).SeasonIndex !=
-                MapSeasonMath.SelectMonth(previousMonth).SeasonIndex;
             state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
                 continuation.RestoreAppRandomState, grouping, firstAction, groups: groups);
             if (state.NativeNormalTurnContinuation is not null) return state;

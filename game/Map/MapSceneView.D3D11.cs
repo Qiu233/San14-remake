@@ -5,6 +5,7 @@ using San14.Core;
 public partial class MapSceneView
 {
     private D3D11MapSurface? _d3d11Map;
+    private D3D11CaptureEffects? _captureEffects;
     private SkyAtmosphereResourceOwner? _d3d11SkyResources;
     private D3D11MapMarkers? _d3d11Markers;
     private D3D11TerritoryPublisher? _d3d11Ownership;
@@ -103,6 +104,10 @@ public partial class MapSceneView
             RenderResourceContext.Batch? pendingResourceSeasonBatch = null;
             LoadedObjects? pendingContextSeason = null;
             _d3d11ResourceContext = resourceContext;
+            var captureEffects = new D3D11CaptureEffects(_repository, resourceContext, generation);
+            _captureEffects = captureEffects;
+            G1EffectMapInputs? effectInputs = null;
+            D3D11CurrentSeasonResources? effectInputResources = null;
             string resourceContextDirectory = Path.Combine(inputs, "resource-context-input");
             _d3d11ResourceContextDirectory = resourceContextDirectory;
             resourceContext.WriteNativeInputs(resourceContextDirectory);
@@ -189,6 +194,7 @@ public partial class MapSceneView
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
                 _d3d11PresentedInput = input;
+                captureEffects.Accept(input.Effects);
                 _d3d11Markers?.AcceptArmyHits();
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Accept(scenery);
                 _surface.Visible = false;
@@ -406,8 +412,25 @@ public partial class MapSceneView
                             input.SceneryCameraStable??throw new InvalidDataException("Captured camera transition state is unavailable."),
                             new(D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight),
                             input.SceneryPresentation??throw new InvalidDataException("Captured map presentation is unavailable."));
-                        return input.WithCurrentSeason(current, hdr, atmosphereDirectory, resourceContext.Revision)
+                        var preparedInput = input.WithCurrentSeason(current, hdr, atmosphereDirectory, resourceContext.Revision)
                             .WithSceneryWorld(scenery).WithRoutes(PrepareRouteResources(input.Routes));
+                        if (captureEffects.HasWork && _d3d11AnimationPacer is { } effectPacer)
+                        {
+                            if (!ReferenceEquals(effectInputResources, season.LoadedResources))
+                            {
+                                effectInputs = new(_repository, season.LoadedResources);
+                                effectInputResources = season.LoadedResources;
+                            }
+                            //The current native View has no primary-light
+                            //publisher. Its normal Common light selector still
+                            //selects the actual registered subset in the helper.
+                            var effectFrame = effectInputs!.Prepare(current, D3D11MapSurface.OutputWidth,
+                                D3D11MapSurface.OutputHeight, effectInputs.OwnedRendererSelection(current),
+                                pendingAtmosphere?.MainSky ?? atmosphereOwner?.MainSky);
+                            preparedInput = preparedInput.WithEffects(captureEffects.PrepareFrame(effectFrame,
+                                input.ElapsedSeconds, effectPacer.FramesPerSecond(input.CommandMapFpsMode), surface.EffectComputeDevice));
+                        }
+                        return preparedInput;
                     }
                     catch
                     {
@@ -542,13 +565,20 @@ public partial class MapSceneView
         _d3d11FlagMaterials = null; _d3d11FlagMaterialDirectory = null;
         _d3d11ArmyMaterials = null; _d3d11ArmyMaterialDirectory = null;
         _preparedCityGateFlagSource=null;_preparedAreaCapitalFlagSource=null;_preparedArmyFlagRequests=null;
-        _d3d11ResourceContext?.Dispose(); _d3d11ResourceContext = null;
+        var retiringResourceContext = _d3d11ResourceContext; _d3d11ResourceContext = null;
         _d3d11ResourceContextDirectory = null;
         _d3d11AnimationPacer=null;_d3d11AnimationDue=false;
         var surface = _d3d11Map; _d3d11Map = null; _d3d11PresentedInput = null; _d3d11Elapsed = 0;
         var skyResources = _d3d11SkyResources; _d3d11SkyResources = null;
-        if (surface is null) { skyResources?.Dispose(); return; }
-        _d3d11Retirement = RetireD3D11MapAsync(surface, skyResources);
+        var effects = _captureEffects; _captureEffects = null;
+        effects?.CancelPending();
+        if (surface is null) { skyResources?.Dispose(); effects?.Dispose(); retiringResourceContext?.Dispose(); return; }
+        _d3d11Retirement = RetireWithEffects();
+        async Task RetireWithEffects()
+        {
+            try { await RetireD3D11MapAsync(surface, skyResources); }
+            finally { effects?.Dispose(); retiringResourceContext?.Dispose(); }
+        }
     }
 
     private void InitializeD3D11MapLocations()

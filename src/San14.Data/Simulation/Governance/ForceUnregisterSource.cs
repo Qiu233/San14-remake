@@ -44,7 +44,7 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
     private ForceUnregisterResult ApplyCore(GameState input, int victim, int captor,
         Action<GameState>? publishReached, SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool,
         bool absorption = false, NativeMapSeasonDate? captureDate = null,
-        List<CampaignEffectRequest>? captureEffects = null, Action<int>? resetArmyReceiver = null)
+        List<CampaignEffectRequest>? captureEffects = null, Action<int>? resetArmyReceiver = null, bool death = false)
     {
         try
         {
@@ -137,14 +137,23 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             if (capture)
             {
                 working = package.WriteOrdinaryForceUnregisterHistoryCurrent(working, current, victim, captureEffects!);
+                if (death) working = WriteDeathForceChronicleCurrent(working, current, victim);
                 working = package.ApplyOrdinaryLastCityArmyCleanupCurrent(working, current, pool,
                     victimReference, captureDate!, captureEffects!);
             }
             publishReached?.Invoke(working);
-            foreach (var area in current.ReadRegisteredAreaReferences() ?? throw Missing("managerB0"))
-                if (area is not null && current.ReadAreaCurrentForceSlot(area) == victim)
-                    throw Missing("branch.293BD0_remaining_Force_Area");
-            ClearTargetAssociations(current, victim);
+            if (death)
+            {
+                working = RecallDeathSpecialPersonnelCurrent(working, current, pool, victim, captureDate!, captureEffects!);
+                working = ClearDeathTargetAssociationsCurrent(working, current, victim, captureEffects!);
+            }
+            else
+            {
+                foreach (var area in current.ReadRegisteredAreaReferences() ?? throw Missing("managerB0"))
+                    if (area is not null && current.ReadAreaCurrentForceSlot(area) == victim)
+                        throw Missing("branch.293BD0_remaining_Force_Area");
+                ClearTargetAssociations(current, victim);
+            }
             if (capture)
             {
                 working = package.ApplyOrdinaryLastCityRemainingPeopleCurrent(working, current, pool,
@@ -152,15 +161,29 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                 //Status6 keeps its captivity and position but now belongs to
                 //District0. Other nonserving statuses can retain rawE0 until
                 //the District reset, exactly as in the absorption sibling.
-                RequireEmptyPeopleAndArmies(working, current, victim, true);
+                if (!death) RequireEmptyPeopleAndArmies(working, current, victim, true);
             }
             effects.Add("293BD0.empty_Force_Army_and_Area→278090_current_associations→empty_Force_Person");
             var districtTemporary = Temporary(current);
             var districts = Chain(current, RegistryKind.District).Where(d =>
                 current.ReadDistrictForceId(d) == victim).ToArray();
-            foreach (int district in districts) Append(current, districtTemporary, RegistryKind.District, district);
-            int removedDistrictNodes = 0; var governors = new List<ArmyReturnGovernorPacket>();
             foreach (int district in districts)
+            {
+                if (!death) Append(current, districtTemporary, RegistryKind.District, district);
+                else
+                {
+                    var node = current.AllocateRegistryNode(new(districtTemporary.Identity)) ?? throw Missing("death_District_node");
+                    if (node.Identity.HasValue) current.WriteRegistryNodePayload(node, new(RegistryKind.District, district));
+                }
+            }
+            if (death) districts = DeathDistrictOrder(current, districtTemporary);
+            int removedDistrictNodes = 0; var governors = new List<ArmyReturnGovernorPacket>();
+            if (death)
+            {
+                var removed = RemoveDeathDistrictsCurrent(working, current, pool, victim, captureDate!, captureEffects!, districtTemporary, districts);
+                working = removed.State; removedDistrictNodes = removed.RemovedNodes; governors.AddRange(removed.Governors);
+            }
+            else foreach (int district in districts)
             {
                 ushort leaderId = Need(current.ReadDistrictLeader(district), "District12");
                 int leader = (leaderId <= 6000 ? current.ReadPersonLookupReference(leaderId) : current.ReadTransferPersonTableReference(0))

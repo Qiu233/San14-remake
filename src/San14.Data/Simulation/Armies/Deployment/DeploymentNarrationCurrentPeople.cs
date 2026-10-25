@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 using San14.Data.Formats;
 
 namespace San14.Data;
@@ -69,6 +69,9 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             '\\' => id == Field(id, 0xBC) ? 1 : 0,
             'G' => Status(id) == 1 ? Rank(id) : 0,
             'H' => StatusField(id).Value,
+            //310EC0 case4C reads the current signed Person16C word. This
+            //is the saved allegiance disposition, not an opening template.
+            'L' => Need(current.ReadAllegianceDisposition(Physical(id)), "current_allegiance_disposition16C"),
             'U' => HealthIdentity(id),
             'c' => CurrentPlayerField(id),
             'o' => Need(current.ReadMoraleWavePersonPostE7(Physical(id)), "current_office"),

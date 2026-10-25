@@ -106,7 +106,7 @@ public static partial class G1EffectDrawWriter
             culled, capacityRejected);
     }
 
-    private static bool HasOpacityController(ReadOnlySpan<byte> generic)
+    internal static bool HasOpacityController(ReadOnlySpan<byte> generic)
     {
         foreach (var (countAt, pointerAt) in new[] { (0x208, 0x20C), (0x214, 0x218) })
         {

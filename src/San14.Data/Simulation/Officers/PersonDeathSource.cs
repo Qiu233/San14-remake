@@ -36,13 +36,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             BindLatestPolicyReader();
         }
 
-        internal (GameState State, int NativeReturn) ApplyAnnualOrdinary(int person)
+        internal (GameState State, int? NativeReturn) ApplyAnnualOrdinary(int person)
             => ApplyOrdinary(person);
 
         /// <summary>295EE0's cause1/2 caller, with its actual second Person
         /// receiver. The duel caller already owns Army destruction (argument4=0).
         /// Execution has argument4=1 and retains the ordinary associated-Army gate.</summary>
-        internal (GameState State, int NativeReturn) ApplyCombatDeath(int person,
+        internal (GameState State, int? NativeReturn) ApplyCombatDeath(int person,
             TransferPersonReference killingPerson, int cause, bool destroyAssociatedArmy,
             bool report = true, bool history = true, bool suppressReports = false)
         {
@@ -56,7 +56,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return ApplyOrdinary(person);
         }
 
-        private (GameState State, int NativeReturn) ApplyOrdinary(int person)
+        private (GameState State, int? NativeReturn) ApplyOrdinary(int person)
         {
             try
             {
@@ -173,63 +173,76 @@ public sealed partial class ArmyCampaignRuleAdapter
                 // after the ordinary prefix; never as an entry prefilter.
                 bool willUnregister = capturedStatus == 1 && ReadRulerWillUnregister(person, deathCause);
                 ApplyKillerForceRelations(person, capturedStatus, office, oldForce, willUnregister);
-                if (capturedStatus == 1 && ApplyRulerSuccession(person, killer, willUnregister) != 0)
-                    return (latest, 1);
+                if (capturedStatus == 1)
+                {
+                    continuationFactory = request => CaptureDeathContinuation(person, oldBase, oldPosition,
+                        oldForce, capturedStatus, office, capturedBC, stage, associated, request);
+                    int? rulerResult = ApplyRulerSuccession(person, killer, willUnregister);
+                    if (rulerResult is null) return (latest, null);
+                    if (rulerResult != 0) return (latest, rulerResult);
+                }
                 if (capturedStatus == 2) MergeDeceasedLeaderDistrict(person, oldForce);
-                if (capturedStatus == 6) ApplyCapturedItems(person, oldForce);
-                if ((Known(current.ReadOwnedReturnPersonFlags(person), "tail_flags15E") & 0x4000) != 0 && Status(person) != 5)
-                    throw Missing("appendix_World_unregister");
-                ApplyItems(person, associated, killer);
-                ResetPerson(person);
-                SetStatus(person, 9);
-                Change(person, p => p with { Presence = OfficerPresence.Dead, Deployed = false });
-                Observe("death.status9");
-
-                if (Known(current.ReadForceNativeValidity(oldForce), "popularity_force_validity"))
-                {
-                    int firstOrdinal = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_first");
-                    if (firstOrdinal != 0)
-                    {
-                        int second = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_second");
-                        if (second != 51 && unchecked((uint)(second - 46)) > 4)
-                        {
-                            int scale = capturedStatus == 1 ? DeathCombatParameter("ruler-popularity-loss", 15) :
-                                PersonDeathReportInputs.ReadCurrentPopularityScale(latest)
-                                    ?? throw Missing("current_parameter_general-popularity-loss-scale");
-                            int adjustment = unchecked(-(capturedStatus == 1 ? scale : Math.Max(1, stage) * scale));
-                            latest = RulerCaptureReleaseSource.ApplyCurrentPopularityAdjustment(
-                                latest, current, second, adjustment);
-                            Observe("death.popularity-adjusted");
-                        }
-                    }
-                }
-                ApplyRelationships(person, capturedBC);
-                if (Known(current.ReadBaseNativeValidity(oldBase), "old_Base_validity_tail"))
-                {
-                    var packet = package.ApplyPersonFreedomGovernorCurrent(latest, current, oldBase);
-                    foreach (var write in packet.PersonWrites) SetStatus(write.PersonPhysical, write.StatusAfter);
-                    int at = Known(oldBase.PhysicalSlot, "governor_Base_pointer");
-                    if (oldBase.Kind == BaseKind.City && latest.Cities.TryGetValue(at, out var city))
-                        latest = latest with { Cities = new(latest.Cities) { [at] = city with
-                        { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter,
-                            NativeReturnRuntime = (city.NativeReturnRuntime ?? throw Missing("governor_City_owner")) with { Governor2E = packet.GovernorWord2EAfter } } } };
-                    else if (oldBase.Kind == BaseKind.Gate && latest.Gates.TryGetValue(at + 51, out var gate))
-                    {
-                        var simulation = latest.NativeArmySimulation ?? throw Missing("governor_Gate_owner");
-                        latest = latest with { Gates = new(latest.Gates) { [gate.Id] = gate with
-                            { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter } },
-                            NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
-                            { Int32Values = new(simulation.Parameters.Int32Values)
-                                { [OwnedArmyLifecycleDetachedInputs.Key("Gate", at, "2E")] = packet.GovernorWord2EAfter } } } };
-                    }
-                    else throw Missing("governor_Base_publication");
-                    Observe("death.governor-tail");
-                }
-                RemoveRegistration(person);
-                Observe("death.unregistered");
-                return (latest, 0);
+                return FinishOrdinaryDeath(person, oldBase, oldForce, capturedStatus, capturedBC, stage, associated);
             }
             finally { ReleaseRelationships(); }
+        }
+
+        private (GameState State, int? NativeReturn) FinishOrdinaryDeath(int person, BaseReference oldBase,
+            ForceReference oldForce, byte capturedStatus, TransferPersonReference capturedBC, int stage,
+            PersonLinkedEntityReference associated)
+        {
+            if (capturedStatus == 6) ApplyCapturedItems(person, oldForce);
+            if ((Known(current.ReadOwnedReturnPersonFlags(person), "tail_flags15E") & 0x4000) != 0 && Status(person) != 5)
+                throw Missing("appendix_World_unregister");
+            ApplyItems(person, associated, killer);
+            ResetPerson(person);
+            SetStatus(person, 9);
+            Change(person, p => p with { Presence = OfficerPresence.Dead, Deployed = false });
+            Observe("death.status9");
+
+            if (Known(current.ReadForceNativeValidity(oldForce), "popularity_force_validity"))
+            {
+                int firstOrdinal = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_first");
+                if (firstOrdinal != 0)
+                {
+                    int second = Known(current.ReadForcePhysicalSlot(oldForce), "popularity_force_kind_second");
+                    if (second != 51 && unchecked((uint)(second - 46)) > 4)
+                    {
+                        int scale = capturedStatus == 1 ? DeathCombatParameter("ruler-popularity-loss", 15) :
+                            PersonDeathReportInputs.ReadCurrentPopularityScale(latest)
+                                ?? throw Missing("current_parameter_general-popularity-loss-scale");
+                        int adjustment = unchecked(-(capturedStatus == 1 ? scale : Math.Max(1, stage) * scale));
+                        latest = RulerCaptureReleaseSource.ApplyCurrentPopularityAdjustment(
+                            latest, current, second, adjustment);
+                        Observe("death.popularity-adjusted");
+                    }
+                }
+            }
+            ApplyRelationships(person, capturedBC);
+            if (Known(current.ReadBaseNativeValidity(oldBase), "old_Base_validity_tail"))
+            {
+                var packet = package.ApplyPersonFreedomGovernorCurrent(latest, current, oldBase);
+                foreach (var write in packet.PersonWrites) SetStatus(write.PersonPhysical, write.StatusAfter);
+                int at = Known(oldBase.PhysicalSlot, "governor_Base_pointer");
+                if (oldBase.Kind == BaseKind.City && latest.Cities.TryGetValue(at, out var city))
+                    latest = latest with { Cities = new(latest.Cities) { [at] = city with
+                    { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter,
+                        NativeReturnRuntime = (city.NativeReturnRuntime ?? throw Missing("governor_City_owner")) with { Governor2E = packet.GovernorWord2EAfter } } } };
+                else if (oldBase.Kind == BaseKind.Gate && latest.Gates.TryGetValue(at + 51, out var gate))
+                {
+                    var simulation = latest.NativeArmySimulation ?? throw Missing("governor_Gate_owner");
+                    latest = latest with { Gates = new(latest.Gates) { [gate.Id] = gate with
+                        { GovernorId = packet.GovernorWord2EAfter == 0 ? null : packet.GovernorWord2EAfter } },
+                        NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
+                        { Int32Values = new(simulation.Parameters.Int32Values)
+                            { [OwnedArmyLifecycleDetachedInputs.Key("Gate", at, "2E")] = packet.GovernorWord2EAfter } } } };
+                }
+                else throw Missing("governor_Base_publication");
+                Observe("death.governor-tail");
+            }
+            RemoveRegistration(person);
+            Observe("death.unregistered");
+            return (latest, 0);
         }
 
         private void RemoveRegistration(int person)

@@ -1,4 +1,4 @@
-using San14.Core;
+﻿using San14.Core;
 
 namespace San14.Data;
 
@@ -17,9 +17,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             [132, 607, 736, 521, 35, 32, 953, 551, 266, 557, 771, 987, 952, 553, 526, 262, 166, 925, 666, 769, 893, 97];
 
         //28C5D0 retains three independent Person lists until its final tail.
-        private int ApplyRulerSuccessorSelection(int deceased)
+        private int? ApplyRulerSuccessorSelection(int deceased)
         {
-            var force = Force(deceased);
+            var force = deathOriginalForce ?? throw Missing("succession_captured_Force");
             if (CountRulerServingPeople(force) == 1 ||
                 Known(PersonArmyCaptureSource.ReadOwnedCityCount(current, force), "succession_City_count") == 0)
                 throw Missing("death_force_unregister293BD0_current_operation");
@@ -35,7 +35,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (count == 1) successor = ItemPerson(ItemHead(candidates));
                 else
                 {
-                    if (IsPlayer(force)) throw Missing("player_successor_selection_2ECE90");
+                    if (IsPlayer(force)) return SuspendRulerSuccession(deceased, force, candidates);
                     int oldId = Identity(deceased);
                     //World50 affects only these six historical pairs. For
                     //other identities both source branches are equivalent.
@@ -82,64 +82,69 @@ public sealed partial class ArmyCampaignRuleAdapter
                     }
                     finally { ClearRelease(preferred); }
                 }
-                ApplyRulerSuccessionReports(deceased, successor, force);
-                var retained = Temporary();
-                try
-                {
-                    ApplyRulerSuccessionTransfer(deceased, successor, retained);
-                    var associated = current.ReadPersonLinkedEntity(successor) ?? throw Missing("successor_associated22AC00");
-                    if (Known(current.ReadLinkedEntityNativeValidity(associated), "successor_associated_validity") &&
-                        ItemAssociatedKind(associated) is 17 or 18)
-                        throw Missing("successor_group_move335CD0_cancellation");
-                    SortRulerPeople(retained, (a, b) => RulerPostOrder(a) != RulerPostOrder(b)
-                        ? RulerPostOrder(a) < RulerPostOrder(b) : Identity(a) < Identity(b));
-
-                    var effects = new List<CampaignEffectRequest>();
-                    int forceId = Known(current.ReadForcePhysicalSlot(force), "succession_independence_Force");
-                    latest = package.ApplyNormalTurnMonthlyGovernorIndependenceCurrent(latest, current, pool,
-                        onlyForce: forceId, excludedPerson: new(deceased), sharedEffects: effects);
-                    AppendRulerSuccessionEffects(effects);
-
-                    var deferred = Temporary();
-                    try
-                    {
-                        for (var node = ItemHead(retained); node.Identity.HasValue; node = ItemNext(node))
-                        {
-                            int person = ItemPerson(node);
-                            if (Identity(person) == Identity(deceased) ||
-                                !new MonthlyPersonnelLoyaltySource(package, latest, current, pool).ReadSuccessionDefection(person)) continue;
-                            if (!IsPlayer(Force(person))) RulerSuccessionFreedom(person, successor);
-                            else Append(deferred, new(RegistryKind.Person, person));
-                        }
-                        for (var node = ItemHead(deferred); node.Identity.HasValue; node = ItemNext(node))
-                        {
-                            int person = ItemPerson(node);
-                            ApplyRulerSuccessionDefectionReports(person, successor, force);
-                            RulerSuccessionFreedom(person, successor);
-                        }
-                    }
-                    finally { ClearRelease(deferred); }
-                    var districtEffects = new List<CampaignEffectRequest>();
-                    var date = latest.NativeMapSeason?.ThirdDate ?? throw Missing("succession_District_date");
-                    var operation = package.CreateCaptureDistrictOperationQueries(current, () => latest,
-                        value => latest = value, date, districtEffects);
-                    foreach (var row in current.ReadRegistryReferences(RegistryKind.District) ?? throw Missing("succession_DistrictD0"))
-                    {
-                        if (row is not { Kind: RegistryKind.District, PhysicalSlot: int physical }) throw Missing("succession_District_payload");
-                        if (Known(current.ReadDistrictForceId(physical), "succession_District_Force") != forceId) continue;
-                        var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, new(physical), operation);
-                        if (result.UnresolvedOwner is not null) throw Missing(result.UnresolvedOwner);
-                    }
-                    latest = PersonReturnDistrictReorganizationSource.PublishCurrent(latest, current, operation);
-                    latest = PersonReturnDistrictTransferSource.PublishAreaAssignments(latest, current, operation.ChangedAreas, operation.ChangedGates);
-                    latest = PersonAssignmentPrecallInputs.PublishCurrent(latest, current);
-                    AppendRulerSuccessionEffects(districtEffects);
-                    ApplyRulerSuccessionForceTail(force, successor, deceased);
-                    return successor;
-                }
-                finally { ClearRelease(retained); }
+                return CompleteRulerSuccessorSelection(deceased, successor, force);
             }
             finally { ClearRelease(candidates); }
+        }
+
+        private int CompleteRulerSuccessorSelection(int deceased, int successor, ForceReference force)
+        {
+            ApplyRulerSuccessionReports(deceased, successor, force);
+            var retained = Temporary();
+            try
+            {
+                ApplyRulerSuccessionTransfer(deceased, successor, retained);
+                var associated = current.ReadPersonLinkedEntity(successor) ?? throw Missing("successor_associated22AC00");
+                if (Known(current.ReadLinkedEntityNativeValidity(associated), "successor_associated_validity") &&
+                    ItemAssociatedKind(associated) is 17 or 18)
+                    throw Missing("successor_group_move335CD0_cancellation");
+                SortRulerPeople(retained, (a, b) => RulerPostOrder(a) != RulerPostOrder(b)
+                    ? RulerPostOrder(a) < RulerPostOrder(b) : Identity(a) < Identity(b));
+
+                var effects = new List<CampaignEffectRequest>();
+                int forceId = Known(current.ReadForcePhysicalSlot(force), "succession_independence_Force");
+                latest = package.ApplyNormalTurnMonthlyGovernorIndependenceCurrent(latest, current, pool,
+                    onlyForce: forceId, excludedPerson: new(deceased), sharedEffects: effects);
+                AppendRulerSuccessionEffects(effects);
+
+                var deferred = Temporary();
+                try
+                {
+                    for (var node = ItemHead(retained); node.Identity.HasValue; node = ItemNext(node))
+                    {
+                        int person = ItemPerson(node);
+                        if (Identity(person) == Identity(deceased) ||
+                            !new MonthlyPersonnelLoyaltySource(package, latest, current, pool).ReadSuccessionDefection(person)) continue;
+                        if (!IsPlayer(Force(person))) RulerSuccessionFreedom(person, successor);
+                        else Append(deferred, new(RegistryKind.Person, person));
+                    }
+                    for (var node = ItemHead(deferred); node.Identity.HasValue; node = ItemNext(node))
+                    {
+                        int person = ItemPerson(node);
+                        ApplyRulerSuccessionDefectionReports(person, successor, force);
+                        RulerSuccessionFreedom(person, successor);
+                    }
+                }
+                finally { ClearRelease(deferred); }
+                var districtEffects = new List<CampaignEffectRequest>();
+                var date = latest.NativeMapSeason?.ThirdDate ?? throw Missing("succession_District_date");
+                var operation = package.CreateCaptureDistrictOperationQueries(current, () => latest,
+                    value => latest = value, date, districtEffects);
+                foreach (var row in current.ReadRegistryReferences(RegistryKind.District) ?? throw Missing("succession_DistrictD0"))
+                {
+                    if (row is not { Kind: RegistryKind.District, PhysicalSlot: int physical }) throw Missing("succession_District_payload");
+                    if (Known(current.ReadDistrictForceId(physical), "succession_District_Force") != forceId) continue;
+                    var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, new(physical), operation);
+                    if (result.UnresolvedOwner is not null) throw Missing(result.UnresolvedOwner);
+                }
+                latest = PersonReturnDistrictReorganizationSource.PublishCurrent(latest, current, operation);
+                latest = PersonReturnDistrictTransferSource.PublishAreaAssignments(latest, current, operation.ChangedAreas, operation.ChangedGates);
+                latest = PersonAssignmentPrecallInputs.PublishCurrent(latest, current);
+                AppendRulerSuccessionEffects(districtEffects);
+                ApplyRulerSuccessionForceTail(force, successor, deceased);
+                return successor;
+            }
+            finally { ClearRelease(retained); }
         }
 
         private bool RulerSuccessorFamily(int person, int deceased, int family) => family switch
@@ -149,9 +154,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             2 => OfficeRelatedCurrent(latest, current, person, deceased),
             3 => ItemSworn(person, deceased),
             4 => ItemRelative(person, deceased, 0xBA),
-            //The original input's64-byte2811E0 region is not decoded code
-            //in the available cache. Preserve the actually reached owner.
-            5 => throw Missing("successor_priority_predicate2811E0"),
+            //The bounded offline analysis image resolves2811E0: it walks
+            //the same22 DWORD Person identities used by the next comparator.
+            5 => Array.IndexOf(RulerSuccessionPriority, (int)Identity(person)) >= 0,
             6 => RulerSuccessorSeniority(person),
             7 => ItemRawHit(deceased, person, like: true),
             _ => throw Missing("successor_priority_family")
@@ -220,27 +225,48 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private void ApplyRulerSuccessionReports(int deceased, int successor, ForceReference force)
         {
-            if (IsPlayer(force)) throw Missing("player_successor_28C5D0_scene");
+            bool playerSuccession = IsPlayer(force);
             var effects = new List<CampaignEffectRequest>();
+            if (playerSuccession) effects.Add(new(null, null) { TalentCommandPresentation =
+                new(TalentCommandPresentationOperation.SoundCue, 5, null, null, null, null) });
             effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.FinalOrderSceneEnter, 31, null, null) });
             var speech = package.FormatNormalTurnReport(latest, current, 0x2A3E,
                 new(Person0: Identity(successor), Person1: Identity(deceased))); latest = speech.State;
-            effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.ConditionalSpeakerText,
-                null, Identity(successor), speech.Text) });
+            effects.Add(CreateSingleOfficerPresentation(current, latest, Identity(successor), speech,
+                TalentCommandPresentationOperation.ConditionalOfficerText, "ruler.succession"));
             effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.FinalOrderSceneExit, null, null, null) });
             var main = package.FormatNormalTurnReport(latest, current, 0x2A88,
                 new(Person0: Identity(successor), Person1: Identity(deceased), Force0: Known(current.ReadForcePhysicalSlot(force), "succession_history_Force60")));
             latest = main.State;
             var player = OwnedCurrentPlayerForce.ReadCurrentReference(latest, current) ?? throw Missing("succession_history_player");
-            var detail = package.FormatNormalTurnReport(latest, current, 0x533E,
-                new(Person0: 5012, Person1: package.TalentRulerCurrent(current, player), Person2: Identity(successor), Person3: Identity(deceased)));
-            latest = detail.State;
+            string detailText = string.Empty;
+            if (!playerSuccession)
+            {
+                var detail = package.FormatNormalTurnReport(latest, current, 0x533E,
+                    new(Person0: 5012, Person1: package.TalentRulerCurrent(current, player), Person2: Identity(successor), Person3: Identity(deceased)));
+                latest = detail.State; detailText = detail.Text;
+            }
+            else ApplyRulerSuccessionChronicle(force, successor);
             var home = BaseLookup.Find(Known(current.ReadPersonFirstLocation(successor), "succession_history_E2"), current);
             latest = package.WriteHistory(latest, current, new(1,
                 Known(current.ReadPersonDistrictSlot(deceased), "succession_history_E0"), current.ReadBaseCurrentHexIndex(home),
-                DeathHistoryDay(), main.Text, detail.Text, 5012, MarkBit0: 1, MarkBit3: 1), effects);
+                DeathHistoryDay(), main.Text, detailText, 5012, MarkBit0: 1, MarkBit3: 1), effects);
             AppendRulerSuccessionEffects(effects);
         }
+        private void ApplyRulerSuccessionChronicle(ForceReference force, int successor)
+        {
+            if ((latest.CampaignChronicle?.RecordingSuppression ?? throw Missing("succession_chronicle_control")) != 0) return;
+            string forceName = package.HistoryWriter.CustomFirstName(latest, current, force, KinFullName);
+            string forceLabel = package.HistoryWriter.FallbackName(latest, current, force, KinFullName);
+            string name = KinFullName(Owner(successor), true);
+            int color = Known(current.ReadForceReportColor(force), "succession_chronicle_color");
+            latest = new CampaignChronicleWriter(package.HistoryWriter).Write(latest, current,
+                new(20, 1, DeathHistoryDay(), forceName, color, 9,
+                    System.Collections.Immutable.ImmutableArray.Create(forceLabel, name, string.Empty),
+                    System.Collections.Immutable.ImmutableArray.Create(48400, 48400, 48400, 48400)),
+                package.ReadApplicationGameplay()?.UserSelectionServicePresent);
+        }
+
         private void RulerSuccessionFreedom(int person, int successor)
         {
             var effects = new List<CampaignEffectRequest>();
@@ -256,7 +282,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.PersonnelSceneEnter, 9, null, null) });
             effects.Add(new(null, null) { TalentCommandPresentation = new(TalentCommandPresentationOperation.SoundCue, 7, null, null, null, null) });
             var speech = package.FormatNormalTurnReport(latest, current, 0x5E0D, new(Person0: Identity(person), Person1: Identity(successor))); latest = speech.State;
-            effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.ConditionalSpeakerText, null, Identity(person), speech.Text) });
+            effects.Add(CreateSingleOfficerPresentation(current, latest, Identity(person), speech,
+                TalentCommandPresentationOperation.ConditionalOfficerText, "ruler.succession_defection"));
             effects.Add(new(null, null) { MonthlyMaintenance = new(MonthlyMaintenanceOperation.PersonnelSceneExit, null, null, null) });
             var main = package.FormatNormalTurnReport(latest, current, 0x5E19,
                 new(Force0: Known(current.ReadForcePhysicalSlot(force), "succession_defection_Force60"), Person0: Identity(person))); latest = main.State;

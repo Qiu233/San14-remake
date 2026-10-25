@@ -11,6 +11,7 @@
 #include <d3d11.h>
 #include "../Camera/CameraState.h"
 #include "../Interop/RouteOverlayInput.h"
+#include "../Interop/CurrentEffectInput.h"
 #include "../Scene/Terrain/TerritoryOwnership.h"
 #include "../Scene/Terrain/CommandMap.h"
 #include "../Scene/Models/ArmyWorldPublication.h"
@@ -80,6 +81,12 @@ struct RenderHost {
     std::function<void(unsigned)> animationUpdate;
     std::function<void(const std::filesystem::path&)> replaceAtmosphereResources;
     std::function<void(const San14RouteOverlayInputV1&)> replaceRoutes;
+    std::function<void(const San14CurrentEffectInputV1&)> replaceCurrentEffects;
+    std::function<std::uint64_t(const std::uint8_t*,std::uint32_t)> createDirectEffect;
+    std::function<void(std::uint64_t,const std::uint8_t*,std::uint32_t)> submitDirectEffect;
+    std::function<int(std::uint64_t)> directEffectLive;
+    std::function<void(std::uint64_t)> releaseDirectEffect;
+    std::function<void(std::uint64_t,const San14CurrentEffectInputV1&,std::int64_t)> setDirectEffectDraw;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
 };
@@ -93,6 +100,9 @@ public:
         host.armyUnitPositions={};
         host.replaceAtmosphereResources={};
         host.replaceRoutes={};
+        host.replaceCurrentEffects={};
+        host.createDirectEffect={};host.submitDirectEffect={};host.directEffectLive={};host.releaseDirectEffect={};
+        host.setDirectEffectDraw={};
     }
     RenderCallbackScope(const RenderCallbackScope&)=delete;
     RenderCallbackScope& operator=(const RenderCallbackScope&)=delete;

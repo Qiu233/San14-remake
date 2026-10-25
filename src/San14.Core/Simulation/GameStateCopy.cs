@@ -39,6 +39,9 @@ public static class GameStateCopy
         // The template catalogue is owned read-only. Hiring detaches only the
         // selected template's mutable lists when it creates a world officer.
         PersonnelHire = value.PersonnelHire,
+        // Decision continuations contain immutable operands and immutable candidate lists.
+        ArmyDefeatContinuation = value.ArmyDefeatContinuation,
+        PersonDeathContinuation = value.PersonDeathContinuation,
         CampaignCrtRandom = value.CampaignCrtRandom,
         ArmyMapSpeech = value.ArmyMapSpeech,
         CampaignTurnStop = value.CampaignTurnStop,

@@ -23,7 +23,7 @@ public sealed record MapMarkerLayout(string Name, int CommonRow,
     // A named consumer without a previously extracted file ID still resolves
     // through the same Common declaration. The normal layout reader owns its
     // supported binary format checks; fixed-file callers retain both checks above.
-    internal static LoadedLayout LoadNamed(GameResourceRepository repository, string name)
+    public static LoadedLayout LoadNamed(GameResourceRepository repository, string name)
     {
         var (_, _, file) = ResolveNamedFile(repository, name);
         return repository.LoadLayout("ScreenLayout", file);

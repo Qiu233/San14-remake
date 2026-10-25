@@ -47,7 +47,9 @@ public sealed partial class GameSimulation
                 { Operation: PersonDeathReportOperation.EventEnter, EventKind: 4 or 5 or 6 } or
                 { Operation: PersonDeathReportOperation.EventExit or PersonDeathReportOperation.SpeakerText or PersonDeathReportOperation.NarrationText } or
                 { Operation: PersonDeathReportOperation.ControllerQueueEvent, EventKind: 22 },
-            CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
+            CampaignEffectSource.MonthlyMaintenance => request.MapObjectPresentation is { BaseCapture: not null,
+                    Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound } ||
+                request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText or
                     MonthlyMaintenanceOperation.DisasterSceneEnter or MonthlyMaintenanceOperation.DisasterSceneExit } ||
                 request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations } ||

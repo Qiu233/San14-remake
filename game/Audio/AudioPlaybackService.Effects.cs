@@ -12,6 +12,7 @@ public partial class AudioPlaybackService
         internal object? Owner;
         internal CancellationTokenSource? Preparation;
         internal AudioClip? OwnedClip;
+        internal bool Spatial;
     }
     //One freshly constructed shared manager, including UI and script requests.
     //Ordinary requests allocate only0..7; all62 actual slots participate in
@@ -36,6 +37,11 @@ public partial class AudioPlaybackService
     {
         if (_effects[slot] is not { } effect) return default;
         if (effect.Preparation?.IsCancellationRequested == true) return new(true, false, false);
+        if (effect.Spatial)
+        {
+            var spatial = QuerySpatialHandle(effect.Channel);
+            return new(true, spatial.Active || includeReservation && effect.Reserved, spatial.Paused);
+        }
         bool playing = false, paused = false;
         if (_players.TryGetValue(effect.Channel, out var voice) && voice.Player.Stream is not null)
         { paused = voice.Player.StreamPaused; playing = voice.Player.Playing && !paused; }
@@ -95,7 +101,8 @@ public partial class AudioPlaybackService
         if (_effects[retirement.Slot] is not { } effect) return;
         _effects[retirement.Slot] = null;
         effect.Preparation?.Cancel();
-        Stop(effect.Channel);
+        if (effect.Spatial) StopSpatial(effect.Channel);
+        else Stop(effect.Channel);
         effect.OwnedClip?.Dispose(); effect.OwnedClip = null;
     }
 }

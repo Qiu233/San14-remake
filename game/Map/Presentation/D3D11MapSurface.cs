@@ -20,6 +20,7 @@ public partial class D3D11MapSurface : Control
     private uint _populationMask;
     private Rid _texture, _framebuffer;
     private D3D11RenderSession? _session;
+    internal IG1EffectDirectComputeDevice? EffectComputeDevice => _session;
     private Texture2Drd? _presentation;
     private TextureRect? _image;
     private D3D11MapInput? _pending;

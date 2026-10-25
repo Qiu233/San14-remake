@@ -364,7 +364,7 @@ internal static class CampaignEffectSaveFields
                 if (request["PersonLifespanNotification"] is JsonNode lifespan)
                     _ = RequireExact(lifespan, "Operation", "EventKind", "PersonId", "TextAtSource");
                 if (request["PersonDeathReport"] is JsonNode death)
-                    _ = RequireExact(death, "Operation", "EventKind", "SpeakerId", "TextAtSource");
+                    _ = RequireExact(death, "Operation", "EventKind", "SpeakerId", "TextAtSource", "Voice", "Speaker");
                 if (request["PersonAppearance"] is JsonNode appearance)
                 {
                     var fields = RequireExact(appearance, "Operation", "SoundId", "EventKind", "Announcement", "Speaker", "History");

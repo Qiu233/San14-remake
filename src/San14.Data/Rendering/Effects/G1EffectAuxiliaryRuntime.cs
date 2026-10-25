@@ -4,6 +4,8 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
+public readonly record struct G1EffectObjectDataPatch(int FileOffset, ReadOnlyMemory<byte> Bytes);
+
 /// <summary>Live module force fields. Relative resource references bind to these
 /// managed nodes; no executable address or process pointer enters effect state.</summary>
 public sealed class G1EffectAuxiliaryRuntime
@@ -33,6 +35,21 @@ public sealed class G1EffectAuxiliaryRuntime
     public void Advance(float seconds)
     {
         foreach (Node root in roots) Advance(root, seconds);
+    }
+
+    /// <summary>Initial prepared auxiliary declarations, in parent-before-child order.
+    /// The GPU object owner applies each fragment at its existing normal-resource coordinate.
+    /// Views retain this owner's storage; the consumer must upload before its next update.</summary>
+    public IEnumerable<G1EffectObjectDataPatch> EnumeratePreparedData()
+    {
+        foreach (var node in nodes.Values) yield return new(node.FileOffset, node.Bytes);
+    }
+
+    /// <summary>The only animated field of the currently supported auxiliary dispatches is
+    /// elapsed time. Upload four bytes per node, without cloning the module each frame.</summary>
+    public IEnumerable<G1EffectObjectDataPatch> EnumerateLiveData()
+    {
+        foreach (var node in nodes.Values) yield return new(checked(node.FileOffset + 0x10), node.Bytes.AsMemory(0x10, 4));
     }
 
     public Vector4 Sample(int fileOffset, Vector4 position)

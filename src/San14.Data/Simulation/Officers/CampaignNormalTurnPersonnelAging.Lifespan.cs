@@ -1,4 +1,5 @@
 using San14.Core;
+using System.Collections.Immutable;
 
 namespace San14.Data;
 
@@ -6,6 +7,9 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal sealed partial class CampaignNormalTurnPersonnelAgingSource
     {
+        internal ImmutableArray<int>? RemainingDeathPersonPhysicalSlots { get; private set; }
+        internal bool Stopped { get; private set; }
+
         private const string LifespanYearExtensionKey = "simulation.person-lifespan.long-year-extension";
 
         /// <summary>27C3F0's monthly ordinary lifespan scan and ordered death
@@ -107,15 +111,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
 
                 LifespanSort(candidates);
+                var ordered = new List<int>();
                 var node = LifespanHead(candidates);
                 while (node.Identity.HasValue)
                 {
-                    int person = LifespanPayload(node);
-                    var death = new PersonDeathSource(package, state, current, pool, observe).ApplyAnnualOrdinary(person);
-                    state = death.State;
-                    if (death.NativeReturn != 0) throw Missing("lifespan_295EE0_nonzero_continuation");
+                    ordered.Add(LifespanPayload(node));
                     node = LifespanNext(node);
                 }
+                var deaths = package.ConsumeNormalTurnDeathPeopleCurrent(state, current, pool, ordered, observe);
+                state = deaths.State;
+                RemainingDeathPersonPhysicalSlots = deaths.Remaining;
+                Stopped = deaths.Stop;
+                if (deaths.Remaining is not null || deaths.Stop) return state;
                 Observe("normal.turn.lifespan.completed");
                 return state;
             }
