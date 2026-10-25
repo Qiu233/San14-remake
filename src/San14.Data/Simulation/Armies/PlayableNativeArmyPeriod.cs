@@ -64,7 +64,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (resume is not null) stages.RestoreCheckpoint(resume.Grouping);
         var diagnostics = resume?.Diagnostics.ToList() ?? new List<NativeNormalArmyCombatPhaseDiagnostic>();
         GameState working = state;
-        _periodPresentation?.Invoke(working);
+        working = _periodPresentation?.Invoke(working) ?? working;
         while (resume is not null || working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
         {
             season = working.NativeMapSeason!;
@@ -253,7 +253,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ReachedDuePhaseCount = calendar.ReachedDuePhaseCount + diagnostics.Count - dueBeforeBlock,
                 LastAdvanceDiagnostics = [] };
             working = working with { NativeMapSeason = advanced.State, NativeNormalArmyCombatCalendar = calendar };
-            _periodPresentation?.Invoke(working);
+            working = _periodPresentation?.Invoke(working) ?? working;
         }
         working = working with { NativeNormalArmyCombatCalendar = calendar with
             { LastAdvanceDiagnostics = diagnostics.ToArray() } };

@@ -85,6 +85,9 @@ internal static class NormalCombatImmediateContinuationValidation
                 automatic.FirstInstructionResults.IsDefault || automatic.SecondInstructionResults.IsDefault ||
                 automatic.ArmyPresentationEffects.IsDefault)
                 throw new InvalidDataException("The automatic tactic continuation has no matching instruction or target cursor.");
+            if (automatic.LinkedExecution is { } linked && (linked.RemainingActors.IsDefault ||
+                linked.CompletedActors.IsDefault || linked.RemainingActors.Length + linked.CompletedActors.Length > 10))
+                throw new InvalidDataException("The automatic tactic linked actor continuation is incomplete.");
         }
     }
 }

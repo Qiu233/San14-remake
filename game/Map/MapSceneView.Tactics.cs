@@ -2,11 +2,21 @@ using San14.Data;
 using Godot;
 using NMatrix = System.Numerics.Matrix4x4;
 using San14.Core;
+using San14.Client.Gameplay;
 
 public partial class MapSceneView
 {
     private Action? ordinaryTacticUpdate;
+    internal TacticPresentationViews TacticPresentationViews { get; } = new();
+    private IReadOnlyList<D3D11ArmyLabelUnitPosition>? tacticArmyPositions;
     internal void SetOrdinaryTacticDriver(Action? update) => ordinaryTacticUpdate = update;
+
+    private void PublishTacticPresentationViews()
+    {
+        if (_sourceMainCameraFrame is not { } controller) { TacticPresentationViews.Clear(); return; }
+        TacticPresentationViews.Publish(controller, _mapPresentation?.ProjectionClipBypass,
+            _d3d11PresentedInput?.SourceFrame, tacticArmyPositions);
+    }
 
     internal OrdinaryTacticViewPose QueryTacticViewPose(OrdinaryTacticViewIdentity view) =>
         _d3d11Markers?.TacticViewPose(view) ?? new(false, null, "tactic.view.native_map_not_ready");

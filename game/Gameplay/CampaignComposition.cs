@@ -209,8 +209,10 @@ public sealed partial class CampaignComposition
     {
         ValidateSelection(world);
         string revision = $"owned-campaign-army-v1:{world.ScenarioKey}:{Scenario.ScenarioSource.Sha256}:{world.MapSha256}:{Scenario.FixedDataSource.Sha256}";
+        var presentationAdmission = new TacticPresentationAdmission(this);
         var army = ArmyCampaignRuleAdapter.FromOwnedCampaign(_repository,
-            Scenario, Map, Snapshot.Locale, revision);
+            Scenario, Map, Snapshot.Locale, revision, presentationAdmission);
+        presentationAdmission.Rules = army;
         army.ConfigureApplicationGameplay(_applicationGameplay);
         army.ConfigureArmyTraitSpeechView(_armyTraitSpeechViews is null ? null : _armyTraitSpeechViews.Read);
         if (_baseCaptureTerrainBound) army.ConfigureBaseCapturePresentationTerrain(_baseCaptureTerrain);

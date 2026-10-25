@@ -48,46 +48,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, BaseOriginAutomaticFirePrefix prefix, int nodeHex, int primaryHex,
         NativeMapSeasonDate date, long revision, List<CampaignEffectRequest> effects)
     {
-        var hex = current.ReadHexTableReference(nodeHex) ?? throw FireMissing("target_Hex_pointer");
-        if (hex.PhysicalSlot is not int physical) return new(state, false, null);
-        ushort link = FireNeed(current.ReadHexObjectLink(hex), "target_Hex1A");
-        //2C6CE0 tests nonzero Hex1A, not an Object definition/category.
-        if (link != 0)
-        {
-            var obj = current.ReadObjectTableReference(link < 3001 ? link : 0)
-                ?? throw FireMissing("target_Object_pointer");
-            if (FireNeed(current.ReadObjectNativeValidity(obj), "target_Object_validity") &&
-                !Allowed(FireNeed(current.ReadObjectForceSlot13(obj), "target_Object13")))
-                return new(state, false, null);
-        }
-        //2C6D20's real1..500 signed lookup gate precedes native validity.
-        int armyIndex = unchecked((short)FireNeed(current.ReadHexRaw1C(hex), "target_Hex1C"));
-        if (armyIndex is >= 1 and <= 500)
-        {
-            var army = current.ReadArmyUnitTableReference(armyIndex) ?? throw FireMissing("target_Army_pointer");
-            if (FireNeed(current.ReadArmyUnitNativeValidity(army), "target_Army_validity") &&
-                !Allowed(FireNeed(current.ReadForcePhysicalSlot(current.ReadArmyUnitForceReference(army)), "target_Army_Force22CD80")))
-                return new(state, false, null);
-        }
-        var changes = new List<HexFireChange>();
-        var announcements = new List<ArmyFireAnnouncement>();
-        var working = IgniteCurrentHex(state, current, physical, prefix.Duration, true,
-            reached => (ReadArmyDestructionSampler(reached, current)
-                ?? throw FireMissing("report_Day450")).Day450, revision, changes, announcements, effects);
-        if (announcements.Count != 0)
-            working = working with { PendingArmyFireAnnouncements =
-                [.. working.PendingArmyFireAnnouncements, .. announcements] };
-        //Hex16 stays in the operation's current write set. The enclosing
-        //execution publishes it once before its normal return or save pause.
-        if (physical != primaryHex) return new(working, false, null);
-        var selected = FieldHexOccupantSource.ReadCurrent(working, current, physical);
-        var marker = selected.Receipt ?? throw FireMissing(selected.UnresolvedOwner ?? "marker16EB20");
-        //17A1C0 excludes only255. Kind11 is an actual Object marker;
-        //the enclosing presentation translates it to its real receiver ID.
-        return new(working, marker.NativeKind != 255, marker.NativeKind == 255 ? null : marker);
-
-        bool Allowed(int targetForce) => FireNeed(
-            ArmyLogisticsPreparation.ReadNativeRelationGate(state, prefix.SourceForce, targetForce), "relation2CA650");
+        return ApplyAutomaticFireHexCurrent(state, current, prefix.Duration, prefix.SourceForce,
+            nodeHex, primaryHex, reached => (ReadArmyDestructionSampler(reached, current)
+                ?? throw FireMissing("report_Day450")).Day450, revision, effects);
     }
 
     private static T FireNeed<T>(T? value, string owner) where T : struct => value ?? throw FireMissing(owner);

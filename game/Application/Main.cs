@@ -1274,6 +1274,7 @@ public partial class Main : Control
         _mapPresentation??=new();
         _mapPresentation.BeginResidentMap();
         view.SetSceneryMapBinding(_mapPresentation,campaignQueries.CaptureSceneryMapCurrent);
+        _campaignComposition!.ConfigureTacticPresentationViews(view.TacticPresentationViews);
         view.SetD3D11CurrentWorldQueries(campaignQueries.CaptureCurrentDefinitions,
             campaignQueries.CaptureGraphicsMotionInputs, campaignQueries.CaptureMapArmyGroups);
         _residentMap = view;
@@ -1398,6 +1399,7 @@ public partial class Main : Control
             _mapPresentation!.EnterOrdinaryMap();
             RefreshCommanderCards();
             RefreshSceneAudioContext();
+            if (_session is { } session) RefreshOrdinaryTacticBinding(session, view);
             TryOpenGovernanceNarration();
             TryOpenPersonnelPresentation();
         }

@@ -31,6 +31,7 @@ public sealed partial class CampaignComposition
         _baseCaptureTerrain = source._baseCaptureTerrain;
         _baseCaptureTerrainBound = source._baseCaptureTerrainBound;
         _armyTraitSpeechViews = source._armyTraitSpeechViews;
+        _tacticPresentationViews = Volatile.Read(ref source._tacticPresentationViews);
         // Loaded definitions and these read-only views are shared. Mutable
         // resource caches, Army captures and rule services belong to the worker.
         Scenario = source.Scenario;
@@ -44,7 +45,7 @@ public sealed partial class CampaignComposition
     /// This is not a load/save protocol and never acknowledges presentation.</summary>
     public Task<CampaignPeriodAdvanceResult> AdvancePeriodAsync(GameplaySession sourceSession,
         CancellationToken cancellationToken = default, CampaignAppRandomState? appRandomSnapshot = null,
-        NarrationVoiceSettings? narrationVoiceSettings = null, Action<GameState>? periodStep = null,
+        NarrationVoiceSettings? narrationVoiceSettings = null, Func<GameState, GameState>? periodStep = null,
         CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, null, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
@@ -54,7 +55,7 @@ public sealed partial class CampaignComposition
     public Task<CampaignPeriodAdvanceResult> ConfirmDiplomaticNegotiationAsync(GameplaySession sourceSession,
         ConfirmDiplomaticNegotiationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
     /// <summary>Apply the player's response to the saved self-recommendation
@@ -62,30 +63,30 @@ public sealed partial class CampaignComposition
     public Task<CampaignPeriodAdvanceResult> ConfirmSelfRecommendationAsync(GameplaySession sourceSession,
         ConfirmSelfRecommendationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmCoalitionInvitationAsync(GameplaySession sourceSession,
         ConfirmCoalitionInvitationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmCapturedRulerTreatmentAsync(GameplaySession sourceSession,
         ConfirmCapturedRulerTreatmentOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmRulerSuccessionAsync(GameplaySession sourceSession,
         ConfirmRulerSuccessionOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Action<GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
+        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
         => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
 
     private Task<CampaignPeriodAdvanceResult> AdvanceNormalPeriodAsync(GameplaySession sourceSession,
         GameOrder? confirmation, CancellationToken cancellationToken,
-        CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Action<GameState>? periodStep,
+        CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Func<GameState, GameState>? periodStep,
         CampaignStoryBindings? storyBindings)
     {
         ArgumentNullException.ThrowIfNull(sourceSession);
@@ -119,7 +120,7 @@ public sealed partial class CampaignComposition
             prepared.Army?.ConfigurePeriodPresentation(candidate =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                periodStep?.Invoke(candidate);
+                return periodStep?.Invoke(candidate) ?? candidate;
             });
             try
             {

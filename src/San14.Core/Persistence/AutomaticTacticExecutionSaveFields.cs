@@ -6,6 +6,8 @@ internal static class AutomaticTacticExecutionSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 181 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"]?["LinkedExecution"] is not null)
+            throw new InvalidDataException("Legacy automatic tactic contains a future linked execution.");
         if (version < 177 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"] is not null)
             throw new InvalidDataException("Legacy combat continuation contains a future automatic execution.");
     }
@@ -36,6 +38,7 @@ internal static class AutomaticTacticExecutionSaveFields
             value["TargetIndex"]!.GetValue<int>() >= ((JsonArray)instruction["OrderedHexIds"]!).Count ||
             (opcode == 1) != (value["TroopPrefix"] is not null) ||
             (opcode == 16) != (value["MoralePrefix"] is not null)) throw Invalid();
+        AutomaticTacticLinkedExecutionSaveFields.Migrate(value, version);
     }
 
     internal static bool Instruction(JsonNode? node, int index) => node is JsonObject value &&

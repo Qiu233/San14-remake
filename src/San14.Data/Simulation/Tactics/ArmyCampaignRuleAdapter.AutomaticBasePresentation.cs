@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -7,29 +8,44 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>168C40 consumes the actual D8 actor/result payload into the
     /// existing effect/Direction owner. No target is reselected for display,
     /// and no receipt or empty-queue observation is manufactured here.</summary>
-    private GameState EnqueueBorrowedAutomaticBasePresentation(GameState state, SourceWorldContext current,
-        TacticRemakeCurrentContext context, UnitState actor, int tacticSlot, int selectedHex, List<TacticResultPresentation>[] results,
+    private AutomaticTacticLinkedActorResult CaptureBorrowedAutomaticActorResult(GameState state,
+        UnitState actor, int tacticSlot, List<TacticResultPresentation>[] results,
         List<TacticEffectPresentation> armyEffects)
     {
-        var manager = state.ManualTacticIntervention ?? throw BaseAutomaticMissing("effect_manager168C40");
-        if (manager.Effects.Length >= 563) return state; //Actual outer capacity branch.
-        bool direction = false;
-        if (context.IsAutomaticSpecialPresentationTactic(tacticSlot))
-            direction = _automaticPresentationAdmission?.ReadUniqueDirectionAdmission(state, actor, tacticSlot)
-                ?? throw BaseAutomaticMissing("unique_direction_admission369580");
         int physical = actor.NativeArmyOrigin?.NativeSlotIndex ?? throw BaseAutomaticMissing("presentation_actor_slot");
         var arena = state.ReadArmyLifecycle() ?? throw BaseAutomaticMissing("presentation_Army_roster");
         var source = arena.Slots[physical];
         var receiver = arena.Receivers.Find(source.ReceiverId) ?? throw BaseAutomaticMissing("presentation_actor_receiver");
         if (receiver.ActiveUnitId != actor.Id) throw BaseAutomaticMissing("presentation_actor_identity");
-        var ordered = results.Select(row => row.ToArray()).ToArray();
-        var armies = ordered.Select(row => row.Where(item => item.TargetKind == TacticResultTargetKind.ArmyReceiver)
-            .Select(item => item.TargetId).ToArray()).ToArray();
-        var presentation = new TacticActorPresentation(receiver.ReceiverId, tacticSlot,
-            new(ManualTacticTargetKind.Hex, selectedHex), armies)
-        { InstructionResults = ordered, Effects = armyEffects.ToArray() };
+        return new(actor.Id, receiver.ReceiverId, tacticSlot, results[0].ToImmutableArray(),
+            results[1].ToImmutableArray(), armyEffects.ToImmutableArray(), physical, true);
+    }
+
+    private GameState EnqueueBorrowedAutomaticLinkedPresentation(GameState state, SourceWorldContext current,
+        TacticRemakeCurrentContext context, IReadOnlyList<AutomaticTacticLinkedActorResult> actors, int selectedHex)
+    {
+        var manager = state.ManualTacticIntervention ?? throw BaseAutomaticMissing("effect_manager168C40");
+        if (manager.Effects.Length >= 563) return state;
+        var main = actors[0];
+        bool direction = false;
+        if (context.IsAutomaticSpecialPresentationTactic(main.TacticId))
+        {
+            var actor = state.Units.GetValueOrDefault(main.CasterUnitId) ?? throw BaseAutomaticMissing("presentation_main_Army");
+            direction = _automaticPresentationAdmission?.ReadUniqueDirectionAdmission(state, actor, main.TacticId)
+                ?? throw BaseAutomaticMissing("unique_direction_admission369580");
+        }
+        var presentations = actors.Where(actor => actor.WasExecuted).Select(actor =>
+        {
+            var ordered = new[] { actor.FirstInstructionResults.ToArray(), actor.SecondInstructionResults.ToArray() };
+            var armies = ordered.Select(row => row.Where(item => item.TargetKind == TacticResultTargetKind.ArmyReceiver)
+                .Select(item => item.TargetId).ToArray()).ToArray();
+            return new TacticActorPresentation(actor.Actor, actor.TacticId,
+                new(ManualTacticTargetKind.Hex, selectedHex), armies)
+                { InstructionResults = ordered, Effects = actor.ArmyPresentationEffects.ToArray() };
+        }).ToArray();
+        if (presentations.Length == 0) throw BaseAutomaticMissing("presentation_no_executed_actor");
         manager = manager.Enqueue(direction ? TacticPresentationKind.UniqueDirection : TacticPresentationKind.OrdinaryEffects,
-            [presentation]);
+            presentations);
         return state with { ManualTacticIntervention = manager };
     }
 

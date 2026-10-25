@@ -14,15 +14,37 @@ public partial class Main
     private TacticPresentationRequest[]? ordinaryTacticEffects;
     private CancellationTokenSource ordinaryTacticLifetime = new();
 
-    private static GameState OrdinaryTacticOwner(GameplaySession session) =>
-        session.PendingManualTacticCandidate ?? session.PendingNormalPeriod?.Candidate ?? session.World;
+    private GameState OrdinaryTacticOwner(GameplaySession session) => _advancingPeriod
+        ? _periodPlayback?.Candidate ?? throw new InvalidOperationException("tactic.playback.closed_period_borrow")
+        : session.PendingManualTacticCandidate ?? session.PendingNormalPeriod?.Candidate ?? session.World;
+
+    private bool BeginOrdinaryTactic(GameplaySession session, GameState owner,
+        ManualTacticInterventionState manager, long sequence, GameState? preparedState) => _advancingPeriod
+        ? _periodPlayback?.TryBeginOrdinaryTactic(owner, manager, sequence, preparedState) == true
+        : session.TryBeginOrdinaryTacticPresentation(owner, manager, sequence, preparedState);
+
+    private bool CompleteOrdinaryTacticResults(GameplaySession session, GameState owner,
+        ManualTacticInterventionState manager, long sequence) => _advancingPeriod
+        ? _periodPlayback?.TryCompleteOrdinaryTacticResults(owner, manager, sequence) == true
+        : session.TryCompleteOrdinaryTacticResults(owner, manager, sequence);
+
+    private bool RetireOrdinaryTactic(GameplaySession session, GameState owner,
+        ManualTacticInterventionState manager, long sequence) => _advancingPeriod
+        ? _periodPlayback?.TryRetireOrdinaryTactic(owner, manager, sequence) == true
+        : session.TryCompleteOrdinaryTacticPresentation(owner, manager, sequence);
 
     private void RefreshOrdinaryTacticBinding(GameplaySession session, MapSceneView map)
     {
         if (ordinaryTacticSession == session && ordinaryTacticMap == map) return;
         CloseOrdinaryTactics();
         ordinaryTacticSession = session; ordinaryTacticMap = map;
-        map.SetOrdinaryTacticDriver(() => RunUiAction(AdvanceOrdinaryTactic));
+        // This is an engine presentation update, including an exclusively
+        // borrowed period candidate. The command-input gate blocks that period.
+        map.SetOrdinaryTacticDriver(() =>
+        {
+            try { AdvanceOrdinaryTactic(); }
+            catch (Exception error) { ShowFailure(error, startup: false); }
+        });
     }
 
     private void AdoptOrdinaryTacticSession(GameplaySession previous, GameplaySession next, MapSceneView? map)
@@ -50,7 +72,7 @@ public partial class Main
     {
         if (_session is not { } session || ordinaryTacticSession != session || _residentMap is not { } map ||
             ordinaryTacticMap != map || _campaignComposition is not { } composition ||
-            _advancingPeriod || _failed || _shuttingDown || IsReturningToTitle ||
+            (_advancingPeriod && _periodPlayback?.Candidate is null) || _failed || _shuttingDown || IsReturningToTitle ||
             HasAdministrationPage || HasMilitaryOrderPage || HasEnvironmentSettings || HasCampaignSavePage ||
             HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null) return;
         var owner = OrdinaryTacticOwner(session);
@@ -90,7 +112,7 @@ public partial class Main
                 {
                     var admission = result.GetAwaiter().GetResult();
                     if (!admission.Completed) throw new InvalidDataException(admission.UnresolvedInput);
-                    if (!session.TryCompleteOrdinaryTacticResults(owner, manager, request.Sequence))
+                    if (!CompleteOrdinaryTacticResults(session, owner, manager, request.Sequence))
                         throw new InvalidOperationException("tactic.result.receipt_owner");
                     owner = OrdinaryTacticOwner(session); manager = owner.ManualTacticIntervention!;
                     playback = manager.OrdinaryPlaybacks.Single(row => row.Sequence == request.Sequence);
@@ -101,7 +123,7 @@ public partial class Main
                 if (!retired.IsCompleted) continue;
                 retired.GetAwaiter().GetResult();
                 entry.Node.Dispose();
-                if (!session.TryCompleteOrdinaryTacticPresentation(owner, manager, request.Sequence))
+                if (!RetireOrdinaryTactic(session, owner, manager, request.Sequence))
                     throw new InvalidOperationException("tactic.retire.receipt_owner");
                 ordinaryTacticNodes.Remove(request.Sequence); retiredAny = true;
             }
@@ -110,7 +132,7 @@ public partial class Main
                 ordinaryTacticFailures.Add(request.Sequence); GD.PushWarning(error.Message);
             }
         }
-        if (retiredAny) RefreshCurrentPlayWorld();
+        if (retiredAny && !_advancingPeriod) RefreshCurrentPlayWorld();
     }
 
     private bool TryStartOrdinaryTactic(GameplaySession session, CampaignComposition composition,
@@ -140,11 +162,11 @@ public partial class Main
             try { prepared = rules.PrepareOrdinaryTacticAudio(owner, source); }
             finally { rules.ConfigureArmyMapSpeechSpatialVoice(null, null); }
             if (!prepared.Available) throw new InvalidDataException(prepared.UnresolvedOwner);
-            if (!session.TryBeginOrdinaryTacticPresentation(owner, manager, request.Sequence, prepared.State)) return false;
+            if (!BeginOrdinaryTactic(session, owner, manager, request.Sequence, prepared.State)) return false;
             owner = OrdinaryTacticOwner(session); manager = owner.ManualTacticIntervention!;
             playback = manager.OrdinaryPlaybacks.Single(row => row.Sequence == request.Sequence);
             batch.Commit();
-            if (owner.CampaignAppRandom32 is { } random && session.PendingNormalPeriod is null)
+            if (!_advancingPeriod && owner.CampaignAppRandom32 is { } random && session.PendingNormalPeriod is null)
                 _presentationRandom.InstallCommittedState(random.State);
         }
         var node = new OrdinaryTacticMapNode(map, source, playback.ResultsPublished);

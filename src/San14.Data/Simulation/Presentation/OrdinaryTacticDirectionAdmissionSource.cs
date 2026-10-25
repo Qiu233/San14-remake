@@ -79,15 +79,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     //011470 ->016900, with the actual float32 transform order: X sums
-    //Y then X; Y/Z/W sum X then Y. Preserve the rejection comparisons
-    //rather than introducing a W>0 test or a different projection helper.
+    //Y then X; Y/Z/W sum X then Y. Preserve edge/unordered rejection
+    //without adding a W>0 test or a different projection helper.
     private static bool DirectionClipContains(Matrix4x4 matrix, Vector4 position)
     {
         float inverse = SourceFloat.Divide(1f, Column(matrix.M14, matrix.M24, matrix.M34, matrix.M44, false));
         float x = SourceFloat.Multiply(Column(matrix.M11, matrix.M21, matrix.M31, matrix.M41, true), inverse);
         float y = SourceFloat.Multiply(Column(matrix.M12, matrix.M22, matrix.M32, matrix.M42, false), inverse);
         float z = SourceFloat.Multiply(Column(matrix.M13, matrix.M23, matrix.M33, matrix.M43, false), inverse);
-        return !(x <= -1f || 1f <= x || y <= -1f || 1f <= y || z <= 0f || 1f <= z);
+        //Actual COMISS/JBE rejects unordered coordinates as well as edges.
+        return x > -1f && x < 1f && y > -1f && y < 1f && z > 0f && z < 1f;
 
         float Column(float a, float b, float c, float d, bool yFirst)
         {

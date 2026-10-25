@@ -194,6 +194,8 @@ public partial class MapSceneView
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
                 _d3d11PresentedInput = input;
+                tacticArmyPositions = receipt.ArmyUnitPositions;
+                PublishTacticPresentationViews();
                 captureEffects.Accept(input.Effects);
                 _d3d11Markers?.AcceptArmyHits();
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Accept(scenery);
@@ -462,6 +464,8 @@ public partial class MapSceneView
     private void RecordD3D11MapFailure(Exception error)
     {
         _d3d11PresentedInput = null;
+        tacticArmyPositions = null;
+        PublishTacticPresentationViews();
         _sceneryMap?.Suspend();
         if (_d3d11Markers is not null) _d3d11Markers.Visible = false;
         ResetSourceCameraInput();
@@ -551,6 +555,8 @@ public partial class MapSceneView
     }
     private void ReleaseD3D11Map()
     {
+        tacticArmyPositions = null;
+        TacticPresentationViews.Clear();
         _traitRefreshWorld = null; _traitRefreshArmy = null;
         EndCampaignTargetMapPick();
         ReleaseInformationLayers();

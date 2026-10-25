@@ -4,7 +4,11 @@ namespace San14.Data;
 
 public interface IManualTacticPresentationAdmission
 {
+    /// <summary>Presence of the optional user-selection service returned by
+    /// 1D3840, not the application window, Composition or campaign session.</summary>
     bool? ApplicationPresent { get; }
+    /// <summary>1D2A90's current signed World.BC value, read only when the
+    /// optional service exists. This is not a local-player or Force number.</summary>
     int? ApplicationUserIndex { get; }
     /// <summary>168C40's current unique-direction admission. False is an
     /// explicitly rejected route, not a missing camera or settings owner.</summary>
@@ -149,14 +153,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var commander = context.ResolveOrdinaryActivationCommanderTail(working, units[actor!.Id],
                 request.TacticId, TryApplyNativePendingMerit) ?? throw ManualMissing("commander_merit_tail");
             working = working with { Officers = new(working.Officers) { [commander.Id] = commander } };
-            //The zero-chain branch skips32FED0, but31FE40 still needs the
-            //actual App selection. This finite path owns only its proven skip.
             var admission = presentation ?? throw ManualMissing("presentation_admission");
-            if (ManualKnown(admission.ApplicationPresent, "application_presence"))
-            {
-                if (admission.ApplicationUserIndex is not int selected) throw ManualMissing("application_user_index");
-                if (selected != -1) throw ManualMissing("application_selected_notification");
-            }
             UnitState currentActor = units[actor.Id];
             var native = currentActor.NativeTacticRuntime ?? throw ManualMissing("actor_waiting");
             units[actor.Id] = currentActor with { NativeTacticRuntime = native with
@@ -165,6 +162,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 PrimaryWaitingReadyAtUpdateOrdinal = waiting.Waiting20 == 0 ? working.NativeClock!.UpdateOrdinal : null
             } };
             working = working with { Units = units };
+            //174572 records manual use after all waiting writes; chain0
+            //does not enter32FED0's separate pre-waiting linked counter.
+            working = ApplyLinkedTacticAccountingCurrent(working, current,
+                actor.Id, 0, manual: true);
 
             manager = working.ManualTacticIntervention! with { Pending = null };
             //168C40 checks the ordinary effect count before either route.

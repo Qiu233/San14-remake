@@ -15,6 +15,20 @@ public sealed record AutomaticTacticMoralePrefix(int SourceArmyPhysicalSlot, int
 
 public sealed record AutomaticTacticDamageContribution(int Kind, int PhysicalSlot, int RequestedLoss);
 
+public sealed record AutomaticTacticLinkedActorPlan(int CasterUnitId, int TacticId,
+    ImmutableArray<AutomaticTacticInstructionSnapshot> Instructions, int SourceArmyPhysicalSlot);
+
+public sealed record AutomaticTacticLinkedActorResult(int CasterUnitId, ArmyReceiverId Actor, int TacticId,
+    ImmutableArray<TacticResultPresentation> FirstInstructionResults,
+    ImmutableArray<TacticResultPresentation> SecondInstructionResults,
+    ImmutableArray<TacticEffectPresentation> ArmyPresentationEffects, int SourceArmyPhysicalSlot, bool WasExecuted);
+
+/// <summary>The already selected successors and completed predecessors of the
+/// current actor. Current instruction and target progress remain on its owner.</summary>
+public sealed record AutomaticTacticLinkedExecutionContinuation(
+    ImmutableArray<AutomaticTacticLinkedActorPlan> RemainingActors,
+    ImmutableArray<AutomaticTacticLinkedActorResult> CompletedActors, int CategoryPolicyReduction);
+
 /// <summary>The automatic tactic's already calculated instruction/target prefix
 /// awaiting the nested destruction decision. Random state and accumulated results
 /// belong to this execution, independently of the enclosing mixed combat pair.</summary>
@@ -30,4 +44,7 @@ public sealed record AutomaticTacticExecutionContinuation(int CasterUnitId, int 
 {
     public AutomaticTacticTroopPrefix? TroopPrefix { get; init; }
     public AutomaticTacticMoralePrefix? MoralePrefix { get; init; }
+    /// <summary>When present, ChainWaitingContribution is the completed actors'
+    /// contribution sum. Null preserves the legacy empty-chain interpretation.</summary>
+    public AutomaticTacticLinkedExecutionContinuation? LinkedExecution { get; init; }
 }

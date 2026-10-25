@@ -77,12 +77,14 @@ public partial class Main
                         playbackMap!.ReleasePeriodPlaybackCandidate(playback!);
                 }, cancellation.Token);
             _periodPlayback = playback; _periodPlaybackMap = playbackMap;
+            if (playbackMap is not null) RefreshOrdinaryTacticBinding(source, playbackMap);
             playback.SetSpeed(_periodPlaybackSpeed);
             overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
             if (playbackMap?.SourceMainCameraTerrain is { } terrain)
                 composition.ConfigureBaseCapturePresentationTerrain(terrain);
             composition.ConfigureArmyTraitSpeechViews(playbackMap?.CaptureArmyTraitSpeechViews());
+            if (playbackMap is not null) composition.ConfigureTacticPresentationViews(playbackMap.TacticPresentationViews);
             var storyBindings = CaptureNormalTurnStoryBindings(source, composition, playbackMap, cancellation.Token);
             var result = campaignChoice switch
             {

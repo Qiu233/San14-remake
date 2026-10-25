@@ -131,6 +131,7 @@ public partial class MapSceneView
 
     private void ReleaseSourceCamera()
     {
+        TacticPresentationViews.Clear();
         _sourceMainCamera=null;_sourceMainCameraFrame=null;_sourceMainCameraTerrain=null;
         _deploymentTargetAnchors=null;_commandTargetPicked=null;_commandTargetPointerAllowed=null;
         _commandTargetShiftWaypoint=false;
@@ -168,6 +169,7 @@ public partial class MapSceneView
             ++_sourceMainCameraFrameNumber,input.Provenance)
             {SourceSelectedFovV410=PrepareSourceSeasonCameraFov()});
         _sourceMainCameraFrame=frame;
+        PublishTacticPresentationViews();
         var camera=frame.Camera;
         var position=ToGodot(camera.CurrentPose.Position80);
         if(!UseD3D11Map)

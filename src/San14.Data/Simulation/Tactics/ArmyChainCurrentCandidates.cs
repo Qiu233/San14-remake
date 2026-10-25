@@ -74,9 +74,8 @@ internal sealed record ArmyChainCurrentCandidates(IReadOnlyList<ArmyChainCurrent
                     K(current.ReadPersonDistrictSlot(commander), "actor_raw_district")) continue;
                 var abnormal = candidate.NativeTacticRuntime ?? throw Missing("candidate_abnormal_counters");
                 if (abnormal.Abnormal23 != 0 || abnormal.Abnormal24 != 0 || abnormal.Abnormal25 != 0) continue;
-                // Cached TC data.tsv has threshold3. No SC source byte has
-                // yet been established for this reached nonempty branch.
-                if (parameters.Language != "TC") throw Missing("relation_threshold_profile");
+                //TC2AFC20 and SC2AFA40 independently use threshold3;
+                //their Person flags offsets differ behind the current reader.
                 byte relation = K(current.ReadDestructionRelationTier2A6EE0(commander, candidateCommander, 1), "commander_relation");
                 if (relation >= 3) result.Add(new(physical, candidate.Id));
             }

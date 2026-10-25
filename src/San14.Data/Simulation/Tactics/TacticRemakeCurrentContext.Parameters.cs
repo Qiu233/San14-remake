@@ -169,6 +169,27 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent, InjuryLevel3AbilityPercent),
         (SimulationParameterKeys.Tactics.AbilitySecondaryBaseline, AbilitySecondaryBaseline),
         (SimulationParameterKeys.Tactics.AbilitySecondaryAdjustment, AbilitySecondaryAdjustment),
+        //Independent TC/SC initial data: relation1/2 loader-zero, relation3..5 rates.
+        ("simulation.tactics.linked.player0.relation1-percent", 0),
+        ("simulation.tactics.linked.player0.relation2-percent", 0),
+        ("simulation.tactics.linked.player0.relation3-percent", 40),
+        ("simulation.tactics.linked.player0.relation4-percent", 50),
+        ("simulation.tactics.linked.player0.relation5-percent", 80),
+        ("simulation.tactics.linked.player1.relation1-percent", 0),
+        ("simulation.tactics.linked.player1.relation2-percent", 0),
+        ("simulation.tactics.linked.player1.relation3-percent", 30),
+        ("simulation.tactics.linked.player1.relation4-percent", 40),
+        ("simulation.tactics.linked.player1.relation5-percent", 70),
+        ("simulation.tactics.linked.player2.relation1-percent", 0),
+        ("simulation.tactics.linked.player2.relation2-percent", 0),
+        ("simulation.tactics.linked.player2.relation3-percent", 20),
+        ("simulation.tactics.linked.player2.relation4-percent", 30),
+        ("simulation.tactics.linked.player2.relation5-percent", 60),
+        ("simulation.tactics.linked.nonplayer.relation1-percent", 0),
+        ("simulation.tactics.linked.nonplayer.relation2-percent", 0),
+        ("simulation.tactics.linked.nonplayer.relation3-percent", 20),
+        ("simulation.tactics.linked.nonplayer.relation4-percent", 30),
+        ("simulation.tactics.linked.nonplayer.relation5-percent", 60),
         //Counter-zero presentation inputs. These initial values were read
         //independently from current TC and SC source data. Fresh allocation
         //owns them thereafter; loading does not backfill missing current keys.
