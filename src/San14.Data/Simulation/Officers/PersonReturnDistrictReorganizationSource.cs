@@ -17,6 +17,9 @@ internal sealed class ArmyReturnDistrictOperationQueries(IArmyReturnGovernorCurr
     internal HashSet<int> ChangedAreas { get; } = [];
     internal HashSet<int> ChangedGates { get; } = changedGates;
     internal HashSet<int> TouchedDistricts { get; } = [];
+    //The enclosing capture supplies its actual293BD0 recipient and sink.
+    //Other District operations retain their existing unregister execution.
+    internal Func<int, GameState>? ForceRetirementHandler { get; init; }
     public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int person) => queries.ReadCurrentComparatorFields(person);
     public int? ReadCurrentAssociatedVirtual98(PersonLinkedEntityReference reference) => queries.ReadCurrentAssociatedVirtual98(reference);
     internal int Leadership(int person) => Package?.ReadReturnDistrictLeadership(Latest(), current, person)

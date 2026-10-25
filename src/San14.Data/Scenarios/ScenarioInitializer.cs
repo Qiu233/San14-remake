@@ -1,4 +1,5 @@
 using San14.Core;
+using System.Collections.Immutable;
 
 namespace San14.Data;
 
@@ -134,6 +135,8 @@ public static class ScenarioInitializer
             Date = new PeriodDate(year, month, day),
             Phase = TurnPhase.Initializing,
             RandomState = randomSeed,
+            //326230 clears the ten groups' fifty member slots at world construction.
+            PersonnelGroups = new(Enumerable.Repeat(ImmutableArray<int>.Empty, 10).ToImmutableArray()),
             ItemDefinitions = itemProjection.Definitions,
             Items = itemProjection.Items,
             DefaultForceKingdomNameIndex = source.Forces.Single(force => force.Slot == 0).RawKingdomName48,

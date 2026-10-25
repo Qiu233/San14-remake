@@ -6,6 +6,13 @@ internal sealed partial class SceneAudioBinding
     //Its actual UI input owner supplies this gate; unknown is never false.
     internal Func<bool?>? StorySoundSuppressed { private get; set; }
 
+    internal Task PlayNormalSoundAsync(int soundId, CancellationToken cancellation)
+    {
+        if (_playableSession is null || _session.SceneKey is null)
+            throw new InvalidOperationException("normal.audio.sound_scene_owner");
+        return _session.PlayStorySoundAsync(new(StoryAudioKind.Sound, soundId, 0, 0, 0), cancellation);
+    }
+
     internal Task PlayStorySoundAsync(StoryAudio command, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();

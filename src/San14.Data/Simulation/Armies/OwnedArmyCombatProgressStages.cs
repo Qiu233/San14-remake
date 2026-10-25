@@ -188,9 +188,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Defeat)
             {
-                var destroyed = new OwnedArmyDestructionStage(package).TryConsumeDeferredDefeats(state,
-                    currentPhase?.ReadOrdinaryCycleSampler(state), moment.PreWriterThirdDate);
+                var destroyed = new OwnedArmyDestructionStage(package).TryConsumeDeferredDefeatsWithGrouping(state,
+                    currentPhase?.ReadOrdinaryCycleSampler(state), moment.PreWriterThirdDate, mapGroups);
                 if (destroyed.State is not { } result) return null;
+                if (destroyed.CityReceipts.Length != 0 || destroyed.BaseReceipts.Length != 0) mapGroupsChanged = true;
                 var reports = destroyed.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
                     result.NativeClock!.UpdateOrdinal, receipt.UnitId, receipt.ForceId, receipt.PhysicalSlot));
                 result = result with { NativeSubdayReports = [.. result.NativeSubdayReports ?? [], .. reports] };

@@ -25,6 +25,6 @@ public partial class MapSceneView
     {
         if (_d3d11Markers is null || _mapPresentation is null) return;
         _d3d11Markers.SetInformationVisibility((_mapPresentation.Policy.Category16 & 4) != 0,
-            _keyboardArmyInformationVisible);
+            _keyboardArmyInformationVisible, _mapPresentation.Policy.Mode);
     }
 }

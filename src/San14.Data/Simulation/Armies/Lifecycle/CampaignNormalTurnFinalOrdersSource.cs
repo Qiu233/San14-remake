@@ -205,13 +205,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         return state with { CampaignEffectRequests = (state.CampaignEffectRequests ?? throw FinalOrdersMissing("scene_pending_owner"))
             .Append(CampaignEffectSource.MonthlyMaintenance, state.NativeClock?.UpdateOrdinal ?? throw FinalOrdersMissing("scene_revision"), requests) };
     }
-    internal GameState AppendNormalTurnFinalOrderResourceCurrent(GameState state, int force, int location,
+    internal GameState AppendNormalTurnFinalOrderResourceCurrent(GameState state, SourceWorldContext current, int force, int location,
         int kind, int root, int amount, int currentAmount)
     {
         //6C5EB0 submits the complete CDestinyRandomBonusState operand packet.
         //It is not a generic narration popup and has not yet been played.
+        var formatted = FormatNormalTurnReport(state, current, root,
+            new(Force0: force, Base0: checked((ushort)location), Integers: [amount, currentAmount]));
+        state = formatted.State;
         var requests = new CampaignEffectRequest[] { new(null, null) { NormalTurnForceResourceNotice =
-            new(force, location, kind, root, amount, currentAmount) } };
+            new(force, location, kind, root, amount, currentAmount) { TextAtSource = formatted.Text } } };
         return state with { CampaignEffectRequests = (state.CampaignEffectRequests ?? throw FinalOrdersMissing("resource_pending_owner"))
             .Append(CampaignEffectSource.MonthlyMaintenance, state.NativeClock?.UpdateOrdinal ?? throw FinalOrdersMissing("resource_revision"), requests) };
     }

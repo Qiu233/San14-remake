@@ -11,9 +11,9 @@ public partial class Main
     private MapSceneView? _personnelPresentationMap;
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
-    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback;
+    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
-    private bool IsPersonnelPresentationCurrent=>HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
+    private bool IsPersonnelPresentationCurrent=>_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
@@ -33,10 +33,34 @@ public partial class Main
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=PersonnelPresentationOwner(session);
         RefreshDisasterScene(session,owner,map);
+        RefreshMonthlyScene(session,owner,map);
+        RestoreFoodWarnings(session,owner,map);
         RefreshArmyMapSpeechBinding(session,owner,map);
         if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if (entry.Request.MonthlyMaintenance?.Operation == MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations)
+            {
+                composition.ApplicationGameplay.PersonnelGroupMoveDestinations.Clear();
+                if (!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex)) return false;
+                owner=PersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.NormalTurnFoodWarningPresentation is not null)
+            {
+                if (!TryPresentFoodWarnings(entry,session,owner,map)) return false;
+                owner=PersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.FinalOrderSceneEnter or
+                MonthlyMaintenanceOperation.FinalOrderSceneExit)
+            {
+                if (!TryPresentFinalOrderScene(entry,session,owner,map)) return false;
+                owner=PersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.NormalTurnForceResourceNotice is not null)
+                return TryPresentResourceNotice(entry,session,owner,map);
             if(entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.DisasterSceneEnter or
                 MonthlyMaintenanceOperation.DisasterSceneExit)
             {
@@ -59,7 +83,8 @@ public partial class Main
             }
             if(entry.Request.DiplomacyArrivalAudio is not null||payload?.Operation==TalentCommandPresentationOperation.SoundCue)
             {
-                bool audioRequired=entry.Source is CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands;
+                bool audioRequired=entry.Source is CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.StrategicCommands or
+                    CampaignEffectSource.ArmyBattleDefeat;
                 //Native SE/arrival calls enqueue audio and continue immediately.
                 //A request receipt does not pretend that audio has finished.
                 if(entry.Request.DiplomacyArrivalAudio is null||_preferences.Voice.Enabled)
@@ -215,6 +240,7 @@ public partial class Main
 
     private void ClosePersonnelPresentation()
     {
+        CloseResourceNotice();
         CloseMonthlyFeedback();
         if(_personnelPresentationOwnsVoice)_sceneAudioBinding?.StopNarrationVoice();
         _personnelPresentationOwnsVoice=false;

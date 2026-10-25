@@ -61,7 +61,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var oldArea = PersonFreedomHomeSource.FindBaseArea229FD0(current, oldHome);
         var originalForce = current.ReadPersonForce(personPhysical) ?? throw CaptiveFreedomMissing("original_Force22CB40");
         byte status = Need(current.ReadPersonStatus(personPhysical), "prefix_statusE6");
-        if (status is not (2 or 3 or 4 or 6)) throw CaptiveFreedomMissing("branch.ordinary_status2_3_4_or6");
+        if (status is not (1 or 2 or 3 or 4 or 6)) throw CaptiveFreedomMissing("branch.ordinary_status1_2_3_4_or6");
         if (status == 2)
         {
             int districtId = Need(current.ReadPersonDistrictSlot(personPhysical), "leader_DistrictE0");
@@ -85,7 +85,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.WritePersonStatus(personPhysical, 4);
             status = 4;
         }
-        bool repairGovernor = status == 3 || Need(current.ReadArmyReturnBaseGovernor2E(oldHome), "old_Home2E") == id;
+        //265250 excludes the ruler from both governor-prefix tests.
+        bool repairGovernor = status != 1 && (status == 3 || Need(current.ReadArmyReturnBaseGovernor2E(oldHome), "old_Home2E") == id);
         if (repairGovernor) { current.SetArmyReturnBaseGovernor2E(oldHome, 0); PublishGovernor(0); }
         if (Need(current.ReadForceNativeValidity(originalForce), "original_Force_validity"))
         {
@@ -170,7 +171,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             army = current.ReadArmyUnitTableReference(0) ?? throw CaptiveFreedomMissing("own_Army_fallback");
         if (Need(current.ReadArmyUnitNativeValidity(army), "own_Army_validity") &&
             !Need(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(working, current, Need(army.PhysicalSlot, "own_Army_pointer")), "own_Army233560"))
-            throw CaptiveFreedomMissing("branch.own_Commander_cause4_requires_borrowed_destruction");
+        {
+            var destroyed = new OwnedArmyDestructionStage(this).ApplyFreeCommanderCause4WithinOperationCurrent(
+                working, current, pool, Need(army.PhysicalSlot, "own_Army_pointer"), sourceDate, sink);
+            working = destroyed.State ?? throw CaptiveFreedomMissing(destroyed.UnresolvedOwner ?? "own_Commander_cause4");
+        }
         var linked = current.ReadPersonLinkedEntity(personPhysical) ?? throw CaptiveFreedomMissing("associated_receiver");
         if (Need(current.ReadLinkedEntityNativeValidity(linked), "associated_receiver_validity"))
         {

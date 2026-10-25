@@ -8,6 +8,10 @@ namespace San14.Client.Gameplay;
 internal sealed record ForceExperienceHeaderChange(int ForceId, int CurrentExperience, int Amount,
     int? SourcePreviousLevel, int[] Thresholds)
 {
+    internal static bool IsGainSource(CampaignEffectSource source) => source is
+        CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands or
+        CampaignEffectSource.MonthlyMaintenance;
+
     internal int LevelAt(int total)
     {
         int level = 0;
@@ -21,7 +25,7 @@ internal sealed record ForceExperienceHeaderChange(int ForceId, int CurrentExper
         if (OwnedForce164Inputs.ReadCurrent(world, forceId) is not int current ||
             world.NativeArmySimulation?.Parameters.Int32Values is not { } values) return null;
         var gains = (world.CampaignEffectRequests?.PendingBatches ?? [])
-            .Where(batch => batch.Source is CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands)
+            .Where(batch => IsGainSource(batch.Source))
             .SelectMany(batch => batch.Requests)
             .Select(request => request.TalentForceExperiencePresentation)
             .Where(request => request is { Operation: TalentForceExperiencePresentationOperation.ExperienceGain, Amount: > 0 } &&

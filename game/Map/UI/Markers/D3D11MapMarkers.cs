@@ -75,12 +75,14 @@ internal partial class D3D11MapMarkers : Control
     private int? _hoveredHex, _pressedHex;
     private bool _baseInformationVisible = true, _armyInformationVisible = true;
 
-    internal void SetInformationVisibility(bool bases, bool armies)
+    internal void SetInformationVisibility(bool bases, bool armies, int informationMode)
     {
-        if (_baseInformationVisible == bases && _armyInformationVisible == armies) return;
+        if (_baseInformationVisible == bases && _armyInformationVisible == armies && foodWarningInformationMode == informationMode) return;
+        foodWarningInformationMode = informationMode;
         _baseInformationVisible = bases; _armyInformationVisible = armies;
         if (_armyLabels is not null) _armyLabels.Visible = armies && campaignMarkerHexes is null;
         if (!bases) ClearPointer();
+        PositionFoodWarnings();
         QueueRedraw();
     }
 
@@ -91,12 +93,14 @@ internal partial class D3D11MapMarkers : Control
         else if (pressed == false) _pressedHex = null;
         if (_hoveredHex == hit && pressed is null) return;
         _hoveredHex = hit;
+        PositionFoodWarnings();
         QueueRedraw();
     }
 
     internal void ClearPointer()
     {
         _hoveredHex = _pressedHex = null;
+        PositionFoodWarnings();
         QueueRedraw();
     }
 
@@ -405,6 +409,7 @@ internal partial class D3D11MapMarkers : Control
             marker.OnScreen = visible && screen.X > -150 && screen.X < 2070 &&
                 screen.Y > -100 && screen.Y < 1180;
         }
+        PositionFoodWarnings();
     }
 
     internal static bool TryProject(Vector3 world, NMatrix worldToProjection, out Vector2 canonicalPixel)
@@ -549,6 +554,7 @@ internal partial class D3D11MapMarkers : Control
 
     public override void _ExitTree()
     {
+        foodWarningShader?.Dispose();
         if (_ownsAssets) _assets?.Dispose();
         _font?.Dispose();
     }

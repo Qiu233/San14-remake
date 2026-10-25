@@ -119,7 +119,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             WriteForce(id, value => value with { Flags12 = (byte)(Flags(id) | 0x20) });
             if (IsPlayer(force) && root != 0 && nativeKind != 0)
-                state = package.AppendNormalTurnFinalOrderResourceCurrent(state, id,
+                state = package.AppendNormalTurnFinalOrderResourceCurrent(state, current, id,
                     N(current.ReadBaseObjectLink(home), "bonus_Base4E"), nativeKind, root, amount, after);
         }
 

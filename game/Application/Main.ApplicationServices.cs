@@ -6,6 +6,7 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private TransferServiceProfileStore? _applicationProfile;
+    private readonly PersonnelGroupMoveDestinations _personnelGroupMoveDestinations = new();
 
     private void AttachApplicationProfile(CampaignComposition composition, GameState adopted)
     {

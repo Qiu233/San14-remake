@@ -9,6 +9,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState? _mapArmyGroupingCapturedWorld;
     private ArmyMapGroupingFrame? _mapArmyGroupingFrame;
 
+    internal ArmyMapGroupingOwner CreateCaptureMapGroupingOwner() => _mapArmyGrouping.Copy();
+
     /// <summary>Only after the actual fresh5012209A0/2269E0 constructor,
     ///never merely because an old self-format save was continued.</summary>
     public void InitializeMapArmyGroupsKnownReset(IEnumerable<int> physicalSlots)

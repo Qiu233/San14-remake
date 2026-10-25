@@ -4,7 +4,7 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
-    private DisasterSceneView? _disasterScene;
+    private EventIllustrationView? _disasterScene;
     private GameplaySession? _disasterSceneSession;
     private MapSceneView? _disasterSceneMap;
 
@@ -19,7 +19,7 @@ public partial class Main
         if (_disasterScene?.EventKind == eventKind && ReferenceEquals(_disasterSceneSession, session) &&
             ReferenceEquals(_disasterSceneMap, map)) return;
         CloseDisasterScene();
-        var view = new DisasterSceneView();
+        var view = new EventIllustrationView();
         _disasterScene = view; _disasterSceneSession = session; _disasterSceneMap = map;
         AddChild(view);
         try { view.Configure(_repository!, eventKind); }

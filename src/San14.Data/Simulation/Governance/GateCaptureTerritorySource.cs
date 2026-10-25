@@ -227,7 +227,7 @@ public static class GateCaptureTerritorySource
             throw Missing("branch.ordinary_Gate_receiver");
     }
     private static void CheckForce(int force)
-    { if (force is < 1 or > 45) throw Missing("branch.nonordinary_new_Force"); }
+    { if (force is < 0 or > 45) throw Missing("branch.nonordinary_new_Force"); }
     private static int Physical(HexReference hex) => K(hex.PhysicalSlot, "Hex_identity");
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.Gate_capture_territory." + field);

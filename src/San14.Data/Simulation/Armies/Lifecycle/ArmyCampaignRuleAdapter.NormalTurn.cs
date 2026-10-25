@@ -112,7 +112,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     39 or 40 => ApplyNormalTurnEconomyCurrent(state, current, pool, action,
                         groups ?? throw AppearanceTurnMissing("food_grouping_owner")),
                     41 => state, //4F8560 is the action as well as its true result.
-                    >= 42 and <= 47 => ApplyNormalTurnPostEconomyCurrent(state, current, pool, action),
+                    >= 42 and <= 47 => ApplyNormalTurnPostEconomyCurrent(state, current, pool, action, groups),
                     48 => ApplyNormalTurnStoryPlaybackCurrent(state, current, pool, restoreApp,
                         new(groups?.Export() ?? grouping?.Roots ?? throw AppearanceTurnMissing("story_grouping_owner"),
                             groups is not null || grouping!.Changed)),

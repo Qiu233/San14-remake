@@ -101,8 +101,17 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 if (K(current.ReadPersonSecondLocation(person), "230DD0 PersonE4") != link) continue;
                 _ = current.AppendPersonReturnTemporary(captured, person);
             }
-            if (K(current.ReadTemporaryHexListCount(captured), "230DD0 output count") != 0)
-                throw Missing("branch.Base_status6_existing_captives");
+            var existingCaptiveEffects = new List<CampaignEffectRequest>();
+            foreach (var item in ReadPeople(current, captured))
+                working = package.ApplyBaseCaptureExistingCaptiveCurrent(working, current,
+                    current.ReadOwnedCurrentListPool() ?? throw Missing("existing_captive_current_pool"),
+                    target, item.Person, sourceDate, existingCaptiveEffects, winningForce: winningForce,
+                    winningDistrict: current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(winnerPerson),
+                        "existing_captive_winner_District")));
+            if (existingCaptiveEffects.Count != 0)
+                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                    ?? throw Missing("existing_captive_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                        working.NativeClock?.UpdateOrdinal ?? throw Missing("existing_captive_effect_clock"), existingCaptiveEffects) };
             current.ClearTemporaryHexList(captured);
             noncaptured = Temporary(current); special = Temporary(current);
             var decisions = new List<BaseCapturePersonDecision>();
@@ -180,29 +189,52 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             var noncapturedNodes = ReadPeople(current, noncaptured);
             if (noncapturedNodes.Count != 0) SortStatusAndIdentity(current, noncaptured, noncapturedNodes);
             var noncapturedOrder = ReadPeople(current, noncaptured).Select(x => (int)K(current.ReadPersonIdentity(x.Person), "noncaptured Person10")).ToArray();
+            bool lastCity = false;
             if (noncapturedOrder.Length != 0)
             {
                 var ownedCities = ReadOwnedCityLocations(current, oldForce);
-                if (ownedCities.Length == 0 || ownedCities is [var only] && only == link)
-                    throw Missing("branch.last_City_noncaptured_2EACB0_265250");
+                lastCity = ownedCities.Length == 0 || ownedCities is [var only] && only == link;
             }
+            if (lastCity) package.RequireNoLastCitySpecialPersonnelReturnCurrent(working, current, target, oldForce);
             var homeWrites = new List<ReturningPersonHomeReceipt>();
-            foreach (int id in noncapturedOrder)
+            var noncapturedFeedback = new List<CampaignEffectRequest>();
+            TacticSourceSamplerWorld ReadSampler() => sampler ?? package.ReadArmyDestructionSampler(working, current)
+                ?? throw Missing("last_City_World450_45C");
+            var noncapturedNode = current.ReadRegistryHead(new(noncaptured.Identity)) ?? throw Missing("noncaptured head");
+            while (noncapturedNode.Identity.HasValue)
             {
-                int person = current.ReadPersonLookupReference(id)?.PhysicalSlot ?? throw Missing("noncaptured Person pointer");
+                var entry = current.ReadRegistryNodePayload(noncapturedNode) ?? throw Missing("noncaptured payload");
+                if (entry is not { Kind: RegistryKind.Person, PhysicalSlot: int person }) throw Missing("noncaptured Person pointer");
                 byte status = K(current.ReadPersonStatus(person), "232460 current PersonE6");
-                if (status is < 1 or > 4) continue;
-                working = WithPool(working, current, borrowed);
-                var rules = package.CreateCaptureReturningPersonRules();
-                var result = borrowed
-                    ? rules.TryApplyHomeCurrent(working, current, link, oldForce, id, sourceDate)
-                    : rules.TryApplyIdleBase(working, link, oldForce, id, sourceDate);
-                working = result.State ?? throw Missing(result.UnresolvedOwner ?? "260310 noncaptured Home");
-                homeWrites.Add(result.Receipt!);
-                //The Home operation adopted actual current and includes all
-                //still-live caller temporaries. Continue from that owner.
-                if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
+                if (status is >= 1 and <= 4)
+                {
+                    working = WithPool(working, current, borrowed);
+                    if (lastCity)
+                    {
+                        working = package.ApplyLastCityNoncapturedPersonCurrent(working, current,
+                            current.ReadOwnedCurrentListPool() ?? throw Missing("last_City_current_pool"), person,
+                            winningForce, sourceDate, ReadSampler, noncapturedFeedback);
+                    }
+                    else
+                    {
+                        int id = K(current.ReadPersonIdentity(person), "noncaptured Person10");
+                        var rules = package.CreateCaptureReturningPersonRules();
+                        var result = borrowed
+                            ? rules.TryApplyHomeCurrent(working, current, link, oldForce, id, sourceDate)
+                            : rules.TryApplyIdleBase(working, link, oldForce, id, sourceDate);
+                        working = result.State ?? throw Missing(result.UnresolvedOwner ?? "260310 noncaptured Home");
+                        homeWrites.Add(result.Receipt!);
+                        //The standalone Home operation adopts its actual
+                        //current, retaining the still-live caller lists.
+                        if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;
+                    }
+                }
+                noncapturedNode = current.ReadRegistryNodeNext(noncapturedNode) ?? throw Missing("noncaptured next");
             }
+            if (noncapturedFeedback.Count != 0)
+                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                    ?? throw Missing("last_City_feedback_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                        working.NativeClock?.UpdateOrdinal ?? throw Missing("last_City_feedback_clock"), noncapturedFeedback) };
             var receipt = new BaseCapturePersonPrefixReceipt(link, oldForce, newForce, homeArmies.ToArray(), homes.ToArray(),
                 decisions.ToArray(), capturedNodes.Select(x => (int)K(current.ReadPersonIdentity(x.Person), "captured Person10")).ToArray(),
                 ReadPeople(current, special).Select(x => (int)K(current.ReadPersonIdentity(x.Person), "special Person10")).ToArray(),

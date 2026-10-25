@@ -892,7 +892,7 @@ public partial class Main : Control
         EffectiveScenario selection = _shownScenarios[(int)index].Selection;
         CampaignLoadResult campaign = CampaignComposition.Load(_repository, selection,
             _newGameOptions, restored, restoredPlayerForceId, restoredProgress, lastStorySequence, restoredManualTactic,
-            restoredNormalPeriod);
+            restoredNormalPeriod, _personnelGroupMoveDestinations);
         campaign.Composition.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
         LoadedScenario loaded = campaign.Composition.Scenario;
         LoadedMap loadedMap = campaign.Composition.Map;
@@ -1104,6 +1104,10 @@ public partial class Main : Control
         CloseForcePresentation();
         ClosePersonnelPresentation();
         CloseDisasterScene();
+        CloseMonthlyScene();
+        _foodWarningMap = null;
+        _foodWarningSession = null;
+        _foodWarningCityFlags = null;
         CloseUnitRetarget();
         CloseTransportSetup();
         CloseCommandWorkspace();

@@ -10,6 +10,7 @@ internal partial class D3D11MapMarkers
     internal void SetCampaignMarkers(IReadOnlySet<int>? visibleHexes,IReadOnlySet<int>? selectedHexes=null)
     {
         campaignMarkerHexes=visibleHexes;campaignSelectedHexes=selectedHexes;
+        PositionFoodWarnings();
         if(_armyLabels is not null)_armyLabels.Visible=visibleHexes is null&&_armyInformationVisible;
         ClearPointer();QueueRedraw();
     }

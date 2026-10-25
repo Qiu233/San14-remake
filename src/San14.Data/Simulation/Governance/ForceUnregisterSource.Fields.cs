@@ -68,9 +68,11 @@ public sealed partial class ForceUnregisterSource
     }
 
     private static int[] SettleHexes(GameState state, SourceWorldContext current, int victim,
-        HexListHandle objectTemporary)
+        HexListHandle objectTemporary, Action<HexReference, int>? transfer = null)
     {
         var changed = new List<int>();
+        var retainedObjects = new List<int>();
+        var seenObjects = new HashSet<int>();
         //No original scenery-layout receiver is constructed in this numeric
         //campaign. Its presentation-dirty tail has a known null receiver.
         current.CurrentSceneryLayout = new(null);
@@ -87,10 +89,17 @@ public sealed partial class ForceUnregisterSource
             if (Known(current.ReadObjectNativeValidity(obj), "Hex_Object_validity"))
             {
                 byte own = Need(current.ReadObjectForceSlot13(obj), "Hex_Object13");
-                //The global owned-Object gate above proves this temporary
-                //has no pointer append/destruction in the finite leaf.
-                if (own == victim) throw Missing("branch.Hex_owned_Object");
-                receiver = own <= 51 ? own : 0;
+                if (own == victim)
+                {
+                    if (transfer is null) throw Missing("branch.Hex_owned_Object");
+                    int physical = Need(obj.PhysicalSlot, "retained_Object_pointer");
+                    if (seenObjects.Add(physical))
+                    {
+                        Append(current, objectTemporary, RegistryKind.Object, physical);
+                        retainedObjects.Add(physical);
+                    }
+                }
+                else receiver = own <= 51 ? own : 0;
             }
             ushort rawArmy = Need(current.ReadHexRaw1C(reference), "Hex1C");
             int army = rawArmy < 501 ? rawArmy : 0;
@@ -103,8 +112,13 @@ public sealed partial class ForceUnregisterSource
                 receiver = Need(current.ReadPersonOldForceSlot(person), "Hex_Army_current_Force");
             }
             int requested = Known(current.ReadForceNativeValidity(new(receiver)), "Hex_final_Force_validity") ? receiver : 0;
+            transfer?.Invoke(reference, requested);
             current.AssignHexForce(reference, requested); changed.Add(hex);
         }
+        //293BD0 defers Object13=0 until every Hex has read the old owner.
+        //This includes the captured City when its District changed before
+        //the enclosing26DA10 writes its Object13 to the winning Force.
+        foreach (int physical in retainedObjects) current.SetObjectForceSlot13(physical, 0);
         return changed.ToArray();
     }
 
@@ -185,7 +199,8 @@ public sealed partial class ForceUnregisterSource
         foreach (int id in forces.Keys.ToArray())
             forces[id] = forces[id] with { RelationsEA = relationEA[id],
                 NormalAftermath = forces[id].NormalAftermath! with { Relations13 = relation13[id] } };
-        forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0, FactionOfficerId = 0, PopulationTotal = 0,
+        forces[victim] = forces[victim] with { Flags12 = 0, Flags193 = 0, Flags194 = 0, DiplomacyFlags178 = 0,
+            FactionOfficerId = 0, PopulationTotal = 0,
             BestAdministrationLevelSum = 0,
             BestExceptionalOfficerCount = 0,
             DevelopmentWarningFlags = 0,

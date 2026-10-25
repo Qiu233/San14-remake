@@ -5,13 +5,13 @@ namespace San14.Data;
 public sealed partial class ArmyCampaignRuleAdapter
 {
     internal GameState ApplyNormalTurnPostEconomyCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool, int action)
+        WorldIndexContext pool, int action, ArmyMapGroupingOwner? groups = null)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw PostEconomyMissing("shared_pool");
         return action switch
         {
             42 => AddNormalTurnMissionMeritCurrent(state, current),
-            43 => ConsumeNormalTurnSettlementsCurrent(state, current, pool),
+            43 => ConsumeNormalTurnSettlementsCurrent(state, current, pool, groups),
             44 => RemoveNormalTurnHostileTrapsCurrent(state, current, pool),
             45 => RestoreNormalTurnSavedCommandsCurrent(state, current),
             46 => MaintainNormalTurnArmyCommandsCurrent(state, current),
@@ -57,10 +57,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private GameState ConsumeNormalTurnSettlementsCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool)
+        WorldIndexContext pool, ArmyMapGroupingOwner? groups = null)
     {
         var consumed = new OwnedArmyDestructionStage(this).TryConsumeDeferredDefeatsCurrent(state, current, pool,
-            null, state.NativeMapSeason?.ThirdDate ?? throw PostEconomyMissing("settlement_date"));
+            null, state.NativeMapSeason?.ThirdDate ?? throw PostEconomyMissing("settlement_date"), groups);
         var working = consumed.State ?? throw PostEconomyMissing(consumed.UnresolvedOwner ?? "settlement");
         return working with { PendingCommandReports = [.. working.PendingCommandReports, .. consumed.Reports] };
     }

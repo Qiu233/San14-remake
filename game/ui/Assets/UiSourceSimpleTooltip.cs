@@ -15,17 +15,21 @@ internal partial class UiSourceSimpleTooltip : Control
     private readonly List<UiSourceText> lines=[];
     private float nominalHeight;
     private string? current;
+    private bool followPointer;
 
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
+        short? lineSpacing = null, bool followPointer = true)
     {
         Name="SourceSimpleTooltip";ZIndex=20;MouseFilter=MouseFilterEnum.Ignore;
         this.assets=assets;this.shader=shader;this.font=font;
+        this.followPointer=followPointer;
         source=new(repository,0xBE0DC488);
         blur=source.Blur(this,1,source.Rectangle(1));
         profile=MapFontProfile.FromNode(source.Nodes[3],source.Source.Source.ResourceUri);
         // 89D8E0 explicitly clears compact+5D and +2C. It does not apply
         // text preset0 to this authored face0/palette0 profile.
         profile=profile with{RawCharacterMode=0,RawFlags=profile.RawFlags&~4u};
+        if(lineSpacing is short spacing) profile=profile with{VerticalSpace=spacing};
         nominalHeight=font.Source.Record('\u3042',0).Height*profile.ScaleY;
         SetMeta("source_layout",source.Source.Source.ResourceUri);Hide();
     }
@@ -72,7 +76,8 @@ internal partial class UiSourceSimpleTooltip : Control
             }
             current=text;
         }
-        Show();UpdatePointer(GetParent<Control>().GetLocalMousePosition());
+        Show();
+        if(followPointer)UpdatePointer(GetParent<Control>().GetLocalMousePosition());
     }
 
     // 3098C0 truncates each line maximum and accumulated nominal height,

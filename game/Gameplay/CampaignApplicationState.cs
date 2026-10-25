@@ -5,9 +5,8 @@ namespace San14.Client.Gameplay;
 internal sealed class CampaignApplicationState(San14.Core.ApplicationGameplayState gameplay)
 {
     private bool attached = true;
-    private bool? returnToTitlePending = false;
 
-    internal bool? ReturnToTitlePending => attached ? returnToTitlePending : null;
+    internal bool? ReturnToTitlePending => attached ? gameplay.ReturnToTitlePending : null;
 
     // Normal new-game/load routes do not construct a tutorial controller or
     // special-mode controller. A detached owner cannot answer for a new campaign.
@@ -19,12 +18,12 @@ internal sealed class CampaignApplicationState(San14.Core.ApplicationGameplaySta
     internal void RequestReturnToTitle()
     {
         if (!attached) throw new InvalidOperationException("The campaign has been detached.");
-        returnToTitlePending = true;
+        gameplay.RequestReturnToTitle();
     }
 
     // The existing load coordinator does not yet establish the native selected
     // commit/failure lifecycle. A failed load must not manufacture a false value.
-    internal void BeginLoad() => returnToTitlePending = null;
+    internal void BeginLoad() => gameplay.BeginLoad();
 
     internal void Detach(San14.Core.ApplicationGameplayState? retainedGameplay = null)
     {

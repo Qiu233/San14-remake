@@ -30,21 +30,43 @@ public sealed record ApplicationGameplayContext(ApplicationGameplayMode Mode,
 public sealed class ApplicationGameplayState
 {
     public ApplicationGameplayContext? Context { get; private set; }
+    public bool? ReturnToTitlePending { get; private set; }
+    public PersonnelGroupMoveDestinations PersonnelGroupMoveDestinations { get; }
 
-    public ApplicationGameplayState(ApplicationGameplayContext context) => Enter(context);
+    public ApplicationGameplayState(ApplicationGameplayContext context,
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null)
+    {
+        PersonnelGroupMoveDestinations = retainedPersonnelGroupMoveDestinations ?? new();
+        Enter(context);
+    }
 
     //This host route constructs none of the optional user-selection, tutorial
     //or special-mode controllers. Their absence is a lifecycle fact, not a
     //guess from a scenario, saved App.BC or a missing old-save field.
-    public static ApplicationGameplayState CreateNormalCampaign() => new(new(
-        ApplicationGameplayMode.Campaign, false, false, false, false, false, false, false, false));
+    public static ApplicationGameplayState CreateNormalCampaign(
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null) => new(new(
+        ApplicationGameplayMode.Campaign, false, false, false, false, false, false, false, false),
+        retainedPersonnelGroupMoveDestinations);
 
     public void Enter(ApplicationGameplayContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (!Enum.IsDefined(context.Mode)) throw new ArgumentOutOfRangeException(nameof(context));
         Context = context;
+        ReturnToTitlePending = false;
     }
 
-    public void Detach() => Context = null;
+    public void RequestReturnToTitle()
+    {
+        if (Context is null) throw new InvalidOperationException("No application gameplay context is attached.");
+        ReturnToTitlePending = true;
+    }
+
+    public void BeginLoad() => ReturnToTitlePending = null;
+
+    public void Detach()
+    {
+        Context = null;
+        ReturnToTitlePending = null;
+    }
 }

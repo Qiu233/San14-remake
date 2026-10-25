@@ -49,16 +49,20 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
 
     public OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeats(GameState state,
         TacticSourceSamplerWorld? sampler = null, NativeMapSeasonDate? captureWorld38Date = null)
-        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, null, null);
+        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, null, null, null);
+
+    internal OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeatsWithGrouping(GameState state,
+        TacticSourceSamplerWorld? sampler, NativeMapSeasonDate? captureWorld38Date, ArmyMapGroupingOwner groups)
+        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, null, null, groups);
 
     internal OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeatsCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, TacticSourceSamplerWorld? sampler,
-        NativeMapSeasonDate? captureWorld38Date)
-        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, current, pool);
+        NativeMapSeasonDate? captureWorld38Date, ArmyMapGroupingOwner? groups = null)
+        => TryConsumeDeferredDefeatsCore(state, sampler, captureWorld38Date, current, pool, groups);
 
     private OwnedArmyDestructionPhaseResult TryConsumeDeferredDefeatsCore(GameState state,
         TacticSourceSamplerWorld? sampler, NativeMapSeasonDate? captureWorld38Date,
-        SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool)
+        SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool, ArmyMapGroupingOwner? groups)
     {
         var receipts = new List<OwnedArmyDestructionReceipt>();
         var captures = new List<OwnedGateCaptureReceipt>();
@@ -91,13 +95,13 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     working = PublishCurrent(working, current, world.Pool, destroyed, queue);
                     if (target.Kind == BaseKind.Gate)
                     {
-                        var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler);
+                        var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
                         captures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
                     }
                     else
                     {
-                        var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler);
+                        var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
                         cityCaptures.Add(captured.Receipt!); reports.AddRange(captured.Receipt!.Reports);
                     }

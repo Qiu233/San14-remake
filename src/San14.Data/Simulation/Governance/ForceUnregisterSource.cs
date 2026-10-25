@@ -35,13 +35,21 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
         SourceWorldContext current, WorldIndexContext pool)
         => ApplyCore(input, victim, 0, null, current, pool, absorption: true);
 
+    internal ForceUnregisterResult TryApplyCaptureBorrowedCurrent(GameState input, int victim, int captor,
+        SourceWorldContext current, WorldIndexContext pool, NativeMapSeasonDate date,
+        List<CampaignEffectRequest> effects, Action<int>? resetArmyReceiver)
+        => ApplyCore(input, victim, captor, null, current, pool, captureDate: date,
+            captureEffects: effects, resetArmyReceiver: resetArmyReceiver);
+
     private ForceUnregisterResult ApplyCore(GameState input, int victim, int captor,
         Action<GameState>? publishReached, SourceWorldContext? borrowedCurrent, WorldIndexContext? borrowedPool,
-        bool absorption = false)
+        bool absorption = false, NativeMapSeasonDate? captureDate = null,
+        List<CampaignEffectRequest>? captureEffects = null, Action<int>? resetArmyReceiver = null)
     {
         try
         {
-            if (!absorption) NativeForceUnregisterCurrentStateValidation.Validate(input);
+            bool capture = captureDate is not null;
+            if (!absorption && !capture) NativeForceUnregisterCurrentStateValidation.Validate(input);
             var saved = input.NativeForceUnregisterCurrent ?? throw Missing("saved_numeric_owner");
             var world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(input)
                 : OwnedArmyReturnWorld.Borrow(input, borrowedCurrent, borrowedPool
@@ -54,33 +62,61 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                 !Known(current.ReadForceNativeValidity(victimReference), "victim_validity") ||
                 captor != 0 && !Known(current.ReadForceNativeValidity(new(captor)), "captor_validity")) throw Missing("branch.ordinary_valid_forces");
             int player = current.ReadCurrentPlayerForce()?.PhysicalSlot ?? throw Missing("World3A_player");
-            if (victim == player) throw Missing("branch.player_terminal_service");
+            if (!capture && victim == player) throw Missing("branch.player_terminal_service");
             var remaining = Enumerable.Range(0, 52).Where(i => i != victim && i is >= 1 and <= 45 &&
                 Known(current.ReadForceNativeValidity(new(i)), "terminal_other_Force_validity")).ToArray();
             int playerCount = remaining.Count(i => i == player && player != 0);
-            if (remaining.Length == 0 || playerCount != 1) throw Missing("branch.27A6B0_terminal_service");
+            if (!capture && (remaining.Length == 0 || playerCount != 1)) throw Missing("branch.27A6B0_terminal_service");
             if (input.NativeArmySimulation!.World.SelectedForce1656 is not byte selected || saved.OtherForce1657 is not byte other)
                 throw Missing("World1656_1657_current_interaction");
-            if (selected == victim || other == victim) throw Missing("branch.277590_274DD0_current_interaction");
+            var working = input;
+            if (capture)
+                working = package.ApplyForceUnregisterCoalitionCurrent(working, current, pool,
+                    victim, captor, captureEffects ?? throw Missing("capture_effect_sink"));
+            else if (selected == victim || other == victim) throw Missing("branch.277590_274DD0_current_interaction");
             ushort ruler = Need(current.ReadForceRecord(victim)?.RawRuler10, "victim_ruler10");
-            if (ruler is 521 or 35) throw Missing("branch.279EA0_achievement_pair");
-            RequireEmptyPeopleAndArmies(input, current, victim, absorption);
-            foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80"))
-                if (entry is not null && current.ReadBaseForceSlot(entry) == victim)
-                    throw Missing("branch.293BD0_remaining_Base_or_Gate");
+            //279EA0 only updates the platform achievement service. The
+            //independent campaign deliberately does not implement Steam.
+            if (!capture && ruler is 521 or 35) throw Missing("branch.279EA0_achievement_pair");
+            if (!capture)
+            {
+                RequireEmptyPeopleAndArmies(input, current, victim, absorption);
+                foreach (var entry in current.ReadRegisteredBases() ?? throw Missing("manager80"))
+                    if (entry is not null && current.ReadBaseForceSlot(entry) == victim)
+                        throw Missing("branch.293BD0_remaining_Base_or_Gate");
+            }
             var effects = new List<string> { "27A6B0.remaining_ordinary_and_actual_player_nonterminal",
-                "277590_274DD0_279EA0.no_reached_numeric_writer", "293BD0.Gate_destruction_iterator_empty" };
-            int originalFlag = input.NativeArmySimulation.Parameters.Int32Values.GetValueOrDefault(
-                BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E), -1);
-            if (originalFlag < 0 || originalFlag > 255) throw Missing("Force15E");
-            var values = new Dictionary<string, int>(input.NativeArmySimulation.Parameters.Int32Values)
-                { [BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E)] = originalFlag & 0xFE };
-            var working = input with { NativeArmySimulation = input.NativeArmySimulation with
-                { Parameters = input.NativeArmySimulation.Parameters with { Int32Values = values } } };
-            working = RemoveOwnedObjects(working, current, victim, publishReached);
+                capture ? "277590_then_274DD0.current_coalition_callbacks_and_293040_mode0"
+                    : "277590_274DD0_279EA0.no_reached_numeric_writer",
+                capture ? "293BD0.live_remaining_Gate_neutralization" : "293BD0.Gate_destruction_iterator_empty" };
+            if (capture)
+            {
+                //param_1 is a pointer-to-pointer in the decompiler: +0x2F
+                //is byte178, not byte15E. This is the coalition leader bit.
+                var native = working.NativeArmySimulation ?? throw Missing("Force178_owner");
+                var force = native.Forces.GetValueOrDefault(victim) ?? throw Missing("Force178_row");
+                ushort flags = Need(force.DiplomacyFlags178, "Force178");
+                working = working with { NativeArmySimulation = native with { Forces = new(native.Forces)
+                    { [victim] = force with { DiplomacyFlags178 = (ushort)(flags & 0xFFFE) } } } };
+            }
+            else
+            {
+                int originalFlag = input.NativeArmySimulation.Parameters.Int32Values.GetValueOrDefault(
+                    BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E), -1);
+                if (originalFlag < 0 || originalFlag > 255) throw Missing("Force15E");
+                var values = new Dictionary<string, int>(input.NativeArmySimulation.Parameters.Int32Values)
+                    { [BattleRemakeCurrentForcePolicies.ForceFieldKey(victim, 0x15E)] = originalFlag & 0xFE };
+                working = input with { NativeArmySimulation = input.NativeArmySimulation with
+                    { Parameters = input.NativeArmySimulation.Parameters with { Int32Values = values } } };
+            }
+            if (capture) working = RemoveRemainingGatesCurrent(working, current, pool, victim,
+                captureDate!, captureEffects ?? throw Missing("capture_effect_sink"));
+            working = RemoveOwnedObjects(working, current, victim, publishReached, captureEffects);
             effects.Add("293BD0.live_Object_table_category2_4_removal");
             var objectTemporary = Temporary(current);
-            var changedHexes = SettleHexes(working, current, victim, objectTemporary);
+            var changedHexes = SettleHexes(working, current, victim, objectTemporary,
+                capture ? (hex, force) => working = package.ApplyOrdinaryLastCityHexTransferCurrent(
+                    working, current, hex, force, captureEffects!) : null);
             effects.Add("293Fxx.Object_temporary→48400_current_Hex_force14_writers→empty_Object13_clear");
             var territory = new Dictionary<int, TerritoryState>(working.Territory);
             foreach (int hex in changedHexes)
@@ -98,11 +134,26 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                     areas[area.Id] = area with { ForceId = force == 0 ? null : force };
                 }
             working = working with { Territory = territory, Areas = areas };
+            if (capture)
+            {
+                working = package.WriteOrdinaryForceUnregisterHistoryCurrent(working, current, victim, captureEffects!);
+                working = package.ApplyOrdinaryLastCityArmyCleanupCurrent(working, current, pool,
+                    victimReference, captureDate!, captureEffects!);
+            }
             publishReached?.Invoke(working);
             foreach (var area in current.ReadRegisteredAreaReferences() ?? throw Missing("managerB0"))
                 if (area is not null && current.ReadAreaCurrentForceSlot(area) == victim)
                     throw Missing("branch.293BD0_remaining_Force_Area");
             ClearTargetAssociations(current, victim);
+            if (capture)
+            {
+                working = package.ApplyOrdinaryLastCityRemainingPeopleCurrent(working, current, pool,
+                    victimReference, new(captor), captureDate!, captureEffects!);
+                //Status6 keeps its captivity and position but now belongs to
+                //District0. Other nonserving statuses can retain rawE0 until
+                //the District reset, exactly as in the absorption sibling.
+                RequireEmptyPeopleAndArmies(working, current, victim, true);
+            }
             effects.Add("293BD0.empty_Force_Army_and_Area→278090_current_associations→empty_Force_Person");
             var districtTemporary = Temporary(current);
             var districts = Chain(current, RegistryKind.District).Where(d =>
@@ -130,12 +181,12 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
                 }
                 if ((current.ReadRegisteredPersonPhysicalSlots() ?? throw Missing("manager100")).Any(p =>
                     p is int person && current.ReadPersonDistrictSlot(person) == district &&
-                    (!absorption || HasServingOrCaptiveStatus(current, person))))
+                    (!(absorption || capture) || HasServingOrCaptiveStatus(current, person))))
                     throw Missing("branch.293490_nonempty_District_Person");
                 if ((current.ReadRegisteredBases() ?? throw Missing("manager80")).Any(b =>
                     b is not null && current.ReadBaseDistrictSlot(b) == district))
                     throw Missing("branch.293490_nonempty_District_Base");
-                if (absorption) working = ArmyCautionDistrictResetSource.ResetForDistrict(working, current, district);
+                if (absorption || capture) working = ArmyCautionDistrictResetSource.ResetForDistrict(working, current, district);
                 else RequireNoTroopsDistrict(working, current, district);
                 //District0 is native-invalid, so the treasury24 transfer
                 //condition short-circuits before its old numeric stock read.
@@ -150,19 +201,21 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             int forceNodesRemoved = RemoveAll(current, RegistryKind.Force, victim);
             var resets = new Dictionary<int, byte?[]>(saved.ForceResetImages) { [victim] = ForceResetImage() };
             working = ResetForce(working, current, victim, resets);
-            if (absorption) MirrorAbsorptionRelations(working, current, victim);
+            if (absorption || capture) MirrorAbsorptionRelations(working, current, victim);
             var windows = saved.DistrictWindows10.ToDictionary(x => x.Key,
                 x => Enumerable.Range(0x10, 28).Select(o => current.ReadDistrictRawByte(x.Key, o)).ToArray());
             working = (working with { NativeForceUnregisterCurrent = working.NativeForceUnregisterCurrent! with { DistrictWindows10 = windows },
-                Districts = absorption ? working.Districts.Where(row => !districts.Contains(row.Key))
+                Districts = absorption || capture ? working.Districts.Where(row => !districts.Contains(row.Key))
                     .ToDictionary(row => row.Key, row => row.Value) : working.Districts
             }).WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
             effects.Add("32B710→3DFB50.all_equal_Force_nodes→2261B0.literal_numeric_reset_and_bidirectional_relations");
             //The old finite leaf admits only an empty queue. Absorption owns
             //the real borrowed lifecycle pass, including reached retirements.
-            if (!absorption && ((current.ReadArmyReturnPending70Descriptor() is not { } pending) ||
+            if (!absorption && !capture && ((current.ReadArmyReturnPending70Descriptor() is not { } pending) ||
                 current.ReadRegistryHead(pending)?.Identity is not null)) throw Missing("branch.28E_nonempty_pending_after_Freedom_window");
-            working = (borrowedCurrent is null ? package.ConsumeArmyLifecyclePending(working)
+            working = (capture && resetArmyReceiver is not null
+                ? OwnedArmyLifecycleAuxiliaries.ConsumePendingCurrent(working, current, pool, resetArmyReceiver)
+                : borrowedCurrent is null ? package.ConsumeArmyLifecyclePending(working)
                 : package.ConsumeArmyLifecyclePendingCurrent(working, current, pool))
                 ?? throw Missing(absorption ? "28E_absorption_current_window" : "28E_current_empty_window");
             //Project only permanent domain roles while this caller still owns its
@@ -176,7 +229,7 @@ public sealed partial class ForceUnregisterSource(ArmyCampaignRuleAdapter packag
             working = PersonAssignmentPrecallInputs.PublishCurrent(working, current);
             working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
                 { Indexes = borrowedCurrent is null ? pool.ExportOwnedState() : pool.ProjectOwnedRoles() });
-            if (!absorption) NativeForceUnregisterCurrentStateValidation.Validate(working);
+            if (!absorption && !capture) NativeForceUnregisterCurrentStateValidation.Validate(working);
             return new(working, new(victim, captor, remaining.Length, playerCount, districts, changedHexes,
                 forceNodesRemoved, removedDistrictNodes, governors.ToArray(), ranked.Forces, effects.AsReadOnly()), null);
         }

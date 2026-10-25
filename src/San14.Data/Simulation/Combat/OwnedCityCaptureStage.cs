@@ -23,20 +23,23 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
     public const string Revision = "ce-City-2851B0-26DA10-29F220-capture-20261008";
     public OwnedCityCaptureResult TryApply(GameState input, BaseCaptureRequest request,
         NativeMapSeasonDate? operationThirdDate = null, TacticSourceSamplerWorld? sampler = null)
-        => TryApplyCore(input, request, operationThirdDate, sampler, null);
+        => TryApplyCore(input, request, operationThirdDate, sampler, null, null);
 
     internal OwnedCityCaptureResult TryApplyCurrent(GameState input, SourceWorldContext current,
-        BaseCaptureRequest request, NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler)
-        => TryApplyCore(input, request, operationThirdDate, sampler, current);
+        BaseCaptureRequest request, NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler,
+        ArmyMapGroupingOwner? groups = null)
+        => TryApplyCore(input, request, operationThirdDate, sampler, current, groups);
 
     private OwnedCityCaptureResult TryApplyCore(GameState input, BaseCaptureRequest request,
-        NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler, SourceWorldContext? borrowedCurrent)
+        NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler, SourceWorldContext? borrowedCurrent,
+        ArmyMapGroupingOwner? groups)
     {
         try
         {
             if (request.Target.Kind != SettlementBaseKind.City || request.WinnerUnitId is not int winnerId)
                 throw Missing("branch.ordinary_City_settlement");
             var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
+            groups ??= package.CreateCaptureMapGroupingOwner();
             var target = ArmyDestructionQueue.ResolveBaseReference(input, current, request.Target);
             int winnerSlot = ArmyDestructionQueue.ResolveUnitSlot(input, winnerId) ?? throw Missing("winner_entity_mapping");
             var winner = new ArmyUnitReference(winnerSlot);
@@ -59,11 +62,6 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
             if (oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, null, [], true), null);
             if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
-            int cityCount = 0;
-            for (int slot = 1; slot <= 51; slot++)
-                if (K(current.ReadBaseForceSlot(current.ReadCityTableReference(slot) ?? throw Missing("old_Force_City_pointer")), "old_Force_City_B0") == oldForce)
-                    cityCount++;
-            if (cityCount <= 1) throw Missing("branch.last_City_full_capture_Force_unregister");
             var winningForce = current.ReadForceTableReference(newForce) ?? throw Missing("winner_Force_pointer");
             var effects = new List<string>(); var working = input;
             var initial = BaseCaptureRewardSource.ApplyInitialForceResult(working, current, winningForce, target);
@@ -80,13 +78,15 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
             effects.Add("2851B0.2B9290_kind3_and_1695C0");
             var rewards = BaseCaptureRewardSource.BeginTerritoryRewards(working, current, winningForce);
             var counts = rewards.Receipt ?? throw Missing(rewards.UnresolvedOwner ?? "State_Region_temporaries");
-            _ = GateCaptureRoutingSource.RequireEmptyOldForceNearbyArmies(working, current, target);
+            var districtEffects = new List<CampaignEffectRequest>();
+            working = package.ApplyBaseCaptureNearbyArmiesCurrent(working, current,
+                current.ReadOwnedCurrentListPool() ?? throw Missing("nearby_Army_pool"),
+                target, operationThirdDate, districtEffects, sampler);
             effects.Add("2851B0.State_Region_counts_and_mode0_current_ring");
             var scope = CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce);
             var assignment = CityCaptureTerritorySource.AssignCityDistrict(current, target, newDistrict);
-            var districtEffects = new List<CampaignEffectRequest>();
             var queries = package.CreateCaptureDistrictOperationQueries(current, () => working,
-                next => working = next, operationThirdDate, districtEffects);
+                next => working = next, operationThirdDate, districtEffects, newForce, groups);
             Primary(current, assignment.CapturedOldDistrict, queries);
             effects.Add("26DA10.related_Area_chain_26D2E0_and_first_old_2E9140");
             current.SetObjectForceSlot13(location, (byte)newForce);
@@ -112,7 +112,13 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
             _ = CityCaptureTerritorySource.ClearTargetRouting(current, target);
             _ = CityCaptureTerritorySource.RequireNoSpecialStateAdvantageTransition(working, current, scope);
             _ = CityCaptureTerritorySource.ApplyCityFoodWarning(working, current, target,
-                () => Food(CityCaptureFoodWarningSource.TryReadFoodExpense(working, current, target)),
+                () =>
+                {
+                    var quote = package.ReadCityCaptureFoodQuoteCurrent(working, current, target, groups);
+                    int expense = Food(quote);
+                    working = quote.State ?? working;
+                    return expense;
+                },
                 () => Food(CityCaptureFoodWarningSource.TryReadPredictedFoodIncome(working, current, target, operationThirdDate,
                     package.CreateArmyDestructionAbilities(current), package.FoodIncomeSceneries)));
             CityCaptureTerritorySource.ReleaseRelatedAreas(current, scope);

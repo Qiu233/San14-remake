@@ -8,7 +8,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// current and shared pool. Nothing here commits an enclosing Session.</summary>
     internal sealed partial class MonthlyCampaignMaintenanceSource(ArmyCampaignRuleAdapter package,
         GameState state, SourceWorldContext current, WorldIndexContext pool,
-        Action<string, GameState>? observe = null)
+        Action<string, GameState>? observe = null, List<CampaignEffectRequest>? borrowedEffects = null)
     {
         internal GameState Run()
         {
@@ -155,6 +155,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (request.TextAtSource is { } text &&
                 (text.Length > 338 || text.Any(c => char.IsSurrogate(c) || c == '\0')))
                 throw Missing("complete_short_text");
+            if (borrowedEffects is not null)
+            {
+                borrowedEffects.Add(new(null, null) { MonthlyMaintenance = request });
+                Observe("monthly.report." + request.Operation);
+                return;
+            }
             var pending = state.CampaignEffectRequests ?? throw Missing("pending_owner");
             long revision = state.NativeClock?.UpdateOrdinal ?? throw Missing("source_revision");
             state = state with { CampaignEffectRequests = pending.Append(CampaignEffectSource.MonthlyMaintenance,

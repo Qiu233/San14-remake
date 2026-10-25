@@ -5,7 +5,7 @@ namespace San14.Data;
 public sealed partial class ForceUnregisterSource
 {
     private GameState RemoveOwnedObjects(GameState state, SourceWorldContext current,
-        int victim, Action<GameState>? publishReached)
+        int victim, Action<GameState>? publishReached, List<CampaignEffectRequest>? borrowedEffects = null)
     {
         // This is the native lookup-table traversal, including aliases. City
         // and Gate map objects are not facilities merely because their owner
@@ -25,6 +25,7 @@ public sealed partial class ForceUnregisterSource
                 reached => { state = reached; publishReached?.Invoke(state); },
                 request =>
                 {
+                    if (borrowedEffects is not null) { borrowedEffects.Add(request); return; }
                     var pending = state.CampaignEffectRequests ?? throw Missing("Object_effect_owner");
                     long revision = state.NativeClock?.UpdateOrdinal ?? throw Missing("Object_effect_revision");
                     state = state with { CampaignEffectRequests = pending.Append(CampaignEffectSource.ForceUnregister,

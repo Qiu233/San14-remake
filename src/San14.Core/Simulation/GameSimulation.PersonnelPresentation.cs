@@ -31,11 +31,20 @@ public sealed partial class GameSimulation
                 { Operation: TalentCommandPresentationOperation.OfficerText },
             CampaignEffectSource.StrategicCommands => request.TalentCommandPresentation is
                 { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText },
+            CampaignEffectSource.ArmyBattleDefeat => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 5 or 6 or 7 or 8 } or
+                { Operation: TalentCommandPresentationOperation.Announcement } or
+                { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
             CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.NarrationText or MonthlyMaintenanceOperation.ConditionalSpeakerText or
                     MonthlyMaintenanceOperation.DisasterSceneEnter or MonthlyMaintenanceOperation.DisasterSceneExit } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.FinalOrderSceneEnter, EventKind: 10 or 26 or 31 } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.FinalOrderSceneExit } ||
+                request.NormalTurnFoodWarningPresentation is not null ||
+                request.NormalTurnForceResourceNotice is { TextAtSource: not null } ||
                 request.MonthlyMaintenance is
                 { Operation: MonthlyMaintenanceOperation.ControllerQueueEvent, EventKind: 6 or 8 } ||
                 request.TalentCommandPresentation is
@@ -73,7 +82,14 @@ public sealed partial class GameSimulation
         var completedOwner = owner with
         {
             CampaignEffectRequests = effects with { PendingBatches = batches },
-            ActiveDisasterScene = activeDisaster
+            ActiveDisasterScene = activeDisaster,
+            ActiveMonthlyScene = request.MonthlyMaintenance?.Operation switch
+            {
+                MonthlyMaintenanceOperation.FinalOrderSceneEnter =>
+                    new MonthlySceneState(MonthlySceneFamily.FinalOrder, request.MonthlyMaintenance.EventKind!.Value),
+                MonthlyMaintenanceOperation.FinalOrderSceneExit => null,
+                _ => owner.ActiveMonthlyScene
+            }
         };
         if (pending is not null) _normalPeriod = pending with { Candidate = completedOwner };
         else State = completedOwner;

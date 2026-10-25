@@ -9,7 +9,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     //No food stock, shortage, supply flag, planning or date is advanced here.
     private CityCaptureFoodQuote ReadNormalTurnCityFoodQuoteCurrent(GameState state,
         SourceWorldContext current, BaseReference city, ArmyMapGroupingOwner groups)
+        => ReadCityCaptureFoodQuoteCurrent(state, current, city, groups);
+
+    //Capture and Turn quotes borrow the operation's actual grouping roots.
+    //An independent capture owns a private copy, just like an Army phase.
+    internal CityCaptureFoodQuote ReadCityCaptureFoodQuoteCurrent(GameState state,
+        SourceWorldContext current, BaseReference city, ArmyMapGroupingOwner? groups = null)
     {
+        groups ??= _mapArmyGrouping.Copy();
         if (!_baseCapacityInputs.BindCurrent(state, current)) throw CityFoodQuoteMissing("current_Base_parameters");
         var pool = current.ReadOwnedCurrentListPool() ?? throw CityFoodQuoteMissing("shared_pool");
         var operations = new CityCaptureFoodQuoteOperations(

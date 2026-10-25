@@ -49,52 +49,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        //293040 resets the interaction before restoring member armies' actual
-        //occupied cells. Its mode0 does not invoke276DB0's Army regrouping.
-        native = state.NativeArmySimulation ?? throw Missing("dissolution_native_owner");
-        var interaction = state.NativeForceUnregisterCurrent ?? throw Missing("World1657_owner");
-        state = state with
-        {
-            NativeArmySimulation = native with { World = native.World with { SelectedForce1656 = 0, Flags165C = 0 } },
-            NativeForceUnregisterCurrent = interaction with { OtherForce1657 = 0 }
-        };
-        foreach (var force in Forces())
-        {
-            int key = Ordinal(force);
-            foreach (var armyEntry in current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("Army60"))
-            {
-                if (armyEntry is not { Kind: RegistryKind.Army, PhysicalSlot: int physical }) throw Missing("Army_payload");
-                if (key is < 1 or > 51 || current.ReadArmyUnitRawForceSlot(new(physical)) != key) continue;
-                if ((Flags(force) & 2) == 0) continue;
-                var army = new ArmyUnitReference(physical);
-                int rawHex = K(current.ReadArmyUnitRawHex2A(army), "Army2A");
-                var hex = current.ReadHexTableReference(rawHex < 48400 ? rawHex : 0) ?? throw Missing("Army_Hex_pointer");
-                int occupied = K(current.ReadHexForceSlot(hex), "Army_Hex14");
-                if (occupied == Ordinal(force)) continue;
-                if ((ReadReportForceRelationByte(state, force, occupied, Missing) & 127) != 0) continue;
-                state = new MonthlyCampaignMaintenanceSource(this, state, current, pool)
-                    .ApplyCoalitionExpiryArmyOccupationCurrent(physical, Ordinal(force));
-            }
-        }
-        foreach (var force in Forces())
-        {
-            native = state.NativeArmySimulation ?? throw Missing("reset_flags_owner");
-            int physical = K(force.PhysicalSlot, "reset_flags_Force");
-            var before = native.Forces.GetValueOrDefault(physical) ?? throw Missing("reset_flags_native_Force");
-            state = state with { NativeArmySimulation = native with
-                { Forces = new(native.Forces) { [physical] = before with { Flags12 = (byte)(K(before.Flags12, "reset_Force12") & 0xF9) } } } };
-        }
-        var date = state.NativeMapSeason?.ThirdDate ?? throw Missing("cooldown_date");
-        int days = Parameter("cooldown-days");
-        long totalHours = unchecked((long)date.Year * 8640 + (date.Month - 1L) * 720 + (date.Day - 1L) * 24 + date.Hour + days * 24L);
-        int year = checked((int)(totalHours / 8640));
-        int rest = checked((int)(totalHours - year * 8640L));
-        if (rest < 0) { year--; rest += 8640; }
-        native = state.NativeArmySimulation ?? throw Missing("cooldown_native_owner");
-        state = state with { NativeArmySimulation = native with { World = native.World with
-            { PlayerCoalitionCooldownDate = new(checked((short)year), checked((sbyte)(rest / 720 + 1)),
-                checked((sbyte)(rest % 720 / 24 + 1)), checked((sbyte)(rest % 24))) } } };
-        return state.WithArmyLifecycle((state.ReadArmyLifecycle() ?? throw Missing("lifecycle")) with { Indexes = pool.ProjectOwnedRoles() });
+        return DissolveCampaignCoalitionCurrent(state, current, pool);
 
         void History(int mainRoot, int detailRoot, HistoryMessageOperands operands)
         {

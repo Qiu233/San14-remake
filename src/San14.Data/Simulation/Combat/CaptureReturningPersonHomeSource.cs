@@ -121,14 +121,16 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
     private ReturningPersonHomeResult ApplyBeforeTransfer(GameState state, int capturedLocationId, int previousForceId,
         int officerId, UnitState? activeArmy = null, bool idleResident = false, NativeMapSeasonDate? operationThirdDate = null,
         SourceWorldContext? operationCurrent = null, bool? currentBusy = null,
-        ArmyReturnDistrictOperationQueries? districtOperation = null, List<CampaignEffectRequest>? feedback = null)
+        ArmyReturnDistrictOperationQueries? districtOperation = null, List<CampaignEffectRequest>? feedback = null,
+        bool releasedCaptive = false)
     {
         SourceWorldContext? current = null;
         HexListHandle? cities = null;
         try
         {
-            if (capturedLocationId < 1 || capturedLocationId > (idleResident ? 61 : 51) || previousForceId is < 1 or > 45 ||
-                !state.Officers.TryGetValue(officerId, out var officer) || officer.LocationId != capturedLocationId ||
+            if ((releasedCaptive ? capturedLocationId is < 0 or > 61
+                    : capturedLocationId < 1 || capturedLocationId > (idleResident ? 61 : 51)) || previousForceId is < 1 or > 45 ||
+                !state.Officers.TryGetValue(officerId, out var officer) || officer.LocationId != (capturedLocationId == 0 ? null : capturedLocationId) ||
                 officer.ForceId != previousForceId || (idleResident ? officer.Deployed : activeArmy is null
                     ? officer.Deployed || (currentBusy is null && !PlayableOfficerAvailability.IsSourceBusy(state, officer))
                     : !officer.Deployed || activeArmy.OfficerId != officerId || !state.Units.ContainsKey(activeArmy.Id)))
@@ -210,7 +212,7 @@ public sealed partial class CaptureReturningPersonHomeSource(ArmyCampaignRuleAda
             var originalOrder = candidates.Select(x => x.Evidence).ToArray();
             BaseReference? chosen = null;
             bool gateParent = false;
-            if (idleResident && first is >= 52 and <= 61)
+            if ((idleResident || releasedCaptive) && first is >= 52 and <= 61)
             {
                 var parent = CurrentGateMapQueries.FindCity(oldHome, current); //22A940.
                 if (Need(current.ReadBaseForceSlot(parent), "current.260310_Gate_parent_Force") == previousForceId &&

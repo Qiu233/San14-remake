@@ -699,6 +699,9 @@ public static class StateValidator
         state.PendingCampaignServices.Validate();
         if (state.ActiveDisasterScene is { EventKind: not (14 or 15 or 16) })
             throw new InvalidDataException("The admitted disaster scene is invalid.");
+        if (state.ActiveMonthlyScene is { } monthlyScene &&
+            (monthlyScene.Family != MonthlySceneFamily.FinalOrder || monthlyScene.EventKind is not (10 or 26 or 31)))
+            throw new InvalidDataException("The admitted monthly scene is invalid.");
         EconomyReportStateValidation.Validate(state);
         CampaignHistoryValidation.Validate(state);
         CampaignChronicleValidation.Validate(state);

@@ -26,7 +26,7 @@ internal partial class CommandSelectionView : Control
     private Func<bool>? admitted;
     private Action<IReadOnlyList<int>?>? closed;
     private int maximum, eligibleCount;
-    private bool abandoned, ascending, retainOnAccept, requireSelection, singleSelection;
+    private bool abandoned, ascending, retainOnAccept, retainOnReturn, requireSelection, singleSelection;
     private string? sortKey;
     private string selectCaption = "", clearCaption = "";
 
@@ -34,18 +34,21 @@ internal partial class CommandSelectionView : Control
         IReadOnlyList<CommandSelectionColumn> columns, IReadOnlyList<CommandSelectionRow> rows,
         IReadOnlyList<int> initial, int maximum, Func<bool> admitted,
         Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed, string? guide = null, bool retainOnAccept = false,
-        bool requireSelection = false, bool singleSelection = false)
+        bool requireSelection = false, bool singleSelection = false, bool activateRows = false,
+        bool returnOnly = false, bool retainOnReturn = false)
     {
         if (maximum < 0) throw new ArgumentOutOfRangeException(nameof(maximum));
         this.maximum = maximum; this.admitted = admitted; this.closed = closed; publication = ordered = rows;
         this.retainOnAccept = retainOnAccept;
+        this.retainOnReturn = retainOnReturn;
         this.requireSelection = requireSelection;
         this.singleSelection = singleSelection;
         eligibleCount = rows.Count(row => row.Enabled);
         Name = "CommandSelection"; ZIndex = 5; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, titleMessage, RequestCancel, RequestApply, showFooterHint: true);
+        chrome.Configure(repository, text, titleMessage, RequestCancel, RequestApply,
+            showFooterHint: true, returnOnly: returnOnly);
         chrome.ApplyDefaultHint(guide ?? "");
         var source = new UiSourceLayout(repository, 0xA3B4A82E);
         source.Blur(chrome.Canvas, 2, source.Rectangle(2, new(191, 147)));
@@ -98,6 +101,7 @@ internal partial class CommandSelectionView : Control
             button.Pressed += () =>
             {
                 if (!ReadAdmission() || display.Entry is not { Enabled: true } entry) return;
+                if (activateRows) { Finish([entry.Id]); return; }
                 if (this.singleSelection) { selection.Clear(); selection.Add(entry.Id); }
                 else if (!selection.Remove(entry.Id) && selection.Count < this.maximum) selection.Add(entry.Id);
                 RefreshSelection();
@@ -175,7 +179,8 @@ internal partial class CommandSelectionView : Control
     private void Finish(IReadOnlyList<int>? value)
     {
         if (!ReadAdmission()) return;
-        if (value is not null && retainOnAccept) { Hide(); closed?.Invoke(value); return; }
+        if (value is not null && retainOnAccept || value is null && retainOnReturn)
+        { Hide(); closed?.Invoke(value); return; }
         var callback = closed; closed = null; admitted = null; Hide(); callback?.Invoke(value);
     }
     internal void Abandon()

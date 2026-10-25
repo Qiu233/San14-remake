@@ -124,6 +124,11 @@ public static class ArmyReturnPrimaryDistrictUpdater
             {
                 var operation = queries as ArmyReturnDistrictOperationQueries
                     ?? throw Missing("current.Force_unregistration_state_owner");
+                if (operation.ForceRetirementHandler is { } retire)
+                {
+                    operation.Publish(retire(forcePhysical));
+                    return new(new(district, []), null);
+                }
                 var package = operation.Package ?? throw Missing("current.Force_unregistration_rules");
                 var result = new ForceUnregisterSource(package).TryApplyBorrowedCurrent(operation.Latest(), forcePhysical, 0,
                     context, context.ReadOwnedCurrentListPool() ?? throw Missing("current.Force_unregistration_pool"));

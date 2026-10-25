@@ -119,6 +119,8 @@ public static class PlayableSkeleton
         commands = new PlayableTacticOrders(commands, routes, tactics);
         commands = new PlayablePersonnelOrders(commands, personnel);
         commands = new DistrictCommandOrders(commands, armyCreationRules as IDistrictCommandRules);
+        commands = new PersonnelGroupOrders(commands, armyCreationRules as IPersonnelGroupEditExecution,
+            armyCreationRules as IPersonnelGroupMovementExecution);
         commands = new DoctrineResearchOrders(commands, armyCreationRules as IDoctrineResearchCommandRules);
         commands = new StrategicCommandOrders(commands, armyCreationRules as IStrategicCommandRules);
         commands = new SelfRecommendationOrders(commands, nativePeriodContinuationRules as INormalTurnSelfRecommendationRules);

@@ -10,7 +10,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// remains unacknowledged in the enclosing operation's ordered sink.</summary>
     internal GameState ApplyAutomaticArmyAbnormalReport(GameState state, SourceWorldContext current,
         UnitState? caster, UnitState target, int districtSlot, int nativeIndex, int causeCode,
-        string actualTacticName, Func<int> readWorldTime450, List<CampaignEffectRequest> effects)
+        string actualTacticName, Func<int> readWorldTime450, List<CampaignEffectRequest> effects,
+        bool baseCaptureMode = false)
     {
         ArgumentNullException.ThrowIfNull(actualTacticName);
         ArgumentNullException.ThrowIfNull(readWorldTime450);
@@ -20,8 +21,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
             ?? throw AbnormalReportMissing("current_player_Force_pointer");
         var primary = PrimaryDistrict(player);
-        if (!K(current.ReadDistrictNativeValidity(primary), "current_player_primary_validity") ||
-            districtSlot != K(current.ReadDistrictPhysicalSlot(primary), "current_player_primary_identity")) return state;
+        if (!K(current.ReadDistrictNativeValidity(primary), "current_player_primary_validity")) return state;
+        int primarySlot = K(current.ReadDistrictPhysicalSlot(primary), "current_player_primary_identity");
+        if (districtSlot != primarySlot && !baseCaptureMode) return state;
         int receivingPerson = Commander(target);
         var working = state;
         if (causeCode is >= 21 and <= 24)
@@ -35,7 +37,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //The source Army tactic's actual name pointer is supplied even if
         //its text is empty; do not replace it with an Object/facility name.
-        Add(0x3225, 5, new(Army0: targetArmy, String0: actualTacticName, String1: Phrase(nativeIndex)));
+        if (baseCaptureMode)
+            Add(0x5F5E, 5, new(Army0: targetArmy));
+        else
+            Add(0x3225, 5, new(Army0: targetArmy, String0: actualTacticName, String1: Phrase(nativeIndex)));
         if (causeCode is not (9 or 10 or 11 or 12 or 98)) return working;
         PersonalityReference? selectedTrait = null;
         int selectedValue = 0;

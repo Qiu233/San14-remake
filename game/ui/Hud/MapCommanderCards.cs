@@ -26,7 +26,7 @@ internal partial class MapCommanderCards : Control
         assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
         canvas = new() { Size = new(1920,1080), MouseFilter = MouseFilterEnum.Ignore }; AddChild(canvas);
         cards = new() { MouseFilter = MouseFilterEnum.Ignore }; canvas.AddChild(cards);
-        var source = new UiSourceLayout(repository,0x41476248);
+        var source = new UiSourceLayout(repository,0x1CDA8363);
         Vector2 extent = source.Rectangle(0).Size;
         Vector2 mount = new(1920-extent.X-20,1080-extent.Y-24);
         var change = new UiSourceBottomButton { Name = "ChooseCommanders", Position = source.Rectangle(2,mount).Position };
@@ -39,7 +39,7 @@ internal partial class MapCommanderCards : Control
     {
         foreach (Node child in cards.GetChildren()) { cards.RemoveChild(child); child.QueueFree(); }
         canvas.GetNode<UiSourceBottomButton>("ChooseCommanders").Disabled = !canSelect;
-        var source = new UiSourceLayout(repository, 0x41476248);
+        var source = new UiSourceLayout(repository, 0x1CDA8363);
         int[] slots = [6,9,10,11,12]; //883950's five actual child mounts.
         Vector2 extent = source.Rectangle(0).Size;
         Vector2 mount = new(1920 - extent.X - 20, 1080 - extent.Y - 24);

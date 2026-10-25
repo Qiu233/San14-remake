@@ -11,6 +11,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     public ApplicationGameplayContext? ReadApplicationGameplay() => applicationGameplay?.Context;
 
+    //3343E0/441760 asks whether the attached game is leaving for the title,
+    //independent of Story skip and the World's saved mode selection.
+    internal bool? ReadApplicationReturnToTitlePending() => applicationGameplay?.ReturnToTitlePending;
+
     //9021C0 first tests the independent1D3840 service, then the saved signed
     //BC selection. A missing service short-circuits before that saved field.
     public bool? ReadApplicationInformationRestriction(GameState state)

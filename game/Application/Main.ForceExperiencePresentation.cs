@@ -26,7 +26,7 @@ public partial class Main
             {
                 var request = batch.Requests[i];
                 if (batch.Source == CampaignEffectSource.ForcePolicyLevelUp && request.ForcePolicyLevelUp?.ForceId == player ||
-                    (batch.Source is CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance) && request.TalentForceExperiencePresentation is
+                    ForceExperienceHeaderChange.IsGainSource(batch.Source) && request.TalentForceExperiencePresentation is
                         { Operation: TalentForceExperiencePresentationOperation.ExperienceGain } gain && gain.ForceId == player)
                     return (batch.Sequence, i, request);
             }
@@ -53,19 +53,22 @@ public partial class Main
         if (reached is not { } entry) return false;
         _forcePresentationSession = session; _forcePresentationOwner = owner; _forcePresentationMap = map;
         var rules = composition.PrepareArmyQueries(owner);
-        RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
-
         if (entry.Request.TalentForceExperiencePresentation is not null)
         {
             hud.Refresh(CurrentForceHudView(owner, player));
             _forceHeaderTransition = true;
-            map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(true); hud.Show();
             if (hud.BeginExperienceTransition(() => IsForcePresentationCurrent && CanAdvanceNarration && !_advancingPeriod,
-                previous => RunUiAction(() => CompleteHeader(previous)), PlayForceExperienceSound)) return true;
+                previous => RunUiAction(() => CompleteHeader(previous)), PlayForceExperienceSound))
+            {
+                RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
+                map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(true); hud.Show();
+                return true;
+            }
             _mapHint.Text = _ui.Get("detail_unknown");
             CloseForcePresentation();
             return false;
         }
+        RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
         var scene = entry.Request.ForcePolicyLevelUp!;
         if (scene.Stage == ForcePolicyLevelUpStage.PolicyEditor)
         {
@@ -115,7 +118,7 @@ public partial class Main
             {
                 var current = PersonnelPresentationOwner(session);
                 var next = (current.CampaignEffectRequests?.PendingBatches ?? [])
-                    .Where(batch => batch.Source is CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands)
+                    .Where(batch => ForceExperienceHeaderChange.IsGainSource(batch.Source))
                     .SelectMany(batch => batch.Requests.Select((request, index) => (batch.Sequence, index, request)))
                     .FirstOrDefault(row => row.request.TalentForceExperiencePresentation is
                         { Operation: TalentForceExperiencePresentationOperation.ExperienceGain } gain && gain.ForceId == player);

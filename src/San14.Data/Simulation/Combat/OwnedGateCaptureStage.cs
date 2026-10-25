@@ -23,20 +23,23 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
     public const string Revision = "ce-Gate-2851B0-26DA10-29F220-capture-20261008";
     public OwnedGateCaptureResult TryApply(GameState input, BaseCaptureRequest request,
         NativeMapSeasonDate? operationThirdDate = null, TacticSourceSamplerWorld? sampler = null)
-        => TryApplyCore(input, request, operationThirdDate, sampler, null);
+        => TryApplyCore(input, request, operationThirdDate, sampler, null, null);
 
     internal OwnedGateCaptureResult TryApplyCurrent(GameState input, SourceWorldContext current,
-        BaseCaptureRequest request, NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler)
-        => TryApplyCore(input, request, operationThirdDate, sampler, current);
+        BaseCaptureRequest request, NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler,
+        ArmyMapGroupingOwner? groups = null)
+        => TryApplyCore(input, request, operationThirdDate, sampler, current, groups);
 
     private OwnedGateCaptureResult TryApplyCore(GameState input, BaseCaptureRequest request,
-        NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler, SourceWorldContext? borrowedCurrent)
+        NativeMapSeasonDate? operationThirdDate, TacticSourceSamplerWorld? sampler, SourceWorldContext? borrowedCurrent,
+        ArmyMapGroupingOwner? groups)
     {
         try
         {
             if (request.Target.Kind != SettlementBaseKind.Gate || request.WinnerUnitId is not int winnerId)
                 throw Missing("branch.ordinary_Gate_settlement");
             var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
+            groups ??= package.CreateCaptureMapGroupingOwner();
             var target = ArmyDestructionQueue.ResolveBaseReference(input, current, request.Target);
             int winnerSlot = ArmyDestructionQueue.ResolveUnitSlot(input, winnerId) ?? throw Missing("winner_entity_mapping");
             var winner = new ArmyUnitReference(winnerSlot);
@@ -74,12 +77,14 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             var territory = BaseCaptureRewardSource.BeginTerritoryRewards(working, current, winningForce);
             var counts = territory.Receipt ?? throw Missing(territory.UnresolvedOwner ?? "State_Region_temporaries");
             effects.Add("2851B0.State_Region_counts_before_transfer");
-            _ = GateCaptureRoutingSource.RequireEmptyOldForceNearbyArmies(working, current, target);
-            effects.Add("2851B0.mode0_current_ring_old_Force_Army_body_empty");
-            var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, newDistrict, commander);
             var districtEffects = new List<CampaignEffectRequest>();
+            working = package.ApplyBaseCaptureNearbyArmiesCurrent(working, current,
+                current.ReadOwnedCurrentListPool() ?? throw Missing("nearby_Army_pool"),
+                target, operationThirdDate, districtEffects, sampler);
+            effects.Add("2851B0.mode0_current_ring_old_Force_Army_confusion");
+            var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, newDistrict, commander);
             var queries = package.CreateCaptureDistrictOperationQueries(current, () => working,
-                next => working = next, operationThirdDate, districtEffects);
+                next => working = next, operationThirdDate, districtEffects, newForce, groups);
             Primary(current, assignment.CapturedOldDistrict, queries);
             effects.Add("26D2E0.270880_and_first_old_District_2E9140");
             current.SetObjectForceSlot13(location, (byte)newForce);
@@ -161,7 +166,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal ArmyReturnDistrictOperationQueries CreateCaptureDistrictOperationQueries(SourceWorldContext current,
         Func<GameState> latest, Action<GameState> publish, NativeMapSeasonDate? date,
-        List<CampaignEffectRequest> effects)
+        List<CampaignEffectRequest> effects, int? capturingForceId = null, ArmyMapGroupingOwner? groups = null)
         => new(new CaptureGovernorQueries(latest, _governorInputs), latest, publish, (person, assignment) =>
         {
             if (assignment.NativeReturn is null) throw new InvalidDataException(assignment.UnresolvedOwner ?? "capture.District_assignment");
@@ -169,7 +174,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 publish(ApplyPersonAssociationRemovalReports(latest(), current, person, assignment,
                     () => (ReadArmyDestructionSampler(latest(), current)
                         ?? throw new InvalidDataException("capture.District_report_World450")).Day450, effects));
-        }, current, [], this, date);
+        }, current, [], this, date)
+        {
+            ForceRetirementHandler = capturingForceId is int captor ? victim =>
+                ApplyOrdinaryLastCityCaptureCurrent(latest(), current,
+                    current.ReadOwnedCurrentListPool() ?? throw new InvalidDataException("capture.Force_retirement_pool"),
+                    victim, captor, date ?? latest().NativeMapSeason?.ThirdDate
+                        ?? throw new InvalidDataException("capture.Force_retirement_date"), effects,
+                    groups is null ? null : groups.ResetReceiver) : null
+        };
 
     internal static GameState PublishCaptureDistrictOperationCurrent(GameState state, SourceWorldContext current,
         ArmyReturnDistrictOperationQueries operation, List<CampaignEffectRequest> effects)
@@ -179,7 +192,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return effects.Count == 0 ? state : state with
         {
             CampaignEffectRequests = (state.CampaignEffectRequests
-                ?? throw new InvalidDataException("capture.District_effect_owner")).Append(CampaignEffectSource.ForceAssociationRemoval,
+                ?? throw new InvalidDataException("capture.District_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
                     state.NativeMapSeason?.AdvancedCalendarSteps ?? throw new InvalidDataException("capture.District_effect_calendar"), effects.ToArray())
         };
     }

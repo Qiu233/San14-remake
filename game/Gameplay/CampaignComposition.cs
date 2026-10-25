@@ -20,11 +20,12 @@ public sealed partial class CampaignComposition
     private MapHeaderDisplayState? _headerDisplayed;
     private MapHeaderProjection? _currentHeader;
 
-    private CampaignComposition(GameResourceRepository repository, LoadedScenario scenario, LoadedMap map)
+    private CampaignComposition(GameResourceRepository repository, LoadedScenario scenario, LoadedMap map,
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations)
     {
         _repository = repository;
         _saveCodec = new ResourceSaveCodec(repository);
-        _applicationGameplay = ApplicationGameplayState.CreateNormalCampaign();
+        _applicationGameplay = ApplicationGameplayState.CreateNormalCampaign(retainedPersonnelGroupMoveDestinations);
         Scenario = scenario;
         Map = map;
         Overview = new MapOverviewContent(map.Map);
@@ -42,11 +43,12 @@ public sealed partial class CampaignComposition
     public static CampaignLoadResult Load(GameResourceRepository repository, EffectiveScenario selection,
         NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null,
         CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0, ManualTacticProgressOperation? restoredManualTactic = null,
-        NormalPeriodOperation? restoredNormalPeriod = null)
+        NormalPeriodOperation? restoredNormalPeriod = null,
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null)
     {
         LoadedScenario scenario = repository.LoadScenario(selection);
         LoadedMap map = repository.LoadMapForScenario(selection);
-        var composition = new CampaignComposition(repository, scenario, map);
+        var composition = new CampaignComposition(repository, scenario, map, retainedPersonnelGroupMoveDestinations);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, scenario.Snapshot);
         GameState initial = ScenarioInitializer.Create(scenario, map, 1, options).State;
         if (restored is null)
