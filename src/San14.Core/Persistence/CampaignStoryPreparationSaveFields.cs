@@ -7,7 +7,7 @@ internal static class CampaignStoryPreparationSaveFields
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
         if (version >= 168 || Story(state) is not JsonObject story) return;
-        if (story["PreparedStep"] is not null || story["Steps"] is JsonArray steps && steps.OfType<JsonObject>().Any(step =>
+        if (story["PreparedStep"] is not null || story["TextLog"] is not null || story["Steps"] is JsonArray steps && steps.OfType<JsonObject>().Any(step =>
             Integer(step["AudioKind"], (int)StoryAudioKind.StopActiveSoundSlots, int.MaxValue) ||
             step["People"] is JsonArray people && people.Any(person => person is null) ||
             step["Kind"]?.GetValue<string>() == "narration" && step["Names"] is null) || story["Scene"] is JsonObject scene &&
@@ -21,12 +21,14 @@ internal static class CampaignStoryPreparationSaveFields
         if (version < 168)
         {
             story["PreparedStep"] = null;
+            story["TextLog"] = new JsonArray();
             scene["PreparedText"] = null;
             scene["VisibleActors"] = new JsonObject();
             scene["HighlightedSlot"] = null;
             return;
         }
-        if (!story.ContainsKey("PreparedStep") || story["PreparedStep"] is JsonNode prepared &&
+        if (story["TextLog"] is not JsonArray log || log.Any(entry => entry is null || !Text(entry)) ||
+            !story.ContainsKey("PreparedStep") || story["PreparedStep"] is JsonNode prepared &&
             (prepared is not JsonObject step || !Integer(step["Step"], 0, int.MaxValue) ||
              !step.ContainsKey("Text") || step["Text"] is JsonNode text && !Text(text)) ||
             !scene.ContainsKey("PreparedText") || scene["PreparedText"] is JsonNode previous && !Text(previous) ||

@@ -20,7 +20,11 @@ internal partial class DeploymentNarrationView : Control
     private int? automaticThreshold;
     private int elapsedUpdates;
     private bool keyboardSkip, keyboardFastForward;
+    private bool retainCompletedStory;
+    private Control? storyContinueCursor;
     internal Func<InputEvent, bool>? KeyboardInput { get; set; }
+    internal Func<int, bool>? MessageModeRequested { get; set; }
+    internal Func<bool>? ReadStoryAccelerated { get; set; }
     internal int PageIndex {get;private set;}
     internal bool IsAwaitingAdvance=>ready&&!finished;
 
@@ -86,7 +90,17 @@ internal partial class DeploymentNarrationView : Control
     internal void ConfigureStoryMessage(GameResourceRepository repository, PreviewText text,
         string speaker, string expanded, Action consumed,
         Func<AutomaticMessageAdvanceMode>? automaticAdvance = null, Func<bool>? admitted = null)
-        => ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted);
+    {
+        retainCompletedStory = true;
+        ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted);
+    }
+
+    internal void RetainStoryPage()
+    {
+        if (!retainCompletedStory) return;
+        if (body.PageCount > 0) { PageIndex = body.PageCount - 1; body.ShowPage(PageIndex); }
+        Abandon(); Show(); storyContinueCursor?.Hide();
+    }
 
     internal void ConfigureRecruitConversation(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<LoadedSprite> executorLayers,IReadOnlyList<LoadedSprite> targetLayers,
@@ -128,7 +142,7 @@ internal partial class DeploymentNarrationView : Control
         body.PageDrawn+=publication=>{if(!finished&&publication==body.Publication)ready=true;};
         body.Configure(font,MapFontProfile.FromNode(message.Nodes[4],message.Source.Source.ResourceUri),expanded);
         var cursor=new UiSourceLayout(repository,0x0D12D720);
-        cursor.Art(canvas,2,cursor.Rectangle(2,message.Rectangle(5).Position),assets,shader);
+        storyContinueCursor=cursor.Art(canvas,2,cursor.Rectangle(2,message.Rectangle(5).Position),assets,shader);
         BeginPageWait();
         SetMeta("source_layout",root.Source.Source.ResourceUri);
         SetMeta("message_layout",message.Source.Source.ResourceUri);
@@ -163,7 +177,7 @@ internal partial class DeploymentNarrationView : Control
         {mouseArmed=false;keyArmed=Key.None;return;}
         //83D690 latches Skip and toggles Fast. 83D5D0 bypasses only the
         //active input wait; every next page still needs its actual Draw.
-        if (ready && (keyboardSkip || keyboardFastForward)) { Advance(); return; }
+        if (ready && (keyboardSkip || keyboardFastForward || ReadStoryAccelerated?.Invoke() == true)) { Advance(); return; }
         // Snapshot the setting once per page. Manual does not even increment;
         // held input increments but delays consumption until a later release.
         if(!ready||automaticThreshold is not int threshold||threshold==int.MaxValue)return;
@@ -181,6 +195,7 @@ internal partial class DeploymentNarrationView : Control
     internal bool RequestKeyboardMessageMode(int action)
     {
         if (!IsActiveWait()) return false;
+        if (MessageModeRequested is { } request) return request(action);
         if (action == 23) keyboardSkip = true;
         else if (action == 24) keyboardFastForward = !keyboardFastForward;
         else return false;
@@ -201,13 +216,15 @@ internal partial class DeploymentNarrationView : Control
         ready=false;mouseArmed=false;keyArmed=Key.None;
         automaticThreshold=null;
         if(announcement is null&&++PageIndex<body.PageCount){BeginPageWait();body.ShowPage(PageIndex);return;}
-        var callback=completed;Abandon();callback?.Invoke();
+        var callback=completed;Abandon();
+        if(retainCompletedStory){Show();storyContinueCursor?.Hide();}
+        callback?.Invoke();
     }
 
     internal void Abandon()
     {
         finished=true;ready=false;mouseArmed=false;keyArmed=Key.None;automaticThreshold=null;
-        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;Hide();
+        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;MessageModeRequested=null;ReadStoryAccelerated=null;Hide();
     }
 
     private void Fit()

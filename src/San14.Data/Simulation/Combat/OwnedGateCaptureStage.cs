@@ -100,10 +100,12 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
             }
             effects.Add("26DA10.resource_keep_and_Area36_removal");
             Primary(current, assignment.CapturedOldDistrict, queries); Primary(current, district, queries);
-            RequireNoHomeArmies(current, location);
+            working = package.ApplyBaseCaptureHomeArmiesCurrent(working, current,
+                current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy_pool"),
+                target, operationThirdDate, districtEffects);
             var refreshed = PersonAdvisorResetSource.RefreshWithinBaseCapture(working, current, winningForce);
             working = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "27BE40_new_Force");
-            effects.Add("26DA10.two_2E9140_empty_HomeArmy_and_27BE40");
+            effects.Add("26DA10.two_2E9140_HomeArmy_and_27BE40");
             _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
                 assignment.CapturedOldDistrict.PhysicalSlot ?? 0, newDistrict);
             int cap = K(ArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_bound");
@@ -146,19 +148,6 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
     {
         var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, district, queries);
         if (result.UnresolvedOwner is not null) throw Missing(result.UnresolvedOwner);
-    }
-    internal static void RequireNoHomeArmies(SourceWorldContext current, int location)
-    {
-        foreach (var row in ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current))
-        {
-            if (K(current.ReadOwnedArmyExclusion233560(row), "HomeArmy233560")) continue;
-            var army = new ArmyUnitReference(K(row.PhysicalSlot, "HomeArmy_pointer"));
-            int id = K(current.ReadArmyUnitCommanderId(army), "HomeArmy12");
-            int person = K(current.ReadPersonLookupReference(id <= 6000 ? id : 0)?.PhysicalSlot, "HomeArmy_Commander");
-            if (K(current.ReadPersonNativeValidity(person), "HomeArmy_Commander_validity") &&
-                K(current.ReadPersonFirstLocation(person), "HomeArmy_E2") == location)
-                throw Missing("branch.26CDF0_current_HomeArmy");
-        }
     }
     private static T K<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
     private static InvalidDataException Missing(string name) => new("current.Gate2851B0." + name);

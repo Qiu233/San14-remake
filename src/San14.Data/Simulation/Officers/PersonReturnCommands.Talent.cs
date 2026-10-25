@@ -16,7 +16,8 @@ public static partial class PersonReturnCommands
     internal static PersonnelTalentStartResult StartTalentTask(GameState state,
         SourceWorldContext current, PreparedTalentOrder prepared, NativeMapSeasonDate sourceDate,
         Func<GameState, BaseReference, GameState>? repairGovernor = null,
-        Func<GameState, int, int?, TalentOrderKind, TalentAdvisorSampleResult>? advisorSample = null)
+        Func<GameState, int, int?, TalentOrderKind, TalentAdvisorSampleResult>? advisorSample = null,
+        ApplicationGameplayContext? application = null)
     {
         try
         {
@@ -126,8 +127,11 @@ public static partial class PersonReturnCommands
             int cost = ReadTalentBookCost(working, prepared.Kind);
             working = working with { Districts = new(working.Districts) { [districtId] = district with
                 { OrdersRemaining = Math.Clamp(unchecked(books - cost), 0, 200) } } };
-            if (prepared.Kind == TalentOrderKind.Recruit && working.CampaignEventWorld?.CurrentUserIndex != -1)
-                throw TalentMissing("App_command_service31FD60");
+            if (prepared.Kind == TalentOrderKind.Recruit &&
+                ApplicationCommandAccountingSource.HasSelectedUser(working, application?.UserSelectionServicePresent) &&
+                BaseCaptureRewardSource.ReadPlayerRulerDistrict(current,
+                    current.ReadDistrictTableReference(districtId) ?? throw TalentMissing("App_payment_District"), TalentMissing))
+                working = ApplicationCommandAccountingSource.Use(working, current, cost, application?.UserSelectionServicePresent);
             //334A50 is an actual reached governor repair, not a blanket
             //reselection or a no-op because this command owns only one member.
             if (Get(current.ReadArmyReturnBaseGovernor2E(sourceBase), "talent source Governor2E") == personId)

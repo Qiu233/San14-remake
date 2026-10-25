@@ -98,7 +98,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                                     int force = K(current.ReadBaseForceSlot(home), "raid_Force");
                                     if (force is not (>= 46 and <= 50)) continue;
                                     //CUnitData: commander,20000 troops, land14,
-                                    //naval11, special tactic131..135, action11.
+                                    //naval11, special tactic131..135. The target
+                                    //packet independently selects City4/Gate5.
                                     state = LaunchRaidCurrent(person, home, target,
                                         P("army-troops", 20000), 14, 11, force + 85);
                                     made++;
@@ -154,12 +155,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private GameState LaunchRaidCurrent(int person, BaseReference home, BaseReference target,
             int troops, int landFormation, int navalFormation, int tactic)
-        {
-            //The ordinary public deployment committer re-captures indexes and
-            //runs UI selection gates. It cannot admit this source-generated
-            //packet on the borrowed pool. Keep the exact reached boundary.
-            throw Missing("1EC980_special_raid_current_creator");
-        }
+            => package.CreateSpecialForceRaidArmyCurrent(state, current, pool, person,
+                home, target, troops, landFormation, navalFormation, tactic);
 
         private int Setting(int advanced, int ordinary) => K(BattleRemakeCurrentSettings.ReadInt32(state,
             K(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selector") == 0 ? advanced : ordinary), "setting");

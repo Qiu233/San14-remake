@@ -20,6 +20,11 @@ public partial class Main
     // suspended candidate, while the visible committed world stays unchanged.
     private bool RefreshNormalTurnContinuation()
     {
+        if (HasStoryPresentation)
+        {
+            if (IsStoryPresentationCurrent) return true;
+            CloseStoryPresentation();
+        }
         if (HasCoalitionInvitation)
         {
             if (IsCoalitionInvitationCurrent) return true;
@@ -71,6 +76,8 @@ public partial class Main
             OpenCoalitionInvitation(session, pending, composition, map, player, invitation);
             return true;
         }
+        if (pending.PendingStory is not null)
+            return TryOpenStoryPresentation(session, pending, composition, map);
         if (!pending.RequiresAutomaticNormalTurnContinuation) return false;
         // A failed worker must not immediately retry the same immutable
         // operation through the refresh path. The normal Advance remains

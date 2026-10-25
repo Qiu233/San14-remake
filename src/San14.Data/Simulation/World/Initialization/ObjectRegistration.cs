@@ -5,7 +5,9 @@ public enum RegistryKind
     Army, City, Gate, Force, Area, District, Object, Person, Item, Scenery,
     CautionTroops, Table81B50,
     // Used only when comparing an opaque shared-node payload, not a registration table.
-    Hex
+    Hex,
+    // An opaque shared temporary-list payload, not a registration table.
+    Kingdom
 }
 
 // Kind and physical receiver identify a current pointer in the normal Data profile.

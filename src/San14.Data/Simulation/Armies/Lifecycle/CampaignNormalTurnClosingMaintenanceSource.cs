@@ -6,7 +6,7 @@ namespace San14.Data;
 public sealed partial class ArmyCampaignRuleAdapter
 {
     internal GameState ApplyNormalTurnClosingMaintenanceCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool, int action)
+        WorldIndexContext pool, int action, ArmyMapGroupingOwner? groups = null)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw ClosingMissing("shared_pool");
         return action switch
@@ -16,7 +16,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             63 => ConsumeNormalTurnChallengeStopCurrent(state, current),
             64 => ReportNormalTurnBaseDefendersCurrent(state, current),
             65 => RefreshNormalTurnCollectionServiceCurrent(state, current),
-            66 => RefreshNormalTurnFoodWarningsCurrent(state, current),
+            66 => RefreshNormalTurnFoodWarningsCurrent(state, current,
+                groups ?? throw ClosingMissing("food_quote_grouping_owner")),
             _ => throw new ArgumentOutOfRangeException(nameof(action))
         };
     }
@@ -40,15 +41,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.ChallengeServiceTurnStopPending is not null)
             throw ClosingMissing("fresh_challenge_stop_owner");
         return state with { ChallengeServiceTurnStopPending = false };
-    }
-
-    //1D36E0's first conjunction reads the world's actual signed selection.
-    //No application service or date owner is read on the ordinary -1 path.
-    private static GameState RefreshNormalTurnSelectedUserCurrent(GameState state)
-    {
-        int selected = ClosingNeed(state.CampaignEventWorld?.CurrentUserIndex, "user_WorldBC");
-        if (selected == -1) return state;
-        throw ClosingMissing("selected_user_World78_D0_D6_D7_progress_scene");
     }
 
     private static GameState RecordNormalTurnDistrictResourcesCurrent(GameState state, SourceWorldContext current)
@@ -91,9 +83,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
     }
 
-    private static GameState ConsumeNormalTurnChallengeStopCurrent(GameState state, SourceWorldContext current)
+    private GameState ConsumeNormalTurnChallengeStopCurrent(GameState state, SourceWorldContext current)
     {
-        var mode = current.ArmyReturnTransferMode ?? throw ClosingMissing("challenge_service_mode");
+        BindApplicationServiceCurrent(state, current);
+        var mode = current.ReadTransferModeState() ?? throw ClosingMissing("challenge_service_mode");
         //548010 clears +8 only when the real service's first dword is nonzero.
         if (mode.Present && ClosingNeed(mode.Value, "challenge_service_mode_value") != 0)
             state = state with { ChallengeServiceTurnStopPending = false };

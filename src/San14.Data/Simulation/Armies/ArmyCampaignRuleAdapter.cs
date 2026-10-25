@@ -203,6 +203,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath), _definitions.CaptureSourcePrefix());
         else
             OwnedMapObjectLifecycle.Validate(fresh);
+        fresh = ApplicationCommandAccountingSource.InstallFresh(fresh);
         fresh = ArmyMarchParameterSeed.InstallFresh(fresh);
         fresh = NormalArmyCombatApplicationSourceMath.InstallFresh(fresh, _normalApplicationSeed, Revision);
         fresh = NormalArmyForceResultSource.InstallFresh(fresh, _forceResultSeed, Revision);

@@ -119,8 +119,12 @@ public sealed partial class ArmyCampaignRuleAdapter : ICampaignStoryPreparationR
         public string DistrictText(int a, int f) => inner.DistrictText(a, f);
         private string Name(int a) => names is not null && (uint)a < (uint)names.Length
             ? HeadHistory(names[a]) : throw StoryTextMissing("String" + a);
-        public string StringText(int a, int f) => f is 0 or '2' ? CityDomesticMessageFormatting.FormatAbilityField(Name(a))
-            : f == '3' ? string.Empty : throw StoryTextMissing("String_field");
+        public string StringText(int a, int f)
+        {
+            string value = Name(a);
+            return f is 0 or '2' ? CityDomesticMessageFormatting.FormatAbilityField(value)
+                : f == '3' ? string.Empty : throw StoryTextMissing("String_field");
+        }
         public int StringValue(int a, int f) => f == '3' ? Name(a).Length : f is 0 or '2'
             ? CityDomesticMessageFormatting.FormatAbilityField(Name(a)).Length : throw StoryTextMissing("String_field");
     }

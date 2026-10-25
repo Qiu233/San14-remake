@@ -86,7 +86,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             },
             (working, actor, target, kind) => ResolveTalentAdvisorSampleCurrent(working, current,
                 actor, target, kind, () => ReadArmyDestructionSampler(working, current)
-                    ?? throw TalentCommandMissing("sampler")));
+                    ?? throw TalentCommandMissing("sampler")), ReadApplicationGameplay());
         var updated = started.State ?? throw TalentCommandMissing(started.UnresolvedOwner ?? "creation");
         return PersonReturnCommands.PublishCurrent(updated, current);
     }

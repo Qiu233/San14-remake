@@ -65,6 +65,7 @@ public partial class Main
         CampaignPeriodPlayback? playback = null;
         Control? overlay = null;
         GameplaySession? adopted = null;
+        Exception? applicationServiceFailure = null;
         try
         {
             playback = new(SynchronizationContext.Current ?? throw new InvalidOperationException(
@@ -79,16 +80,17 @@ public partial class Main
             playback.SetSpeed(_periodPlaybackSpeed);
             overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
+            var storyBindings = CaptureNormalTurnStoryBindings(source, composition, playbackMap, cancellation.Token);
             var result = campaignChoice switch
             {
                 null => await composition.AdvancePeriodAsync(source, cancellation.Token,
-                    new(_presentationRandom.State), voice, playback.Checkpoint),
+                    new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 ConfirmDiplomaticNegotiationOrder diplomatic => await composition.ConfirmDiplomaticNegotiationAsync(
-                    source, diplomatic, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                    source, diplomatic, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 ConfirmSelfRecommendationOrder recommendation => await composition.ConfirmSelfRecommendationAsync(
-                    source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                    source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 ConfirmCoalitionInvitationOrder invitation => await composition.ConfirmCoalitionInvitationAsync(
-                    source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint),
+                    source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
                 _ => throw new InvalidOperationException("Unsupported campaign decision.")
             };
             if (_failed || _shuttingDown || !GodotObject.IsInstanceValid(this) || !IsInsideTree() ||
@@ -101,6 +103,8 @@ public partial class Main
             adopted = result.Session;
             _sceneAudioBinding?.AdoptPlayableSession(source, result.Session);
             _campaignComposition = result.Composition;
+            try { result.Composition.PublishApplicationServices(PersonnelPresentationOwner(result.Session)); }
+            catch (Exception error) { applicationServiceFailure = error; }
             _loadedMap = result.Composition.Map;
             _map = _loadedMap.Map;
             _mapOverview = result.Composition.Overview;
@@ -141,6 +145,8 @@ public partial class Main
                     RefreshCurrentPlayWorld();
                     if (adopted is not null && automaticSaveNotice is not null)
                         _playMessage.Text = automaticSaveNotice;
+                    if (applicationServiceFailure is not null)
+                        ReportPlayFailure(applicationServiceFailure);
                     if (_world?.Phase == TurnPhase.Reporting && !HasForcePresentation) SetMapFocus(false);
                 });
                 else

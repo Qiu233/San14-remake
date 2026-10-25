@@ -124,7 +124,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
     }
 
-    private GameState RefreshNormalTurnFoodWarningsCurrent(GameState state, SourceWorldContext current)
+    private GameState RefreshNormalTurnFoodWarningsCurrent(GameState state, SourceWorldContext current, ArmyMapGroupingOwner groups)
     {
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw ClosingMissing("food_warning_player");
         if (!ClosingNeed(current.ReadForceNativeValidity(player), "food_warning_player_validity")) return state;
@@ -141,8 +141,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             //22A940 uses the base's actual linked City receiver.
             var city = current.ReadCityTableReference(location <= 51 ? location : 0) ?? throw ClosingMissing("food_warning_City_pointer");
             if (!ClosingNeed(current.ReadBaseNativeValidity(city), "food_warning_City_validity")) continue;
-            var expense = CityCaptureFoodWarningSource.TryReadFoodExpense(working, current, city);
+            var expense = ReadNormalTurnCityFoodQuoteCurrent(working, current, city, groups);
             int cost = expense.Value ?? throw ClosingMissing(expense.UnresolvedOwner ?? "food_warning_expense");
+            working = expense.State ?? working;
             int food = ClosingNeed(current.ReadBaseResource(city, BaseResourceKind.Supplies), "food_warning_City_food");
             bool warning = false;
             if (unchecked(food - unchecked(cost * 3)) < 1)

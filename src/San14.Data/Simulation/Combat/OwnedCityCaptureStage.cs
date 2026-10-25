@@ -98,7 +98,9 @@ public sealed class OwnedCityCaptureStage(ArmyCampaignRuleAdapter package)
             _ = CityCaptureTerritorySource.ClearCityAdministration(current, target);
             effects.Add("26DA10.Object13_footprint_resources_and_current_administration");
             Primary(current, assignment.CapturedOldDistrict, queries); Primary(current, district, queries);
-            OwnedGateCaptureStage.RequireNoHomeArmies(current, location);
+            working = package.ApplyBaseCaptureHomeArmiesCurrent(working, current,
+                current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy_pool"),
+                target, operationThirdDate, districtEffects);
             var refreshed = PersonAdvisorResetSource.RefreshWithinBaseCapture(working, current, winningForce);
             working = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "27BE40_new_Force");
             var land = CityCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, scope, newDistrict, package.CreateArmyDestructionAbilities(current));

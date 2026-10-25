@@ -120,7 +120,7 @@ public sealed record CampaignEventNarration(int OperationIndex, int SourceOffset
     int Mode, int MessageId, IReadOnlyList<int?> PersonParameters, IReadOnlyList<string>? NameParameters)
     : CampaignEventCommand(OperationIndex, SourceOffset, 94);
 
-public enum CampaignEventAudioKind { Bgm, Se, StopSlot, StopAllSe, StopActiveSlots }
+public enum CampaignEventAudioKind { Bgm, Se, StopSlot, StopAllSe, StopActiveSlots, SeIfNotSkipped }
 public sealed record CampaignEventAudio(int OperationIndex, int SourceOffset, int Code,
     CampaignEventAudioKind Kind, int Id, int Flags, float ScalarA, float ScalarB)
     : CampaignEventCommand(OperationIndex, SourceOffset, Code);
@@ -295,6 +295,20 @@ public static class CampaignEventExecution
                     case 90: break; // Verified HideStill slot0 returns1 without presentation writes.
                     case 91:
                     case 92:
+                        if (operation.Code == 92 && arguments[0] > 0)
+                        {
+                            int mapIndex = arguments[0] - 1;
+                            int mapped = mapIndex < 96 ? audioInputs!.ReadSeMapEntry(mapIndex)
+                                ?? throw new InvalidDataException("Current audio mapping entry is unknown.") : -1;
+                            //The first manager call depends on the live1AC
+                            //skip state when this step arrives. The second is
+                            //unconditional even when that first call is skipped.
+                            Commands.Add(new CampaignEventAudio(operation.Index, operation.Offset, operation.Code,
+                                CampaignEventAudioKind.SeIfNotSkipped, mapped, 0, 0, 0));
+                            Commands.Add(new CampaignEventAudio(operation.Index, operation.Offset, operation.Code,
+                                CampaignEventAudioKind.Se, mapped, 0, 0, 0));
+                            break;
+                        }
                         //The live62-slot manager is queried when this step
                         //arrives, after preceding sounds have really played.
                         //A staging-time activity snapshot is not that owner.

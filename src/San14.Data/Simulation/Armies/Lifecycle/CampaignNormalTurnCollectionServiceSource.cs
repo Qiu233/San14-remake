@@ -7,11 +7,14 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     private GameState RefreshNormalTurnCollectionServiceCurrent(GameState state, SourceWorldContext current)
     {
-        //The normal application may have no loaded independent profile. A
-        //failed collection predicate never reads that unrelated service owner.
+        //Bind actual application facts without demanding a profile for a
+        //collection predicate that fails before any service write.
+        BindApplicationServiceCurrent(state, current);
+        var working = state;
         RunNormalTurnCollectionChecksCurrent(state, current, flag =>
-            throw ClosingMissing("collection_achievement_" + flag + "_profile_publication"));
-        return state;
+            working = PrepareApplicationServiceCurrent(working, current,
+                service => SetNormalTurnCollectionAchievementCurrent(current, service, flag)));
+        return working;
     }
 
     //Complete service candidate used by the normal-operation owner when it
@@ -21,18 +24,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, TransferServiceState service)
     {
         var candidate = service.Copy();
-        RunNormalTurnCollectionChecksCurrent(state, current, SetAchievement);
+        RunNormalTurnCollectionChecksCurrent(state, current,
+            flag => SetNormalTurnCollectionAchievementCurrent(current, candidate, flag));
         return candidate;
+    }
 
-        void SetAchievement(int flag)
-        {
-            if (candidate.PlatformPolicy != TransferServicePlatformPolicy.Absent)
-                throw ClosingMissing("collection_platform_preparation");
-            TransferService.SetFlag(flag, current, candidate);
-            for (int bit = 1; bit <= 37; bit++)
-                if (!ClosingNeed(candidate.ReadPrimaryFlag(bit), "collection_completion_bit")) return;
-            TransferService.SetFlag(0, current, candidate);
-        }
+    private static TransferServiceState SetNormalTurnCollectionAchievementCurrent(SourceWorldContext current,
+        TransferServiceState candidate, int flag)
+    {
+        if (candidate.PlatformPolicy != TransferServicePlatformPolicy.Absent)
+            throw ClosingMissing("collection_platform_preparation");
+        TransferService.SetFlag(flag, current, candidate);
+        for (int bit = 1; bit <= 37; bit++)
+            if (!ClosingNeed(candidate.ReadPrimaryFlag(bit), "collection_completion_bit")) return candidate;
+        TransferService.SetFlag(0, current, candidate);
+        return candidate;
     }
 
     //428F10 retains the four calls and their independent guards in source

@@ -89,10 +89,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                     default: return;
                 }
                 if (blocked) return;
-                //The shared2B5ED0 writer still has only a rank2 caller.
-                //Do not change Rank47 without its loyalty, security,
-                //experience, naming, report and emperor-removal semantics.
-                throw RankMaintenanceMissing("2B5ED0_general_rank_promotion");
+                state = ApplyNormalTurnForceRankPromotionCurrent(state, current, pool, force, next);
+                //27F320 removes the previous emperor even when2B5ED0's
+                //kingdom-name prefix returned0. Do not infer success here.
+                if (next == 1) state = RemoveNormalTurnRetiredEmperorCurrent(state, current, pool);
             }
             finally { current.ClearTemporaryHexList(states); current.ReleaseTemporaryHexList(states); }
         }

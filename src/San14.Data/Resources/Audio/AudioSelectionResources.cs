@@ -163,9 +163,6 @@ public static class AudioSelectionResources
         byte[] b = bank.Source.Bytes;
         if (h.TypeId != InternalHeader || h.IsExternal || bank.Platform != 1 || b[h.HeaderOffset + 16] != 0)
             throw new NotSupportedException("This selected sound is outside the verified SRSA/MSADPCM decoder contract.");
-        string actualSha = Convert.ToHexString(SHA256.HashData(b));
-        if (!actualSha.Equals(bank.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Audio source bytes changed after metadata was loaded.");
         if (h.LoopStartSample >= h.DeclaredSamples)
             throw new InvalidDataException("Internal audio loop start is outside playable samples.");
         byte[] section = b.AsSpan(selected.SectionOffset, selected.SectionBytes).ToArray();

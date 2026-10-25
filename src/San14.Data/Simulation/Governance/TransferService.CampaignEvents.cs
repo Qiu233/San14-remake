@@ -20,9 +20,22 @@ public static class CampaignEventService
     public static CampaignEventServicePreparation PrepareLandmarkCompletion(CampaignEventServiceInputs inputs,
         TransferServiceState service, int? storyEventId, CampaignEventServicePart part = CampaignEventServicePart.All)
     {
-        ArgumentNullException.ThrowIfNull(inputs); ArgumentNullException.ThrowIfNull(service);
         if (storyEventId is int id && id is not (>= 339 and <= 438))
             throw new InvalidDataException("This service consumer requires the complete landmark story family.");
+        return PrepareCompletion(inputs, service, storyEventId, part);
+    }
+
+    public static CampaignEventServicePreparation PrepareEventCompletion(CampaignEventServiceInputs inputs,
+        TransferServiceState service, int storyEventId)
+    {
+        if (storyEventId is < 0 or >= 1024) throw new InvalidDataException("Story service event identity is outside its bitmap.");
+        return PrepareCompletion(inputs, service, storyEventId, CampaignEventServicePart.Event);
+    }
+
+    private static CampaignEventServicePreparation PrepareCompletion(CampaignEventServiceInputs inputs,
+        TransferServiceState service, int? storyEventId, CampaignEventServicePart part)
+    {
+        ArgumentNullException.ThrowIfNull(inputs); ArgumentNullException.ThrowIfNull(service);
         try
         {
             var working = service.Copy();
@@ -35,7 +48,13 @@ public static class CampaignEventService
                     //3EA800 performs this App gate again, then both generic
                     //checks, even if the first one has already succeeded.
                     if (!HasSelectedUser() && K(working.ReadEventFlag(eventId), "new event service bit"))
-                    { CheckEventCount(1, 20, 14, false); CheckEventCount(4, 10, 49, true); }
+                    {
+                        //3EA800's two dedicated event achievements precede
+                        //both generic counters; success does not short-circuit.
+                        if (eventId is 7 or 8 && Eligible()) { SetAchievement(29); Completion(); }
+                        if (eventId == 39 && Eligible()) { SetAchievement(30); Completion(); }
+                        CheckEventCount(1, 20, 14, false); CheckEventCount(4, 10, 49, true);
+                    }
                 }
             }
             if (part != CampaignEventServicePart.Event) CheckLandmarks();

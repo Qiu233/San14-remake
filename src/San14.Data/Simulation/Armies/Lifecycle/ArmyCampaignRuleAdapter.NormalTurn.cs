@@ -118,7 +118,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             groups is not null || grouping!.Changed)),
                     >= 49 and <= 56 => ApplyNormalTurnLateMaintenanceCurrent(state, current, pool, action),
                     >= 57 and <= 60 => ApplyNormalTurnLateEconomyCurrent(state, current, pool, action),
-                    >= 61 and <= 66 => ApplyNormalTurnClosingMaintenanceCurrent(state, current, pool, action),
+                    >= 61 and <= 66 => ApplyNormalTurnClosingMaintenanceCurrent(state, current, pool, action, groups),
                     >= 67 and <= 72 => ApplyNormalTurnTerritoryFinalizationCurrent(state, current, pool, action),
                     >= 73 and <= 77 => ApplyNormalTurnFinalOrdersCurrent(state, current, pool, action),
                     78 => CompleteNormalTurnPostProcessCurrent(state, current, pool),
@@ -157,33 +157,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return state.WithArmyLifecycle(lifecycle with { Indexes = pool.ExportOwnedState() });
     }
 
-    private static GameState CompleteNormalTurnPostProcessCurrent(GameState state,
+    private GameState CompleteNormalTurnPostProcessCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool)
-    {
-        //429F30: close Turn processing, then3257F0's actual table callbacks,
-        //registered-person pruning and associated task slot7 callbacks.
-        PersonReturnCommands.BindCurrent(state, current);
-        _ = current.ApplyOwnedTurnPostProcess();
-        state = PublishNormalTurnCurrent(state, current, pool);
-        var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
-        foreach (var person in state.Officers.Values)
-        {
-            int physical = current.ResolveOfficerSource(person.Id) ?? throw AppearanceTurnMissing("slot7_Person_identity");
-            int Read(int offset) => current.ReadPersonPostLoadByte(physical, offset)
-                ?? throw AppearanceTurnMissing("slot7_Person_field_" + offset.ToString("X"));
-            int DecodeCap(int offset)
-            {
-                byte raw = (byte)Read(offset);
-                return (byte)(((raw << 3) | (raw >> 5)) ^ unchecked((byte)physical));
-            }
-            people[person.Id] = person with
-            {
-                BaseAbilities = new(Read(0x124), Read(0x125), Read(0x126), Read(0x127), Read(0x128)),
-                PolicyBaseCost = Read(0x1BA),
-                CurrentFormationMask = current.ReadPersonFormationMask164(physical),
-                AbilityState = new(DecodeCap(0x225), DecodeCap(0x224), person.AbilityState?.ObservedDoctrineId)
-            };
-        }
-        return state with { Officers = people, NativeNormalTurnContinuation = null };
-    }
+        => new NormalTurnPostProcessSource(this, state, current, pool).Run();
 }

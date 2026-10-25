@@ -239,12 +239,12 @@ public partial class MapSceneView
     public override void _Process(double delta)
     {
         if(!_loaded||_sourceMainCamera is null||_sourceMainCameraInputs is not { } input)return;
-        if(_detailsOpen||!IsVisibleInTree()){ResetSourceCameraInput();return;}
+        if((_detailsOpen&&storyPresentationOwner is null)||!IsVisibleInTree()){ResetSourceCameraInput();return;}
         if(UseD3D11Map&&_d3d11Map is {LastError:not null})return;
         Run(()=>
         {
             int clock=unchecked((int)Time.GetTicksMsec());
-            ApplySourceCameraInputFrame(clock,input);
+            if(storyPresentationOwner is null)ApplySourceCameraInputFrame(clock,input);
             _sourceMainCamera.Tick(clock,clock,_sourceMainCamera.Parameters.SourceInertiaTimeoutMilliseconds,
                 input.CurrentMaximumYOverride,SourceCameraTerrainQualifier);
             AdvanceNativeMapPresentationTime(delta);

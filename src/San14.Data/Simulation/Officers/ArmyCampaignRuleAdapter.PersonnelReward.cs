@@ -118,16 +118,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                 NativeForceUnregisterCurrent = saved with
                     { DistrictWindows10 = new(saved.DistrictWindows10) { [quote.DistrictId] = window } }
             };
-            //1F2CAF's31FD60 belongs to the external current-user service,
-            //not to District14. Ordinary sessions explicitly own index-1.
-            if (working.CampaignEventWorld?.CurrentUserIndex != -1)
+            //1F2CAF reaches the separate statistics writer only for the
+            //selected user and the player's actual charged District.
+            if (HasCommandAccountingUser(working))
             {
-                if (working.CampaignEventWorld?.CurrentUserIndex is null)
-                    throw PersonnelRewardMissing("App_current_user_owner");
                 var charged = current.ReadDistrictTableReference(quote.DistrictId)
                     ?? throw PersonnelRewardMissing("App_charged_District");
                 if (BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, charged, PersonnelRewardMissing))
-                    throw PersonnelRewardMissing("App_command_service31FD60");
+                    working = ApplyCommandBookUsageCurrent(working, current, quote.BookCost);
             }
             working = OwnedArmyReturnCurrentFields.PublishCurrent(working, current);
             var effects = new List<CampaignEffectRequest>();

@@ -40,8 +40,14 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     //428340→2758F0→2755F0. Use the same complete appointment-maintenance
     //kernel as formal district creation, without changing unrelated people.
-    private static GameState MaintainNormalTurnAppointmentsCurrent(GameState state, SourceWorldContext current)
+    private GameState MaintainNormalTurnAppointmentsCurrent(GameState state, SourceWorldContext current)
     {
+        //This always-reached Turn action also runs outside the monthly branch.
+        //Bind its latest saved Area/City appointments and Person vectors here;
+        //action6's monthly binding is neither guaranteed nor a current owner.
+        //The existing binder preserves unknown legacy fields and physical0
+        //through the saved assignment bank, without a scenario fallback.
+        _personAssignmentPrecallInputs.BindCurrent(state, current);
         var beforeAreas = NormalMaintenanceRegistry(current, RegistryKind.Area).ToDictionary(id => id,
             id => NormalMaintenanceNeed(current.ReadAssignmentArea36(id), "appointment_Area36"));
         var touchedCities = new List<int>();

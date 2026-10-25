@@ -7,12 +7,39 @@ internal static class ArmyFoodExpenseSource
     internal static int Read(GameState state, SourceWorldContext current, UnitState army,
         IReadOnlyList<byte> terrainReductions, out ArmyLogisticsRouteResult route)
     {
-        route = ArmyLogisticsRouteSource.Read(state, current, army);
-        if (route.UnresolvedOwner is string missing) throw new InvalidDataException(missing);
-        if (route.Hexes is not { Length: > 0 } path) return 0;
-        int steps = Math.Max(path.Length - 1, 1), cost = Math.Max(route.Cost!.Value, 1);
-        int physical = army.NativeArmyOrigin!.NativeSlotIndex!.Value;
+        int physical = K(army.NativeArmyOrigin?.NativeSlotIndex, "receiver");
+        route = new([], 0, 0, null);
         var receiver = new ArmyUnitReference(physical);
+        if (!K(current.ReadArmyUnitNativeValidity(receiver), "269850_validity")) return 0;
+        byte flags = army.NativeTacticRuntime?.Flags26 ?? throw Missing("269850_flags26");
+        if ((flags & 2) == 0) return 0;
+        //269850(mode0) always constructs this outer Hex chain before2B0010,
+        //including an unsuccessful/empty route.2B0010 appends the returned
+        //path in order; actual node exhaustion can shorten this count.
+        var path = current.CreateTemporaryHexList() ?? throw Missing("269850_Hex_descriptor");
+        try
+        {
+            route = ArmyLogisticsRouteSource.Read(state, current, army);
+            if (route.UnresolvedOwner is string missing) throw new InvalidDataException(missing);
+            if (route.Hexes is not { Length: > 0 } hexes) return 0;
+            foreach (int raw in hexes)
+            {
+                var hex = current.ReadHexTableReference(raw < 48400 ? raw : 0) ?? throw Missing("269850_path_Hex_pointer");
+                current.AppendNearbyHexTemporary(path, hex);
+            }
+            int count = K(current.ReadTemporaryHexListCount(path), "269850_path_count");
+            int steps = Math.Max(unchecked(count - 1), 1);
+            int cost = Math.Max(K(route.Cost, "269850_route_cost"), 1);
+            return ReadExpense(state, current, army, terrainReductions, receiver, steps, cost);
+        }
+        finally { current.ClearTemporaryHexList(path); current.ReleaseTemporaryHexList(path); }
+    }
+
+    //269A50, shared by the stock-posting Turn and the quote-only consumer.
+    //The caller owns route/descriptors; no food, supply flag or Army is written.
+    private static int ReadExpense(GameState state, SourceWorldContext current, UnitState army,
+        IReadOnlyList<byte> terrainReductions, ArmyUnitReference receiver, int steps, int cost)
+    {
         var resources = current.ReadArmyReturnResourceFields(receiver) ?? throw Missing("resources");
         int ready = K(resources.Ready16, "troops16");
         int wounded = K(resources.Wounded18, "wounded18");
@@ -51,7 +78,8 @@ internal static class ArmyFoodExpenseSource
                 int factor = 1;
                 if (playerId != 0 && playerId == forceId)
                 {
-                    int difficulty = K(BattleRemakeCurrentSettings.ReadInt32(state, 0x28), "difficulty");
+                    int selector = K(BattleRemakeCurrentSettings.ReadSelectorE58(state), "difficulty_selector");
+                    int difficulty = K(BattleRemakeCurrentSettings.ReadInt32(state, selector == 0 ? 0x134 : 0x28), "difficulty");
                     if (difficulty == 3) factor = P("super-territory-percent") / 100;
                     else if (difficulty > 3) factor = P("top-territory-percent") / 100;
                 }

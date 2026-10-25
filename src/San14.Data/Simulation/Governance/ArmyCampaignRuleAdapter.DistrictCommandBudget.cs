@@ -3,7 +3,12 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record DistrictCommandBudgetQuote(int DistrictId, int Books, int ReturnLimit,
-    int CityCount, int PersonCount, int OwnedAreaCount, int LeaderPolitics, int AdvisorPolitics, int PolicyAddition);
+    int CityCount, int PersonCount, int OwnedAreaCount, int LeaderPolitics, int AdvisorPolitics, int PolicyAddition)
+{
+    //257E10 passes the265EE0 result after its parameter cap, before the
+    //District byte's0..200 clamp. This is not the change in remaining books.
+    internal int? AccountingGrantAmount { get; init; }
+}
 
 public sealed record DistrictCommandBudgetQuery(IReadOnlyList<DistrictCommandBudgetQuote>? Districts, string? UnresolvedInput)
 {
@@ -99,7 +104,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableDistrictCommandBu
                         Divide(unchecked(Divide(personCount, personDivisor) * personPercent), 100) +
                         Divide(unchecked(Divide(unchecked(leaderPolitics + advisorPolitics), politicsDivisor) * politicsPercent), 100) + effect * effectMultiplier);
                     int books = Math.Clamp(Math.Min(raw, upper), 0, 200);
-                    result.Add(new(physical, books, returnLimit, cityCount, personCount, areaCount, leaderPolitics, advisorPolitics, effect));
+                    result.Add(new(physical, books, returnLimit, cityCount, personCount, areaCount, leaderPolitics, advisorPolitics, effect)
+                        { AccountingGrantAmount = Math.Min(raw, upper) });
                 }
             }
             return new(result.AsReadOnly(), null);

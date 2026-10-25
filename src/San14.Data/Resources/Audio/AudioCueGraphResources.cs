@@ -131,7 +131,6 @@ public static class AudioCueGraphResources
             throw new InvalidDataException("A static playback cue name must identify exactly one section.");
         AudioNamedCue cue = cues[0];
         byte[] bytes = bank.Source.Bytes;
-        VerifyStaticSource(bank.Source);
         int start = cue.SectionOffset;
         long end64 = (long)start + cue.SectionBytes;
         if (start < 0 || cue.SectionBytes < 48 || end64 > bytes.Length)

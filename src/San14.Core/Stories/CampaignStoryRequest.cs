@@ -28,7 +28,7 @@ public sealed record StoryMessage(ushort Speaker, int MessageId, int Style, int?
 public sealed record StoryNarration(int Mode, int MessageId, int?[] People, string[]? Names) : CampaignStoryStep;
 public sealed record StoryTransition(bool FadeIn, int Setting) : CampaignStoryStep;
 public sealed record StoryIllustration(int IllustrationId, int Setting) : CampaignStoryStep;
-public enum StoryAudioKind { Music, Sound, StopSoundSlot, StopAllSounds, StopActiveSoundSlots }
+public enum StoryAudioKind { Music, Sound, StopSoundSlot, StopAllSounds, StopActiveSoundSlots, SoundIfNotSkipped }
 public sealed record StoryAudio(StoryAudioKind AudioKind, int Id, int Flags, float ScalarA, float ScalarB) : CampaignStoryStep;
 public sealed record StoryLandmarkRewardNotice(int ForceId, byte EffectKind, int Amount, int MessageId) : CampaignStoryStep;
 public sealed record CampaignCameraSnapshot(float FocusX, float FocusY, float FocusZ, float FocusW,
@@ -46,16 +46,20 @@ public sealed record CampaignStoryScene(StoryBackground? Background, StoryStandi
     public static CampaignStoryScene Empty => new(null, null, null, null, null, null, null);
     public CampaignStoryScene Apply(CampaignStoryStep step) => step switch
     {
-        StoryBackground b => this with { Background = b },
+        StoryBackground b => this with { Background = b, Blackout = new StoryTransition(true, -1) },
         StoryStanding s => this with { Standing = s },
         StoryIllustration i => this with { Illustration = i,
             VisibleActors = i.IllustrationId != 0 ? ImmutableDictionary<int, TalentOfficerPresentationContext>.Empty : VisibleActors,
             HighlightedSlot = i.IllustrationId != 0 ? null : HighlightedSlot },
         StoryTransition t => this with { Blackout = t,
             Standing = !t.FadeIn ? null : Standing,
+            Text = !t.FadeIn ? null : Text,
+            PreparedText = !t.FadeIn ? null : PreparedText,
             VisibleActors = !t.FadeIn ? ImmutableDictionary<int, TalentOfficerPresentationContext>.Empty : VisibleActors,
             HighlightedSlot = !t.FadeIn ? null : HighlightedSlot },
-        StoryCamera c => this with { Camera = c, RestoredCamera = null },
+        StoryCamera c => this with { Camera = c, RestoredCamera = null,
+            Blackout = new StoryTransition(false, -1), Standing = null, Text = null, PreparedText = null,
+            VisibleActors = ImmutableDictionary<int, TalentOfficerPresentationContext>.Empty, HighlightedSlot = null },
         StoryRestoreCampaignCamera r => this with { RestoredCamera = r.Snapshot },
         StoryMessage or StoryNarration or StoryLandmarkRewardNotice => this with { Text = step },
         StoryAudio a when a.AudioKind == StoryAudioKind.Music => this with { Music = a },
@@ -69,14 +73,17 @@ public sealed record CampaignStoryRequest(long Sequence, EventSourceReference So
 {
     [JsonRequired] public CampaignStoryScene Scene { get; init; } = CampaignStoryScene.Empty;
     public CampaignStoryPreparedStep? PreparedStep { get; init; }
+    public ImmutableArray<CampaignStoryPreparedText> TextLog { get; init; } = ImmutableArray<CampaignStoryPreparedText>.Empty;
     public CampaignStoryRequest CompleteStep()
     {
         if (NextStep >= Steps.Length) throw new InvalidDataException("Story has no waiting step.");
         var step = Steps[NextStep];
         var scene = Scene.Apply(step);
+        var textLog = TextLog;
         if (step is StoryMessage or StoryNarration)
         {
             var text = PreparedStep?.Text;
+            if (text is not null) textLog = textLog.Add(text);
             scene = scene with { PreparedText = text, HighlightedSlot = null };
             if (step is StoryMessage message && text?.Speaker is { } speaker)
             {
@@ -89,7 +96,7 @@ public sealed record CampaignStoryRequest(long Sequence, EventSourceReference So
                 scene = scene with { VisibleActors = scene.VisibleActors.SetItem(slot, speaker), HighlightedSlot = slot };
             }
         }
-        return this with { Scene = scene, NextStep = NextStep + 1, PreparedStep = null };
+        return this with { Scene = scene, NextStep = NextStep + 1, PreparedStep = null, TextLog = textLog };
     }
     public CampaignStoryRequest Copy() => this with { Steps = Steps.Select(CloneStep).ToArray(), Scene = Scene with
         { Standing = Scene.Standing is { } s ? s with { Characters = s.Characters.ToArray() } : null,
@@ -107,7 +114,7 @@ public sealed record CampaignStoryRequest(long Sequence, EventSourceReference So
     {
         PlayableEventStateValidation.ValidateSource(Source);
         if (Scene is null || Sequence < 1 || string.IsNullOrWhiteSpace(ContentRevision) || Steps is not { Length: > 0 } ||
-            NextStep < 0 || NextStep > Steps.Length || Steps.Any(s => s is null))
+            NextStep < 0 || NextStep > Steps.Length || Steps.Any(s => s is null) || TextLog.IsDefault)
             throw new InvalidDataException("Saved story request is incomplete.");
         if (PreparedStep is { } prepared && (prepared.Step != NextStep || NextStep >= Steps.Length ||
             (Steps[NextStep] is StoryMessage or StoryNarration) != (prepared.Text is not null)) ||
@@ -116,6 +123,11 @@ public sealed record CampaignStoryRequest(long Sequence, EventSourceReference So
             throw new InvalidDataException("Saved prepared story step or visible actors are inconsistent.");
         CampaignStoryPreparationValidation.ValidateText(PreparedStep?.Text);
         CampaignStoryPreparationValidation.ValidateText(Scene.PreparedText);
+        foreach (var text in TextLog)
+        {
+            if (text is null) throw new InvalidDataException("Saved story text log contains an empty entry.");
+            CampaignStoryPreparationValidation.ValidateText(text);
+        }
         foreach (var step in Steps)
             switch (step)
             {

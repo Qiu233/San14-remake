@@ -74,6 +74,7 @@ public partial class SceneAudioSession : Node
     public void LeaveScene()
     {
         RequireEngineThread();
+        StopStorySounds();
         StopMonthlyTerritorySounds();
         _sceneCancellation?.Cancel();
         _sceneCancellation?.Dispose();

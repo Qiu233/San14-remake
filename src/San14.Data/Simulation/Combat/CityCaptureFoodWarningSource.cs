@@ -9,12 +9,18 @@ public sealed record CityCaptureFoodQuote(int? Value, CityCaptureGarrisonFoodQuo
     int[] HomeArmyPhysicalSlots, string? UnresolvedOwner)
 {
     public ForcePolicyScratchReceipt[] QuotePolicyQueries { get; init; } = [];
+    public GameState? State { get; init; }
 }
 
+internal sealed record CityCaptureFoodQuoteOperations(
+    Action<GameState, HexListHandle> SortArmies,
+    Func<GameState, GameState> CompleteArmyQuote,
+    Action<GameState, BaseReference, List<ForcePolicyScratchReceipt>> AdministrationTail);
+
 /// <summary>The food+4 component consumed by 2FE2B0: quote-only 2DCA60,
-/// followed by 2DCDB0's ordinary empty current HomeArmy leaf and the actual
-/// quote tail pools with no current Area36 worker and CityCC trainer. Stock
-/// posting and unresolved expense-route writers remain separate. The next-month
+/// followed by2DCDB0's actual ordered HomeArmy quote. The operation overload
+/// supplies pending-retirement/grouping and complete administration-quote tails
+/// on the same current pool. Neither path posts food stocks. The next-month
 /// income query uses the current Area food projection without posting stocks.</summary>
 public static class CityCaptureFoodWarningSource
 {
@@ -54,6 +60,14 @@ public static class CityCaptureFoodWarningSource
 
     public static CityCaptureFoodQuote TryReadFoodExpense(GameState state,
         SourceWorldContext current, BaseReference city)
+        => ReadFoodExpense(state, current, city, null);
+
+    internal static CityCaptureFoodQuote TryReadFoodExpenseCurrent(GameState state,
+        SourceWorldContext current, BaseReference city, CityCaptureFoodQuoteOperations operations)
+        => ReadFoodExpense(state, current, city, operations);
+
+    private static CityCaptureFoodQuote ReadFoodExpense(GameState state,
+        SourceWorldContext current, BaseReference city, CityCaptureFoodQuoteOperations? operations)
     {
         var garrison = new List<CityCaptureGarrisonFoodQuote>(); var homeArmies = new List<int>();
         var policies = new List<ForcePolicyScratchReceipt>();
@@ -99,11 +113,36 @@ public static class CityCaptureFoodWarningSource
                     if (node.Identity.HasValue)
                     { current.WriteRegistryNodePayload(node, new(RegistryKind.Army, physical)); homeArmies.Add(physical); }
                 }
-                if (homeArmies.Count != 0) throw Missing("Army269850_route2B0010_and269A50_current_producer");
+                if (homeArmies.Count != 0)
+                {
+                    //24BAA0 reorders the real temporary nodes before any bill.
+                    var reachedOperations = operations ?? throw Missing("Army_quote_operations_owner");
+                    reachedOperations.SortArmies(state, armies);
+                    var reductions = ArmyFoodTerrainModifiers.ReadScheduled(state);
+                    var node = current.ReadRegistryHead(new(armies.Identity)) ?? throw Missing("expense_Army_head");
+                    homeArmies.Clear();
+                    while (node.Identity.HasValue)
+                    {
+                        var payload = current.ReadRegistryNodePayload(node) ?? throw Missing("expense_Army_payload");
+                        int physical = K(payload.PhysicalSlot, "expense_Army_receiver");
+                        var receiver = state.ReadArmyLifecycle()?.ReceiverSlots()[physical] ?? throw Missing("expense_Army_current_slot");
+                        var image = receiver.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : receiver.PendingImage;
+                        if (image is null) throw Missing("expense_Army_current_image");
+                        expense = unchecked(expense + ArmyFoodExpenseSource.Read(state, current, image, reductions, out _));
+                        homeArmies.Add(physical);
+                        node = current.ReadRegistryNodeNext(node) ?? throw Missing("expense_Army_next");
+                    }
+                    //Quote1 skips stock/shortage/26bit6 stores, but the source
+                    //still consumes pending70 and recomputes groups before the
+                    //temporary Army/Gate descriptors are destroyed.
+                    state = reachedOperations.CompleteArmyQuote(state);
+                }
             }
             finally { Release(current, armies); Release(current, gates); }
-            ApplyEmptyAdministrationQuoteTail(state, current, city, policies, P(SimulationParameterKeys.CityFoodExpense.RepairGoldFee));
-            return new(expense, garrison.ToArray(), [], null) { QuotePolicyQueries = policies.ToArray() };
+            if (operations is not null) operations.AdministrationTail(state, city, policies);
+            else ApplyEmptyAdministrationQuoteTail(state, current, city, policies, P(SimulationParameterKeys.CityFoodExpense.RepairGoldFee));
+            return new(expense, garrison.ToArray(), homeArmies.ToArray(), null)
+                { QuotePolicyQueries = policies.ToArray(), State = state };
 
             int QuoteGarrison(BaseReference target)
             {

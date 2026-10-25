@@ -208,9 +208,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = state with { Districts = new(state.Districts) { [quote.DistrictId] = district with { OrdersRemaining = books } },
                 NativeForceUnregisterCurrent = native with { DistrictWindows10 = new(native.DistrictWindows10) { [quote.DistrictId] = window } } };
             if (LateNeed(ReadApplicationInformationRestriction(state), "books_application_mode") &&
-                LateNeed(current.ReadDistrictForceId(quote.DistrictId), "books_District10") ==
-                LateNeed(current.ReadForcePhysicalSlot(OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw LateMaintenanceMissing("books_player_Force")), "books_player_Force60"))
-                throw LateMaintenanceMissing("books_31FDD0_challenge_counter");
+                BaseCaptureRewardSource.ReadPlayerRulerDistrict(current,
+                    current.ReadDistrictTableReference(quote.DistrictId) ?? throw LateMaintenanceMissing("books_District_pointer"), LateMaintenanceMissing))
+                state = ApplicationCommandAccountingSource.Grant(state, current,
+                    LateNeed(quote.AccountingGrantAmount, "books_accounting_grant_amount"),
+                    ReadApplicationGameplay()?.UserSelectionServicePresent);
         }
         return state;
     }

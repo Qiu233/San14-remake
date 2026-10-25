@@ -8,6 +8,7 @@ internal static class NormalTurnCompletionSaveFields
     {
         if (version >= 168) return;
         if (state["PlayerDistrictResourceHistory"] is not null || state["ChallengeServiceTurnStopPending"] is not null ||
+            state["SelectedUserTaskProgress"] is not null || state["PendingSelectedUserTaskConclusion"] is not null ||
             state["NativeArmySimulation"]?["World"]?["LeadingDoctrineYearCount"] is not null ||
             state["NativeArmySimulation"]?["Forces"] is JsonObject forces && forces.Any(pair =>
                 pair.Value?["BestExceptionalOfficerCount"] is not null || pair.Value?["DevelopmentWarningFlags"] is not null) ||
@@ -25,6 +26,13 @@ internal static class NormalTurnCompletionSaveFields
     internal static void Migrate(JsonObject state, int version)
     {
         NullableField(state, "ChallengeServiceTurnStopPending", version, node => node is JsonValue value && value.TryGetValue<bool>(out _));
+        NullableField(state, "SelectedUserTaskProgress", version, node => node is JsonObject progress &&
+            progress.ContainsKey("Deadline") && (progress["Deadline"] is null || Date(progress["Deadline"])) &&
+            Integer(progress["VictoryConditionStatus"], 0, byte.MaxValue) && Integer(progress["DefeatConditionStatus"], 0, byte.MaxValue) &&
+            Integer(progress["ScorePeriods"], 0, byte.MaxValue));
+        NullableField(state, "PendingSelectedUserTaskConclusion", version, node => node is JsonObject conclusion &&
+            Integer(conclusion["UserIndex"], 0, int.MaxValue) && conclusion.ContainsKey("GameSucceeded") &&
+            (conclusion["GameSucceeded"] is null || Boolean(conclusion["GameSucceeded"])) && Boolean(conclusion["CloseProgressScene"]));
         NullableField(state, "PlayerDistrictResourceHistory", version, node => node is JsonObject histories && histories.All(pair =>
             int.TryParse(pair.Key, out int district) && district is >= 1 and <= 8 && pair.Value is JsonObject row &&
             new[] { "Gold", "Food", "Troops", "MilitaryIntelligence" }.All(key => row[key] is JsonArray values &&
@@ -66,4 +74,8 @@ internal static class NormalTurnCompletionSaveFields
     }
     private static bool Integer(JsonNode? node, int min, int max) => node is JsonValue value &&
         value.TryGetValue<int>(out int number) && number >= min && number <= max;
+    private static bool Boolean(JsonNode? node) => node is JsonValue value && value.TryGetValue<bool>(out _);
+    private static bool Date(JsonNode? node) => node is JsonObject date && Integer(date["Year"], short.MinValue, short.MaxValue) &&
+        Integer(date["Month"], sbyte.MinValue, sbyte.MaxValue) && Integer(date["Day"], sbyte.MinValue, sbyte.MaxValue) &&
+        Integer(date["Hour"], sbyte.MinValue, sbyte.MaxValue);
 }

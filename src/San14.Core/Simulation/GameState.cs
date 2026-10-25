@@ -694,6 +694,9 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         CampaignTurnStopValidation.Validate(state);
+        if (state.PendingCampaignServices is null)
+            throw new InvalidDataException("Pending campaign-service writes are missing.");
+        state.PendingCampaignServices.Validate();
         if (state.ActiveDisasterScene is { EventKind: not (14 or 15 or 16) })
             throw new InvalidDataException("The admitted disaster scene is invalid.");
         EconomyReportStateValidation.Validate(state);

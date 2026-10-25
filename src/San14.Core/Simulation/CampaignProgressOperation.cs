@@ -86,6 +86,12 @@ public sealed record CampaignServiceChanges(int[] Events, CampaignAchievementWri
             throw new InvalidDataException("Campaign service continuation is incomplete.");
     }
 }
+public sealed partial record GameState
+{
+    /// <summary>Monotone application-service writes awaiting idempotent publication.
+    /// This is not a snapshot used to restore the global profile.</summary>
+    public CampaignServiceChanges PendingCampaignServices { get; init; } = CampaignServiceChanges.Empty;
+}
 public sealed record CampaignProgressOperation(string Revision, CampaignProgressRequest Request, int BlockIndex,
     GameState Candidate, CampaignOperationWorldContext Context, NativeNormalArmyCombatCalendarState Calendar,
     LandmarkStoryCheckpoint Landmark, CampaignStoryRequest Story, long LastStorySequence,

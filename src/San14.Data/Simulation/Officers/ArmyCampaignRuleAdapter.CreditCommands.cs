@@ -216,11 +216,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             Districts = new(paid.Districts) { [district.Id] = district with { OrdersRemaining = after } },
             NativeForceUnregisterCurrent = saved with { DistrictWindows10 = new(saved.DistrictWindows10) { [district.Id] = window } }
         };
-        var world = paid.CampaignEventWorld ?? throw CreditMissing("App_user_service");
-        if (CreditNeed(world.CurrentUserIndex, "App_current_user") != -1 &&
+        if (HasCommandAccountingUser(paid) &&
             BaseCaptureRewardSource.ReadPlayerRulerDistrict(current,
                 current.ReadDistrictTableReference(district.Id) ?? throw CreditMissing("App_payment_District"), CreditMissing))
-            throw CreditMissing("App31FD60_personnel_book_accounting");
+            paid = ApplyCommandBookUsageCurrent(paid, current, cost);
         return paid;
     }
 

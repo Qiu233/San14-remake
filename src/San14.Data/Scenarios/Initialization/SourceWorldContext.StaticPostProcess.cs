@@ -46,11 +46,36 @@ public sealed partial class SourceWorldContext : IStaticTablePostProcessState
     }
     //The simulation context itself owns CWorldData. Startup pointer tokens
     //are not another world owner and must not be fabricated for a Turn.
-    internal RegisteredPersonPruningResult ApplyOwnedTurnPostProcess()
+    internal RegisteredPersonPruningResult ApplyOwnedTurnPostProcess(IReadOnlySet<int> ownedPersons)
     {
         if (OwnedIndexes is null) throw new InvalidDataException("Turn slot7 requires the current owned pool.");
-        StaticTablePostProcess.Apply(this);
+        StaticTablePostProcess.Apply(new OwnedTurnPostProcess(this, ownedPersons));
         return PostProcessRegisteredPersons(worldReceiverOwned: true);
+    }
+
+    private sealed class OwnedTurnPostProcess(SourceWorldContext current, IReadOnlySet<int> ownedPersons)
+        : IStaticTablePostProcessState
+    {
+        public StaticPostProcessReference? ReadStaticPostProcessReference(int table, int slot)
+            => current.ReadStaticPostProcessReference(table, slot);
+        public void InvokeStaticPostProcess(StaticPostProcessReference receiver)
+        {
+            if (receiver.Callback?.Kind == PostLoadCallbackKind.Person)
+            {
+                int physical = receiver.PhysicalSlot ?? throw new InvalidDataException("Null Turn Person receiver.");
+                ushort identity = current.ReadPersonIdentity(physical)
+                    ?? throw new InvalidDataException("Current Turn Person identity is unknown.");
+                //A zero embedded identity is unallocated storage, not a domain
+                //officer. Its scratch normalization is not retained: allocation
+                //copies the complete template before any gameplay consumer can
+                //observe abilities or skills. Inactive named officers still run
+                //the full callback; native validity is deliberately not a filter.
+                if (identity == 0) return;
+                if (!ownedPersons.Contains(physical))
+                    throw new InvalidDataException("Current Turn Person has no saved officer owner.");
+            }
+            current.InvokeStaticPostProcess(receiver);
+        }
     }
 
     public RegisteredPersonPruningResult ApplyStaticPostLoadFunction()

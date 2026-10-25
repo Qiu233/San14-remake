@@ -29,9 +29,9 @@ internal static class NormalTurnStorySaveFields
             playback["Date"] is not JsonObject date || !Integer(date["Year"], 0, 350) ||
             !Integer(date["Month"], 1, 12) || !Integer(date["Day"], 1, 30) ||
             !playback.ContainsKey("ReturnCamera") || playback["ReturnCamera"] is JsonNode camera && !Camera(camera) ||
-            playback["ServiceChanges"] is not JsonObject service || service["Events"] is not JsonArray ||
+            version < 168 && (playback["ServiceChanges"] is not JsonObject service || service["Events"] is not JsonArray ||
             service["Achievements"] is not JsonArray || service["ClockReads"] is not JsonArray ||
-            service["Dirty"] is not JsonValue dirty || !dirty.TryGetValue<bool>(out _))
+            service["Dirty"] is not JsonValue dirty || !dirty.TryGetValue<bool>(out _)))
             throw new InvalidDataException("Saved normal Turn story playback is incomplete or invalid.");
     }
 

@@ -4,19 +4,26 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //2B5ED0 with rank=2, reached by2D4480 only for an ordinary NPC.
-    //The caller owns the current world and the primary pool throughout the
-    //coalition transaction; this leaf neither captures nor exports that pool.
+    //2D4480 keeps its existing rank2 NPC contract;58 shares the same writer.
     internal GameState ApplyNormalTurnCoalitionKingPromotionCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, ForceReference force)
+        => ApplyNormalTurnForceRankPromotionCurrent(state, current, pool, force, 2);
+
+    //2B5ED0's NPC path. The caller owns the current world and primary pool;
+    //the operation neither captures nor exports that pool.
+    internal GameState ApplyNormalTurnForceRankPromotionCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, ForceReference force, int rank,
+        int kingdomNameChoice = 0)
     {
         if (!KingPromotionNeed(current.ReadForceNativeValidity(force), "Force_validity")) return state;
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw KingPromotionMissing("current_pool_binding");
         int forceId = KingPromotionNeed(current.ReadForcePhysicalSlot(force), "Force60");
         if (TalentForceIsPlayerCurrent(state, current, force)) throw KingPromotionMissing("NPC_scope");
-        //The selected resource owns the real rank definition, independently
-        //of the force's old rank. Rank2 is the native-valid King object.
-        if (!state.ForceRanks.ContainsKey(2)) throw KingPromotionMissing("King_rank_definition");
+        if (rank is < 1 or > 8) throw KingPromotionMissing("NPC_rank_scope");
+        var definition = current.ReadStaticTableReference(0x78490, rank)
+            ?? throw KingPromotionMissing("rank_definition_pointer");
+        if (definition.PhysicalSlot is null or 0) return state;
+        if (!state.ForceRanks.ContainsKey(definition.PhysicalSlot.Value)) throw KingPromotionMissing("rank_definition");
         int ruler = KingPromotionLookup(current,
             KingPromotionNeed(current.ReadForceRecord(forceId)?.RawRuler10, "Force_ruler10"));
         if (!KingPromotionNeed(current.ReadPersonNativeValidity(ruler), "ruler_validity")) return state;
@@ -26,8 +33,34 @@ public sealed partial class ArmyCampaignRuleAdapter
         ushort emperorRaw = KingPromotionNeed(CityCaptureTerritoryInputs.ReadEmperor1654(state), "World1654");
         int emperor = KingPromotionLookup(current, emperorRaw);
         bool emperorPresent = KingPromotionNeed(current.ReadPersonNativeValidity(emperor), "emperor_validity");
-        //For rank2, presence alone selects the imperial-grant loyalty table.
-        //The emperor's owning force is queried only by the rank1 branch.
+        bool selfProclaimed = !emperorPresent;
+        if (emperorPresent && rank == 1)
+        {
+            var position = PersonReturnCommands.ResolvePersonPosition(state, current, emperor,
+                () => state.NativeMapSeason?.ThirdDate ?? throw KingPromotionMissing("World34_date"));
+            //An invalid current Hex retains the source's imperial flag0.
+            if (position.PhysicalSlot.HasValue)
+                selfProclaimed = KingPromotionNeed(current.ReadHexForceSlot(position), "emperor_Hex14") != forceId;
+        }
+        //32D280 is the owner of the emperor's actual E4 City, including the
+        //native Force0 fallback. It is independent of the selected player.
+        int emperorCity = 0;
+        if (emperorPresent)
+        {
+            var location = PersonPositionRepair.DecodeSecondLocation(
+                KingPromotionNeed(current.ReadPersonSecondLocation(emperor), "emperor_E4"));
+            if (location.Kind == 5) emperorCity = location.Index < 52 ? location.Index : 0;
+        }
+        var seat = current.ReadCityTableReference(emperorCity) ?? throw KingPromotionMissing("emperor_City_pointer");
+        int imperialOwner = KingPromotionNeed(current.ReadBaseNativeValidity(seat), "emperor_City_validity")
+            ? KingPromotionNeed(current.ReadBaseForceSlot(seat), "emperor_City_Force")
+            : KingPromotionNeed((current.ReadForceTableReference(0) ?? throw KingPromotionMissing("Force0_pointer")).PhysicalSlot, "Force0_physical");
+        if (rank == 1)
+        {
+            var named = PrepareNormalTurnEmpireNameCurrent(state, current, pool, force, kingdomNameChoice);
+            state = named.State;
+            if (!named.Valid) return state;
+        }
         int rulerId = KingPromotionNeed(current.ReadPersonIdentity(ruler), "ruler_identity");
         foreach (int? entry in current.ReadRegisteredPersonPhysicalSlots() ?? throw KingPromotionMissing("Person100"))
         {
@@ -42,10 +75,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 _governorInputs), "PersonE8");
             if (loyalty > 100) continue;
             bool sameDoctrine = KingPromotionDoctrine(state, current, person) == KingPromotionDoctrine(state, current, ruler);
-            //Immutable TC1A4A8E0/8EC/8F8/904: granted same/different=9/6,
-            //self-proclaimed same/different=6/3. These are source data, not
-            //a selected-scenario observation or a cached execution result.
-            int increase = emperorPresent ? sameDoctrine ? 9 : 6 : sameDoctrine ? 6 : 3;
+            //Immutable TC A884..A934: each family is granted same/different,
+            //then self-proclaimed same/different (305660's true selector).
+            int increase = rank switch
+            {
+                1 => selfProclaimed ? sameDoctrine ? 8 : 4 : sameDoctrine ? 12 : 8,
+                2 => selfProclaimed ? sameDoctrine ? 6 : 3 : sameDoctrine ? 9 : 6,
+                3 => selfProclaimed ? sameDoctrine ? 4 : 2 : sameDoctrine ? 6 : 4,
+                _ => selfProclaimed ? sameDoctrine ? 2 : 1 : sameDoctrine ? 3 : 2
+            };
             byte after = (byte)Math.Min(100, unchecked(loyalty + increase));
             if (KingPromotionNeed(OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(person)),
                 "Person15E_bit13")) after = 255;
@@ -56,7 +94,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         //The original nested ForceCity/CityArea iterators increase Area54
         //security, not Army morale. City table order and Area registry order
         //are retained, including repeated current pointer-table aliases.
-        for (int citySlot = 0; citySlot < 52; citySlot++)
+        //TC A94C/A958/A964:5/10/15; emperor's city owner gets +10
+        //only when becoming emperor. Lower ranks do not query Area54.
+        int securityIncrease = rank switch { 1 => 15 + (imperialOwner == forceId ? 10 : 0), 2 => 10, 3 => 5, _ => 0 };
+        for (int citySlot = 0; securityIncrease > 0 && citySlot < 52; citySlot++)
         {
             var city = current.ReadCityTableReference(citySlot) ?? throw KingPromotionMissing("City_table_pointer");
             if (KingPromotionNeed(current.ReadBaseForceSlot(city), "City_Force") != forceId) continue;
@@ -75,7 +116,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int security = KingPromotionNeed(owner.Security, "Area54");
                 //1DE490 clamps first, then suppresses the actual store for
                 //the five special forces, using the fresh representative hex.
-                int after = Math.Clamp(unchecked(security + 10), 0, 100);
+                int after = Math.Clamp(unchecked(security + securityIncrease), 0, 100);
                 var areaOwner = current.ReadForceTableReference(areaForce <= 51 ? areaForce : 0)
                     ?? throw KingPromotionMissing("Area_Force_pointer");
                 int ordinal = KingPromotionNeed(current.ReadForcePhysicalSlot(areaOwner), "Area_Force60");
@@ -84,70 +125,45 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
 
-        //TC1A49048/490B4/49BB8/49794:5000,1,1,10. The real ruler's
-        //nine personality slots and current state advantages supply the terms.
-        int trait = KingPromotionNeed(TacticRemakeCurrentTraits.CommanderEffectSum(current, ruler, 0x4C), "ruler_effect4C");
-        var advantage = PersonReturnPathSource.ReadForceAdvantage(state, current, force, 6);
-        int effect6 = KingPromotionNeed(advantage.Value, advantage.UnresolvedOwner ?? "Force_effect6");
-        int gain = unchecked(5000 + unchecked(trait * 5000) / 100 + unchecked(effect6 * 5000) / 100);
-        if (KingPromotionNeed(current.ReadForceNativeValidity(force), "experience_Force_validity") &&
-            (KingPromotionNeed(state.NativeArmySimulation?.Forces.GetValueOrDefault(forceId)?.Flags12, "Force12") & 8) != 0)
-            gain = unchecked(gain + 500);
-        if (gain >= 0)
+        //TC49054/49048 base=10000/5000, only for emperor/king.
+        int experienceBase = rank switch { 1 => 10000, 2 => 5000, _ => 0 };
+        if (experienceBase > 0)
         {
-            _force164Inputs.BindCurrent(state, current);
-            int before = KingPromotionNeed(current.ReadForce164(force), "Force164");
-            int oldLevel = KingPromotionNeed(OwnedForce164Inputs.ReadLevel(state, before), "experience_old_level");
-            int after = Math.Clamp(unchecked(before + gain), 0, 9999999);
-            int newLevel = KingPromotionNeed(OwnedForce164Inputs.ReadLevel(state, after), "experience_new_level");
-            var packet = new ArmyDestructionForce164Packet(current, force, requested: gain, before: before,
-                after: after, oldLevel: oldLevel, newLevel: newLevel);
-            ArmyDestructionForce164.ApplyContext(packet);
-            state = ArmyDestructionForce164.PublishCurrent(state, packet);
+            int trait = KingPromotionNeed(TacticRemakeCurrentTraits.CommanderEffectSum(current, ruler, 0x4C), "ruler_effect4C");
+            var advantage = PersonReturnPathSource.ReadForceAdvantage(state, current, force, 6);
+            int effect6 = KingPromotionNeed(advantage.Value, advantage.UnresolvedOwner ?? "Force_effect6");
+            int gain = unchecked(experienceBase + unchecked(trait * experienceBase) / 100 + unchecked(effect6 * experienceBase) / 100);
+            if (KingPromotionNeed(current.ReadForceNativeValidity(force), "experience_Force_validity") &&
+                (KingPromotionNeed(state.NativeArmySimulation?.Forces.GetValueOrDefault(forceId)?.Flags12, "Force12") & 8) != 0)
+                gain = unchecked(gain + experienceBase * 10 / 100);
+            if (gain >= 0)
+            {
+                _force164Inputs.BindCurrent(state, current);
+                int before = KingPromotionNeed(current.ReadForce164(force), "Force164");
+                int oldLevel = KingPromotionNeed(OwnedForce164Inputs.ReadLevel(state, before), "experience_old_level");
+                int after = Math.Clamp(unchecked(before + gain), 0, 9999999);
+                int newLevel = KingPromotionNeed(OwnedForce164Inputs.ReadLevel(state, after), "experience_new_level");
+                var packet = new ArmyDestructionForce164Packet(current, force, requested: gain, before: before,
+                    after: after, oldLevel: oldLevel, newLevel: newLevel);
+                ArmyDestructionForce164.ApplyContext(packet);
+                state = ArmyDestructionForce164.PublishCurrent(state, packet);
+            }
         }
 
         //2EE410 is player-only World165D=min(RankB3,5), so the guaranteed
         //NPC branch has no store. It does not assign or rearrange offices.
         var forceOwner = state.Forces.GetValueOrDefault(forceId) ?? throw KingPromotionMissing("Force_owner");
         var simulation = state.NativeArmySimulation ?? throw KingPromotionMissing("simulation_owner");
-        current.SetForceRankSlot47(forceId, 2);
+        current.SetForceRankSlot47(forceId, (byte)rank);
         state = state with
         {
-            Forces = new(state.Forces) { [forceId] = forceOwner with { RankId = 2 } },
+            Forces = new(state.Forces) { [forceId] = forceOwner with { RankId = rank } },
             NativeArmySimulation = simulation with { Parameters = simulation.Parameters with
-            { Int32Values = new(simulation.Parameters.Int32Values) { [OwnedArmyMoraleWaveInputs.ForceRank47Key(forceId)] = 2 } } }
+            { Int32Values = new(simulation.Parameters.Int32Values) { [OwnedArmyMoraleWaveInputs.ForceRank47Key(forceId)] = rank } } }
         };
         //223D40 adds the immutable TC1A49850 value10 to signed Force1BE.
         state = RulerCaptureReleaseSource.ApplyCurrentPopularityAdjustment(state, current, forceId, 10);
-        return ApplyCoalitionKingPromotionHistoryCurrent(state, current, force, emperor, emperorPresent);
-    }
-
-    private GameState ApplyCoalitionKingPromotionHistoryCurrent(GameState state, SourceWorldContext current,
-        ForceReference force, int emperor, bool emperorPresent)
-    {
-        //An NPC uses the actual World9DF8 lookup5012 rather than choosing a
-        //new advisor. An invalid speaker suppresses the report after effects.
-        int speaker = KingPromotionLookup(current, 5012);
-        if (!KingPromotionNeed(current.ReadPersonNativeValidity(speaker), "history_speaker_validity")) return state;
-        int speakerId = KingPromotionNeed(current.ReadPersonIdentity(speaker), "history_speaker10");
-        var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw KingPromotionMissing("history_player_Force");
-        int forceId = KingPromotionNeed(current.ReadForcePhysicalSlot(force), "history_Force60");
-        int playerRuler = TalentRulerCurrent(current, player), ruler = TalentRulerCurrent(current, force);
-        int? emperorId = emperorPresent ? KingPromotionNeed(current.ReadPersonIdentity(emperor), "history_emperor10") : null;
-        var main = FormatNormalTurnReport(state, current, emperorPresent ? 0x2C68 : 0x2C69,
-            new(Force0: forceId, Force1: forceId, Person0: emperorId ?? 0));
-        var detail = FormatNormalTurnReport(main.State, current, emperorPresent ? 0x5376 : 0x537C,
-            new(Person0: speakerId, Person1: playerRuler, Person2: emperorId ?? ruler,
-                Person3: emperorPresent ? ruler : null, Force0: forceId));
-        int day = (ReadArmyDestructionSampler(detail.State, current) ?? throw KingPromotionMissing("history_World450")).Day450;
-        int district = KingPromotionNeed(ForcePrimaryDistrictSource.Resolve(current, force).PhysicalSlot, "history_District60");
-        var effects = new List<CampaignEffectRequest>();
-        state = WriteHistory(detail.State, current,
-            new(1, district, 0, day, main.Text, detail.Text, speakerId, MarkBit0: 1), effects);
-        if (effects.Count == 0) return state;
-        long revision = state.NativeMapSeason?.AdvancedCalendarSteps ?? throw KingPromotionMissing("history_revision");
-        var pending = state.CampaignEffectRequests ?? throw KingPromotionMissing("history_pending_owner");
-        return state with { CampaignEffectRequests = pending.Append(CampaignEffectSource.MonthlyMaintenance, revision, effects) };
+        return ApplyNormalTurnRankPromotionReportsCurrent(state, current, pool, force, rank, emperor, selfProclaimed);
     }
 
     private static bool KingPromotionProtectedKin(GameState state, SourceWorldContext current, int person, int ruler)

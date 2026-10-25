@@ -152,9 +152,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Districts = new(working.Districts) { [districtId] = district with { OrdersRemaining = after } },
                 NativeForceUnregisterCurrent = saved with { DistrictWindows10 = new(saved.DistrictWindows10) { [districtId] = window } }
             };
-            if (working.CampaignEventWorld?.CurrentUserIndex is not sbyte user) throw LearnMissing("App_user_service");
-            if (user != -1 && BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, primary, LearnMissing))
-                throw LearnMissing("App31FD60_command_accounting");
+            if (HasCommandAccountingUser(working) && BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, primary, LearnMissing))
+                working = ApplyCommandBookUsageCurrent(working, current, rules.BookCost);
             //741E00's system achievement calls do not alter the campaign world.
             //The source sound and formatted announcement remain real pending operands.
             working = ApplyPersonnelLearnReportCurrent(working, current, officerId, LearnTacticName(working, book.TacticId), effects);

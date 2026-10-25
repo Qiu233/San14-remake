@@ -70,9 +70,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
                 catch (InvalidDataException error) { captureFailure = error.Message; current = null; }
             }
-            var naming = ArmyMapUiSources.Create();
             var publication = actors.Select(pair => StoryPortraitActor(state, current, pair.Key,
-                pair.Value, naming, captureFailure)).ToArray();
+                pair.Value, captureFailure)).ToArray();
             return AreaAdministrationQuery<StoryPresentationPublication>.Known(new(story.Sequence,
                 story.NextStep, text, registrations, publication, highlighted) { HasCurrentPreparedText = currentText });
         }
@@ -97,7 +96,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private StoryActorPublication StoryPortraitActor(GameState state, SourceWorldContext? current,
-        int slot, TalentOfficerPresentationContext speaker, ArmyMapUiSources naming, string? captureFailure)
+        int slot, TalentOfficerPresentationContext speaker, string? captureFailure)
     {
         try
         {
@@ -105,18 +104,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (speaker.OfficerId is < 1 or > 6000 || speaker.NameAtSource is null)
                 throw StoryPortraitMissing("source_speaker");
             ushort appearance = speaker.PortraitAppearanceIndex ?? throw StoryPortraitMissing("source_appearance");
-            if (speaker.OfficerId == 5012)
-            {
-                //The existing narrator serif special case consumes bank10.
-                //It does not request or substitute a bank9 standing portrait.
-                var face = ReadOfficerPortraitAppearance(state, current, _definitions,
-                    speaker.OfficerId, appearance, naming);
-                string? missing = face.Kind == OfficerPortraitRouteKind.StockNamed ? null
-                    : face.UnresolvedInput ?? "story.presentation.source_face_route";
-                return new(slot, speaker, new(null, null), face, missing);
-            }
-            //Use the source-time appearance even after the campaign person
-            //changed. Animated standing dispatch remains concretely unknown.
+            //8457A0→8433A0→842D70 always selects the three-part layout by
+            //the source Person's A6, including Person5012. The separate serif
+            //Face2 special case does not apply to story actors. Retain the
+            //source-time appearance after world changes; animated dispatch
+            //remains concretely unknown rather than substituting a face image.
             var portrait = ReadNarrationPortrait(state, current, _definitions, speaker.OfficerId,
                 appearance, requireCurrentAppearance: false);
             return new(slot, speaker, AreaAdministrationQuery<DeploymentNarrationPortraitRoute>.Known(portrait), null, null);

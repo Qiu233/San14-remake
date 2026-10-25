@@ -4,7 +4,7 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 /// <summary>Source inputs for the normal event transaction's StagingAudio.
-/// This object never plays, stops or acknowledges audio. Runtime application
+/// This object never plays, stops or acknowledges audio. Playback-manager
 /// and player-slot knowledge is supplied by its actual lifetime owner.</summary>
 public sealed class CampaignNormalEventAudioInputs : IS14AudioEventExecutionState
 {
@@ -46,9 +46,10 @@ public sealed class CampaignNormalEventAudioInputs : IS14AudioEventExecutionStat
     public int? ReadSeMapEntry(int index) => (uint)index < 96 ? SeMap[index]
         : throw new ArgumentOutOfRangeException(nameof(index));
 
-    //The interface's historical World labels refer to TC DAT142785440,
-    //the application/environment pointer used by this callback. They must
-    //not be inferred from the presence of a campaign GameState instead.
+    //The historical World/Application labels refer to the independent event
+    //playback manager, TC DAT142785440.83C100 resets its1AC before executing
+    //a script; the actual skip input83D690 changes it. Neither a GameState
+    //nor an ordinary application environment establishes this manager's facts.
     public bool? ReadWorldPointerPresent() => applicationPointerPresent?.Invoke();
     public int? ReadWorldField1AC() => applicationField1AC?.Invoke();
     public bool? ReadSeSlotActive(int slot) => (uint)slot < 62 ? seSlotActive?.Invoke(slot)

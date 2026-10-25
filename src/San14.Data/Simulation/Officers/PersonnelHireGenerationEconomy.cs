@@ -220,14 +220,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     //266C40/266CD0 share the actual Force-policy38 quote and float32 discount.
     //The scalar is read at its original call site, including a rawCC0 trainer.
     private int ReadHireDomesticFeeCurrent(GameState state, SourceWorldContext current,
-        BaseReference city, bool recruit)
+        BaseReference city, bool recruit, List<ForcePolicyScratchReceipt>? policies = null)
     {
         int forceId = HireEconomyK(current.ReadBaseForceSlot(city), "domestic_City_Force");
         var force = current.ReadForceTableReference(forceId <= 51 ? forceId : 0)
             ?? throw HireEconomyMissing("domestic_Force_pointer");
         int basis = HireEconomyK(CityDomesticParameters.Read(state, recruit ? "recruitBaseCost" : "trainingBaseCost"), "domestic_base_fee");
         if (recruit) basis = unchecked(basis * 3);
-        int policy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, 0x26, true).Value;
+        var policyQuery = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, 0x26, true);
+        policies?.Add(policyQuery);
+        int policy = policyQuery.Value;
         int scale = HireEconomyK(CityDomesticParameters.Read(state, "costPolicyScale"), "domestic_policy_scale");
         float discount = (float)unchecked(scale * policy) * (float)basis / 100f;
         int reduction = discount <= 0 ? 0 : discount < 1 ? 1 : HireEconomyTruncate(discount);

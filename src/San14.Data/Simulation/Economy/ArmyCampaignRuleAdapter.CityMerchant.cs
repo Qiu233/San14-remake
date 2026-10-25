@@ -147,8 +147,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityMerchantExecution
             int books = working.Districts[district].OrdersRemaining ?? throw CityMerchantSource.Missing("formal_Books");
             working = working with { Districts = new(working.Districts) { [district] = working.Districts[district] with
                 { OrdersRemaining = Math.Clamp(unchecked(books - CityMerchantSource.CommandCost), 0, 200) } } };
-            if (working.CampaignEventWorld?.CurrentUserIndex != -1)
-                throw CityMerchantSource.Missing("formal_command_service31FD60");
+            if (HasCommandAccountingUser(working) && BaseCaptureRewardSource.ReadPlayerRulerDistrict(current,
+                source.District, CityMerchantSource.Missing))
+                working = ApplyCommandBookUsageCurrent(working, current, CityMerchantSource.CommandCost);
             var capture = working.NativeBaseCaptureCurrent ?? throw CityMerchantSource.Missing("formal_C9_owner");
             byte flags = capture.Cities.GetValueOrDefault(city.Id)?.C9 ?? throw CityMerchantSource.Missing("formal_C9");
             working = working with { NativeBaseCaptureCurrent = capture with { Cities = new(capture.Cities)

@@ -21,7 +21,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             ? progress.CopyMapGroupsForTurn() : throw FoodTurnMissing("owned_Progress_groups"));
         bool groupsChanged = false;
         IReadOnlyList<byte>? terrain = null;
-        TacticRemakeCurrentAbilities? abilities = null;
         // manager80 order is semantically significant, including reset and
         // shared mapped stocks. Do not replace it with all-garrisons/all-Armies.
         foreach (var entry in onlyBase is not null ? new BaseReference?[] { onlyBase }
@@ -227,57 +226,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
         void SortArmies(HexListHandle list)
-        {
-            var nodes = new List<HexListNodeReference>();
-            var node = current.ReadHexListHead(list) ?? throw FoodTurnMissing("Army_sort_head");
-            while (node.Identity.HasValue)
-            {
-                nodes.Add(node);
-                node = current.ReadHexListNodeNext(node) ?? throw FoodTurnMissing("Army_sort_next");
-            }
-            // 24BAA0 moves actual nodes only on strict2538C0 less-than.
-            // Equal commanders retain their manager order and node identity.
-            for (int index = 1; index < nodes.Count; index++)
-            {
-                var moving = nodes[index];
-                int at = index;
-                while (at > 0 && Before(moving, nodes[at - 1])) at--;
-                if (at == index) continue;
-                nodes.RemoveAt(index);
-                nodes.Insert(at, moving);
-                current.ReorderCurrentList(list, nodes);
-            }
-        }
-        bool Before(HexListNodeReference leftNode, HexListNodeReference rightNode)
-        {
-            int left = Commander(leftNode), right = Commander(rightNode);
-            byte a = FoodTurnKnown(current.ReadPersonStatus(left), "sort_left_status");
-            byte b = FoodTurnKnown(current.ReadPersonStatus(right), "sort_right_status");
-            if (a != b) return a < b;
-            // The source rereads right then left if the first comparison did
-            // not decide. These are current numerical queries, not snapshots.
-            int rightLeadership = Leadership(right), leftLeadership = Leadership(left);
-            if (rightLeadership < leftLeadership) return true;
-            rightLeadership = Leadership(right); leftLeadership = Leadership(left);
-            if (leftLeadership < rightLeadership) return false;
-            return FoodTurnKnown(current.ReadPersonIdentity(left), "sort_left_identity") <
-                FoodTurnKnown(current.ReadPersonIdentity(right), "sort_right_identity");
-        }
-        int Commander(HexListNodeReference node)
-        {
-            var pointer = current.ReadRegistryNodePayload(new(node.Identity)) ?? throw FoodTurnMissing("sort_Army_payload");
-            if (pointer.Kind != RegistryKind.Army) throw FoodTurnMissing("sort_Army_kind");
-            ushort id = FoodTurnKnown(current.ReadArmyUnitCommanderId(new(FoodTurnKnown(pointer.PhysicalSlot, "sort_Army_receiver"))), "sort_Commander12");
-            return FoodTurnKnown((current.ReadPersonLookupReference(id <= 6000 ? id : 0)
-                ?? throw FoodTurnMissing("sort_Person_pointer")).PhysicalSlot, "sort_Person_receiver");
-        }
-        int Leadership(int person)
-        {
-            int id = FoodTurnKnown(current.ReadPersonIdentity(person), "sort_Person_identity");
-            abilities ??= new(current, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
-            return FoodTurnKnown(abilities.ResolveDimension(working, id, 0,
-                (force, effect) => _baseCapacityInputs.ReadPanelModifier(working, force, effect)), "sort_leadership");
-        }
+            => SortArmyFoodExpenseTemporaryCurrent(working, current, list);
     }
 
     //3032C0 calls these food bills between this City's salary and domestic

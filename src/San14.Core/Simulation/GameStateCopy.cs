@@ -27,6 +27,7 @@ public static class GameStateCopy
     {
         Diplomacy = Copy(value.Diplomacy),
         NativePeriodContinuation = value.NativePeriodContinuation?.Copy(),
+        PendingCampaignServices = value.PendingCampaignServices.Copy(),
         NativeNormalTurnContinuation = value.NativeNormalTurnContinuation is not { } normalTurn ? null : normalTurn with
         {
             Grouping = normalTurn.Grouping with { Roots = normalTurn.Grouping.Roots.ToArray() },

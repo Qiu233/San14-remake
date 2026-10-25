@@ -1,5 +1,6 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 
 internal sealed record StoryActorVisual(int Slot, int OfficerId, IReadOnlyList<LoadedSprite> Layers);
 
@@ -13,14 +14,22 @@ internal partial class StoryPresentationView : Control
     private PreviewText text = null!;
     private Control canvas = null!, backgroundRoot = null!, actorRoot = null!, illustrationRoot = null!;
     private ColorRect blackout = null!;
+    private Control playbackControls = null!;
+    private bool controlsHovered;
     private readonly Dictionary<int, (int Officer, UiSourceStandingPortrait View)> actors = [];
     private Func<bool>? admitted;
     private DeploymentNarrationView? message;
     private Action? waitCompleted;
+    private Func<bool>? waitReady;
+    private bool waitDrawn;
     private ulong waitUntil;
     private bool abandoned;
     internal bool IsWaitingForMessage => message?.IsAwaitingAdvance == true;
     internal DeploymentNarrationView? Message => message;
+    internal Func<InputEvent, bool>? KeyboardInput { get; set; }
+    internal Func<int, bool>? MessageModeRequested { get; set; }
+    internal Func<bool>? ReadAccelerated { get; set; }
+    internal Action? OpenLog { get; set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted)
     {
@@ -32,9 +41,37 @@ internal partial class StoryPresentationView : Control
         backgroundRoot = Layer("StoryBackground"); actorRoot = Layer("StoryActors"); illustrationRoot = Layer("StoryIllustration");
         blackout = new() { Name = "StoryBlackout", Size = new(1920, 1080), Color = Colors.Black,
             MouseFilter = MouseFilterEnum.Ignore, Visible = false, ZIndex = 20 }; canvas.AddChild(blackout);
+        BuildPlaybackControls();
         Resized += Fit; Fit();
         Control Layer(string name)
         { var layer = new Control { Name = name, Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore }; canvas.AddChild(layer); return layer; }
+    }
+
+    private void BuildPlaybackControls()
+    {
+        var root = new UiSourceLayout(repository, 0xD8B39FC6);
+        var source = new UiSourceLayout(repository, 0xE6F9D1D6);
+        playbackControls = new Control { Name = "StoryPlaybackControls", Position = root.Rectangle(6).Position,
+            Size = source.Rectangle(0).Size, ZIndex = 15, Visible = false, MouseFilter = MouseFilterEnum.Ignore };
+        canvas.AddChild(playbackControls);
+        var strings = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1].Records;
+        int[] nodes = [5, 3, 1], tooltips = [0x607, 0x606, 0x5B5];
+        string[] icons = ["000_cmn_icon_advance_spd2", "000_cmn_icon_advance_skip", "000_cmn_icon_log"];
+        for (int index = 0; index < nodes.Length; index++)
+        {
+            int action = index;
+            var button = new UiSourceFunctionButton { Position = source.Rectangle(nodes[index]).Position,
+                TooltipText = strings[tooltips[index]].Text };
+            playbackControls.AddChild(button);
+            button.Configure(repository, assets!, shader!, icons[index], () =>
+            {
+                if (!InputAdmitted()) return;
+                if (action == 2) OpenLog?.Invoke();
+                else MessageModeRequested?.Invoke(action == 0 ? 24 : 23);
+            });
+            button.MouseEntered += () => controlsHovered = true;
+            button.MouseExited += () => controlsHovered = false;
+        }
     }
 
     internal void SetBackground(int identity)
@@ -47,6 +84,10 @@ internal partial class StoryPresentationView : Control
         var layout = new UiSourceLayout(repository, 0xF6352F00);
         layout.Art(backgroundRoot, 1, layout.Rectangle(1), assets!, shader!,
             commonTexturePack: "texture_stl_event_bg_" + suffix, commonSpriteOverride: "stl_event_bg_" + suffix);
+        var blur = new UiSourceLayout(repository, 0xAEF1609E);
+        Vector2 mount = layout.Rectangle(3).Position;
+        blur.Blur(backgroundRoot, 1, blur.Rectangle(1, mount), weightInput: 100);
+        blur.Blur(backgroundRoot, 2, blur.Rectangle(2, mount), weightInput: 100);
     }
 
     internal void SetIllustration(int identity)
@@ -64,7 +105,7 @@ internal partial class StoryPresentationView : Control
             commonTexturePack: "texture_stl_event_" + suffix, commonSpriteOverride: "stl_event_" + suffix);
     }
 
-    internal void ApplyActors(IReadOnlyList<StoryActorVisual> current, int? highlighted, Color darkColour)
+    internal void ApplyActors(IReadOnlyList<StoryActorVisual> current, int? highlighted)
     {
         var positions = new UiSourceLayout(repository, 0x86BA499F);
         int[] nodes = [2, 3, 4, 6, 5];
@@ -81,7 +122,9 @@ internal partial class StoryPresentationView : Control
                 actorRoot.AddChild(portrait); portrait.Configure(repository, assets!, shader!, actor.Layers);
                 actors[actor.Slot] = (actor.OfficerId, portrait);
             }
-            actors[actor.Slot].View.Modulate = highlighted == actor.Slot ? Colors.White : darkColour;
+            //The original dark curve changes the pane's secondary packed
+            //colour. It is not equivalent to Control.Modulate or vertex tint;
+            //that material field still needs its rendering consumer.
         }
         SetMeta("highlighted_slot", highlighted ?? -1);
     }
@@ -90,12 +133,20 @@ internal partial class StoryPresentationView : Control
         Func<AutomaticMessageAdvanceMode> automaticAdvance)
     {
         RetireMessage();
-        var view = new DeploymentNarrationView { Name = "StoryMessage", ZIndex = 10 }; message = view; canvas.AddChild(view);
+        playbackControls.Show();
+        var view = new DeploymentNarrationView { Name = "StoryMessage", ZIndex = 10, KeyboardInput = KeyboardInput,
+            MessageModeRequested = MessageModeRequested, ReadStoryAccelerated = ReadAccelerated }; message = view; canvas.AddChild(view);
         view.ConfigureStoryMessage(repository, text, speaker, expanded, () =>
         {
             if (!InputAdmitted() || message != view) return;
-            RetireMessage(); consumed();
-        }, automaticAdvance, InputAdmitted);
+            consumed();
+        }, automaticAdvance, () => InputAdmitted() && !controlsHovered);
+    }
+
+    internal void RestoreMessage(string speaker, string expanded)
+    {
+        PresentMessage(speaker, expanded, () => { }, () => AutomaticMessageAdvanceMode.Manual);
+        message!.RetainStoryPage();
     }
 
     internal void BeginTransition(bool fadeIn, int milliseconds, Action completed)
@@ -105,32 +156,39 @@ internal partial class StoryPresentationView : Control
         BeginWait(milliseconds, completed);
     }
 
-    internal void BeginWait(int milliseconds, Action completed)
+    internal void BeginWait(int milliseconds, Action completed, Func<bool>? ready = null)
     {
         if (milliseconds < 0) throw new ArgumentOutOfRangeException(nameof(milliseconds));
-        waitCompleted = completed; waitUntil = Time.GetTicksMsec() + (ulong)milliseconds;
+        waitCompleted = completed; waitReady = ready; waitDrawn = false;
+        waitUntil = Time.GetTicksMsec() + (ulong)milliseconds; QueueRedraw();
     }
 
     internal void RestoreBlackout(bool black) => blackout.Visible = black;
     internal void ClearActors()
     { foreach (var actor in actors.Values) { actor.View.Hide(); actorRoot.RemoveChild(actor.View); actor.View.QueueFree(); } actors.Clear(); }
     private void RetireMessage()
-    { var previous = message; message = null; if (previous is null) return; previous.Abandon(); canvas.RemoveChild(previous); previous.QueueFree(); }
+    {
+        playbackControls?.Hide(); controlsHovered = false;
+        var previous = message; message = null; if (previous is null) return;
+        previous.Abandon(); canvas.RemoveChild(previous); previous.QueueFree();
+    }
     private static void Clear(Control layer)
     { foreach (var child in layer.GetChildren()) { layer.RemoveChild(child); child.QueueFree(); } }
     private bool InputAdmitted() => !abandoned && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     public override void _Process(double delta)
     {
-        if (!InputAdmitted() || waitCompleted is not { } complete || Time.GetTicksMsec() < waitUntil) return;
-        waitCompleted = null; complete();
+        if (!InputAdmitted() || !waitDrawn || waitCompleted is not { } complete ||
+            Time.GetTicksMsec() < waitUntil || waitReady?.Invoke() == false) return;
+        waitCompleted = null; waitReady = null; complete();
     }
+    public override void _Draw() => waitDrawn = true;
     public override void _Input(InputEvent input)
     {
         if (InputAdmitted() && (input is InputEventKey { Keycode: Key.Escape } or InputEventMouseButton { ButtonIndex: MouseButton.Right }))
             GetViewport().SetInputAsHandled();
     }
     internal void Abandon()
-    { abandoned = true; admitted = null; waitCompleted = null; RetireMessage(); Hide(); }
+    { abandoned = true; admitted = null; waitCompleted = null; waitReady = null; KeyboardInput = null; RetireMessage(); Hide(); }
     private void Fit()
     { float factor = Math.Min(Size.X / 1920, Size.Y / 1080); canvas.Scale = Vector2.One * factor; canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2; }
     public override void _ExitTree()

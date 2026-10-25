@@ -7,7 +7,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>2955A0's nonzero-mode gold quote. It borrows the caller's
     /// current world and primary pool; it neither pays nor develops an Area.</summary>
     internal int ReadHireAreaAdministrationGoldExpenseCurrent(GameState state,
-        SourceWorldContext current, BaseReference city)
+        SourceWorldContext current, BaseReference city, List<ForcePolicyScratchReceipt>? policies = null)
     {
         int location = HireAdministrationK(current.ReadBaseObjectLink(city), "City4E");
         if (location > 51) return 0;
@@ -79,9 +79,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                 current.ReorderCurrentList(temporary, selected.Select(row => row.Node).ToArray());
 
             var cityForce = Force(HireAdministrationK(current.ReadBaseForceSlot(city), "City_policy_Force"));
-            _ = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, cityForce, 0x1D, true);
-            _ = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current,
+            var developmentPolicy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, cityForce, 0x1D, true);
+            policies?.Add(developmentPolicy);
+            var securityPolicy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current,
                 Force(HireAdministrationK(current.ReadBaseForceSlot(city), "City_policy_Force_repeated")), 0x1E, true);
+            policies?.Add(securityPolicy);
             int total = 0;
             foreach (var row in selected)
             {
@@ -95,7 +97,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     ?? throw HireAdministrationMissing("quoted_Hex_pointer");
                 int rawForce = HireAdministrationK(current.ReadHexForceSlot(hex), "quoted_Hex14");
                 var coefficients = AreaAdministrationUpkeep.ReadCurrent(state);
-                int policy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, Force(rawForce), 0x26, true).Value;
+                var upkeepPolicy = ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, Force(rawForce), 0x26, true);
+                policies?.Add(upkeepPolicy);
+                int policy = upkeepPolicy.Value;
                 int personalities = HireAdministrationK(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x27), "quoted_effect39");
                 int fee = AreaAdministrationUpkeep.Calculate(coefficients, policy, personalities);
                 if (HireAdministrationK(current.ReadBaseResource(city, BaseResourceKind.Gold), "City_virtual90_gold") < fee) break;

@@ -226,9 +226,9 @@ public partial class AudioPlaybackService : Node
 
     public override void _ExitTree()
     {
+        StopEffects();
         _lifetime.Cancel();
         StopAllSpatial();
-        Array.Clear(_effects);
         foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();
         ChannelStopped = null;

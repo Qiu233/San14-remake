@@ -11,7 +11,7 @@ public partial class Main
     private GameState? _administrationWorld;
     private AreaAdministrationQuery<AreaAdministrationHandover>? _administrationHandover;
     private long _administrationHandoverRevision=-1;
-    private bool HasAdministrationPage=>_administrationParent is not null||_administrationNarration is not null||HasCityDomesticPage||HasCityMerchantPage||HasCityOfficerMovementPage||HasGovernanceRosterPage||HasPersonnelItemPage||HasOfficerOfficePage||HasPersonnelAdministrationPage||HasDistrictAdministrationPage||HasDoctrineResearchPage||HasStrategicOrdersPage||HasCommanderSelectionPage||HasTalentOrdersPage||HasTalentAutoSearchPage||HasDiplomacyOrdersPage||_governanceNarration is not null||HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition;
+    private bool HasAdministrationPage=>_administrationParent is not null||_administrationNarration is not null||HasCityDomesticPage||HasCityMerchantPage||HasCityOfficerMovementPage||HasGovernanceRosterPage||HasPersonnelItemPage||HasOfficerOfficePage||HasPersonnelAdministrationPage||HasDistrictAdministrationPage||HasDoctrineResearchPage||HasStrategicOrdersPage||HasCommanderSelectionPage||HasTalentOrdersPage||HasTalentAutoSearchPage||HasDiplomacyOrdersPage||_governanceNarration is not null||HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition||HasStoryPresentation;
 
     private bool IsAdministrationCurrent(GameState world,MapSceneView map)=>
         !_failed&&!_shuttingDown&&ReferenceEquals(_world,world)&&_residentMap==map&&

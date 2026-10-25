@@ -1,39 +1,34 @@
 using Godot;
+using San14.Data;
 
 public partial class AudioPlaybackService
 {
-    private sealed class EffectVoice(uint cueId, string channel)
+    private sealed class EffectVoice(int managerId, string channel)
     {
-        internal readonly uint CueId = cueId;
+        internal readonly int ManagerId = managerId;
         internal readonly string Channel = channel;
         internal int UpdateAge;
+        internal float TimeoutUpdates;
+        internal bool Reserved;
+        internal object? Owner;
+        internal CancellationTokenSource? Preparation;
+        internal AudioClip? OwnedClip;
     }
-    // The source UI allocator tries eight shared slots. Remembered cue/age
-    // belong to those actual voices, independently of the requesting view.
-    private readonly EffectVoice?[] _effects = new EffectVoice?[8];
+    //One freshly constructed shared manager, including UI and script requests.
+    //Ordinary requests allocate only0..7; all62 actual slots participate in
+    //the duplicate and stop queries. Empty slots have no imported handle state.
+    private readonly EffectVoice?[] _effects = new EffectVoice?[62];
     private int _effectCursor;
 
     internal bool TryPlayEffect(AudioClip clip)
     {
         RequireEngineThread();
         uint cueId = clip.Cue?.CueId ?? throw new InvalidDataException("An Effects request needs its actual source cue identity.");
-        // Admission precedes cleanup. A recently ended voice retains its
-        // remembered cue until the audio lifecycle update clears that record.
-        foreach (var effect in _effects)
-            if (effect is not null && effect.CueId == cueId && effect.UpdateAge < 3) return false;
-        for (int attempt = 0; attempt < _effects.Length; attempt++)
-        {
-            int slot = _effectCursor;
-            _effectCursor = (_effectCursor + 1) % _effects.Length;
-            if (_effects[slot] is { } occupied && IsEffectActive(occupied)) continue;
-            string channel = "effects:" + slot;
-            string bus = _originalDeviceProfile is null ? "Master" : OriginalOutputs.EffectsBus;
-            _originalOutputs?.ValidateHost();
-            Play(clip, channel, bus: bus, volumeGroup: AudioVolumeGroup.Effects);
-            _effects[slot] = new(cueId, channel);
-            return true;
-        }
-        return false;
+        int managerId = NormalSoundSource.ManagerId(cueId);
+        var effect = ReserveEffect(managerId, null, null, 0);
+        if (effect is null) return false;
+        try { InstallEffect(effect, clip, AudioVolumeGroup.Effects); return true; }
+        catch { RemoveEffect(effect); throw; }
     }
 
     private bool IsEffectActive(EffectVoice effect) =>
@@ -48,10 +43,11 @@ public partial class AudioPlaybackService
         for (int slot = 0; slot < _effects.Length; slot++)
         {
             if (_effects[slot] is not { } effect) continue;
-            if (!IsEffectActive(effect))
+            if (effect.Preparation?.IsCancellationRequested == true ||
+                effect.TimeoutUpdates != 0 && effect.UpdateAge >= effect.TimeoutUpdates ||
+                !effect.Reserved && !IsEffectActive(effect))
             {
-                Stop(effect.Channel);
-                _effects[slot] = null;
+                RemoveEffect(effect);
             }
             else effect.UpdateAge = unchecked(effect.UpdateAge + 1);
         }
@@ -61,7 +57,44 @@ public partial class AudioPlaybackService
     {
         RequireEngineThread();
         foreach (var effect in _effects)
-            if (effect is not null) Stop(effect.Channel);
-        Array.Clear(_effects);
+            if (effect is not null) RemoveEffect(effect);
+    }
+
+    private EffectVoice? ReserveEffect(int managerId, object? owner,
+        CancellationTokenSource? preparation, float timeoutUpdates)
+    {
+        //Admission precedes cleanup, as in404E30. Recently ended requests
+        //retain their remembered ID until the real manager update removes it.
+        foreach (var effect in _effects)
+            if (effect is not null && effect.ManagerId == managerId && effect.UpdateAge < 3) return null;
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            int slot = _effectCursor; _effectCursor = (_effectCursor + 1) % 8;
+            if (_effects[slot] is { } current && (current.Reserved || IsEffectActive(current))) continue;
+            if (_effects[slot] is { } retired) RemoveEffect(retired);
+            var selected = new EffectVoice(managerId, "effects:" + slot)
+                { Owner = owner, Preparation = preparation, Reserved = true, TimeoutUpdates = timeoutUpdates };
+            _effects[slot] = selected;
+            return selected;
+        }
+        return null;
+    }
+
+    private void InstallEffect(EffectVoice effect, AudioClip clip, AudioVolumeGroup category)
+    {
+        string bus = _originalDeviceProfile is null ? "Master" : OriginalOutputs.EffectsBus;
+        _originalOutputs?.ValidateHost();
+        Play(clip, effect.Channel, bus: bus, volumeGroup: category);
+        effect.Reserved = false;
+    }
+
+    private void RemoveEffect(EffectVoice effect)
+    {
+        int slot = Array.IndexOf(_effects, effect);
+        if (slot < 0) return;
+        _effects[slot] = null;
+        effect.Preparation?.Cancel();
+        Stop(effect.Channel);
+        effect.OwnedClip?.Dispose(); effect.OwnedClip = null;
     }
 }

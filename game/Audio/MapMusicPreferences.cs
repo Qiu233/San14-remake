@@ -74,9 +74,12 @@ internal sealed class MapMusicPreferences
     }
 
     internal MapMusicEntrySelection SelectEntry(string locale, int currentThirdMonth)
+        => SelectSourceSlot(locale, AudioMapMusicSelector.SelectMonthSourceSlot(currentThirdMonth), currentThirdMonth);
+
+    internal MapMusicEntrySelection SelectSourceSlot(string locale, int slot, int? currentThirdMonth = null)
     {
+        if ((uint)slot >= (uint)selections.Length) throw new ArgumentOutOfRangeException(nameof(slot));
         var selector = AudioMapMusicSelector.Create(locale);
-        int slot = AudioMapMusicSelector.SelectMonthSourceSlot(currentThirdMonth);
         sbyte setting = selections[slot];
         int configured = setting == -1 ? selector.DefaultMusicIndices[slot] : setting;
         // These are the exact reached query1 and indexed-query contracts for

@@ -165,7 +165,7 @@ public partial class Main : Control
         if (_forcePolicyDecision is { } policyQuestion && (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false }
             or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
         { GetViewport().SetInputAsHandled(); RunUiAction(policyQuestion.RequestCancel); return; }
-        if((HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition)&&!HasEnvironmentSettings&&!HasCampaignSavePage&&!HasMapSystemMenu)return;
+        if((HasPersonnelPresentation||HasForcePolicyPresentation||HasForceExperienceTransition||HasStoryPresentation)&&!HasEnvironmentSettings&&!HasCampaignSavePage&&!HasMapSystemMenu)return;
         if (_coalitionInvitation is { } invitationQuestion && (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false }
             or InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
         { GetViewport().SetInputAsHandled(); RunUiAction(invitationQuestion.RequestCancel); return; }
@@ -1091,6 +1091,7 @@ public partial class Main : Control
 
     private void CloseResidentMap()
     {
+        CloseStoryPresentation();
         CloseArmyMapSpeech();
         _personnelDevelopmentContinuation = null;
         CloseTalentOrders();
@@ -1202,6 +1203,7 @@ public partial class Main : Control
         if(HasGovernanceRosterPage&&!IsGovernanceRosterCurrentOwner)CloseGovernanceRoster(abandon: true);
         if(_governanceNarrationWorld is { } narrationWorld&&(!ReferenceEquals(narrationWorld,world)||!ReferenceEquals(_governanceNarrationSession,_session)||_governanceNarrationMap!=_residentMap))CloseGovernanceNarration();
         if(HasPersonnelPresentation&&!IsPersonnelPresentationCurrent)ClosePersonnelPresentation();
+        if(HasStoryPresentation&&!IsStoryPresentationCurrent)CloseStoryPresentation();
         if(HasForcePresentation&&_policyRosterEditor is null&&!IsForcePresentationCurrent)CloseForcePresentation();
         if(_personnelItemWorld is { } itemWorld&&(!ReferenceEquals(itemWorld,world)||!ReferenceEquals(_personnelItemSession,_session)))ClosePersonnelItems();
         if(_officerOfficeWorld is { } officeWorld&&(!ReferenceEquals(officeWorld,world)||!ReferenceEquals(_officerOfficeSession,_session)))CloseOfficerOffices();
@@ -1217,7 +1219,7 @@ public partial class Main : Control
         {
             if (!_residentMap.InitialSceneLoad.IsCompleted ||
                 !_residentMap.IsPlayableMapReady) return;
-            _residentMap.RefreshPlayableWorld(world);
+            _residentMap.RefreshPlayableWorld(IsStoryPresentationCurrent ? _storyPresentation!.World : world);
             if (WorldMapDiagnosticEnabled && !_residentMap.HasNativeWorldMapFactory && world.Units.Count == 0 &&
                 world.Structures?.Count == 0 && world.NativeMapSeason is not null)
                 _residentMap.SetNativeWorldMapDependencyFactory(

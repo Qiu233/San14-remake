@@ -68,6 +68,14 @@ public static class OwnedArmyLifecycleAuxiliaries
         if (arena is null || arena.ArmyGroups is not { } groups || arena.ArmyCautions is not { } cautions ||
             state.PendingCombatSettlements is null || arena.ReceiverSlots().Length != 501 ||
             !ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile()) return null;
+        //The borrowed queue may differ from its last saved projection. Read
+        //its actual live head; a known-empty pass has no reset or unlink work
+        //and must not copy occupancy/receiver tables for every quote-only bill.
+        var descriptor = current.ReadArmyReturnPending70Descriptor()
+            ?? throw new InvalidDataException("Current borrowed pending70 descriptor is unknown.");
+        var head = current.ReadRegistryHead(descriptor)
+            ?? throw new InvalidDataException("Current borrowed pending70 head is unknown.");
+        if (!head.Identity.HasValue) return state;
         return ConsumePendingCore(state, current, pool, arena, groups, cautions, committedReset, borrowed: true);
     }
 

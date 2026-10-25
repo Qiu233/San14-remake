@@ -22,6 +22,7 @@ public static class CampaignStorySemantics
                 { CampaignEventAudioKind.Bgm => StoryAudioKind.Music, CampaignEventAudioKind.Se => StoryAudioKind.Sound,
                   CampaignEventAudioKind.StopSlot => StoryAudioKind.StopSoundSlot, CampaignEventAudioKind.StopAllSe => StoryAudioKind.StopAllSounds,
                   CampaignEventAudioKind.StopActiveSlots => StoryAudioKind.StopActiveSoundSlots,
+                  CampaignEventAudioKind.SeIfNotSkipped => StoryAudioKind.SoundIfNotSkipped,
                   _ => throw new InvalidDataException("Unknown story audio semantic.") }, a.Id, a.Flags, a.ScalarA, a.ScalarB),
             _ => throw new InvalidDataException("Story command has no complete semantic consumer.")
         }).ToArray();

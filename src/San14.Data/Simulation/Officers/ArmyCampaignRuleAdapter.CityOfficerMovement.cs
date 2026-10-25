@@ -80,8 +80,10 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityOfficerMovementExecut
             var district = working.Districts[source.DistrictId];
             working = working with { Districts = new(working.Districts) { [district.Id] = district with
                 { OrdersRemaining = Math.Clamp(unchecked(source.Books - source.Cost), 0, 200) } } };
-            if (working.CampaignEventWorld?.CurrentUserIndex != -1)
-                throw CityOfficerMovementSource.Missing("App_command_service31FD60");
+            if (HasCommandAccountingUser(working) && BaseCaptureRewardSource.ReadPlayerRulerDistrict(source.Current,
+                source.Current.ReadDistrictTableReference(source.DistrictId)
+                    ?? throw CityOfficerMovementSource.Missing("App_payment_District"), CityOfficerMovementSource.Missing))
+                working = ApplyCommandBookUsageCurrent(working, source.Current, source.Cost);
             return CommandResult.Accept(working);
         }
         catch (InvalidDataException missing) { return CommandResult.RuleUnavailable("rules.city_officer_movement", missing.Message); }
