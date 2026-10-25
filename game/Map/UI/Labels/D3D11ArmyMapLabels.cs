@@ -138,6 +138,40 @@ internal partial class D3D11ArmyMapLabels : Control
         return new(fields, styles);
     }
 
+    internal void RefreshTraitViews(GameState world)
+    {
+        var publication = CaptureWorld(world);
+        ApplyPublication(publication);
+        _capturedWorld = world;
+        _capturedLabelPublication = null;
+    }
+
+    internal bool HasRefreshedTraitView(GameState world, int unitId, out string? missing)
+    {
+        missing = null;
+        if (!ReferenceEquals(_capturedWorld, world))
+        { missing = "army-trait-view.label_owner"; return false; }
+        if (!world.Units.ContainsKey(unitId)) return !_rows.ContainsKey(unitId) && !_cards.ContainsKey(unitId);
+        if (_rows.TryGetValue(unitId, out var row) && row.ArmyValid == true) return true;
+        missing = _fields?.Unavailable.FirstOrDefault(row => row.UnitId == unitId)?.Field
+            ?? "army-trait-view.current_label";
+        return false;
+    }
+
+    private void ApplyPublication(D3D11ArmyLabelPublication publication)
+    {
+        _fields = publication.Fields;
+        _rows.Clear(); _simpleStyles.Clear();
+        foreach (var row in _fields.Rows) _rows.Add(row.UnitId, row);
+        foreach (var pair in publication.SimpleStyles) _simpleStyles.Add(pair.Key, pair.Value);
+        foreach (int id in _cards.Keys.Where(id => !_rows.ContainsKey(id)).ToArray())
+        {
+            _cards[id].Visible = false;
+            _cards[id].QueueFree();
+            _cards.Remove(id);
+        }
+    }
+
     internal void Present(D3D11MapInput input, D3D11MapReceipt receipt)
     {
         var world = input.WorldState!;
@@ -151,16 +185,7 @@ internal partial class D3D11ArmyMapLabels : Control
         if (publication is not null && !ReferenceEquals(publication, _capturedLabelPublication))
         {
             _capturedLabelPublication = publication;
-            _fields = publication.Fields;
-            _rows.Clear(); _simpleStyles.Clear();
-            foreach (var row in _fields.Rows) _rows.Add(row.UnitId, row);
-            foreach (var pair in publication.SimpleStyles) _simpleStyles.Add(pair.Key, pair.Value);
-            foreach (int id in _cards.Keys.Where(id => !_rows.ContainsKey(id)).ToArray())
-            {
-                _cards[id].Visible = false;
-                _cards[id].QueueFree();
-                _cards.Remove(id);
-            }
+            ApplyPublication(publication);
         }
         if (input.PeriodArmyLabels is null) _capturedLabelPublication = null;
         foreach (var card in _cards.Values) card.Visible = false;

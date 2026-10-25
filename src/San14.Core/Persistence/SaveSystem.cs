@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 172;
+    public const int CurrentSchemaVersion = 173;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -80,6 +80,8 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NormalTurnPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         PersonnelGroupsSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         TutorialForceDefeatSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        BaseCapturePresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ArmyTraitFeedbackSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
         {
@@ -195,6 +197,8 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NormalTurnPresentationSaveFields.Migrate(stateDocument, version);
         PersonnelGroupsSaveFields.Migrate(stateDocument, version);
         TutorialForceDefeatSaveFields.Migrate(stateDocument, version);
+        BaseCapturePresentationSaveFields.Migrate(stateDocument, version);
+        ArmyTraitFeedbackSaveFields.Migrate(stateDocument, version);
         AreaCitySaveFields.Migrate(stateDocument, version);
         DiplomacySaveFields.Migrate(stateDocument, version);
         if (version < 149) stateDocument["NativePeriodContinuation"] = null;

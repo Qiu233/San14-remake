@@ -47,14 +47,7 @@ public sealed partial class ForceUnregisterSource
         var initial = BaseCaptureRewardSource.ApplyInitialForceResult(state, current, winner, gate);
         state = initial.State ?? throw Missing(initial.UnresolvedOwner ?? "neutral_initial_257670");
 
-        var objectDirectory = current.CurrentMapObjectDirectory ?? throw Missing("neutral_map_receiver_owner");
-        var receiver = objectDirectory.ReceiverAtPhysical(location);
-        int hex = current.ReadBaseCurrentHexIndex(gate);
-        string? definition = state.MapObjects?.Find(receiver)?.Subject?.DefinitionKey;
-        effects.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.BaseOwnershipLostVisual,
-            receiver, hex, definition) });
-        effects.Add(new(null, null) { MapObjectPresentation = new(MapObjectPresentationEvent.BaseOwnershipLostSound,
-            receiver, hex, definition) });
+        package.AppendBaseCapturePresentationCurrent(state, current, gate, district, effects);
 
         //The first live HomeArmy traversal emits kind18 even for Armies
         //whose independent2C96E0 gate will reject the destruction traversal.

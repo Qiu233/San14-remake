@@ -13,6 +13,7 @@ public partial class Main
         binding.ChannelChanged += SceneAudioChannelChanged;
         binding.MusicChanged += UpdateSceneAudioStatus;
         _sceneAudioBinding = binding;
+        binding.SetVoiceEnabled(_preferences.Voice.Enabled);
         RefreshSceneAudioContext();
     }
 

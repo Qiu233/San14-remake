@@ -17,6 +17,7 @@ public sealed partial class GameSimulation
         var batch = effects.PendingBatches[batchIndex];
         if ((uint)requestIndex >= (uint)batch.Requests.Length) return false;
         var request = batch.Requests[requestIndex];
+        if (IsBaseCaptureRequest(request) && !IsBaseCaptureHead(effects, batchIndex, requestIndex)) return false;
         bool canComplete = batch.Source switch
         {
             CampaignEffectSource.TalentCommands => request.TalentCommandPresentation is not null ||
@@ -35,7 +36,9 @@ public sealed partial class GameSimulation
                 { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 5 or 6 or 7 or 8 } or
                 { Operation: TalentCommandPresentationOperation.Announcement } or
                 { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } ||
-                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 },
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 } ||
+                request.MapObjectPresentation is { BaseCapture: not null,
+                    Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is
                 { Operation: OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration },
             CampaignEffectSource.MonthlyMaintenance => request.MonthlyMaintenance is
@@ -96,5 +99,17 @@ public sealed partial class GameSimulation
         if (pending is not null) _normalPeriod = pending with { Candidate = completedOwner };
         else State = completedOwner;
         return true;
+    }
+
+    private static bool IsBaseCaptureRequest(CampaignEffectRequest request) => request.MapObjectPresentation is
+        { Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound };
+
+    private static bool IsBaseCaptureHead(CampaignEffectRequests effects, int expectedBatch, int expectedRequest)
+    {
+        for (int batch = 0; batch <= expectedBatch; batch++)
+            for (int request = 0; request < effects.PendingBatches[batch].Requests.Length; request++)
+                if (IsBaseCaptureRequest(effects.PendingBatches[batch].Requests[request]))
+                    return batch == expectedBatch && request == expectedRequest;
+        return false;
     }
 }

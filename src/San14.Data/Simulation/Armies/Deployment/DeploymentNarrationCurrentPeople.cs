@@ -80,8 +80,35 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             'X' => IsAdvisor(id) ? 1 : 0,
             'Q' => PersonForceDisplayName(id).Value,
             'R' => PersonForceName(id).Value,
+            >= 0x8A and <= 0x93 => CommanderTerrain(id, field),
             _ => throw Missing("person_value_" + field.ToString("X"))
         };
+    }
+    private int CommanderTerrain(int id, int field)
+    {
+        //3108E0's finite8A..93 cases call22A200(Person,1), then232A90.
+        //The latter compares22B8C0's actual terrain receiver ordinal. It
+        //does not inspect formation, trait, or the Person's Home terrain.
+        var army = PersonArmyLocationSource.ReadCommanderArmy(current, Physical(id))
+            ?? throw Missing("commander_terrain_Army_pointer");
+        if (!Need(current.ReadArmyUnitNativeValidity(army), "commander_terrain_Army_validity")) return 0;
+        ushort rawHex = Need(current.ReadArmyUnitRawHex2A(army), "commander_terrain_Army2A");
+        var hex = current.ReadHexTableReference(rawHex < 48400 ? rawHex : 0)
+            ?? throw Missing("commander_terrain_Hex_pointer");
+        int surface = 0;
+        if (hex.PhysicalSlot.HasValue)
+        {
+            byte rawSurface = Need(current.ReadHexSurfaceCode(hex), "commander_terrain_Hex10");
+            if (rawSurface < 31) surface = rawSurface;
+        }
+        var receiver = current.ReadSurfaceTypeTableReference(surface)
+            ?? throw Missing("commander_terrain_Surface_pointer");
+        int physical = Need(receiver.PhysicalSlot, "commander_terrain_Surface_ordinal");
+        int wanted = field switch
+        { 0x8A => 13, 0x8B => 14, 0x8C => 12, 0x8D => 5, 0x8E => 8,
+          0x8F => 9, 0x90 => 10, 0x91 => 6, 0x92 => 7, 0x93 => 4,
+          _ => throw Missing("commander_terrain_field") };
+        return physical == wanted ? 1 : 0;
     }
     private int EffectiveOperand(int id, int dimension)
     {

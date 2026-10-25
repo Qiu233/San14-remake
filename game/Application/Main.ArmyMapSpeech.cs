@@ -1,6 +1,7 @@
 using Godot;
 using San14.Core;
 using San14.Client.Gameplay;
+using San14.Data;
 
 public partial class Main
 {
@@ -46,6 +47,33 @@ public partial class Main
             map.PresentArmyMapSpeech(playback.Visible);
             return;
         }
+        //Saved text keeps its original selected sounds. Restoring an unaccepted
+        //queue never re-runs the formatter or consumes another random draw.
+        foreach (var entry in snapshot.Entries)
+        {
+            if (entry.TextAtSource is null || entry.SpatialVoicesAccepted ||
+                entry.SpatialVoices is not { IsEmpty: false } voices || _armySpeechFailedSequences.Contains(entry.Sequence)) continue;
+            try
+            {
+                var audio = _sceneAudioBinding ?? throw new InvalidDataException("army-map-speech.audio_scene");
+                bool prepared = true;
+                foreach (var language in voices.Select(voice => voice.Voice.Language).Distinct())
+                    prepared &= audio.PrepareArmySpeechBank(language == PersonnelVoiceLanguage.Japanese
+                        ? NarrationVoiceLanguage.Japanese : NarrationVoiceLanguage.Chinese);
+                if (!prepared) continue;
+                using var batch = audio.BeginArmySpeechAudio(map.CaptureArmySpeechAudioContext(), true);
+                bool reserved = true;
+                foreach (var voice in voices) reserved &= batch.TryReserve(voice);
+                if (!reserved) continue;
+                batch.Commit();
+                if (session.TryCompleteArmyMapSpeechVoices(owner, entry.Sequence))
+                { owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!); }
+                else
+                { batch.Abort(); throw new InvalidOperationException("army-map-speech.voice_receipt_owner"); }
+            }
+            catch (Exception error)
+            { _armySpeechFailedSequences.Add(entry.Sequence); GD.PushWarning(error.Message); }
+        }
         //Only actual starts and completed balloons publish a new campaign owner.
         foreach (long sequence in playback.Finished.ToArray())
         {
@@ -58,16 +86,38 @@ public partial class Main
             var entry = snapshot.Entries.FirstOrDefault(row => row.Sequence == sequence);
             if (entry is null) continue;
             var rules = composition.PrepareArmyQueries(owner);
-            if (!session.TryStartArmyMapSpeech(owner, playback.CaptureSnapshot(), sequence,
-                map.HasArmySpeechLayout(entry.ArmyId), rules, out var result, new(_presentationRandom.State)))
+            try
             {
-                _armySpeechFailedSequences.Add(sequence);
-                if (result?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
-                continue;
+                bool spatial = entry.ActionCode is 10 or 14 or 23;
+                if (spatial && map.SourceMainCameraTerrain is null)
+                    throw new InvalidDataException("army-map-speech.source_Landscape_not_ready");
+                var audio = spatial ? _sceneAudioBinding ?? throw new InvalidDataException("army-map-speech.audio_scene") : null;
+                if (spatial && _preferences.Voice.Enabled && !audio!.PrepareArmySpeechBank(_preferences.Voice.Language)) continue;
+                using var batch = audio?.BeginArmySpeechAudio(map.CaptureArmySpeechAudioContext(), _preferences.Voice.Enabled);
+                rules.ConfigureArmyMapSpeechSpatialVoice(batch is null ? null : batch.TryReserve, map.SourceMainCameraTerrain);
+                if (!session.TryStartArmyMapSpeech(owner, playback.CaptureSnapshot(), sequence,
+                    map.HasArmySpeechLayout(entry.ArmyId), rules, out var result, new(_presentationRandom.State)))
+                {
+                    _armySpeechFailedSequences.Add(sequence);
+                    if (result?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
+                    continue;
+                }
+                owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!);
+                if (session.PendingNormalPeriod is null && owner.CampaignAppRandom32 is { } random)
+                    _presentationRandom.InstallCommittedState(random.State);
+                if (owner.ArmyMapSpeech!.Entries.FirstOrDefault(row => row.Sequence == sequence) is
+                    { TextAtSource: not null, SpatialVoices: { IsEmpty: false } })
+                {
+                    (batch ?? throw new InvalidDataException("army-map-speech.unbound_voice_family")).Commit();
+                    if (session.TryCompleteArmyMapSpeechVoices(owner, sequence))
+                    { owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!); }
+                    else
+                    { batch!.Abort(); throw new InvalidOperationException("army-map-speech.voice_receipt_owner"); }
+                }
             }
-            owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!);
-            if (session.PendingNormalPeriod is null && owner.CampaignAppRandom32 is { } random)
-                _presentationRandom.InstallCommittedState(random.State);
+            catch (Exception error)
+            { _armySpeechFailedSequences.Add(sequence); GD.PushWarning(error.Message); }
+            finally { rules.ConfigureArmyMapSpeechSpatialVoice(null, null); }
         }
         _armySpeechWorld = owner;
         map.PresentArmyMapSpeech(playback.Visible);

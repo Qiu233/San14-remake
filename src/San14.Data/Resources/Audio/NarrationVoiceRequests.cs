@@ -54,14 +54,24 @@ public sealed class NarrationVoiceRequests
 
     internal bool RequestSpatial(OfficerState person, int voiceId)
     {
-        if (voiceId is not (3 or 4 or 5)) throw Missing("spatial_voice_family");
+        if (voiceId is not (2 or 3 or 4 or 5)) throw Missing("spatial_voice_family");
         //405AC0 resolves the actual current Person position before405B90's
         //variant draw. A known invalid position returns0 without drawing.
         var position = (spatialPosition ?? throw Missing("spatial_position_owner"))(person.Id);
         if (position is null) return false;
+        return RequestSpatialAt(person, voiceId, position);
+    }
+
+    //405B90 also has callers which already own an explicit source position.
+    //Action25 supplies its queued Hex, independently of the Person's current
+    //position. This path must not repeat405AC0's Person-position gate.
+    internal bool RequestSpatialAt(OfficerState person, int voiceId, NarrationSpatialVoicePosition position)
+    {
+        if (voiceId is not (2 or 3 or 4 or 5)) throw Missing("spatial_voice_family");
         byte type = person.VoiceType ?? throw Missing("current_Person_voice_type");
         ReadOnlySpan<uint> slots = type < 26
-            ? NarrationSpatialArmyVoiceDefinitions.Slots(settings.Language, type, voiceId) : [];
+            ? voiceId == 2 ? NarrationSpatialArmyVoice2Definitions.Slots(settings.Language, type)
+                : NarrationSpatialArmyVoiceDefinitions.Slots(settings.Language, type, voiceId) : [];
         int count = slots.Length;
         while (count > 0 && slots[count - 1] == 0) count--;
         int variant = count < 2 ? 0 : random(count);

@@ -49,6 +49,17 @@ internal static class ArmyMapSpeechSaveFields
                 entry["SpatialVoicesAccepted"] is not JsonValue accepted || !accepted.TryGetValue<bool>(out bool hasAccepted) ||
                 hasAccepted && (entry["SpatialVoices"] is not JsonArray { Count: > 0 } || entry["TextAtSource"] is null))
                 throw new InvalidDataException("Saved Army map speech presentation context is missing or invalid.");
+            foreach (var field in new[] { (Name: "ContextTraitId", Maximum: 355), (Name: "ContextAreaId", Maximum: 500) })
+            {
+                if (version < 173)
+                {
+                    if (entry[field.Name] is not null)
+                        throw new InvalidDataException("Legacy Army speech contains future personality context.");
+                    entry[field.Name] = null;
+                }
+                else if (!entry.ContainsKey(field.Name) || entry[field.Name] is not null && !Integer(entry, field.Name, 0, field.Maximum))
+                    throw new InvalidDataException("Saved Army map speech personality context is missing or invalid.");
+            }
             previous = sequence;
         }
     }

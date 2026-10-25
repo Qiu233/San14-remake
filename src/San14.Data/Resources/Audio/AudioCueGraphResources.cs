@@ -123,6 +123,16 @@ public static class AudioCueGraphResources
     /// </summary>
     public static AudioCueStaticPlaybackReference ReadSingleStaticNonSpatialReference(
         AudioSelectionBank bank, string cueName)
+        => ReadSingleStaticReference(bank, cueName, false);
+
+    /// <summary>Retains the actual spatial mix/filter parameter block. It does
+    /// not interpret middleware direction/attenuation fields as a Godot curve.</summary>
+    public static AudioCueStaticPlaybackReference ReadSingleStaticSpatialReference(
+        AudioSelectionBank bank, string cueName)
+        => ReadSingleStaticReference(bank, cueName, true);
+
+    private static AudioCueStaticPlaybackReference ReadSingleStaticReference(
+        AudioSelectionBank bank, string cueName, bool spatial)
     {
         ArgumentNullException.ThrowIfNull(bank);
         ArgumentException.ThrowIfNullOrEmpty(cueName);
@@ -216,8 +226,10 @@ public static class AudioCueGraphResources
         // Zero side-route input is used by the two UI feedback cues; one
         // preserves the existing direct-output 3F consumer. Other routing
         // values require an explicit auxiliary-output mixer.
-        if (group.MixMultiplier2 is not (0 or 1))
+        if (!spatial && group.MixMultiplier2 is not (0 or 1))
             throw new NotSupportedException("Static playback requires zero or unity side-route input.");
+        if (spatial && group.MixMultiplier2 < 0)
+            throw new InvalidDataException("Static spatial playback side-route gain is negative.");
         Neutral(group.InitialDelaySeconds, 0, "group delay");
         Neutral(group.StartEnvelopeSeconds, 0, "group start envelope");
         Neutral(sound.MaximumDurationSeconds, 0, "sound maximum duration");

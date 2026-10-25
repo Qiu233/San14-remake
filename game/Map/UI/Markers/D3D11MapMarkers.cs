@@ -115,6 +115,19 @@ internal partial class D3D11MapMarkers : Control
     internal IReadOnlyList<D3D11MapLocation> Locations => _locations;
     internal D3D11ArmyLabelPublication? CaptureArmyLabels(GameState world) => _armyLabels?.CaptureWorld(world);
 
+    internal bool RefreshArmyTraitViews(GameState world)
+    {
+        if (_armyLabels is null) return false;
+        _armyLabels.RefreshTraitViews(world);
+        return true;
+    }
+
+    internal bool HasRefreshedArmyTraitView(GameState world, int armyId, out string? missing)
+    {
+        missing = "army-trait-view.label_owner";
+        return _armyLabels is not null && _armyLabels.HasRefreshedTraitView(world, armyId, out missing);
+    }
+
     internal void Configure(GameResourceRepository repository, GameState world,
         MapWorldProjection projection, LoadedTerrainResources terrain,
         IReadOnlyDictionary<int, Color>? markerColors,

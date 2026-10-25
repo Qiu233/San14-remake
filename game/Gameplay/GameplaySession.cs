@@ -56,6 +56,11 @@ public sealed class GameplaySession
             out result, appRandomSnapshot);
     public bool TryCompleteArmyMapSpeech(GameState expectedOwner, ArmyMapSpeechState snapshot, long sequence) =>
         _simulation.TryCompleteArmyMapSpeech(expectedOwner, snapshot, sequence);
+    public bool TryCompleteArmyMapSpeechVoices(GameState expectedOwner, long sequence) =>
+        _simulation.TryCompleteArmyMapSpeechVoices(expectedOwner, sequence);
+    public bool TryCompleteArmyTraitViewRefresh(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex) =>
+        _simulation.TryCompleteArmyTraitViewRefresh(expectedOwner, expectedSource, batchSequence, requestIndex);
     public bool TryCompleteForceExperiencePresentation(GameState expectedOwner, long batchSequence, int requestIndex,
         int previousDisplayLevel, IForceExperiencePresentationRules rules) =>
         _simulation.TryCompleteForceExperiencePresentation(expectedOwner, batchSequence, requestIndex, previousDisplayLevel, rules);

@@ -12,7 +12,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private void UpdateLogistics()
         {
             var preparation = new ArmyLogisticsPreparation(package.Context(current), current, package._map, package._terrain);
-            logisticsFeedback = new(state, current, Date, effects, () => state);
+            logisticsFeedback = new(state, current, Date, effects, () => state,
+                speechConsumer: package.CreateArmyTraitSpeechConsumer(current, () => state, next => state = next));
             foreach (int physical in ArmyOrder())
             {
                 var receiver = new ArmyUnitReference(physical);
@@ -109,16 +110,22 @@ public sealed partial class ArmyCampaignRuleAdapter
                         LogisticsReport(receiver, 0x3228, new(Army0: receiver, String0: current.ReadPersonalityName(trait)), 5012);
                 }
             }
-            //1B4AB0 native19 is a real unconsumed Army packet. Its logical
-            //speaker position and zero context are retained independently.
-            if (N(current.ReadArmyUnitNativeValidity(receiver), "logistics_feedback_Army_validity"))
-            {
-                commander = Person(N(current.ReadArmyUnitCommanderId(receiver), "logistics_feedback_Commander12"));
-                var at = PersonReturnCommands.ResolvePersonPosition(state, current, commander, Date);
-                if (current.ReadOwnedPersonCommandManager() is { } tasks) state = state with { PersonnelCommands = tasks };
-                effects.Add(new(null, null) { ArmyTraitFeedback = new(Image(physical).Id, PersonId(commander),
-                    N(at.PhysicalSlot, "logistics_feedback_position"), 19, 0) });
-            }
+            QueueLogisticsDisconnectSpeech(receiver, physical);
+        }
+
+        //276DB0?2772F0 calls1B4AB0(receiver,19,null) after the actual
+        //morale/abnormal/trait report branches.1B4720 owns its admission and
+        //delay/App writes here, before a later Army or pending70 cleanup.
+        private void QueueLogisticsDisconnectSpeech(ArmyUnitReference receiver, int physical)
+        {
+            if (!N(current.ReadArmyUnitNativeValidity(receiver), "logistics_feedback_Army_validity")) return;
+            int commander = Person(N(current.ReadArmyUnitCommanderId(receiver), "logistics_feedback_Commander12"));
+            var at = PersonReturnCommands.ResolvePersonPosition(state, current, commander, () => Date);
+            if (current.ReadOwnedPersonCommandManager() is { } tasks) state = state with { PersonnelCommands = tasks };
+            int hex = at.PhysicalSlot.HasValue ? N(current.ReadHexPhysicalSlot(at), "logistics_feedback_Hex_identity") : 48400;
+            //Native packet is null: no Base/trait context operand is supplied.
+            state = package.QueueArmyMapSpeechCurrent(state, current, Image(physical).Id,
+                PersonId(commander), 19, hex);
         }
 
         private void ApplyLogisticsAbnormal(ArmyUnitReference receiver, int physical, int index, int duration)

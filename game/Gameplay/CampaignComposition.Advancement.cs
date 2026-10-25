@@ -28,6 +28,8 @@ public sealed partial class CampaignComposition
         _saveCodec = new ResourceSaveCodec(repository);
         _applicationGameplay = source._applicationGameplay;
         _applicationProfile = source._applicationProfile;
+        _baseCaptureTerrain = source._baseCaptureTerrain;
+        _baseCaptureTerrainBound = source._baseCaptureTerrainBound;
         // Loaded definitions and these read-only views are shared. Mutable
         // resource caches, Army captures and rule services belong to the worker.
         Scenario = source.Scenario;

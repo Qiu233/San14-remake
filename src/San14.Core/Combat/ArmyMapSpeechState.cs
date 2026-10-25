@@ -15,6 +15,8 @@ public sealed record ArmyMapSpeechEntry(long Sequence, int ArmyId, int OfficerId
     /// <summary>The source-time Base identity used by the speech line.
     /// Zero retains the source's valid null receiver.</summary>
     public int? ContextBaseLocationId { get; init; }
+    public int? ContextTraitId { get; init; }
+    public int? ContextAreaId { get; init; }
     public ImmutableArray<ArmyMapSpeechSpatialVoiceRequest>? SpatialVoices { get; init; }
     public bool SpatialVoicesAccepted { get; init; }
 }

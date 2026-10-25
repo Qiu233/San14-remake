@@ -1353,6 +1353,8 @@ public partial class Main : Control
                 return;
             }
             view.RefreshPlayableWorld(world);
+            if (view.SourceMainCameraTerrain is { } terrain)
+                _campaignComposition?.ConfigureBaseCapturePresentationTerrain(terrain);
             if (_advancingPeriod) view.SetDetailsOpen(true, keepMapVisible: true);
             var hud = new PlayableForceHud();
             _mapHost.AddChild(hud);

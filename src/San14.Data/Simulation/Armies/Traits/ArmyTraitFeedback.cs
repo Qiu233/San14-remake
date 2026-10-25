@@ -62,9 +62,11 @@ internal sealed class ArmyTraitFeedback
         {
             ushort raw = Need(current.ReadArmyUnitRawHex2A(source), "context_Army_Hex");
             var hex = current.ReadHexTableReference(raw < 48400 ? raw : 0) ?? throw Missing("context_Hex_pointer");
-            context = hex.PhysicalSlot.HasValue ? current.ReadHexPhysicalSlot(hex) ?? throw Missing("context_Hex_identity") : 0;
+            //1A3BF0 stores Hex+12, the current Area identity. It does not
+            //put the raw Hex index into the trait65 formatter operand.
+            context = hex.PhysicalSlot.HasValue ? current.ReadHexAreaSlot(hex) ?? throw Missing("context_Area_identity") : 0;
         }
-        AppendArmyPacket(source, key, context);
+        AppendArmyPacket(source, key, context, ArmyTraitFeedbackOrigin.Personality);
     }
 
     /// <summary>178500's unsuccessful single-status gate calls1B4AB0
@@ -84,7 +86,8 @@ internal sealed class ArmyTraitFeedback
         AppendArmyPacket(target, effectKind, effectKind == 25 ? null : 0);
     }
 
-    private void AppendArmyPacket(ArmyUnitReference source, int key, int? context)
+    private void AppendArmyPacket(ArmyUnitReference source, int key, int? context,
+        ArmyTraitFeedbackOrigin origin = ArmyTraitFeedbackOrigin.Action)
     {
         //1B4AB0 rejects invalid Armies before any Person/position getter.
         if (!Need(current.ReadArmyUnitNativeValidity(source), "speech_Army_validity")) return;
@@ -105,7 +108,7 @@ internal sealed class ArmyTraitFeedback
         int position = PersonReturnCommands.ResolvePersonPosition(currentState?.Invoke() ?? input,
             current, physical, sourceDate).PhysicalSlot ?? 48400;
         int officer = Need(current.ReadPersonIdentity(physical), "speech_Person_identity");
-        var packet = new ArmyTraitFeedbackRequest(ArmyId(source), officer, position, key, context);
+        var packet = new ArmyTraitFeedbackRequest(ArmyId(source), officer, position, key, context) { Origin = origin };
         if (speechConsumer?.Invoke(packet) != true)
             requests.Add(new(null, null) { ArmyTraitFeedback = packet });
     }

@@ -3,7 +3,10 @@ using System.Collections.Immutable;
 namespace San14.Core;
 
 public sealed record ArmyMapSpeechDisplay(long Sequence, int ArmyId, int OfficerId,
-    int HexId, string Text, bool Leaving);
+    int HexId, string Text, bool Leaving)
+{
+    public int LayoutStyle { get; init; }
+}
 
 /// <summary>The application-owned speech clock. Only enqueue, start and removal
 /// publish a campaign state; ordinary display frames change this small owner.</summary>
@@ -78,6 +81,6 @@ public sealed class ArmyMapSpeechPlayback
         foreach (var item in queue)
             if (item.Entry.TextAtSource is { } text && item.Elapsed < 3.5)
                 visible.Add(new(item.Entry.Sequence, item.Entry.ArmyId, item.Entry.OfficerId,
-                    item.Entry.HexId, text, item.Elapsed >= 3));
+                    item.Entry.HexId, text, item.Elapsed >= 3) { LayoutStyle = item.Entry.ActionCode == 25 ? 1 : 0 });
     }
 }

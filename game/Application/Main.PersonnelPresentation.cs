@@ -37,8 +37,25 @@ public partial class Main
         RestoreFoodWarnings(session,owner,map);
         RefreshArmyMapSpeechBinding(session,owner,map);
         if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
+        GameState? armyViewRefreshSource = null;
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if (entry.Request.ArmyTraitViewRefresh is { } refresh)
+            {
+                //Consecutive view requests read one actual domain publication.
+                //Their receipts only remove outbox entries, not Army state.
+                armyViewRefreshSource ??= owner;
+                if (!map.TryRefreshArmyTraitView(armyViewRefreshSource, refresh.ArmyId, out var missing))
+                {
+                    GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner = owner;
+                    return false;
+                }
+                if (!session.TryCompleteArmyTraitViewRefresh(owner, entry.Source, entry.BatchSequence, entry.RequestIndex)) return false;
+                owner = PersonnelPresentationOwner(session);
+                continue;
+            }
+            armyViewRefreshSource = null;
             if (entry.Request.MonthlyMaintenance?.Operation == MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations)
             {
                 composition.ApplicationGameplay.PersonnelGroupMoveDestinations.Clear();

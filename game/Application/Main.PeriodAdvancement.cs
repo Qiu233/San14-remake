@@ -80,6 +80,8 @@ public partial class Main
             playback.SetSpeed(_periodPlaybackSpeed);
             overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
+            if (playbackMap?.SourceMainCameraTerrain is { } terrain)
+                composition.ConfigureBaseCapturePresentationTerrain(terrain);
             var storyBindings = CaptureNormalTurnStoryBindings(source, composition, playbackMap, cancellation.Token);
             var result = campaignChoice switch
             {

@@ -527,6 +527,7 @@ public partial class MapSceneView
     }
     private void ReleaseD3D11Map()
     {
+        _traitRefreshWorld = null; _traitRefreshArmy = null;
         EndCampaignTargetMapPick();
         ReleaseInformationLayers();
         _periodMapActive=false;_periodMapFrame=null;_periodBorrowedCandidate=null;

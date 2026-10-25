@@ -1095,21 +1095,22 @@ internal sealed partial class NarrationResourceMessages
     ];
     internal string ResolveArmyMapSpeech(INarrationCurrentContext context, Func<int, int> drawApp32, int root = 0xC829)
     {
-        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829))
+        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829) && !ArmyTraitSpeechRoot(root))
             throw new InvalidDataException("army-map-speech.text.root");
         _prefix = "army-map-speech.text";
         bool previous = _report; _report = true;
+        bool previousArmySpeech = _armyMapSpeech; _armyMapSpeech = true;
         try
         {
             return ExecuteMessage(context, drawApp32, root, Get(root, true), _ => false, true, null,
-                ArmyMapSpeechMessages.Contains, (group, code) => (group, code) switch
+                id => ArmyMapSpeechMessages.Contains(id) || ArmyTraitSpeechMessages.Contains(id), (group, code) => (group, code) switch
                 {
                     ('C', 'J') => "^02", ('C', 'L') => "^05",
                     ('E', 'K') or ('E', 'M') => string.Empty,
                     _ => throw Failure($"unresolved_escape_{group:X2}_{code:X2}")
                 }, true).Text;
         }
-        finally { _report = previous; }
+        finally { _report = previous; _armyMapSpeech = previousArmySpeech; }
     }
 
     private string _prefix = "deployment.narration";
@@ -1196,7 +1197,8 @@ internal sealed partial class NarrationResourceMessages
         var parser = new Parser(ReadRecord(id), _prefix, _appearance || _report || allowOpaqueEscapes,
             fourPersonArguments: _history || _report, reportArguments: _report);
         program = parser.ReadProgram();
-        parser.RequireEnd();
+        if (_armyMapSpeech) RequireArmyMapSpeechRecordEnd(id, program, parser);
+        else parser.RequireEnd();
         cache.Add(id, program);
         return program;
     }
@@ -1349,6 +1351,11 @@ internal sealed partial class NarrationResourceMessages
         private int Peek() => _at < bytes.Length ? bytes[_at] : -1;
         private int Read() => _at < bytes.Length ? bytes[_at++] : throw Bad("end");
         public void RequireEnd() { if (_at != bytes.Length) throw Bad("trailing"); }
+        public void RequireReturnedChoiceEnd()
+        {
+            if (_at != bytes.Length - 2 || bytes[_at] != 1 || bytes[_at + 1] != 'J')
+                throw Bad("returned_choice_suffix");
+        }
         private InvalidDataException Bad(string field) => new($"{prefix}.resource.{field}@{_at}");
     }
 }

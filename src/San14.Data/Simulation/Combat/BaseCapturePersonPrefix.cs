@@ -66,6 +66,13 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             var homeArmies = new List<int>(); var homeArmyCause4 = new List<ArmyCause4Receipt>();
             var working = input;
             NativeMapSeasonDate? sourceDate = operationThirdDate ?? input.NativeMapSeason?.ThirdDate;
+            var targetDistrict = current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(winnerPerson),
+                "presentation_winner_District")) ?? throw Missing("presentation_target_District_pointer");
+            var capturePresentation = new List<CampaignEffectRequest>();
+            package.AppendBaseCapturePresentationCurrent(working, current, target, targetDistrict, capturePresentation);
+            working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                ?? throw Missing("capture_presentation_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                    working.NativeClock?.UpdateOrdinal ?? throw Missing("capture_presentation_clock"), capturePresentation) };
             working = package.QueueBaseCaptureInitialArmySpeechesCurrent(working, current,
                 target, winnerArmy, sourceDate);
             foreach (var item in current.ReadRegistryReferences(RegistryKind.Army) ?? throw Missing("manager60"))

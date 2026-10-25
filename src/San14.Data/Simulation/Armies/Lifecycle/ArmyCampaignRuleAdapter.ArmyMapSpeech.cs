@@ -5,6 +5,12 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
 {
+    private Func<int, bool?>? armyTraitSpeechView;
+
+    /// <summary>Actual1A3D70 source-Army view availability. An unbound or
+    /// unknown result retains the typed intention; it never means ready.</summary>
+    public void ConfigureArmyTraitSpeechView(Func<int, bool?>? availability) => armyTraitSpeechView = availability;
+
     //1B4720: capacity and live-speaker exclusion precede the real admission
     //draw. A temporary admitted packet draws its delay even when an older
     //packet for that speaker wins the subsequent priority comparison.
@@ -13,19 +19,23 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         => QueueArmyMapSpeechCurrent(state, current, armyId, officerId, 31, hex, sceneryId: scenery);
 
     internal GameState QueueArmyMapSpeechCurrent(GameState state, SourceWorldContext current,
-        int armyId, int officerId, int actionCode, int hex, int? contextArgument = null, int? sceneryId = null)
+        int armyId, int officerId, int actionCode, int hex, int? contextArgument = null, int? sceneryId = null,
+        int? contextTraitId = null, int? contextAreaId = null)
     {
         //TC1B4030 / static1A490C8=100 and1A490D4=8. This is the ordinary
         //battle/scenery subset; unsupported actions retain their own intent.
-        int probability = actionCode switch { 10 or 11 or 14 or 23 or 31 => 100, 18 => 8,
+        int probability = actionCode switch { 10 or 11 or 14 or >= 19 and <= 26 or 31 => 100, 18 or 27 => 8,
             _ => throw MapSpeechMissing("admission_action_" + actionCode) };
         var owner = state.ArmyMapSpeech ?? throw MapSpeechMissing("queue_owner");
         if (owner.Entries.Length >= 100 || owner.Entries.Any(entry => entry.OfficerId == officerId && entry.TextAtSource is not null)) return state;
-        var random = new SharedSourceRandom32((state.CampaignAppRandom32 ?? throw MapSpeechMissing("App32")).State);
-        //Do not optimize the threshold100 branch away: it still draws App.
-        bool admitted = random.Next(100) < probability;
-        if (!admitted) return state with { CampaignAppRandom32 = new(random.State) };
-        byte delay = checked((byte)random.Next(10));
+        if ((actionCode is 26 or 27) && NarrationResourceMessages.ArmyTraitActivationRoot(actionCode,
+            contextTraitId ?? throw MapSpeechMissing("admission_trait_operand")) is null) return state;
+        //1B4030/1B4720 call the independent CRT rand(), not3FCF40's
+        //App stream used later by text/voice selection. Both are saved owners.
+        uint crt = (state.CampaignCrtRandom ?? throw MapSpeechMissing("CRT_random")).State;
+        bool admitted = Draw(100) < probability;
+        if (!admitted) return state with { CampaignCrtRandom = new(crt) };
+        byte delay = checked((byte)Draw(10));
         var entries = owner.Entries.ToBuilder();
         int old = -1;
         for (int index = 0; index < entries.Count; index++)
@@ -36,17 +46,25 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             var retained = entries[old];
             if (actionCode < retained.ActionCode)
                 entries[old] = retained with { ArmyId = armyId, ActionCode = actionCode, HexId = hex,
-                    SceneryId = sceneryId, ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null };
+                    SceneryId = sceneryId, ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
+                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId };
             //The temporary delayed entry is discarded even if the new packet
             //does not win. The existing delay/lifetime are never restarted.
         }
         else
         {
             entries.Add(new(next, armyId, officerId, actionCode, hex, sceneryId, delay, 0, null)
-                { ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null });
+                { ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
+                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId });
             next = checked(next + 1);
         }
-        return state with { CampaignAppRandom32 = new(random.State), ArmyMapSpeech = new(next, entries.ToImmutable()) };
+        return state with { CampaignCrtRandom = new(crt), ArmyMapSpeech = new(next, entries.ToImmutable()) };
+
+        int Draw(int modulus)
+        {
+            crt = unchecked(crt * 0x343FDu + 0x269EC3u);
+            return (int)((crt >> 16) & 0x7FFFu) % modulus;
+        }
     }
 
     public ArmyMapSpeechStartResult Start(GameState state, long sequence, bool armyLayoutAvailable)
@@ -63,10 +81,15 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             //1B2E50 rejects a reset Army even if the application still owns a
             //retiring render node. A delayed defeat line never postpones the
             //actual pending70/282580 lifecycle just to keep a speech layout.
-            if (ArmyDestructionQueue.ResolveUnitSlot(state, entry.ArmyId) is not int armyPhysical)
-                return new(Remove(state, sequence), false);
-            if (!MapSpeechNeed(current.ReadArmyUnitNativeValidity(new(armyPhysical)), "start_Army_validity"))
-                return new(Remove(state, sequence), false);
+            if (entry.ActionCode is not (11 or 14))
+            {
+                if (ArmyDestructionQueue.ResolveUnitSlot(state, entry.ArmyId) is not int armyPhysical)
+                    return new(Remove(state, sequence), false);
+                if (!MapSpeechNeed(current.ReadArmyUnitNativeValidity(new(armyPhysical)), "start_Army_validity"))
+                    return new(Remove(state, sequence), false);
+            }
+            var opening = entry.ActionCode == 25 ? PrepareArmyMapSpeechOpeningVoiceCurrent(state, current, entry)
+                : new HistoryTextResult(state, "");
             int person = MapSpeechNeed(current.ReadPersonLookupReference(entry.OfficerId <= 6000 ? entry.OfficerId : 0)?.PhysicalSlot, "speaker_lookup");
             if (!MapSpeechNeed(current.ReadPersonNativeValidity(person), "speaker_validity")) return new(Remove(state, sequence), false);
             int root;
@@ -79,7 +102,21 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
                 case 14: root = 0xC4AB; break;
                 case 18: root = 0xC4E9; operands = operands with
                     { Base0 = checked((ushort)MapSpeechNeed(entry.ContextBaseLocationId, "lost_Base_operand")) }; break;
+                case 19: root = 0xC4F4; break;
+                case 20: root = 0xC7C3; break;
+                case 21: root = 0xC7CD; break;
+                case 22: root = 0xC7D7; break;
                 case 23: root = 0xC4C3; break;
+                case 24: root = 0xC4CF; break;
+                case 25: root = 0xC4DB; break;
+                case 26:
+                case 27:
+                    int trait = MapSpeechNeed(entry.ContextTraitId, "trait_activation_operand");
+                    root = NarrationResourceMessages.ArmyTraitActivationRoot(entry.ActionCode, trait)
+                        ?? throw MapSpeechMissing("trait_activation_root");
+                    if (entry.ActionCode == 26 && trait == 65)
+                        operands = operands with { Area0 = MapSpeechNeed(entry.ContextAreaId, "trait_activation_Area") };
+                    break;
                 case 31:
                     root = 0xC829;
                     current.MaterializeFixedScenery(_landmarkDefinitions);
@@ -94,12 +131,12 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             }
             //1BC3C0 selects text only when the real Army layout is available.
             //This is the only once-selected text/App transition.
-            var text = FormatArmyMapSpeechReportCurrent(state, current, root, operands);
+            var text = FormatArmyMapSpeechReportCurrent(opening.State, current, root, operands);
             if (text.Text.Length == 0) return new(Remove(text.State, sequence), false);
             var entries = owner.Entries.ToBuilder();
             int index = entries.IndexOf(entry);
             entries[index] = entry with { TextAtSource = text.Text, ElapsedSeconds = 0,
-                SpatialVoices = text.SpatialVoices.Select(request => new ArmyMapSpeechSpatialVoiceRequest(
+                SpatialVoices = opening.SpatialVoices.Concat(text.SpatialVoices).Select(request => new ArmyMapSpeechSpatialVoiceRequest(
                     SaveVoice(request.Voice), request.SourceX, request.SourceY, request.SourceZ)).ToImmutableArray(),
                 SpatialVoicesAccepted = false };
             return new(text.State with { ArmyMapSpeech = owner with { Entries = entries.ToImmutable() } }, true);
@@ -113,9 +150,22 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
     internal Func<ArmyTraitFeedbackRequest, bool> CreateArmyTraitSpeechConsumer(SourceWorldContext current,
         Func<GameState> latest, Action<GameState> publish) => request =>
     {
-        if (request.TraitId != 23) return false;
-        publish(QueueArmyMapSpeechCurrent(latest(), current, request.ArmyId, request.OfficerId,
-            23, request.SpeakerHexId));
+        if (request.Origin == ArmyTraitFeedbackOrigin.Personality)
+        {
+            int action = ArmyTraitFeedbackRequest.HasContext(request.TraitId) ? 26 : request.TraitId == 20 ? 27 : 0;
+            if (action == 0) return true; //The actual1B3DA0 support gate rejected both actions.
+            if (armyTraitSpeechView?.Invoke(request.ArmyId) is not bool available) return false;
+            if (!available) return true; //Known no source view:1A3D70 never calls speech admission.
+            publish(QueueArmyMapSpeechCurrent(latest(), current, request.ArmyId, request.OfficerId,
+                action, request.SpeakerHexId, contextTraitId: request.TraitId,
+                contextAreaId: request.ContextHexId));
+        }
+        else
+        {
+            if (request.Origin != ArmyTraitFeedbackOrigin.Action || request.TraitId is < 19 or > 25) return false;
+            publish(QueueArmyMapSpeechCurrent(latest(), current, request.ArmyId, request.OfficerId,
+                request.TraitId, request.SpeakerHexId));
+        }
         return true;
     };
 

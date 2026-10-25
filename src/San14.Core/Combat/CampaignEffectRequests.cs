@@ -27,10 +27,15 @@ public enum ArmyFalseReportVisualEvent { TargetResisted, InitiatorFailed }
 public sealed record ArmyFalseReportVisualRequest(ArmyFalseReportVisualEvent Event, ArmyReceiverId ReceiverId, int HexId);
 public enum MapObjectPresentationEvent { DestructionVisual, DestructionSound, RetirementVisualDetach,
     RelationVisibilityAttach, RelationVisibilityDetach, BaseOwnershipLostVisual, BaseOwnershipLostSound }
+public sealed record BaseCapturePresentationSnapshot(int EffectKind, int TargetDistrictId,
+    int PlayerPrimaryDistrictId, float SourceX, float SourceY, float SourceZ, float Scale, int Category, int SoundId);
 /// <summary>Unconsumed semantic presentation work. Retirement asks the view
 /// owner to detach any existing model and paired view links; it is not a receipt.</summary>
 public sealed record MapObjectPresentationRequest(MapObjectPresentationEvent Event,
-    MapObjectReceiverId ReceiverId, int? HexId, string? DefinitionKey);
+    MapObjectReceiverId ReceiverId, int? HexId, string? DefinitionKey)
+{
+    public BaseCapturePresentationSnapshot? BaseCapture { get; init; }
+}
 /// <summary>Source-time body arguments for an association removal report.
 /// Display strings must come from the complete message formatter.</summary>
 public sealed record ForceAssociationRemovalReportRequest(int OldForceId, int OfficerId,
@@ -64,11 +69,16 @@ public sealed record FacilityConstructionPresentationRequest(FacilityConstructio
 /// <summary>Refresh the shared Army trait view if the application has one.
 /// ArmyId records the source caller; this is no view-existence or playback receipt.</summary>
 public sealed record ArmyTraitViewRefreshRequest(int ArmyId);
-/// <summary>Source-time trait feedback awaiting application admission. SpeakerHex
-/// is the actual Person position; ContextHex is the independent site argument.</summary>
+public enum ArmyTraitFeedbackOrigin { Action, Personality }
+/// <summary>Source-time feedback awaiting application admission. SpeakerHex is
+/// the actual Person position. The legacy ContextHexId field holds an Area
+/// identity for Personality feedback and a site Hex for Action feedback.</summary>
 public sealed record ArmyTraitFeedbackRequest(int ArmyId, int OfficerId, int SpeakerHexId,
     int TraitId, int? ContextHexId)
 {
+    /// <summary>Distinguishes the legacy TraitId action code from a real
+    /// personality identity. Null preserves unknown legacy knowledge.</summary>
+    public ArmyTraitFeedbackOrigin? Origin { get; init; }
     public static bool HasContext(int trait) => trait is >= 10 and <= 19 or >= 21 and <= 24 or
         >= 26 and <= 29 or 32 or 65 or 66 or 77 or 86 or 87 or 94 or 105 or 106 or 108 or
         150 or 152 or 153 or 216;
@@ -612,7 +622,10 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 if (request.ArmyTraitFeedback is { } traitFeedback &&
                     (batch.Source is not (CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyTraitMaintenance or CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects or CampaignEffectSource.ArmyBattleDefeat) || traitFeedback.ArmyId <= 0 ||
                      traitFeedback.OfficerId < 0 || traitFeedback.SpeakerHexId is < 0 or > 48400 ||
-                     (ArmyTraitFeedbackRequest.HasContext(traitFeedback.TraitId)
+                     traitFeedback.Origin is { } origin && !Enum.IsDefined(origin) ||
+                     (traitFeedback.Origin == ArmyTraitFeedbackOrigin.Personality
+                        ? traitFeedback.TraitId is < 0 or > 355 || traitFeedback.ContextHexId is < 0 or > 500
+                        : ArmyTraitFeedbackRequest.HasContext(traitFeedback.TraitId)
                         ? traitFeedback.ContextHexId is null or < 0 or >= 48400
                         : traitFeedback.TraitId is not (20 or 25) || traitFeedback.ContextHexId is not null)))
                     throw new InvalidDataException("Invalid Army trait feedback request.");
@@ -703,6 +716,13 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 if (request.MapObjectPresentation is { Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound } &&
                     batch.Source != CampaignEffectSource.ArmyBattleDefeat)
                     throw new InvalidDataException("Base ownership loss requires its capture source.");
+                if (request.MapObjectPresentation is { BaseCapture: { } capture } capturePresentation &&
+                    (capturePresentation.Event is not (MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound) ||
+                     capture.EffectKind is not (7 or 8) || capture.TargetDistrictId is < 0 or > 51 ||
+                     capture.PlayerPrimaryDistrictId is < 0 or > 51 || !float.IsFinite(capture.SourceX) ||
+                     !float.IsFinite(capture.SourceY) || !float.IsFinite(capture.SourceZ) || capture.Scale != 2f ||
+                     capture.Category != 0 || capture.SoundId != 0xB3))
+                    throw new InvalidDataException("Invalid source-time Base capture presentation.");
                 if (batch.Source == CampaignEffectSource.ForceUnregister &&
                     request.MapObjectPresentation is not
                         { Event: MapObjectPresentationEvent.DestructionVisual or MapObjectPresentationEvent.DestructionSound })

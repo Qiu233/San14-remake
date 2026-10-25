@@ -21,6 +21,17 @@ public partial class AudioPlaybackService : Node
     internal event Action<string, long, string?>? ChannelStopped;
     internal long ReadVoiceSequence(string channel) => _players[channel].Sequence;
     public AudioVolumeOptions Volumes { get; private set; } = new();
+    private bool _voiceEnabled = true;
+
+    internal void SetVoiceEnabled(bool enabled)
+    {
+        RequireEngineThread();
+        if (_voiceEnabled == enabled) return;
+        _voiceEnabled = enabled;
+        foreach (var voice in _players.Values)
+            if (voice.Group == AudioVolumeGroup.Voice) ApplyVolume(voice);
+        ApplySpatialVolumes();
+    }
 
     /// <summary>Changes live voices without restarting or resuming them. New
     /// voices receive the same current gains at their actual playback call.</summary>
@@ -49,6 +60,7 @@ public partial class AudioPlaybackService : Node
         else voice.Player.VolumeDb = voice.BaseVolumeDb;
         if (_mapMusic.Values.FirstOrDefault(music => music.Player == voice.Player) is { } music)
             voice.Player.VolumeLinear *= music.Gain;
+        if (voice.Group == AudioVolumeGroup.Voice && !_voiceEnabled) voice.Player.VolumeLinear = 0;
     }
 
     public void Configure(AudioRepository repository, IAudioDecoder decoder)

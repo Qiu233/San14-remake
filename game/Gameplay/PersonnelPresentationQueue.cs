@@ -11,17 +11,23 @@ internal static class PersonnelPresentationQueue
     {
         foreach(var batch in world.CampaignEffectRequests?.PendingBatches??[])
         {
+            //Trait view updates are actual map commands, including for an Army
+            //which has since retired. They share the source FIFO with narration.
+            bool traitSource = batch.Source is CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyTraitMaintenance or
+                CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or
+                CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects or CampaignEffectSource.ArmyBattleDefeat;
             if(batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.DiplomacyCommands or
                 CampaignEffectSource.OfficerGrowthNotifications or CampaignEffectSource.OfficerOfficeCommands or
                 CampaignEffectSource.PersonnelAdministrationCommands or CampaignEffectSource.MonthlyMaintenance or
                 CampaignEffectSource.DoctrineResearchCommands or CampaignEffectSource.StrategicCommands or
-                CampaignEffectSource.ArmyBattleDefeat))continue;
+                CampaignEffectSource.ArmyBattleDefeat) && !traitSource)continue;
             for(int index=0;index<batch.Requests.Length;index++)
             {
                 var request=batch.Requests[index];
                 //Monthly controller and map operations keep their source order.
                 //The host must handle the head before showing a later line.
-                if(request.MonthlyMaintenance is not null||request.NormalTurnFoodWarningPresentation is not null||
+                if(traitSource && request.ArmyTraitViewRefresh is not null ||
+                    request.MonthlyMaintenance is not null||request.NormalTurnFoodWarningPresentation is not null||
                     request.NormalTurnForceResourceNotice is not null||request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
                     request.OfficerGrowthFeedback?.Operation is OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration||
                     request.DiplomacyArrivalAudio is not null||request.TalentCommandPresentation?.Operation is

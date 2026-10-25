@@ -4,6 +4,7 @@ namespace San14.Data;
 /// sample. Variant and language selection belong to the message preparation.</summary>
 public static class NarrationVoiceSelection
 {
+    public const uint OutputResourceId = 0x1CC2C167;
     public static AudioCueBank Bank(NarrationVoiceLanguage language) => language switch
     {
         NarrationVoiceLanguage.Japanese => new(0x84A15ACF, 0x71B7C0A2),
@@ -11,18 +12,53 @@ public static class NarrationVoiceSelection
         _ => throw new ArgumentOutOfRangeException(nameof(language))
     };
 
+    /// <summary>Army VoicePlayer families3/4/5 are memory sounds in their
+    /// installed bank. Ordinary narration keeps its separate stream binding.</summary>
+    public static AudioCueBank Bank(NarrationVoiceLanguage language, int voiceId) => voiceId is 2 or 3 or 4 or 5
+        ? language switch
+        {
+            NarrationVoiceLanguage.Japanese => new(0x7572622E, null),
+            NarrationVoiceLanguage.Chinese => new(0x68957B84, null),
+            _ => throw new ArgumentOutOfRangeException(nameof(language))
+        } : Bank(language);
+
     public static AudioSampleRequest Resolve(NarrationVoiceRequest request, AudioSelectionBank bank)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bank);
-        var binding = Bank(request.Language);
+        var binding = Bank(request.Language, request.VoiceId);
         if (bank.Source.ResourceUri != GameResourceId.Rdb("RRPreview", binding.SelectionBankId).ToString())
             throw new InvalidDataException("Narration voice bank differs from the selected voice language.");
-        var matches = bank.Samples.Where(sample => sample.SampleId == request.SoundId).Take(2).ToArray();
+        bool spatial = request.VoiceId is 2 or 3 or 4 or 5;
+        var matches = bank.Samples.Where(sample => sample.SampleId == request.SoundId &&
+            ((sample.Flags & 0x10000) == 0) == spatial).Take(2).ToArray();
         if (matches.Length != 1 || matches[0].Name is not { Length: > 0 } name ||
-            (matches[0].Flags & 0x10000) == 0)
-            throw new InvalidDataException($"Narration voice {request.SoundId:X8} has no unique external sample.");
+            spatial && (matches[0].Headers.Count != 1 || matches[0].Headers[0].IsExternal))
+            throw new InvalidDataException($"Narration voice {request.SoundId:X8} has no unique source sample.");
         return new(binding.SelectionBankId, binding.StreamBankId, name,
-            AudioSampleStorage.External, AudioLoopPolicy.Disabled);
+            spatial ? AudioSampleStorage.Internal : AudioSampleStorage.External, AudioLoopPolicy.Disabled);
+    }
+
+    /// <summary>Read the selected Army voice's actual cue parameters and
+    /// classification routes. Voice volume is a current host control gain;
+    /// neither the Effects category nor a guessed distance curve is added.</summary>
+    public static NarrationSpatialVoicePlayback ReadSpatialPlayback(NarrationVoiceRequest request,
+        AudioSelectionBank bank, LoadedRdbAsset categories)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(categories);
+        if (request.VoiceId is not (2 or 3 or 4 or 5))
+            throw new InvalidDataException("Spatial narration needs an Army voice family.");
+        var sample = Resolve(request, bank);
+        if (categories.ResourceUri != GameResourceId.Rdb("RRPreview", OutputResourceId).ToString())
+            throw new InvalidDataException("Spatial narration has a different output resource.");
+        var playback = AudioCueGraphResources.ReadSingleStaticSpatialReference(bank, sample.ExactSampleName);
+        if (playback.Sound.SoundId != request.SoundId)
+            throw new InvalidDataException("Spatial narration cue differs from its selected sound.");
+        var outputs = AudioMusicOutputResources.Read(categories, playback.Group.ClassificationId);
+        return new(sample, playback.LinearGain, playback.PlaybackRate, outputs, playback.Group);
     }
 }
+
+public sealed record NarrationSpatialVoicePlayback(AudioSampleRequest NamedSample, float Gain,
+    float PlaybackRate, AudioMusicOutputGraph Outputs, AudioCueStaticGroupParameters Group);

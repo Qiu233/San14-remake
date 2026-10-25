@@ -23,7 +23,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var pool = current.ReadOwnedCurrentListPool() ?? throw TraitMissing("owned_pool");
             var order = current.ReadRegistryReferences(RegistryKind.Army) ?? throw TraitMissing("manager60");
             var changedPeople = new HashSet<int>();
-            var feedback = new ArmyTraitFeedback(state, current, moment);
+            var feedback = new ArmyTraitFeedback(state, current, moment, currentState: () => state,
+                speechConsumer: CreateArmyTraitSpeechConsumer(current, () => state, next => state = next));
             var fields = new ArmyReturnTraitCleanup.Current(current, pool, feedback.Refresh,
                 physical => changedPeople.Add(physical));
             int count = 0;

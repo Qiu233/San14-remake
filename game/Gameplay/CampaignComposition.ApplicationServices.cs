@@ -6,6 +6,15 @@ namespace San14.Client.Gameplay;
 public sealed partial class CampaignComposition
 {
     private TransferServiceProfileStore? _applicationProfile;
+    private MainMapCameraTerrainSource? _baseCaptureTerrain;
+    private bool _baseCaptureTerrainBound;
+
+    public void ConfigureBaseCapturePresentationTerrain(MainMapCameraTerrainSource? terrain)
+    {
+        _baseCaptureTerrain = terrain;
+        _baseCaptureTerrainBound = true;
+        _army?.ConfigureBaseCapturePresentationTerrain(terrain);
+    }
 
     public void ConfigureApplicationProfile(TransferServiceProfileStore profile)
     {

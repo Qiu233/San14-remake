@@ -6,6 +6,8 @@ internal sealed partial class SceneAudioBinding
     private CancellationTokenSource? _narrationVoice;
     private const string NarrationVoiceChannel = "narration-voice";
 
+    internal void SetVoiceEnabled(bool enabled) => _session.SetVoiceEnabled(enabled);
+
     internal void PlayNarrationVoice(NarrationVoiceRequest request)
     {
         StopNarrationVoice();

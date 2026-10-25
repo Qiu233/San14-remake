@@ -69,6 +69,7 @@ public partial class Main
                 _preferences.Save(view.Draft, view.AudioDraft, view.ListScrollDraft, view.AutomaticSavingDraft,
                     view.VoiceDraft, view.AutomaticMessageAdvanceDraft, keyboardBindings: view.KeyboardDraft.Export());
                 _campaignComposition?.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
+                _sceneAudioBinding?.SetVoiceEnabled(_preferences.Voice.Enabled);
                 map?.SetSourceNavigationOptions(_preferences.Navigation);
                 map?.SetKeyboardBindings(_preferences.KeyboardBindings);
                 CloseEnvironmentSettings();

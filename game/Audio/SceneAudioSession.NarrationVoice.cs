@@ -2,6 +2,12 @@ using San14.Data;
 
 public partial class SceneAudioSession
 {
+    internal void SetVoiceEnabled(bool enabled)
+    {
+        RequireEngineThread();
+        _service?.SetVoiceEnabled(enabled);
+    }
+
     internal async Task<SceneAudioChannel> PlayNarrationVoiceAsync(string channel,
         NarrationVoiceRequest request, CancellationToken cancellationToken)
     {
