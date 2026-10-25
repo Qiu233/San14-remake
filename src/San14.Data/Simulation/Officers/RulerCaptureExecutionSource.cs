@@ -61,9 +61,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         private int CurrentRelationPenalty(GameState state)
         {
             var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("relation_parameter_owner");
-            //SC has not had that same complete lifetime audit. Its historical
-            //project default does not certify this reached native rule.
-            if (package.Seed.Language != "TC") throw Missing("SC_execution_relation_current_parameter");
+            //Both current CE callers consume this semantic coefficient. It
+            //is an owned mutable rule input, not a static value inferred from
+            //an image's zero-filled section. Missing saved knowledge stays missing.
             return !parameters.Float32Values.ContainsKey(RulerExecutionRelationCurrentKey) &&
                 parameters.Int32Values.TryGetValue(RulerExecutionRelationCurrentKey, out int value)
                 ? value : throw Missing("current_parameter_" + RulerExecutionRelationCurrentKey);
@@ -71,12 +71,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         private int PopularityPenalty(GameState state)
         {
             var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("popularity_parameter_owner");
-            if (!parameters.Float32Values.ContainsKey(RulerExecutionPopularityKey) &&
-                parameters.Int32Values.TryGetValue(RulerExecutionPopularityKey, out int value)) return value;
-            //Matched TC offline .data: RVA1A49904/file1A48104,14 00 00 00.
-            //Only this static rule is embedded; runtime never reads that file.
-            if (package.Seed.Language == "TC") return 20;
-            throw Missing("SC_current_parameter_" + RulerExecutionPopularityKey);
+            if (parameters.Float32Values.ContainsKey(RulerExecutionPopularityKey))
+                throw Missing("integer_parameter_" + RulerExecutionPopularityKey);
+            if (parameters.Int32Values.TryGetValue(RulerExecutionPopularityKey, out int value)) return value;
+            //The paired current CE data sources independently contain20:
+            //TC1A49904 and SC1A4A934. Runtime consumes this project rule only;
+            //it never opens either executable or manufactures a current key.
+            if (parameters.Language is "SC" or "TC" && parameters.RuleVersion == SimulationRuleIdentity.Version) return 20;
+            throw Missing("rule_catalog_" + RulerExecutionPopularityKey);
         }
         private static T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
         private static InvalidDataException Missing(string field) => new("ruler-capture.execution." + field);

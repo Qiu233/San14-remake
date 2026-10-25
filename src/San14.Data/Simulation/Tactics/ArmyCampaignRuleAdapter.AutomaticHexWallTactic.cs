@@ -24,8 +24,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArgumentNullException.ThrowIfNull(prefix);
         if (instruction.Opcode != 18 || instruction.Index is < 0 or > 1 || nodeHex is < 0 or >= 48400)
             throw new InvalidDataException("Hex wall tactic needs the reached instruction and actual vector Hex.");
-        if (state.NativeArmySimulation?.Parameters.Language != "TC")
-            throw HexWallTacticMissing("SC_wrapper_source_not_qualified");
+        if (state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
+            throw HexWallTacticMissing("wrapper_source_not_qualified");
 
         //22FC70 reads only Hex1A and clamps the Object-table lookup to slot0.
         //Do not use16EB20's Army/Base/generic-Object priority to select a writer.

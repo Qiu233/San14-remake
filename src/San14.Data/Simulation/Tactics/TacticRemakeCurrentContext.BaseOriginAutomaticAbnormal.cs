@@ -44,8 +44,9 @@ public sealed partial class TacticRemakeCurrentContext
         if (!ReferenceEquals(current, _definitions) || !Bound(state) ||
             instruction.Index is < 0 or > 1 || instruction.Opcode is not (2 or 3 or 4 or 23))
             throw OriginAutomaticMissing("abnormal_current_instruction");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw OriginAutomaticMissing("SC_Base_actor_abnormal_source_not_qualified");
+        //Current CE SC175D50/178260 and TC175FF0/178500 have the same
+        //receiver branches and null-source-Army contract. SC16F700 also
+        //uses the qualified gate's -1 lower coefficient (rdata1344CDC).
         if (target.NativeKind is 5 or 6)
         {
             var targetBase = new BaseReference(target.NativeKind == 5 ? BaseKind.City : BaseKind.Gate, target.NativePhysicalSlot);

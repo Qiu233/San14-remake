@@ -1,4 +1,5 @@
 using Godot;
+using San14.Core;
 using San14.Data;
 
 internal sealed partial class SceneAudioBinding
@@ -39,6 +40,19 @@ internal sealed partial class SceneAudioBinding
             if (!ReferenceEquals(_poemEvent, owner)) return;
             MapMusicError = error.Message; MusicChanged?.Invoke();
         }
+    }
+
+    /// <summary>One source appearance-sound attempt. The presentation owns its
+    /// once gate; duplicate/full-pool suppression does not request a retry or
+    /// imply a playback receipt.</summary>
+    internal async Task PlayPoemAppearanceSoundAsync()
+    {
+        var owner = _poemEvent ?? throw new InvalidOperationException("Poem appearance sound needs its active presentation.");
+        // Preparation belongs to the poem. Once the shared normal manager
+        // accepts the sound, its real application session owns playback even
+        // when the poem closes. No campaign or preview world is required.
+        await _musicSession.PlayStorySoundAsync(new(StoryAudioKind.Sound, 0xDB, 0, 0, 0),
+            owner.Preparation.Token);
     }
 
     internal void EndPoemEvent(bool restore)

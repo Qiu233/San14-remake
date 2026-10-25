@@ -75,8 +75,8 @@ public sealed partial class TacticRemakeCurrentContext
             1 => SimulationParameterKeys.Tactics.PlayerDifficulty1TrialRate, _ => SimulationParameterKeys.Tactics.PlayerDifficulty2TrialRate }
             : difficulty >= 4 ? SimulationParameterKeys.Tactics.HighDifficultyNonplayerTrialRate : SimulationParameterKeys.Tactics.NonplayerAutomaticTrialRate;
         int baseline = OriginParameter(state, key);
-        int rate = link <= 51 ? OriginStatic(state, "city-trial-rate", 100)
-            : link <= 61 ? OriginStatic(state, "gate-trial-rate", 100) : 0;
+        int rate = link <= 51 ? OriginStatic(state, "city-trial-rate")
+            : link <= 61 ? OriginStatic(state, "gate-trial-rate") : 0;
         var factor = region.ResolveHexForceReceipt(state, force, checked((ushort)sourceHex))
             ?? throw OriginAutomaticMissing("source_Hex_Force_2B09B0");
         int targetHex = pair.Target.Kind == 27
@@ -98,23 +98,12 @@ public sealed partial class TacticRemakeCurrentContext
         int Hex(int raw) => OriginNeed((_definitions.ReadHexTableReference(raw is >= 0 and < 48400 ? raw : 0))?.PhysicalSlot, "Hex_physical");
     }
 
-    //TC immutable file-backed scalar catalog. A saved override remains primary;
-    //a saved float at an integer key is a format error. SC has no guessed port.
-    internal static int OriginStatic(GameState state, string name, int tcValue)
-    {
-        var bank = state.NativeArmySimulation?.Parameters ?? throw OriginAutomaticMissing("parameters");
-        string key = "simulation.tactics.base-origin." + name;
-        if (bank.Float32Values.ContainsKey(key)) throw OriginAutomaticMissing(key + "_integer");
-        if (bank.Int32Values.TryGetValue(key, out int value)) return value;
-        if (bank.Language != "TC") throw OriginAutomaticMissing(key + "_SC_catalog");
-        //typed/data.tsv:1A49A10=100,1A49A1C=100,1A49888=20,1A49B98=1.
-        return tcValue;
-    }
+    internal static int OriginStatic(GameState state, string name)
+        => BaseAutomaticRuleCatalog.Read(state, name);
     internal static int OriginParameter(GameState state, string key)
     {
-        var bank = state.NativeArmySimulation?.Parameters ?? throw OriginAutomaticMissing("parameters");
-        return !bank.Float32Values.ContainsKey(key) && bank.Int32Values.TryGetValue(key, out int value)
-            ? value : throw OriginAutomaticMissing(key);
+        return AutomaticTacticDamageCurrentParameters.ReadCurrent(state, key)
+            ?? throw OriginAutomaticMissing(key);
     }
     internal static T OriginNeed<T>(T? value, string owner) where T : struct => value ?? throw OriginAutomaticMissing(owner);
     internal static InvalidDataException OriginAutomaticMissing(string owner) => new("automatic_Base_origin." + owner);

@@ -17,9 +17,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         int casterId, int stageOrdinal)
     {
         if (!context.IsBoundCurrentState(state) ||
-            state.NativeArmySimulation?.Parameters.Language != "TC" ||
+            state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC") ||
             !state.Units.TryGetValue(casterId, out var caster))
-            throw AutomaticMoraleDamageMissing("current_TC_caster");
+            throw AutomaticMoraleDamageMissing("current_caster");
         int stage = AutomaticMoraleDamageParameter(state, SimulationParameterKeys.Tactics.EffectStageScale);
         float stageFactor = (float)unchecked(stageOrdinal * stage) / 100f + 1f;
         int physical = AutomaticMoraleDamageNeed(caster.NativeArmyOrigin?.NativeSlotIndex, "source_Army_physical");
@@ -134,8 +134,8 @@ public sealed partial class TacticRemakeCurrentContext
     internal int ResolveBorrowedAutomaticArmyMoraleDamage(GameState state, TacticSourceRow source,
         S14TacticEffectInstruction instruction, AutomaticArmyMoraleDamagePrefix prefix, ArmyUnitReference target)
     {
-        if (!Bound(state) || state.NativeArmySimulation?.Parameters.Language != "TC")
-            throw MoraleAmountMissing("current_TC_context");
+        if (!Bound(state) || state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
+            throw MoraleAmountMissing("current_context");
         int acting = SourceAbility();
         //16E820 decodes its selector before testing its target Army pointer.
         byte targetSelector = FactorSelector(source) ?? throw MoraleAmountMissing("target_selector6A");

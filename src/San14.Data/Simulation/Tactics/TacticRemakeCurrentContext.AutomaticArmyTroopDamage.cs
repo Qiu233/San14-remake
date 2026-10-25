@@ -23,8 +23,8 @@ public sealed partial class TacticRemakeCurrentContext
             ?? throw ArmyTroopDamageMissing("target_Army_pointer");
         if (!K(_definitions.ReadArmyUnitNativeValidity(targetArmy), "target_Army_native_validity"))
             return new(false, null, "invalid_Army");
-        if (state.NativeArmySimulation?.Parameters.Language != "TC")
-            throw ArmyTroopDamageMissing("SC_numeric_source_not_qualified");
+        if (state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
+            throw ArmyTroopDamageMissing("numeric_source_not_qualified");
         int casterSlot = K(caster.NativeArmyOrigin?.NativeSlotIndex, "caster_Army_physical");
         var casterArmy = _definitions.ReadArmyUnitTableReference(casterSlot)
             ?? throw ArmyTroopDamageMissing("caster_Army_pointer");
@@ -147,9 +147,8 @@ public sealed partial class TacticRemakeCurrentContext
         }
         int P(string key)
         {
-            var bank = state.NativeArmySimulation!.Parameters;
-            return !bank.Float32Values.ContainsKey(key) && bank.Int32Values.TryGetValue(key, out int value)
-                ? value : throw ArmyTroopDamageMissing(key);
+            return AutomaticTacticDamageCurrentParameters.ReadCurrent(state, key)
+                ?? throw ArmyTroopDamageMissing(key);
         }
         T K<T>(T? value, string owner) where T : struct => value ?? throw ArmyTroopDamageMissing(owner);
     }

@@ -6,6 +6,10 @@ public sealed record ArmyMapSpeechDisplay(long Sequence, int ArmyId, int Officer
     int HexId, string Text, bool Leaving)
 {
     public int LayoutStyle { get; init; }
+    public int? BaseSpeakerLocationId { get; init; }
+    public int? BaseSpeakerObjectId { get; init; }
+    public ushort? BaseSpeakerAppearanceIndex { get; init; }
+    public byte? BaseSpeakerForceColor { get; init; }
 }
 
 /// <summary>The application-owned speech clock. Only enqueue, start and removal
@@ -81,6 +85,14 @@ public sealed class ArmyMapSpeechPlayback
         foreach (var item in queue)
             if (item.Entry.TextAtSource is { } text && item.Elapsed < 3.5)
                 visible.Add(new(item.Entry.Sequence, item.Entry.ArmyId, item.Entry.OfficerId,
-                    item.Entry.HexId, text, item.Elapsed >= 3) { LayoutStyle = item.Entry.ActionCode == 25 ? 1 : 0 });
+                    item.Entry.HexId, text, item.Elapsed >= 3)
+                {
+                    LayoutStyle = item.Entry.ActionCode == 25 ||
+                        item.Entry.BaseSpeakerLocationId is not null && item.Entry.ActionCode == 16 ? 1 : 0,
+                    BaseSpeakerLocationId = item.Entry.BaseSpeakerLocationId,
+                    BaseSpeakerObjectId = item.Entry.BaseSpeakerObjectId,
+                    BaseSpeakerAppearanceIndex = item.Entry.BaseSpeakerAppearanceIndex,
+                    BaseSpeakerForceColor = item.Entry.BaseSpeakerForceColor
+                });
     }
 }

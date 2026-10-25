@@ -17,6 +17,15 @@ public sealed record ArmyMapSpeechEntry(long Sequence, int ArmyId, int OfficerId
     public int? ContextBaseLocationId { get; init; }
     public int? ContextTraitId { get; init; }
     public int? ContextAreaId { get; init; }
+    /// <summary>The actual Base speaker, independent of an Army receiver and
+    /// of the Base0 operand retained in the same source packet.</summary>
+    public int? BaseSpeakerLocationId { get; init; }
+    public int? BaseSpeakerObjectId { get; init; }
+    /// <summary>The owned layout's source portrait and color. Both null retains
+    /// its known absence for an invalid speaker. A higher-priority packet may
+    /// inherit an existing layout, including when it changes the speaker kind.</summary>
+    public ushort? BaseSpeakerAppearanceIndex { get; init; }
+    public byte? BaseSpeakerForceColor { get; init; }
     public ImmutableArray<ArmyMapSpeechSpatialVoiceRequest>? SpatialVoices { get; init; }
     public bool SpatialVoicesAccepted { get; init; }
 }

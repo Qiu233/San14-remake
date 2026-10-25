@@ -25,7 +25,7 @@ internal static class ArmyMapSpeechSaveFields
         {
             if (item is not JsonObject entry || entry["Sequence"] is not JsonValue sequenceValue ||
                 !sequenceValue.TryGetValue<long>(out long sequence) || sequence <= previous || sequence >= next ||
-                !Integer(entry, "ArmyId", 1, int.MaxValue) || !Integer(entry, "OfficerId", 0, 6000) ||
+                !Integer(entry, "ArmyId", version >= 181 ? 0 : 1, int.MaxValue) || !Integer(entry, "OfficerId", 0, 6000) ||
                 !Integer(entry, "ActionCode", 0, int.MaxValue) || !Integer(entry, "HexId", 0, 48400) ||
                 !entry.ContainsKey("SceneryId") || entry["SceneryId"] is JsonNode scenery &&
                 (scenery is not JsonValue sceneryValue || !sceneryValue.TryGetValue<int>(out int sceneryId) || sceneryId is < 0 or > 100) ||
@@ -59,6 +59,36 @@ internal static class ArmyMapSpeechSaveFields
                 }
                 else if (!entry.ContainsKey(field.Name) || entry[field.Name] is not null && !Integer(entry, field.Name, 0, field.Maximum))
                     throw new InvalidDataException("Saved Army map speech personality context is missing or invalid.");
+            }
+            if (version < 181)
+            {
+                if (entry["BaseSpeakerLocationId"] is not null || entry["BaseSpeakerObjectId"] is not null ||
+                    entry["BaseSpeakerAppearanceIndex"] is not null || entry["BaseSpeakerForceColor"] is not null)
+                    throw new InvalidDataException("Legacy map speech contains a future Base speaker.");
+                entry["BaseSpeakerLocationId"] = null;
+                entry["BaseSpeakerObjectId"] = null;
+                entry["BaseSpeakerAppearanceIndex"] = null;
+                entry["BaseSpeakerForceColor"] = null;
+            }
+            else
+            {
+                if (!entry.ContainsKey("BaseSpeakerLocationId") || !entry.ContainsKey("BaseSpeakerObjectId") ||
+                    !entry.ContainsKey("BaseSpeakerAppearanceIndex") || !entry.ContainsKey("BaseSpeakerForceColor"))
+                    throw new InvalidDataException("Saved map speech Base speaker knowledge is missing.");
+                //An already-created owned layout survives a higher-priority
+                //packet replacement, including a Base-to-Army replacement.
+                bool baseSpeaker = entry["BaseSpeakerLocationId"] is not null || entry["BaseSpeakerObjectId"] is not null;
+                if (entry["BaseSpeakerAppearanceIndex"] is null
+                    ? entry["BaseSpeakerForceColor"] is not null
+                    : !Integer(entry, "BaseSpeakerAppearanceIndex", 0, ushort.MaxValue) ||
+                      !Integer(entry, "BaseSpeakerForceColor", 0, byte.MaxValue))
+                    throw new InvalidDataException("Saved map speech owned layout snapshot is incomplete.");
+                if (baseSpeaker
+                    ? !Integer(entry, "BaseSpeakerLocationId", 1, 61) ||
+                      !Integer(entry, "BaseSpeakerObjectId", 0, ushort.MaxValue) ||
+                      !Integer(entry, "ArmyId", 0, 0) || !Integer(entry, "ActionCode", 15, 16)
+                    : !Integer(entry, "ArmyId", 1, int.MaxValue))
+                    throw new InvalidDataException("Saved map speech speaker identity is contradictory.");
             }
             previous = sequence;
         }

@@ -75,8 +75,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             int governor = Governor(targetBase);
             int person = Need(current.ReadPersonIdentity(governor), "feedback_Governor10");
             int hex = current.ReadBaseCurrentHexIndex(targetBase);
-            effects.Add(new(null, null) { BaseAbnormalFeedback = new(location, person, hex,
-                counter.NativeIndex == 0 ? 15 : 16) });
+            //1B4BD0/1B4720 run here, before the following status reports.
+            //Deferring this attempt until Main drains a notification would
+            //read a later governor portrait and change CRT admission order.
+            working = QueueBaseAbnormalFeedbackCurrent(working, current,
+                new(location, person, hex, counter.NativeIndex == 0 ? 15 : 16));
         }
         if (instruction.Opcode != 23)
         {

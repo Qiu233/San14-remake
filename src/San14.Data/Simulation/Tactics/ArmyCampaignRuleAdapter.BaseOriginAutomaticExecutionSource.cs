@@ -71,6 +71,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (resume is not null && instruction.Index < resume.InstructionIndex) continue;
             bool resumingInstruction = resume is not null && instruction.Index == resume.InstructionIndex;
             BaseOriginAutomaticTroopPrefix? troop = null;
+            BaseOriginAutomaticModifierPrefix? modifier = null;
+            BaseOriginAutomaticFirePrefix? fire = null;
             int? abnormalSourceHex = null;
             TacticEffectScaleSourceInput? scale = null;
             switch (instruction.Opcode)
@@ -86,10 +88,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                 case 2 or 3 or 4 or 23:
                     abnormalSourceHex = context.ReadBaseOriginAutomaticAbnormalPrefix(working, origin, instruction);
                     break;
+                case >= 5 and <= 14:
+                case 21 or 22:
+                    modifier = BeginBaseOriginAutomaticModifiersCurrent(working, current, context, origin, instruction);
+                    break;
                 case 15 or 20: scale = context.ResolveBaseOriginAutomaticScale(working, origin, source, instruction); break;
                 case 16:
                     //177990's stage/waiting prefix precedes even an empty list.
                     _ = TacticRemakeCurrentContext.OriginParameter(working, SimulationParameterKeys.Tactics.EffectStageScale);
+                    break;
+                case 17:
+                    fire = BeginBaseOriginAutomaticFireCurrent(working, current, context, origin, source, instruction);
                     break;
                 case 19: break;
                 default: throw Missing("opcode" + instruction.Opcode + "_Base_actor_writer");
@@ -107,11 +116,33 @@ public sealed partial class ArmyCampaignRuleAdapter
                         nodeHex, instruction, resume.RequestedLoss);
                     continue;
                 }
+                if (instruction.Opcode == 17)
+                {
+                    //177C60 addresses the actual Hex before any occupant
+                    //dispatch. Ground ignition is not an invalid Army target.
+                    var applied = ApplyBaseOriginAutomaticFireHexCurrent(working, current, fire!, nodeHex,
+                        pair.Target.HexId, date, revision, effects);
+                    working = applied.State;
+                    if (applied.TargetResultMarker)
+                        AddMarker(applied.MarkerTarget ?? throw Missing("fire_marker_receiver"), nodeHex, instruction.Index, 0);
+                    continue;
+                }
                 var read = FieldHexOccupantSource.ReadCurrent(working, current, nodeHex);
                 var target = read.Receipt ?? throw Missing(read.UnresolvedOwner ?? "live_target");
                 if (target.NativeKind == 255) continue;
+                //The support wrappers dispatch only their actual Base/Army
+                //receivers; a changed live Object has no write or marker.
+                if ((instruction.Opcode is 15 or 16 or 19 or 20) && target.NativeKind is not (5 or 6 or 27)) continue;
                 ushort marker = 0;
                 bool mark = false;
+                if (instruction.Opcode is >= 5 and <= 14 or 21 or 22)
+                {
+                    var applied = ApplyBaseOriginAutomaticModifiersCurrent(working, current, context, origin,
+                        target, source, instruction, modifier!, sampler, date, effects);
+                    working = applied.State;
+                    if (applied.TargetResultMarker) AddMarker(target, nodeHex, instruction.Index, 0);
+                    continue;
+                }
                 if (instruction.Opcode is 2 or 3 or 4 or 23)
                 {
                     var applied = context.ApplyBaseOriginAutomaticAbnormalCurrent(working, current, origin,
@@ -233,41 +264,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                         Detail(null, location, nodeHex, instruction.Index, PlayableTacticEffectKind.ArmyDamage, unchecked((ushort)amount));
                         continue;
                     }
-                    if (instruction.Opcode == 15)
+                    if (instruction.Opcode is 15 or 16 or 19 or 20)
                     {
-                        int amount = TacticEffectSourceMath.Scale(scale!);
-                        int force = Need(current.ReadBaseForceSlot(reference), "morale_Base_Force");
-                        var pointer = current.ReadForceTableReference(force <= 51 ? force : 0) ?? throw Missing("morale_Base_Force_pointer");
-                        int upper = BasePostLoad.ReadMoraleUpper(pointer, current);
-                        byte before = Need(current.ReadBaseMorale44(reference), "morale_Base44");
-                        bool written = BasePostLoad.WriteMoraleCurrent(reference, Math.Min(upper, unchecked(before + amount)), current);
-                        working = PublishCurrentBaseCombatQuantities(working, current, reference, false, false, written);
-                        Detail(null, location, nodeHex, instruction.Index, PlayableTacticEffectKind.NativeMoraleChange,
-                            Need(current.ReadBaseMorale44(reference), "morale_Base44_after") - before);
-                        mark = true;
+                        var applied = ApplyBaseOriginAutomaticBaseSupportCurrent(working, current, context, origin,
+                            target, source, instruction, scale);
+                        working = applied.State;
+                        if (applied.EffectKind is { } effect)
+                            Detail(null, location, nodeHex, instruction.Index, effect, applied.EffectAmount);
+                        if (applied.TargetResultMarker)
+                            AddMarker(target, nodeHex, instruction.Index, applied.MarkerAmount);
+                        continue;
                     }
-                    else if (instruction.Opcode == 16)
-                    {
-                        int loss = context.ResolveBaseOriginAutomaticMoraleLoss(working, origin, target, source, instruction);
-                        int before = Need(current.ReadBaseMorale44(reference), "loss_Base44");
-                        bool written = BasePostLoad.WriteMoraleCurrent(reference, Math.Max(0, unchecked(before + loss)), current);
-                        working = PublishCurrentBaseCombatQuantities(working, current, reference, false, false, written);
-                        mark = true;
-                    }
-                    else if (instruction.Opcode == 19)
-                    {
-                        var fields = current.ReadCaptureBaseThreatFields(reference) ?? throw Missing("clear_Base_fields");
-                        for (int index = 0; index < 3; index++)
-                        {
-                            int cap = TacticRemakeCurrentContext.OriginParameter(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound);
-                            byte value = cap < 0 ? unchecked((byte)cap) : (byte)0;
-                            fields = index switch { 0 => fields with { Byte49 = value }, 1 => fields with { Byte4A = value }, _ => fields with { Byte4B = value } };
-                            current.SetCaptureBaseThreatFields(reference, fields);
-                            working = PublishOneBaseTacticCounter(working, reference, 0x49 + index, value);
-                        }
-                        mark = true;
-                    }
-                    else throw Missing("Base_target_opcode" + instruction.Opcode + "_application");
+                    throw Missing("Base_target_opcode" + instruction.Opcode + "_application");
                 }
                 else throw Missing("target_kind" + target.NativeKind);
                 if (mark) AddMarker(target, nodeHex, instruction.Index, marker);
@@ -293,6 +301,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             working = working with { ManualTacticIntervention = manager.Enqueue(TacticPresentationKind.OrdinaryEffects, [actor]) };
         }
         var frame22 = ledger.ConsumeFrame22(current, pair.Target.Kind, checked((ushort)pair.Target.PhysicalSlot));
+        working = BaseCaptureCurrentInputs.PublishCurrent(working, current);
         return new(working, true, frame22.Word22After);
 
         GameState ImmediateMorale(GameState value, UnitDefeatRequest request)
@@ -321,13 +330,32 @@ public sealed partial class ArmyCampaignRuleAdapter
                 presentationEffects.ToImmutableArray())
                 { TroopPrefix = prefix is null ? null : new(prefix.SourceKind, prefix.SourceId, prefix.SourceTroops,
                     prefix.Object14, prefix.SourceForce, prefix.StageProduct) };
+            working = BaseCaptureCurrentInputs.PublishCurrent(working, current);
             return new(working, true, 0) { Continuation = saved };
         }
         void AddMarker(FieldHexOccupantReceipt target, int hex, int instruction, ushort amount)
         {
-            int id = target.NativeKind == 27 ? working.ReadArmyLifecycle()!.Slots[target.NativePhysicalSlot].ReceiverId.Value
-                : target.BaseLocationId ?? throw Missing("marker_Base_location");
-            results[instruction].Add(new(target.NativeKind == 27 ? TacticResultTargetKind.ArmyReceiver : TacticResultTargetKind.BaseLocation, id, hex, amount));
+            TacticResultTargetKind kind;
+            int id;
+            if (target.NativeKind == 27)
+            {
+                kind = TacticResultTargetKind.ArmyReceiver;
+                id = working.ReadArmyLifecycle()!.Slots[target.NativePhysicalSlot].ReceiverId.Value;
+            }
+            else if (target.NativeKind is 5 or 6)
+            {
+                kind = TacticResultTargetKind.BaseLocation;
+                id = target.BaseLocationId ?? throw Missing("marker_Base_location");
+            }
+            else if (target.NativeKind == 11)
+            {
+                kind = TacticResultTargetKind.MapObjectReceiver;
+                int physical = target.CapturedObject?.PhysicalSlot ?? throw Missing("marker_Object_pointer");
+                id = (current.CurrentMapObjectDirectory ?? throw Missing("marker_Object_directory"))
+                    .ReceiverAtPhysical(physical).Value;
+            }
+            else throw Missing("marker_kind" + target.NativeKind);
+            results[instruction].Add(new(kind, id, hex, amount));
         }
         TacticReportEntry Report(string kind, int? targetArmy, int? instruction, int hex, PlayableTacticEffectKind? effect, int amount)
             => new(kind, checked(state.PeriodNumber + 1), selection.SourceForce, 0, selection.GovernorId,

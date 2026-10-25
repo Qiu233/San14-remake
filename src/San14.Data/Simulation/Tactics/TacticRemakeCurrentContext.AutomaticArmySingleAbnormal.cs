@@ -23,8 +23,8 @@ public sealed partial class TacticRemakeCurrentContext
         if (!Bound(state) || ArmyValid(state, caster) != true ||
             caster.NativeArmyOrigin?.NativeSlotIndex is not int physical)
             throw SingleAbnormalMissing("current_caster");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw SingleAbnormalMissing("SC_wrapper_not_qualified");
+        if (state.NativeArmySimulation!.Parameters.Language is not ("TC" or "SC"))
+            throw SingleAbnormalMissing("wrapper_not_qualified");
         var army = _definitions.ReadArmyUnitTableReference(physical) ?? throw SingleAbnormalMissing("caster_pointer");
         ushort hex = SingleNeed(_definitions.ReadArmyUnitRawHex2A(army), "source_Hex2A");
         byte force = _definitions.ReadArmyUnitRawForceSlot(army);
@@ -46,8 +46,8 @@ public sealed partial class TacticRemakeCurrentContext
         bool valid = SingleNeed(ArmyValid(state, target), "target_validity");
         if (!valid) return NoEffect(false, false, null);
         if (!Bound(state) || ArmyValid(state, caster) != true ||
-            state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw SingleAbnormalMissing("current_TC_caster");
+            state.NativeArmySimulation!.Parameters.Language is not ("TC" or "SC"))
+            throw SingleAbnormalMissing("current_caster");
         var native = target.NativeTacticRuntime ?? throw SingleAbnormalMissing("target_counters");
         int commander = NativeCommander(caster);
         bool commanderValid = SingleNeed(_definitions.ReadPersonNativeValidity(commander), "caster_Commander_validity");

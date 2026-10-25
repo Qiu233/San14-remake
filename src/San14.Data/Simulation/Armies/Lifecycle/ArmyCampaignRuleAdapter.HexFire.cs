@@ -111,6 +111,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState IgniteCurrentHex(GameState state, SourceWorldContext current, int hexId, int duration,
         bool commandFire, NativeArmyProgressStageMoment moment, List<HexFireChange> changes,
         List<ArmyFireAnnouncement> announcements, List<PeriodReportEntry> reports)
+        => IgniteCurrentHex(state, current, hexId, duration, commandFire,
+            latest => ReadFireStageSampler(latest, moment).Day450, moment.CalendarCycleOrdinal,
+            changes, announcements);
+
+    //The real2E3CB0 body is also called by automatic tactics outside the
+    //scheduled fire stages. Its writer takes the actual day getter and sink;
+    //no invented scheduler moment or second world is needed by that caller.
+    private GameState IgniteCurrentHex(GameState state, SourceWorldContext current, int hexId, int duration,
+        bool commandFire, Func<GameState, int> readDay, long revision, List<HexFireChange> changes,
+        List<ArmyFireAnnouncement> announcements, List<CampaignEffectRequest>? feedback = null)
     {
         var latest = state;
         Apply();
@@ -222,7 +232,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var formatted = FormatHistoryReport(latest, current, reportArmy is not null ? 0x3239 : 0x323A,
                 new HistoryMessageOperands(Army0: reportArmy, Base0: baseOperand, String0: traitName));
             latest = formatted.State;
-            int day = ReadFireStageSampler(latest, moment).Day450;
+            int day = readDay(latest);
             int reportHex = OccupationKnown(current.ReadHexPhysicalSlot(originalHex), "fire_report_original_Hex22DEF0");
             int district;
             if (reportArmy is not null)
@@ -236,9 +246,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             latest = WriteHistory(latest, current, new ReportCommand(0, district, reportHex, day, formatted.Text,
                 CampaignHistoryWriter.Supplemental(latest), 5012, MarkBit4: 1), effects);
             if (effects.Count != 0)
-                latest = latest with { CampaignEffectRequests =
+            {
+                if (feedback is not null) feedback.AddRange(effects);
+                else latest = latest with { CampaignEffectRequests =
                     (latest.CampaignEffectRequests ?? throw OccupationMissing("fire_history_pending_owner"))
-                    .Append(CampaignEffectSource.ArmyProgressNotifications, moment.CalendarCycleOrdinal, effects) };
+                    .Append(CampaignEffectSource.ArmyProgressNotifications, revision, effects) };
+            }
             //The old semantic PeriodReportEntry is no longer emitted for
             //this native log. The ring and source-time notification own it.
         }

@@ -84,6 +84,20 @@ public partial class Main
                 continue;
             }
             armyViewRefreshSource = null;
+            if (entry.Request.BaseAbnormalFeedback is not null)
+            {
+                if (!session.TryPrepareBaseAbnormalFeedback(owner, entry.Source, entry.BatchSequence,
+                    entry.RequestIndex, composition.PrepareArmyQueries(owner), out var prepared,
+                    new(_presentationRandom.State)))
+                {
+                    if (prepared?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner = owner;
+                    return false;
+                }
+                owner = PersonnelPresentationOwner(session);
+                RefreshArmyMapSpeechBinding(session, owner, map);
+                continue;
+            }
             if (entry.Request.PersonDeathReport is { } death)
             {
                 var publication = composition.PrepareArmyQueries(owner).QueryPersonDeathPresentation(owner, death);

@@ -19,7 +19,11 @@ public partial class Main
             CloseArmyMapSpeech();
             _armySpeechSession = session; _armySpeechMap = map;
             _armySpeechPlayback = new(snapshot);
-            map.SetArmyMapSpeechDriver(delta => RunUiAction(() => AdvanceArmyMapSpeech(delta)));
+            map.SetArmyMapSpeechDriver(delta => RunUiAction(() => AdvanceArmyMapSpeech(delta)),
+                entry => _campaignComposition is { } composition && _armySpeechSession == session
+                    ? composition.PrepareArmyQueries(PersonnelPresentationOwner(session))
+                        .QueryBaseMapSpeechSpeaker(PersonnelPresentationOwner(session), entry)
+                    : new(null, "map-speech.owned_portrait_session"));
         }
         else _armySpeechPlayback!.Synchronize(snapshot);
         if (!ReferenceEquals(_armySpeechWorld, world)) _armySpeechFailedSequences.Clear();
@@ -38,7 +42,7 @@ public partial class Main
         { playback.Synchronize(snapshot); _armySpeechWorld = owner; _armySpeechFailedSequences.Clear(); }
         bool paused = _advancingPeriod || HasAdministrationPage || HasMilitaryOrderPage || HasEnvironmentSettings ||
             HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
-            _diplomacyNegotiation is not null || !map.ArmySpeechManagerVisible;
+            _diplomacyNegotiation is not null || !map.MapSpeechManagerVisible;
         playback.Advance(delta, paused);
         if (_advancingPeriod)
         {
@@ -93,7 +97,8 @@ public partial class Main
                 //All finite roots use the same installed memory bank. Bind the
                 //real admission owner before any formatter can select Voice2/3/4/5.
                 var audio = _sceneAudioBinding ?? throw new InvalidDataException("army-map-speech.audio_scene");
-                if (_preferences.Voice.Enabled && !audio.PrepareArmySpeechBank(_preferences.Voice.Language)) continue;
+                if (_preferences.Voice.Enabled && entry.ActionCode is not (15 or 16) &&
+                    !audio.PrepareArmySpeechBank(_preferences.Voice.Language)) continue;
                 using var batch = audio.BeginArmySpeechAudio(map.CaptureArmySpeechAudioContext(), _preferences.Voice.Enabled);
                 rules.ConfigureArmyMapSpeechSpatialVoice(batch.TryReserve, map.SourceMainCameraTerrain);
                 if (!session.TryStartArmyMapSpeech(owner, playback.CaptureSnapshot(), sequence,

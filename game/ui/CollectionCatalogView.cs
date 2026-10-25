@@ -25,18 +25,20 @@ internal partial class CollectionCatalogView : Control
     private Action<Action> runUiAction = null!;
     private Action? poemEntered;
     private Action<bool>? poemLeft;
+    private Func<Task>? poemAppearanceSound;
     private bool abandoned;
     internal bool HasPoemEvent => poemEvent is not null;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionCatalog catalog, CollectionCatalogKind kind, Func<bool> admitted,
         Action returned, Func<int> scrollSpeed, Action<Action> runUiAction,
-        Action poemEntered, Action<bool> poemLeft)
+        Action poemEntered, Action<bool> poemLeft, Func<Task> poemAppearanceSound)
     {
         this.repository = repository; this.text = text; this.catalog = catalog; this.kind = kind;
         this.admitted = admitted; this.returned = returned;
         this.scrollSpeed = scrollSpeed; this.runUiAction = runUiAction;
         this.poemEntered = poemEntered; this.poemLeft = poemLeft;
+        this.poemAppearanceSound = poemAppearanceSound;
         Name = kind == CollectionCatalogKind.Poems ? "CollectionPoems" : "CollectionScenery";
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Stop;
         sourceRows = kind == CollectionCatalogKind.Poems
@@ -120,7 +122,8 @@ internal partial class CollectionCatalogView : Control
             view.Configure(repository, text, publication,
                 () => ReadAdmission() && poemEvent == view,
                 () => runUiAction(() => ClosePoemEvent(restore: true)),
-                error => runUiAction(() => throw error));
+                error => runUiAction(() => throw error),
+                () => poemAppearanceSound?.Invoke() ?? Task.CompletedTask);
             poemEntered?.Invoke();
         }
         catch { ClosePoemEvent(restore: true); throw; }
@@ -145,7 +148,7 @@ internal partial class CollectionCatalogView : Control
     internal void Abandon()
     {
         abandoned = true; admitted = null; returned = null;
-        ClosePoemEvent(restore: false); poemEntered = null; poemLeft = null; poemEventCatalog = null;
+        ClosePoemEvent(restore: false); poemEntered = null; poemLeft = null; poemAppearanceSound = null; poemEventCatalog = null;
         CloseDetail(); list?.Abandon(); Hide();
     }
     public override void _ExitTree() => Abandon();

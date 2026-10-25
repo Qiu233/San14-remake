@@ -7,20 +7,26 @@ public partial class MapSceneView
     private ArmyMapSpeechLayer? _armySpeechLayer;
     internal bool ArmySpeechManagerVisible => IsPlayableMapReady && IsVisibleInTree() &&
         _d3d11Markers?.ArmySpeechManagerVisible == true;
+    internal bool MapSpeechManagerVisible => IsPlayableMapReady && IsVisibleInTree();
+    internal bool BaseSpeechManagerVisible => MapSpeechManagerVisible && _d3d11Markers?.BaseSpeechManagerVisible == true;
     internal bool HasArmySpeechLayout(int armyId) => _d3d11Markers?.HasArmySpeechLayout(armyId) == true;
 
     internal bool PrepareArmySpeechLayout(ArmyMapSpeechEntry entry)
     {
-        //Capture and defeat allocate their own UnitAction layout. Other
-        //actions borrow the actual Army view and cannot revive a retired one.
-        if (_armySpeechLayer is null || entry.ActionCode is not (11 or 14) && !HasArmySpeechLayout(entry.ArmyId)) return false;
+        //Capture, defeat and Base abnormal notifications own a UnitAction
+        //layout. Other actions borrow their actual Army view.
+        if (_armySpeechLayer is null || !OwnsSpeechLayout(entry) && !HasArmySpeechLayout(entry.ArmyId)) return false;
         return _armySpeechLayer.Prepare(entry);
     }
+
+    private static bool OwnsSpeechLayout(ArmyMapSpeechEntry entry) =>
+        entry.ActionCode is 11 or 14 or 15 or 16 || entry.BaseSpeakerAppearanceIndex is not null;
 
     internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureArmyTraitSpeechViews()
         => IsPlayableMapReady && UseD3D11Map ? _d3d11Markers?.CaptureArmySpeechViews() : null;
 
-    internal void SetArmyMapSpeechDriver(Action<double>? update)
+    internal void SetArmyMapSpeechDriver(Action<double>? update,
+        Func<ArmyMapSpeechEntry, AreaAdministrationQuery<BaseMapSpeechSpeakerPublication>>? baseSpeaker = null)
     {
         if (update is null)
         {
@@ -36,6 +42,7 @@ public partial class MapSceneView
             layer.Configure(_repository, _text.SourceLocale, this);
         }
         _armySpeechLayer.Update = update;
+        _armySpeechLayer.BaseSpeaker = baseSpeaker;
     }
 
     internal void PresentArmyMapSpeech(IReadOnlyList<ArmyMapSpeechDisplay> visible, ArmyMapSpeechState snapshot)
@@ -72,6 +79,7 @@ public partial class MapSceneView
         private Shader _shader = null!;
         private MapFont _font = null!;
         internal Action<double>? Update { get; set; }
+        internal Func<ArmyMapSpeechEntry, AreaAdministrationQuery<BaseMapSpeechSpeakerPublication>>? BaseSpeaker { get; set; }
 
         internal void Configure(GameResourceRepository repository, string locale, MapSceneView map)
         {
@@ -95,9 +103,11 @@ public partial class MapSceneView
 
         internal bool Prepare(ArmyMapSpeechEntry entry)
         {
+            //A native-invalid governor never constructed the owned action.
+            if (entry.BaseSpeakerLocationId is not null && entry.BaseSpeakerAppearanceIndex is null) return false;
             long sequence = entry.Sequence;
-            int hexId = entry.HexId, style = entry.ActionCode == 25 ? 1 : 0;
-            bool owned = entry.ActionCode is 11 or 14;
+            int hexId = entry.HexId, style = entry.ActionCode is 16 or 25 ? 1 : 0;
+            bool owned = OwnsSpeechLayout(entry);
             var borrowed = owned ? null : _map._d3d11Markers?.ArmySpeechLayout(entry.ArmyId);
             if (_bubbles.TryGetValue(sequence, out var retained))
             {
@@ -111,7 +121,17 @@ public partial class MapSceneView
             {
                 view = new() { Name = "ArmySpeech_" + sequence, Visible = false };
                 _canvas.AddChild(view);
-                try { view.Configure(_repository, _assets, _shader, _font, style); }
+                try
+                {
+                    view.Configure(_repository, _assets, _shader, _font, style);
+                    if (entry.BaseSpeakerAppearanceIndex is not null)
+                    {
+                        var source = BaseSpeaker?.Invoke(entry)
+                            ?? throw new InvalidDataException("map-speech.owned_portrait_provider");
+                        view.ConfigureOwnedPortrait(_repository, _assets, _shader,
+                            source.Value ?? throw new InvalidDataException(source.UnresolvedInput));
+                    }
+                }
                 catch { _canvas.RemoveChild(view); view.QueueFree(); throw; }
             }
             else
@@ -142,9 +162,11 @@ public partial class MapSceneView
                 if (!_entries.TryGetValue(display.Sequence, out var entry) || !Prepare(entry)) continue;
                 var bubble = _bubbles[display.Sequence];
                 bubble.View.ApplyText(display.Text);
-                if (_map.ArmySpeechManagerVisible && _map.TryProjectArmySpeech(bubble.Position, out var pixel))
+                bool visible = entry.BaseSpeakerLocationId is not null ? _map.BaseSpeechManagerVisible : _map.ArmySpeechManagerVisible;
+                if (visible && _map.TryProjectArmySpeech(bubble.Position, out var pixel))
                 {
-                    bubble.View.Position = new((int)pixel.X - 144, (int)pixel.Y - 140);
+                    bubble.View.Position = new Vector2((int)pixel.X - bubble.View.Size.X / 2,
+                        (int)pixel.Y - bubble.View.Size.Y) + bubble.View.ProjectionOffset;
                     bubble.View.Show();
                 }
             }
@@ -152,7 +174,7 @@ public partial class MapSceneView
 
         public override void _ExitTree()
         {
-            Update = null;
+            Update = null; BaseSpeaker = null;
             foreach (var bubble in _bubbles.Values) Release(bubble);
             _bubbles.Clear(); _font?.Dispose(); _shader?.Dispose(); _assets?.Dispose();
         }

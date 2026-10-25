@@ -12,9 +12,9 @@ public static class NarrationVoiceSelection
         _ => throw new ArgumentOutOfRangeException(nameof(language))
     };
 
-    /// <summary>Army VoicePlayer families3/4/5 are memory sounds in their
+    /// <summary>Army VoicePlayer families2..5 and14..27 are memory sounds in their
     /// installed bank. Ordinary narration keeps its separate stream binding.</summary>
-    public static AudioCueBank Bank(NarrationVoiceLanguage language, int voiceId) => voiceId is 2 or 3 or 4 or 5
+    public static AudioCueBank Bank(NarrationVoiceLanguage language, int voiceId) => IsArmySpatialVoice(voiceId)
         ? language switch
         {
             NarrationVoiceLanguage.Japanese => new(0x7572622E, null),
@@ -33,7 +33,7 @@ public static class NarrationVoiceSelection
         var binding = Bank(request.Language, request.VoiceId);
         if (bank.Source.ResourceUri != GameResourceId.Rdb("RRPreview", binding.SelectionBankId).ToString())
             throw new InvalidDataException("Narration voice bank differs from the selected voice language.");
-        bool spatial = request.VoiceId is 2 or 3 or 4 or 5;
+        bool spatial = IsArmySpatialVoice(request.VoiceId);
         var matches = bank.Samples.Where(sample => sample.SampleId == request.SoundId &&
             ((sample.Flags & 0x10000) == 0) == spatial).Take(2).ToArray();
         if (matches.Length != 1 || matches[0].Name is not { Length: > 0 } name ||
@@ -51,7 +51,7 @@ public static class NarrationVoiceSelection
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(categories);
-        if (request.VoiceId is not (2 or 3 or 4 or 5))
+        if (!IsArmySpatialVoice(request.VoiceId))
             throw new InvalidDataException("Spatial narration needs an Army voice family.");
         var sample = Resolve(request, bank);
         if (categories.ResourceUri != GameResourceId.Rdb("RRPreview", OutputResourceId).ToString())
@@ -62,6 +62,8 @@ public static class NarrationVoiceSelection
         var outputs = AudioMusicOutputResources.Read(categories, playback.Group.ClassificationId);
         return new(sample, playback.LinearGain, playback.PlaybackRate, outputs, playback.Group);
     }
+
+    internal static bool IsArmySpatialVoice(int voiceId) => voiceId is 2 or 3 or 4 or 5 or >= 14 and <= 27;
 }
 
 public sealed record NarrationSpatialVoicePlayback(AudioSampleRequest NamedSample, float Gain,

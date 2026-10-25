@@ -5,10 +5,10 @@ namespace San14.Data;
 
 public sealed partial class TacticRemakeCurrentContext
 {
-    /// <summary>TC175FF0's real source-Army / target-Army opcode23 strength
-    /// input, for the Base-primary dispatcher. The existing status0..2 owner
-    /// consumes this result. No primary Army, chain result or stage is invented.
-    /// SC qualification is deliberately independent of this TC-only entry.</summary>
+    /// <summary>Current CE SC175D50/TC175FF0's source-Army/target-Army
+    /// opcode23 strength input. The paired bodies and their gate/factor
+    /// consumers share these operations, including the explicit -1 lower
+    /// coefficient. The existing status0..2 owner consumes this result.</summary>
     internal TacticEffectQueryResult<TacticAbnormalStrengthSourceInput> ResolveTcAutomaticArmyAbnormalStrength(
         GameState state, UnitState caster, UnitState target, TacticSourceRow source,
         S14TacticEffectInstruction instruction, int stageOrdinal)
@@ -17,8 +17,6 @@ public sealed partial class TacticRemakeCurrentContext
             throw new InvalidDataException("TC Army abnormal strength needs the reached opcode23 instruction.");
         if (!Bound(state) || ArmyValid(state, caster) != true || ArmyValid(state, target) != true)
             throw MissingTc("current_Army_receivers");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw MissingTc("SC_Army_strength_source_not_qualified");
         //175FF0 prepares its stage multiplier at instruction entry, not
         //after a successful target gate. The caller also reaches this prefix
         //for a wholly empty instruction vector.

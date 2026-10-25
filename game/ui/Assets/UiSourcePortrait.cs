@@ -24,6 +24,9 @@ internal partial class UiSourcePortrait : Control
     internal void ConfigureOfficerCard(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xCB7DEBFC),9,3);
 
+    internal void ConfigureMapFace(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
+        => ConfigureSource(repository, assets, shader, portrait, new UiSourceLayout(repository, 0x7104E19F), 7, 3);
+
     internal void ConfigureRankup(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xC5EA2F4C),2,2);
 

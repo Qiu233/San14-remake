@@ -674,7 +674,7 @@ internal sealed partial class NarrationResourceMessages
         0x5F5E,
         0x5D25, 0x5D26, 0x5D7F, 0x5D80,
         0x5A74, 0x5A75, 0x5A76,
-        0x322E,
+        0x322E, 0x322F, 0x3230,
         0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x0606, 0x0607, 0x0608, 0x0609,
         0x060A, 0x2A3B, 0x3225, 0x3228, 0x3229, 0x322D, 0x3231, 0x3232, 0x3239, 0x323A, 0x3452, 0x349D, 0x53D4,
         0x53D5, 0x53D6, 0x53D7, 0x53D8, 0x53D9, 0x53DA, 0x5F58, 0x5F6A, 0x5F6D, 0x5F7B,
@@ -740,7 +740,7 @@ internal sealed partial class NarrationResourceMessages
 
     internal string ResolveHistoryReport(INarrationCurrentContext context, Func<int,int> drawApp32, int root)
     {
-        if (root is not (0x5F5E or 0x5D25 or 0x5D26 or 0x5D7F or 0x5D80 or 0x5A74 or 0x5A75 or 0x5A76 or 0x322E or 0x5F6A or 0x5F58 or 0x5F6D or 0x5F80 or 0xC96A or 0xC96B or 0xC96C or 0xC96D or 0xC96E or
+        if (root is not (0x5F5E or 0x5D25 or 0x5D26 or 0x5D7F or 0x5D80 or 0x5A74 or 0x5A75 or 0x5A76 or 0x322E or 0x322F or 0x3230 or 0x5F6A or 0x5F58 or 0x5F6D or 0x5F80 or 0xC96A or 0xC96B or 0xC96C or 0xC96D or 0xC96E or
             0xC356 or 0xC357 or 0xC358 or 0xC359 or 0xC35A or 0xC35B or 0xC35D or 0xC35E or 0xC96F or 0xC360 or
             0x3222 or 0x3223 or 0x3224 or 0x3226 or 0x3227 or 0x322A or 0x322B or 0x322C or
             0x3228 or 0x3229 or 0x3225 or 0x322D or 0x3231 or 0x3232 or 0x3239 or 0x323A or
@@ -1124,7 +1124,7 @@ internal sealed partial class NarrationResourceMessages
     ];
     internal string ResolveArmyMapSpeech(INarrationCurrentContext context, Func<int, int> drawApp32, int root = 0xC829)
     {
-        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829) && !ArmyTraitSpeechRoot(root))
+        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829 or 0xC72B or 0xC72C) && !ArmyTraitSpeechRoot(root))
             throw new InvalidDataException("army-map-speech.text.root");
         _prefix = "army-map-speech.text";
         bool previous = _report; _report = true;
@@ -1132,7 +1132,7 @@ internal sealed partial class NarrationResourceMessages
         try
         {
             return ExecuteMessage(context, drawApp32, root, Get(root, true), _ => false, true, null,
-                id => ArmyMapSpeechMessages.Contains(id) || ArmyTraitSpeechMessages.Contains(id), (group, code) => (group, code) switch
+                id => ArmyMapSpeechMessages.Contains(id) || ArmyTraitSpeechMessages.Contains(id) || id is 0xC72B or 0xC72C, (group, code) => (group, code) switch
                 {
                     ('C', 'J') => "^02", ('C', 'L') => "^05",
                     ('E', 'K') or ('E', 'M') => string.Empty,

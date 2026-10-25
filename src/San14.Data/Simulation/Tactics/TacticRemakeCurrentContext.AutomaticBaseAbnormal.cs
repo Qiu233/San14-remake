@@ -50,8 +50,9 @@ public sealed partial class TacticRemakeCurrentContext
             ? caster is null || ArmyValid(state, caster) != true || caster.NativeArmyOrigin?.NativeSlotIndex is null
             : !Need(_definitions.ReadBaseNativeValidity(baseCaster), "source_Base_validity")))
             throw BaseAbnormalMissing("current_caster");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw BaseAbnormalMissing("SC_Base_gate_source_not_qualified");
+        //Current CE SC175D50/178260 ->2EB700/2EF100 is paired with
+        //TC175FF0/178500 ->2EB7E0/2EF210. Both gates use the explicit
+        //-1 lower coefficient, and both Base writers keep the same slots.
         var army = baseCaster is null ? _definitions.ReadArmyUnitTableReference(caster!.NativeArmyOrigin!.NativeSlotIndex!.Value)
             ?? throw BaseAbnormalMissing("caster_pointer") : null;
         int commander = baseCaster is null ? CommanderPhysical(state, caster!) ?? throw BaseAbnormalMissing("caster_Commander")

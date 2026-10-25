@@ -20,11 +20,12 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
 
     internal GameState QueueArmyMapSpeechCurrent(GameState state, SourceWorldContext current,
         int armyId, int officerId, int actionCode, int hex, int? contextArgument = null, int? sceneryId = null,
-        int? contextTraitId = null, int? contextAreaId = null)
+        int? contextTraitId = null, int? contextAreaId = null,
+        int? baseSpeakerLocationId = null, int? baseSpeakerObjectId = null)
     {
         //TC1B4030 / static1A490C8=100 and1A490D4=8. This is the ordinary
         //battle/scenery subset; unsupported actions retain their own intent.
-        int probability = actionCode switch { 10 or 11 or 14 or >= 19 and <= 26 or 31 => 100, 18 or 27 => 8,
+        int probability = actionCode switch { 10 or 11 or 14 or 15 or 16 or >= 19 and <= 26 or 31 => 100, 18 or 27 => 8,
             _ => throw MapSpeechMissing("admission_action_" + actionCode) };
         var owner = state.ArmyMapSpeech ?? throw MapSpeechMissing("queue_owner");
         if (owner.Entries.Length >= 100 || owner.Entries.Any(entry => entry.OfficerId == officerId && entry.TextAtSource is not null)) return state;
@@ -35,6 +36,11 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         uint crt = (state.CampaignCrtRandom ?? throw MapSpeechMissing("CRT_random")).State;
         bool admitted = Draw(100) < probability;
         if (!admitted) return state with { CampaignCrtRandom = new(crt) };
+        //1B3310 constructs an owned balloon at admission for Base actions.
+        //Capture its portrait and Force colour now, before the delay draw;
+        //the later Start must not borrow a changed governor appearance.
+        var baseSpeaker = baseSpeakerLocationId is not null || actionCode is 11 or 14
+            ? CaptureBaseMapSpeechSpeakerCurrent(state, current, officerId) : null;
         byte delay = checked((byte)Draw(10));
         var entries = owner.Entries.ToBuilder();
         int old = -1;
@@ -47,7 +53,10 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             if (actionCode < retained.ActionCode)
                 entries[old] = retained with { ArmyId = armyId, ActionCode = actionCode, HexId = hex,
                     SceneryId = sceneryId, ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
-                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId };
+                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId,
+                    BaseSpeakerLocationId = baseSpeakerLocationId, BaseSpeakerObjectId = baseSpeakerObjectId,
+                    BaseSpeakerAppearanceIndex = retained.BaseSpeakerAppearanceIndex ?? baseSpeaker?.AppearanceIndex,
+                    BaseSpeakerForceColor = retained.BaseSpeakerForceColor ?? baseSpeaker?.ForceColor };
             //The temporary delayed entry is discarded even if the new packet
             //does not win. The existing delay/lifetime are never restarted.
         }
@@ -55,7 +64,9 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         {
             entries.Add(new(next, armyId, officerId, actionCode, hex, sceneryId, delay, 0, null)
                 { ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
-                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId });
+                    ContextTraitId = contextTraitId, ContextAreaId = contextAreaId,
+                    BaseSpeakerLocationId = baseSpeakerLocationId, BaseSpeakerObjectId = baseSpeakerObjectId,
+                    BaseSpeakerAppearanceIndex = baseSpeaker?.AppearanceIndex, BaseSpeakerForceColor = baseSpeaker?.ForceColor });
             next = checked(next + 1);
         }
         return state with { CampaignCrtRandom = new(crt), ArmyMapSpeech = new(next, entries.ToImmutable()) };
@@ -78,10 +89,19 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             if (owner.Entries.Any(item => item.Sequence != sequence && item.OfficerId == entry.OfficerId && item.TextAtSource is not null) ||
                 !armyLayoutAvailable) return new(Remove(state, sequence), false);
             var current = CaptureOwnedArmyReturnWorld(state).Context;
-            //1B2E50 rejects a reset Army even if the application still owns a
-            //retiring render node. A delayed defeat line never postpones the
-            //actual pending70/282580 lifecycle just to keep a speech layout.
-            if (entry.ActionCode is not (11 or 14))
+            //1BC3C0 uses packet28's existing owned layout before trying
+            //1B2E50. Priority replacement retains that layout even when the
+            //new packet is an Army action and the Army has since retired.
+            bool ownedSpeakerLayout = entry.BaseSpeakerAppearanceIndex is not null &&
+                entry.BaseSpeakerForceColor is not null;
+            if (entry.BaseSpeakerLocationId is not null)
+            {
+                //1AF720 did not create an owned view for an invalid governor.
+                //1BC3C0 then fails; it never substitutes Army0 or a face.
+                if (entry.BaseSpeakerAppearanceIndex is null || entry.BaseSpeakerForceColor is null)
+                    return new(Remove(state, sequence), false);
+            }
+            else if (!ownedSpeakerLayout && entry.ActionCode is not (11 or 14))
             {
                 if (ArmyDestructionQueue.ResolveUnitSlot(state, entry.ArmyId) is not int armyPhysical)
                     return new(Remove(state, sequence), false);
@@ -100,6 +120,11 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
                 case 11: root = 0xC4E8; operands = operands with
                     { Base0 = checked((ushort)MapSpeechNeed(entry.ContextBaseLocationId, "capture_Base_operand")) }; break;
                 case 14: root = 0xC4AB; break;
+                case 15:
+                case 16:
+                    root = entry.ActionCode == 15 ? 0xC72B : 0xC72C;
+                    operands = operands with { Base0 = checked((ushort)MapSpeechNeed(entry.BaseSpeakerObjectId, "speaker_Base4E")) };
+                    break;
                 case 18: root = 0xC4E9; operands = operands with
                     { Base0 = checked((ushort)MapSpeechNeed(entry.ContextBaseLocationId, "lost_Base_operand")) }; break;
                 case 19: root = 0xC4F4; break;

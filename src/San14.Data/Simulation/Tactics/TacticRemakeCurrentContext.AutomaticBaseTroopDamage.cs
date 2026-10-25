@@ -18,8 +18,8 @@ public sealed partial class TacticRemakeCurrentContext
         if (!Bound(state) || ArmyValid(state, caster) != true ||
             caster.NativeArmyOrigin?.NativeSlotIndex is not int physical)
             throw BaseTroopDamageMissing("current_Army_caster");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw BaseTroopDamageMissing("SC_numeric_source_not_qualified");
+        if (state.NativeArmySimulation!.Parameters.Language is not ("TC" or "SC"))
+            throw BaseTroopDamageMissing("numeric_source_not_qualified");
         var army = _definitions.ReadArmyUnitTableReference(physical)
             ?? throw BaseTroopDamageMissing("caster_pointer");
         int nativePhysical = army.PhysicalSlot ?? throw BaseTroopDamageMissing("caster_native22DB70");
@@ -131,9 +131,8 @@ public sealed partial class TacticRemakeCurrentContext
     }
     private static int BaseTroopDamageParameter(GameState state, string key)
     {
-        var bank = state.NativeArmySimulation?.Parameters ?? throw BaseTroopDamageMissing("parameter_owner");
-        return !bank.Float32Values.ContainsKey(key) && bank.Int32Values.TryGetValue(key, out int value)
-            ? value : throw BaseTroopDamageMissing(key);
+        return AutomaticTacticDamageCurrentParameters.ReadCurrent(state, key)
+            ?? throw BaseTroopDamageMissing(key);
     }
     private static InvalidDataException BaseTroopDamageMissing(string owner) => new("automatic_Base_troop_damage." + owner);
 }

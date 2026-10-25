@@ -25,17 +25,20 @@ internal partial class PoemEventView : Control
     private Func<bool>? admitted;
     private Action? returned;
     private Action<Exception>? failed;
+    private Func<Task>? appearanceSound;
+    private bool appearanceSoundRequested;
     private bool abandoned;
-    private int phase, inertia, lastMouseDelta;
+    private int phase, inertia, pointerX, previousPointerX;
     private double phaseMilliseconds, fadeMilliseconds, fadeDuration;
     private float fadeStart, fadeTarget;
-    private bool dragging;
+    private bool dragging, pointerReleased;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, PoemEventPublication publication,
-        Func<bool> admitted, Action returned, Action<Exception> failed)
+        Func<bool> admitted, Action returned, Action<Exception> failed, Func<Task> appearanceSound)
     {
         this.repository = repository; this.text = text; this.publication = publication;
         this.admitted = admitted; this.returned = returned; this.failed = failed;
+        this.appearanceSound = appearanceSound;
         Name = "PoemEvent"; MouseFilter = MouseFilterEnum.Stop; SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
         canvas = new() { Name = "PoemEventCanvas", Size = new(1920, 1080), ClipContents = true, MouseFilter = MouseFilterEnum.Stop };
@@ -80,6 +83,8 @@ internal partial class PoemEventView : Control
             case 3 when phaseMilliseconds >= 4000:
                 StartClip("fade_out"); StartClip(publication.InitialAnimationName); normalFooter.Show(); Enter(4); break;
             case 4 when !IsPlaying(publication.InitialAnimationName): BeginReading(); break;
+            case 4 when phaseMilliseconds >= 2900 && !appearanceSoundRequested:
+                appearanceSoundRequested = true; _ = PlayAppearanceSoundAsync(); break;
             case 5 when !IsPlaying("txt_scrolling"): Enter(11); break;
             case 6 when phaseMilliseconds >= 500:
                 clips.Clear(); StartClip("loop", true); information.Show(); infoFooter.Show();
@@ -89,6 +94,14 @@ internal partial class PoemEventView : Control
                 information.Hide(); infoFooter.Hide(); normalFooter.Hide(); FadeBlack(1, 500); Enter(10); break;
             case 10 when phaseMilliseconds >= 500:
                 var complete = returned; returned = null; complete?.Invoke(); return;
+        }
+        if (scrollAcquired && (phase is 5 or 11) && dragging)
+        {
+            if (IsPlaying("txt_scrolling")) { clips.Clear(); Enter(11); }
+            int dx = pointerX - previousPointerX;
+            SetScroll(Math.Clamp(dx + (int)poses[5].X, 0, publication.MaxTextScrollOffsetX));
+            previousPointerX = pointerX;
+            if (pointerReleased) { inertia = dx; dragging = false; pointerReleased = false; }
         }
         if (publication.MaxTextScrollOffsetX > 0 && scrollAcquired && inertia != 0)
         {
@@ -106,7 +119,7 @@ internal partial class PoemEventView : Control
     {
         hint.Text = Game(0x2984);
         if (publication.MaxTextScrollOffsetX > 0)
-        { StartClip("txt_scrolling"); scrollAcquired = true; Enter(5); }
+        { visuals[2].Hide(); StartClip("txt_scrolling"); scrollAcquired = true; Enter(5); }
         else Enter(11);
     }
 
@@ -118,6 +131,7 @@ internal partial class PoemEventView : Control
         hint.Text = Game(0x2984);
         if (publication.MaxTextScrollOffsetX > 0)
         {
+            visuals[2].Hide();
             var scroll = publication.Animations.Single(entry => entry.Name == "txt_scrolling");
             Apply(scroll.Sample(scroll.StartFrame)); scrollAcquired = true; Enter(5);
         }
@@ -147,16 +161,15 @@ internal partial class PoemEventView : Control
             if (mouse.Pressed && phase == 4) SkipAppearance();
             if (scrollAcquired && (phase is 5 or 11))
             {
-                dragging = mouse.Pressed;
-                if (dragging) { inertia = 0; lastMouseDelta = 0; }
-                else inertia = lastMouseDelta;
+                pointerX = (int)(canvas.GetGlobalTransformWithCanvas().AffineInverse() * mouse.Position).X;
+                if (mouse.Pressed)
+                { dragging = true; pointerReleased = false; inertia = 0; previousPointerX = pointerX; }
+                else if (dragging) pointerReleased = true;
             }
         }
         else if (input is InputEventMouseMotion motion && dragging && scrollAcquired && (phase is 5 or 11))
         {
-            clips.Clear(); Enter(11);
-            lastMouseDelta = (int)(motion.Relative.X / canvas.Scale.X);
-            SetScroll(Math.Clamp(lastMouseDelta + (int)poses[5].X, 0, publication.MaxTextScrollOffsetX));
+            pointerX = (int)(canvas.GetGlobalTransformWithCanvas().AffineInverse() * motion.Position).X;
         }
     }
 
@@ -170,8 +183,14 @@ internal partial class PoemEventView : Control
         Apply(clip.Sample(clip.StartFrame)); clips.Add(new(clip, repeat));
     }
     private bool IsPlaying(string name) => clips.Any(entry => entry.Source.Name == name);
+    private async Task PlayAppearanceSoundAsync()
+    {
+        try { if (appearanceSound is { } play) await play(); }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (!abandoned) failed?.Invoke(error); }
+    }
     private string Game(int id) => repository.LoadMessages(text.SourceLocale, MessageKind.Game)
-        .Messages.Sections[id / 10000].Records[id % 10000].Text ?? throw new InvalidDataException("Missing poem event hint.");
+        .Messages.Sections[id / 10000].Records[id % 10000].Literals.Single().Text;
     private bool ReadAdmission() => !abandoned && IsVisibleInTree() && (admitted?.Invoke() ?? false);
     private void Fit()
     {
@@ -181,7 +200,8 @@ internal partial class PoemEventView : Control
     }
     internal void Abandon()
     {
-        abandoned = true; admitted = null; returned = null; failed = null; clips.Clear(); SetProcess(false); Hide();
+        abandoned = true; admitted = null; returned = null; failed = null; appearanceSound = null;
+        clips.Clear(); SetProcess(false); Hide();
     }
     public override void _ExitTree()
     { Abandon(); foreach (var image in imagePanes) image.Dispose(); assets?.Dispose(); font?.Dispose(); shader?.Dispose(); }

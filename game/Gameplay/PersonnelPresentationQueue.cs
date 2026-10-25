@@ -31,6 +31,7 @@ internal static class PersonnelPresentationQueue
                     request.PersonDeathReport is not null || request.MapMusicIntent is not null ||
                     request.ApplicationExit is not null || request.ForceCoalitionVisual is not null ||
                     traitSource && request.ArmyTraitViewRefresh is not null ||
+                    request.BaseAbnormalFeedback is not null ||
                     request.MonthlyMaintenance is not null||request.NormalTurnFoodWarningPresentation is not null||
                     request.NormalTurnForceResourceNotice is not null||request.TalentSceneryReward?.DiscoveryTextAtSource is not null||
                     request.OfficerGrowthFeedback?.Operation is OfficerGrowthFeedbackOperation.SoundCue or OfficerGrowthFeedbackOperation.Narration||

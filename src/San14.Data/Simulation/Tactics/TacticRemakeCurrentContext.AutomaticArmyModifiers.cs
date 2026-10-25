@@ -11,7 +11,9 @@ public sealed partial class TacticRemakeCurrentContext
     internal int ReadAutomaticAllModifierParameter(GameState state, string key)
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw AllModifierMissing("current_parameters");
-        if (bank.Language != "TC") throw AllModifierMissing("SC_wrapper_not_qualified");
+        //Current CE SC1766E0/2ECAA0 and TC176980/2ECB80 share this
+        //wrapper and writer contract. Read the bound world's saved/current
+        //integer parameter; locale does not change this mechanism.
         return !bank.Float32Values.ContainsKey(key) && bank.Int32Values.TryGetValue(key, out int value)
             ? value : throw AllModifierMissing(key);
     }

@@ -79,7 +79,7 @@ public sealed class LoadedMapEffectResources
     }
 }
 
-/// <summary>Resolve the four territory/foothold effects through their installed
+/// <summary>Resolve territory, foothold and ordinary tactic effects through their installed
 /// CE1, Displayset, texture group, slot table and Effect2 declarations. Resource
 /// identifiers here select original format objects; they are not captured draws.</summary>
 public static class MapEffectResources
@@ -95,6 +95,7 @@ public static class MapEffectResources
         {
             4 => "map_unit_effect_007", 5 => "map_unit_effect_008",
             7 => "map_unit_effect_010", 8 => "map_unit_effect_011",
+            9 => "map_unit_effect_013",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported map effect kind.")
         };
         // A map owner may share this table across its effect kinds. Overrides

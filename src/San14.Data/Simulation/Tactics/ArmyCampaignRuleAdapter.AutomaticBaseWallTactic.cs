@@ -22,8 +22,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         ArgumentNullException.ThrowIfNull(sampler); ArgumentNullException.ThrowIfNull(prefix);
         var caster = BaseTacticCaster(state, current, context, casterId, source, target, instruction, 18);
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw WallTacticMissing("SC_wrapper_source_not_qualified");
+        if (state.NativeArmySimulation!.Parameters.Language is not ("TC" or "SC"))
+            throw WallTacticMissing("wrapper_source_not_qualified");
         int physical = caster.NativeArmyOrigin?.NativeSlotIndex ?? throw WallTacticMissing("caster_physical");
         var actor = current.ReadArmyUnitTableReference(physical) ?? throw WallTacticMissing("caster_pointer");
         ushort link = WallNeed(current.ReadBaseObjectLink(target), "tactic_Base4E");
@@ -62,8 +62,9 @@ public sealed partial class ArmyCampaignRuleAdapter
 
 public sealed partial class TacticRemakeCurrentContext
 {
-    //No trusted current producer exists for this separate177610 reduction
-    //parameter. Its initial image bytes are not a current gameplay value.
+    //The separate177610 reduction key is shared by the qualified wrappers.
+    //SC fresh defaults have their own source profile; an absent TC saved
+    //current remains unresolved rather than borrowing that language's value.
     internal const string BaseWallTacticSmallDamageReductionPercent =
         "simulation.tactics.base-wall-small-damage-reduction-percent";
 
@@ -78,8 +79,8 @@ public sealed partial class TacticRemakeCurrentContext
         if (!Bound(state) || ArmyValid(state, caster) != true ||
             caster.NativeArmyOrigin?.NativeSlotIndex is not int physical)
             throw WallPrefixMissing("current_caster");
-        if (state.NativeArmySimulation!.Parameters.Language != "TC")
-            throw WallPrefixMissing("SC_wrapper_source_not_qualified");
+        if (state.NativeArmySimulation!.Parameters.Language is not ("TC" or "SC"))
+            throw WallPrefixMissing("wrapper_source_not_qualified");
         var actor = _definitions.ReadArmyUnitTableReference(physical)
             ?? throw WallPrefixMissing("caster_pointer");
         int force = _definitions.ReadArmyUnitRawForceSlot(actor);
@@ -115,9 +116,8 @@ public sealed partial class TacticRemakeCurrentContext
 
         int P(string key)
         {
-            var parameters = state.NativeArmySimulation.Parameters;
-            return !parameters.Float32Values.ContainsKey(key) && parameters.Int32Values.TryGetValue(key, out int value)
-                ? value : throw WallPrefixMissing(key);
+            return AutomaticTacticDamageCurrentParameters.ReadCurrent(state, key)
+                ?? throw WallPrefixMissing(key);
         }
         static InvalidDataException WallPrefixMissing(string owner) =>
             new("automatic_Base_wall_tactic.prefix." + owner);

@@ -1,7 +1,9 @@
+using San14.Core;
+
 namespace San14.Data;
 
-/// <summary>Owned current scalar keys for tactic troop damage. This owner has
-/// no initializer: an absent saved current remains unresolved.</summary>
+/// <summary>Owned scalar keys and the independently qualified SC static
+/// defaults. Existing saved values retain precedence over those defaults.</summary>
 internal static class AutomaticTacticDamageCurrentParameters
 {
     private const string Prefix = "simulation.tactics.troop-damage.";
@@ -12,6 +14,47 @@ internal static class AutomaticTacticDamageCurrentParameters
     internal const string SpecialForcePercent = Prefix + "special-force-percent";
     internal const string OrdinaryReductionPercent = Prefix + "ordinary-reduction-percent";
     internal const string ProvokedOtherSourcePercent = Prefix + "provoked-other-source-percent";
+
+    //Current SC176970/177370 consume these file-backed parameters. Their
+    //separate source qualification is recorded offline in source88; the game
+    //does not read an executable, native address or instruction fingerprint.
+    private static readonly IReadOnlyDictionary<string, int> ScDefaults = new Dictionary<string, int>
+    {
+        [AbilityBaseline] = 5,
+        [TroopDivisor] = 200,
+        [SquareRootOffset] = 5,
+        [CasterModifierScale] = 5,
+        [SpecialForcePercent] = 120,
+        [OrdinaryReductionPercent] = 30,
+        [ProvokedOtherSourcePercent] = 130,
+        [TacticRemakeCurrentContext.BaseWallTacticSmallDamageReductionPercent] = 30
+    };
+
+    internal static int? ReadCurrent(GameState state, string key)
+    {
+        var bank = state.NativeArmySimulation?.Parameters;
+        if (bank is null || bank.Float32Values.ContainsKey(key)) return null;
+        if (bank.Int32Values.TryGetValue(key, out int current)) return current;
+        return bank.Language == "SC" && bank.RuleVersion == SimulationRuleIdentity.Version &&
+            ScDefaults.TryGetValue(key, out int value) ? value : null;
+    }
+
+    internal static GameState InstallFresh(GameState state)
+    {
+        var simulation = state.NativeArmySimulation
+            ?? throw new InvalidDataException("Automatic tactic parameters have no fresh simulation owner.");
+        var parameters = simulation.Parameters;
+        if (parameters.Language != "SC" || parameters.RuleVersion != SimulationRuleIdentity.Version) return state;
+        var values = new Dictionary<string, int>(parameters.Int32Values);
+        foreach (var row in ScDefaults)
+        {
+            if (parameters.Float32Values.ContainsKey(row.Key))
+                throw new InvalidDataException("Automatic tactic parameter has a non-integer saved owner: " + row.Key);
+            values.TryAdd(row.Key, row.Value);
+        }
+        return state with { NativeArmySimulation = simulation with
+            { Parameters = parameters with { Int32Values = values } } };
+    }
 }
 
 internal sealed record AutomaticArmyBaseTroopDamageMathInput(byte EffectValue,

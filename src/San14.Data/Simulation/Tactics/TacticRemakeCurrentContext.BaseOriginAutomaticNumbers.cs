@@ -61,13 +61,13 @@ public sealed partial class TacticRemakeCurrentContext
         byte flags = state.NativeArmySimulation!.Forces.GetValueOrDefault(forceId)?.Flags193
             ?? throw OriginAutomaticMissing("damage_Force193");
         int percent = (flags & 16) != 0 ? P(AutomaticTacticDamageCurrentParameters.SpecialForcePercent) : 100;
-        float additive = (float)OriginStatic(state, "object14-additive-percent", 20) * (float)prefix.Object14 / 100f;
+        float additive = (float)OriginStatic(state, "object14-additive-percent") * (float)prefix.Object14 / 100f;
         int amount = TacticArmyBaseTroopDamageMath.BeforeSettings(new(instruction.EffectValue,
             ability, baseline, prefix.StageProduct, prefix.SourceTroops, divisor, root,
             factor, 1f, 1f, percent, panel), provocation, additive);
         var advantage = PersonReturnPathSource.ReadForceAdvantage(state, _definitions, force, 3, 0);
         int advantageValue = advantage.Value ?? throw OriginAutomaticMissing(advantage.UnresolvedOwner ?? "damage_advantage3");
-        int addition = unchecked(unchecked(advantageValue * amount) * OriginStatic(state, "advantage3-scale", 1)) / 100;
+        int addition = unchecked(unchecked(advantageValue * amount) * OriginStatic(state, "advantage3-scale")) / 100;
         if (target.NativeKind == 27)
         {
             var army = new ArmyUnitReference(target.NativePhysicalSlot);
