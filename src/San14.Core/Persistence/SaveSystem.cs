@@ -89,6 +89,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         BaseCaptureContinuationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseTacticPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseCombatSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OrdinaryTacticPlaybackSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         CoalitionCameraPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
@@ -210,6 +211,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         PersonDeathPresentationSaveFields.Migrate(stateDocument, version);
         RulerDecisionSaveFields.Migrate(stateDocument, version);
         BaseCombatSaveFields.Migrate(stateDocument, version);
+        OrdinaryTacticPlaybackSaveFields.Migrate(stateDocument, version);
         NormalCombatImmediateSaveFields.Migrate(stateDocument, version);
         DuelAftermathSaveFields.Migrate(stateDocument, version);
         BaseCaptureContinuationSaveFields.Migrate(stateDocument, version);

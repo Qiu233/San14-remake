@@ -12,6 +12,12 @@ public static partial class G1EffectDrawWriter
     private sealed record Queued(G1EffectParticleRenderSource Source, byte[] Payload,
         int Bucket, long Ordinal, int? Subdraw);
 
+    private struct MeshSelectionState
+    {
+        public int DistanceIndex;
+        public uint? Subdraw;
+    }
+
     public static G1EffectDrawBatch Build(G1EffectDrawCamera camera,
         IEnumerable<G1EffectParticleRenderSource> sources, int bucketCount, int queueCapacity,
         int dynamicCapacity32, int rowCapacity)
@@ -42,6 +48,7 @@ public static partial class G1EffectDrawWriter
             { Missing(source, $"Generic render type {type} is not implemented."); continue; }
             if ((type is 0 or 2) && (U(generic.Span, 8) & 0x200) != 0)
             { Missing(source, "GPU generic submission requires its actual GPU pool."); continue; }
+            var meshSelection = new MeshSelectionState();
             foreach (var slot in source.Particles)
             {
                 if (!slot.IsAllocated) throw new InvalidOperationException("Cannot draw a released particle slot.");
@@ -64,12 +71,12 @@ public static partial class G1EffectDrawWriter
                     }
                     if ((particle.Span[6] & 2) == 0) continue;
                     if (source.ModuleOpacity < 1.1920929e-5f && HasOpacityController(generic.Span)) continue;
+                    int? subdraw = type == 7 ? SelectSubdraw(particle.Span, generic.Span,
+                        camera, source.Resources.Model.Model.Subdraws.Count, ref meshSelection) : null;
                     float normalized = ApproximateLog(depth) /
                         ApproximateLog(camera.FarPlane / camera.NearPlane) + 1f;
                     if (!(normalized >= 0 && normalized < 1)) { culled++; continue; }
                     if (queue.Count >= queueCapacity) { capacityRejected++; continue; }
-                    int? subdraw = type == 7 ? SelectSubdraw(particle.Span, generic.Span,
-                        camera, source.Resources.Model.Model.Subdraws.Count) : null;
                     queue.Add(new(source, particle[0x20..].ToArray(), (int)(bucketCount * normalized), ordinal++, subdraw));
                 }
                 catch (NotSupportedException error) { Missing(source, error.Message); }
@@ -124,17 +131,20 @@ public static partial class G1EffectDrawWriter
     }
 
     private static int SelectSubdraw(ReadOnlySpan<byte> particle, ReadOnlySpan<byte> generic,
-        G1EffectDrawCamera camera, int modelCount)
+        G1EffectDrawCamera camera, int modelCount, ref MeshSelectionState state)
     {
         Range(generic, 0x240, 16);
         int mode = H(generic, 0x240), count = H(generic, 0x242);
         if (count == 0) throw new NotSupportedException("Mesh generic has no current subdraw selection.");
-        int table = Relative(generic, 0x248), selected = 0;
+        int table = Relative(generic, 0x248);
         Range(generic, table, count * 4);
+        state.Subdraw ??= U(generic, table);
         if (mode == 1)
         {
             Range(particle, 0x9C, 4);
-            selected = checked((int)U(particle, 0x9C));
+            uint selected = U(particle, 0x9C);
+            if (selected >= count) throw new InvalidDataException("Particle mesh selector leaves its table.");
+            state.Subdraw = U(generic, table + (int)selected * 4);
         }
         else if (mode == 0)
         {
@@ -143,14 +153,38 @@ public static partial class G1EffectDrawWriter
                 int keys = Relative(generic, 0x244);
                 Range(generic, keys, count * 4);
                 float distance = Transform(V(particle, 0x80), camera.ClipMatrix).W * camera.FarPlane;
+                int selected = state.DistanceIndex;
+                // The source carries its distance cursor across live particles,
+                // searches backwards first, then advances through equal keys.
+                while (selected > 0 && !(F(generic, keys + (selected - 1) * 4) <= distance)) selected--;
                 while (selected < count - 1 && F(generic, keys + selected * 4) <= distance) selected++;
+                state.DistanceIndex = selected;
+                state.Subdraw = U(generic, table + selected * 4);
             }
         }
-        else throw new NotSupportedException($"Mesh selector mode {mode} requires its live age binding.");
-        if ((uint)selected >= (uint)count) throw new InvalidDataException("Particle mesh selector leaves its table.");
-        int subdraw = checked((int)U(generic, table + selected * 4));
-        if ((uint)subdraw >= (uint)modelCount) throw new InvalidDataException("Particle mesh subdraw leaves its model.");
-        return subdraw;
+        else if (mode is >= 2 and <= 5)
+        {
+            int keys = Relative(generic, 0x244);
+            Range(generic, keys, count * 4);
+            float age = F(particle, unchecked((int)U(generic, 0x2C)));
+            if (mode >= 4) age /= F(particle, unchecked((int)U(generic, 0x30)));
+            float phase = (mode & 1) != 0 ? F(particle, 0x9C) : 0f;
+            // C# remainder retains the dividend's sign, as does the source
+            // fmodf. Do not clamp normalized age or turn this into floor-modulo.
+            float position = (age + phase) % F(generic, keys + (count - 1) * 4);
+            for (int selected = 0; selected < count; selected++)
+            {
+                if (!(position < F(generic, keys + selected * 4))) continue;
+                state.Subdraw = U(generic, table + selected * 4);
+                break;
+            }
+            // If no strict comparison succeeds, the source retains the last
+            // submitted model (initially table[0]); it does not clamp to the end.
+        }
+        else throw new NotSupportedException($"Mesh selector mode {mode} is not implemented.");
+        uint subdraw = state.Subdraw.Value;
+        if (subdraw >= modelCount) throw new InvalidDataException("Particle mesh subdraw leaves its model.");
+        return (int)subdraw;
     }
 
     private static bool Cull(uint type, ReadOnlySpan<byte> particle, ReadOnlySpan<byte> generic,

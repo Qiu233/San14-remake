@@ -111,72 +111,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         int targetId = target.GameplayArmyId ?? throw Missing("target_gameplay_ArmyId");
         var unit = state.Units.GetValueOrDefault(targetId) ?? throw Missing("target_Army_image");
         var amount = context.ResolveBaseOriginModifierInput(state, current, origin, target, source, instruction, prefix);
-        bool all = instruction.Opcode is 21 or 22;
-        bool positive = instruction.Opcode is >= 5 and <= 9 or 21;
-        int dimension = all ? -1 : instruction.Opcode - (positive ? 5 : 10);
-        var native = unit.NativeTacticRuntime ?? throw Missing("target_tactic_runtime");
-        if (native.StatModifiers4A is not { Length: 6 } || native.StatDurations50 is not { Length: 6 })
-            throw Missing("target_six_modifier_duration_pairs");
-        var modifiers = native.StatModifiers4A.ToArray();
-        var durations = native.StatDurations50.ToArray();
-        sbyte beforeModifier = all ? (sbyte)0 : modifiers[dimension];
-        byte beforeDuration = all ? (byte)0 : durations[dimension];
-        //The shared merge is the existing2EC6A0 signed32 energy merge, with
-        //its final signed-byte and duration caps. Do not narrow Raw68 early.
-        if (all)
-        {
-            for (int index = 0; index < 5; index++)
-                if (Need(current.ReadArmyUnitNativeValidity(army), "all_modifier_validity"))
-                    (modifiers[index], durations[index]) = MergeAutomaticArmyModifier(
-                        modifiers[index], durations[index], amount.Modifier, amount.Duration);
-        }
-        else (modifiers[dimension], durations[dimension]) = MergeAutomaticArmyModifier(
-            modifiers[dimension], durations[dimension], amount.Modifier, amount.Duration);
-        var changed = unit with { NativeTacticRuntime = native with { StatModifiers4A = modifiers, StatDurations50 = durations } };
-        var working = state with { Units = new(state.Units) { [targetId] = changed } };
+        var result = ApplyAutomaticResolvedArmyModifiersCurrent(state, current, army, targetId, source,
+            instruction, amount, sampler, effects);
+        return new(result.State, result.TargetResultMarker);
 
-        byte rawDistrict = ReadFacilityHistoryDistrict(current, army);
-        var district = current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0)
-            ?? throw Missing("report_District_pointer");
-        if (BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, district, Missing))
-        {
-            if (all)
-                Append(0x322E, new(Army0: army, String0: source.Name,
-                    String1: ReadHistoryDataText(1, positive ? 0x24E : 0x24F)));
-            else
-            {
-                //The single report re-resolves the tactic identity/validity
-                //before comparing the newly stored modifier/duration pair.
-                var tactic = current.ReadSkillTacticReference(source.Slot)
-                    ?? throw Missing("report_tactic_pointer");
-                string name = Need(current.ReadSkillTacticValidity(tactic), "report_tactic_validity") ? source.Name : string.Empty;
-                int dimensionTextId = dimension switch { 0 => 0x22F, 1 => 0x22C, 2 => 0x22D, 3 => 0x22E, 4 => 0x230,
-                    _ => throw Missing("report_dimension") };
-                string dimensionText = ReadHistoryDataText(1, dimensionTextId);
-                sbyte afterModifier = modifiers[dimension];
-                byte afterDuration = durations[dimension];
-                if (beforeModifier != afterModifier)
-                    Append(0x322F, new(Army0: army, String0: name, String1: dimensionText,
-                        String2: ReadHistoryDataText(1, afterModifier <= beforeModifier ? 0x24F : 0x24E)));
-                else if (beforeDuration != afterDuration)
-                    Append(0x3230, new(Army0: army, String0: name, String1: dimensionText,
-                        String2: ReadHistoryDataText(1, afterModifier < 1 ? 0x24F : 0x24E),
-                        String3: ReadHistoryDataText(1, afterDuration <= beforeDuration ? 0x24D : 0x24C)));
-            }
-        }
-        //The wrapper emits marker0 even when every numeric byte is unchanged.
-        return new(working, true);
-
-        void Append(int root, HistoryMessageOperands operands)
-        {
-            var formatted = FormatHistoryReport(working, current, root, operands);
-            working = formatted.State;
-            int hex = Need(current.ReadArmyUnitRawHex2A(army), "report_Army2A");
-            int day = sampler.Read(working)?.Day450 ?? throw Missing("report_World450");
-            byte finalDistrict = ReadFacilityHistoryDistrict(current, army);
-            working = WriteHistory(working, current, new ReportCommand(5, finalDistrict, hex, day,
-                formatted.Text, CampaignHistoryWriter.Supplemental(working), 5012, MarkBit4: 1), effects);
-        }
         static T Need<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
         static InvalidDataException Missing(string name) => new("automatic_Base_origin.modifier." + name);
     }

@@ -139,7 +139,7 @@ internal partial class PoemEventView
         for (int? index = node; index is int current; index = source.Nodes[current].ParentIndex) alpha *= poses[current].Alpha;
         return alpha;
     }
-    private void Apply(IReadOnlyList<PoemEventAnimationValue> values)
+    private void Apply(IReadOnlyList<LcskAnimationValue> values)
     {
         foreach (var value in values)
         {

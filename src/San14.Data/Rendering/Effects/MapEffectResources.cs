@@ -96,6 +96,21 @@ public static class MapEffectResources
             4 => "map_unit_effect_007", 5 => "map_unit_effect_008",
             7 => "map_unit_effect_010", 8 => "map_unit_effect_011",
             9 => "map_unit_effect_013",
+            // The manager constructor declares names by kind. The complete
+            // name table is sparse; these are its ordinary result entries.
+            16 => "map_unit_effect_043", 17 => "map_unit_effect_044",
+            18 => "map_unit_effect_045", 19 => "map_unit_effect_046",
+            20 => "map_unit_effect_047", 21 => "map_unit_effect_048",
+            22 => "map_unit_effect_049", 23 => "map_unit_effect_050",
+            24 => "map_unit_effect_051", 25 => "map_unit_effect_052",
+            26 => "map_unit_effect_053", 27 => "map_unit_effect_054",
+            28 => "map_unit_effect_055", 29 => "map_unit_effect_056",
+            30 => "map_unit_effect_057", 31 => "map_unit_effect_058",
+            32 => "map_unit_effect_059", 33 => "map_unit_effect_060",
+            34 => "map_unit_effect_061", 35 => "map_unit_effect_062",
+            36 => "map_unit_effect_063", 37 => "map_unit_effect_064",
+            65 => "map_unit_effect_099", 66 => "map_unit_effect_100",
+            67 => "map_unit_effect_106",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported map effect kind.")
         };
         // A map owner may share this table across its effect kinds. Overrides

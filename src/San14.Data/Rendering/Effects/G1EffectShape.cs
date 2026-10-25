@@ -3,7 +3,7 @@ using System.Numerics;
 
 namespace San14.Data;
 
-/// <summary>Prepared outer-emitter shape. Sampling consumes the shared effect
+/// <summary>Prepared emitter/definition shape. Sampling consumes the shared effect
 /// stream supplied by the live owner, and returns a homogeneous position after
 /// the current shape transform. The caller owns subsequent particle transforms.</summary>
 public sealed class G1EffectShape
@@ -16,11 +16,12 @@ public sealed class G1EffectShape
     private readonly float lowerCosine;
     private readonly float upperCosine;
     private readonly float radiusCubeDifference;
+    private readonly float radiusSquareDifference;
 
     public uint ShapeType { get; }
     public ReadOnlyMemory<byte> SourceBytes { get; }
     public Matrix4x4 Transform { get; set; }
-    public int Dimension => ShapeType switch { 0 => 3, 3 or 6 => 2, _ => 0 };
+    public int Dimension => ShapeType switch { 0 or 2 => 3, 3 or 4 or 6 => 2, _ => 0 };
 
     private G1EffectShape(uint type, ReadOnlyMemory<byte> bytes)
     {
@@ -42,6 +43,17 @@ public sealed class G1EffectShape
             upperCosine = MathF.Cos(F(0x60));
             radiusCubeDifference = outerRadius * outerRadius * outerRadius -
                 innerRadius * innerRadius * innerRadius;
+        }
+        else if (type is 2 or 4)
+        {
+            innerRadius = F(0x50);
+            outerRadius = F(0x54);
+            angleStart = F(0x58);
+            angleEnd = F(0x5C);
+            height = type == 2 ? F(0x60) : 0;
+            // Cylinder-volume and planar-annulus initializers store this
+            // derivative at different offsets; derive it from the declaration.
+            radiusSquareDifference = outerRadius * outerRadius - innerRadius * innerRadius;
         }
         else if (type == 3)
         {
@@ -70,7 +82,7 @@ public sealed class G1EffectShape
     {
         int minimum = type switch
         {
-            0 => 0x80, 3 => 0x70, 6 => 0x60, 10 => 0x50,
+            0 => 0x80, 2 or 3 or 4 => 0x70, 6 => 0x60, 10 => 0x50,
             _ => throw new NotSupportedException($"G1FX shape {type} is not implemented.")
         };
         if (bytes.Length < minimum || BinaryPrimitives.ReadUInt32LittleEndian(bytes.Span) != bytes.Length ||
@@ -91,9 +103,19 @@ public sealed class G1EffectShape
                 (outerRadius * outerRadius);
             if (ShapeType == 6) return MathF.Abs(height * outerRadius * (angleEnd - angleStart));
             Matrix4x4 m = Transform;
+            if (ShapeType == 4)
+            {
+                // The original annulus measure uses the lengths of its local
+                // X/Z axes, rather than the volume transform determinant.
+                float z = MathF.Sqrt(m.M32*m.M32 + m.M31*m.M31 + m.M33*m.M33);
+                float x = MathF.Sqrt(m.M12*m.M12 + m.M11*m.M11 + m.M13*m.M13);
+                return MathF.Abs(z * x * radiusSquareDifference * (angleEnd - angleStart) * 0.5f);
+            }
             float determinant = (m.M21 * m.M13 - m.M11 * m.M23) * m.M32 +
                 (m.M12 * m.M23 - m.M13 * m.M22) * m.M31 +
                 (m.M11 * m.M22 - m.M21 * m.M12) * m.M33;
+            if (ShapeType == 2)
+                return MathF.Abs(determinant * height * radiusSquareDifference * (angleEnd - angleStart) * 0.5f);
             return MathF.Abs(determinant * radiusCubeDifference * (upperCosine - lowerCosine) *
                 (angleEnd - angleStart) / 3f);
         }
@@ -101,8 +123,9 @@ public sealed class G1EffectShape
 
     /// <summary>One sample per scheduled birth batch, before iterating its
     /// particle definitions. Shape zero consumes azimuth, polar cosine, then
-    /// radius; shape three consumes azimuth then polar cosine; shape six
-    /// consumes azimuth then height; shape ten consumes none.</summary>
+    /// radius; shape two consumes azimuth, height, then squared radius; shape
+    /// three consumes azimuth then polar cosine; shape four consumes azimuth
+    /// then squared radius; shape six consumes azimuth then height; shape ten consumes none.</summary>
     public Vector4 Sample(G1EffectRandom random)
     {
         ArgumentNullException.ThrowIfNull(random);
@@ -112,7 +135,15 @@ public sealed class G1EffectShape
         float angle = random.NextUnit() * (angleEnd - angleStart) + angleStart;
         (float sine, float cosine) = G1EffectShapeMath.SinCos(angle);
         Vector4 position;
-        if (ShapeType == 6)
+        if (ShapeType is 2 or 4)
+        {
+            // Retain the cylinder's height-before-radius draw order, including
+            // zero-height or zero-width declarations; both consume real draws.
+            float y = ShapeType == 2 ? (random.NextUnit() - 0.5f) * height : 0;
+            float radius = MathF.Sqrt(random.NextUnit() * radiusSquareDifference + innerRadius * innerRadius);
+            position = new(radius * sine, y, radius * cosine, 1);
+        }
+        else if (ShapeType == 6)
         {
             float y = (random.NextUnit() - 0.5f) * height;
             position = new(outerRadius * sine, y, outerRadius * cosine, 1);

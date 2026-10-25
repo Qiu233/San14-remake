@@ -20,6 +20,8 @@ public interface IPlayableTacticCasterSource
 public sealed record TacticSourceEffectStep(int TargetUnitId, PlayableTacticEffect[] Effects,
     ulong RandomState)
 {
+    /// <summary>The resolved native result operand, when supplied by its instruction.</summary>
+    public int? NativeResultAmount { get; init; }
     public ICampaignResourceState? ResourceStateAfter { get; init; }
 }
 public sealed record TacticUseSourceResolution(TacticSourceEffectStep[] Steps, ulong RandomState);

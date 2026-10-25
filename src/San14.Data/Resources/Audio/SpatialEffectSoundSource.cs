@@ -16,7 +16,7 @@ public sealed record SpatialEffectSoundPlayback(int ManagerId, AudioCueRequest C
     IReadOnlyList<SpatialEffectSoundLayer> Layers, AudioCueStaticGroupParameters Group,
     AudioSpatialOutputPlan OutputPlan);
 
-/// <summary>The actual AD/AE territory and B3 foothold cues share the SE
+/// <summary>The actual AD/AE territory, B3 foothold and180..187 tactic cues share the SE
 /// manager but retain their own ordered layers, parameter curves and output
 /// classifications. One cue uses one manager slot, not one slot per layer.</summary>
 public static class SpatialEffectSoundSource
@@ -40,7 +40,13 @@ public static class SpatialEffectSoundSource
             layers = selected.Layers.Select(layer => new SpatialEffectSoundLayer(layer.Playback,
                 layer.ResourceTailParameters)).ToArray();
         }
-        else throw new InvalidDataException("Spatial capture sound manager identity is unsupported.");
+        else if (managerId is >= 180 and <= 187)
+        {
+            var selected = TacticSoundSource.ReadPlayback(bank, managerId);
+            cue = selected.Cue;
+            layers = selected.Layers;
+        }
+        else throw new InvalidDataException("Spatial effect sound manager identity is unsupported.");
         var group = ReadGroup(bank, cue.ExactCueName);
         if (categories.ResourceUri != GameResourceId.Rdb("RRPreview", NarrationVoiceSelection.OutputResourceId).ToString())
             throw new InvalidDataException("Spatial capture sound has a different output resource.");

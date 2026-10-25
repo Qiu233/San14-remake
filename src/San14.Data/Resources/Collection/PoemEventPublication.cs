@@ -16,5 +16,5 @@ public sealed record PoemEventPublication(int ItemId, int LayoutIndex, string La
     public bool InformationInitiallyVisible => false;
     public int InitialAnimationIndex => 2;
     public string InitialAnimationName => "09_ev_p_01_all";
-    public IReadOnlyList<PoemEventAnimationClip> Animations { get; init; } = [];
+    public IReadOnlyList<LcskAnimationClip> Animations { get; init; } = [];
 }

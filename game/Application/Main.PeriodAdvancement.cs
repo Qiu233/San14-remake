@@ -104,6 +104,7 @@ public partial class Main
                 !result.IsCurrent(_session)) return;
 
             _session = result.Session;
+            AdoptOrdinaryTacticSession(source, result.Session, playbackMap);
             SynchronizeApplicationCrtRandom(result.Session.PendingNormalPeriod?.Candidate ?? result.Session.World);
             if ((result.Session.PendingNormalPeriod?.Candidate??result.Session.World).CampaignAppRandom32 is { } appRandom)
                 _presentationRandom.InstallCommittedState(appRandom.State);

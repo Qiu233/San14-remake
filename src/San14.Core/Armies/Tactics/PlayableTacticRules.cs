@@ -4,6 +4,9 @@ public readonly record struct TacticUseEligibility(bool? Allowed, string? Reason
     string? MissingRuleKey = null);
 public sealed record TacticTargetResolution(PlayableTacticEffect[] Effects, ulong RandomState)
 {
+    /// <summary>The native result operand before destination saturation;
+    /// it is independent of the applied effect delta.</summary>
+    public int? NativeResultAmount { get; init; }
     /// <summary>Immutable resource compatibility publication, committed with
     /// the effects. Ordinary game rules never interpret its source encoding.</summary>
     public ICampaignResourceState? ResourceStateAfter { get; init; }

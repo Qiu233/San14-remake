@@ -169,5 +169,13 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Tactics.InjuryLevel3AbilityPercent, InjuryLevel3AbilityPercent),
         (SimulationParameterKeys.Tactics.AbilitySecondaryBaseline, AbilitySecondaryBaseline),
         (SimulationParameterKeys.Tactics.AbilitySecondaryAdjustment, AbilitySecondaryAdjustment),
+        //Counter-zero presentation inputs. These initial values were read
+        //independently from current TC and SC source data. Fresh allocation
+        //owns them thereafter; loading does not backfill missing current keys.
+        ("presentation.tactics.results.large-damage-threshold", 3000),
+        ("presentation.tactics.results.large-wall-damage-threshold", 500),
+        ("presentation.tactics.results.fire-scale-percent", 175),
+        ("presentation.tactics.results.large-wall-damage-scale-percent", 100),
+        ("presentation.tactics.results.abnormal-clear-scale-percent", 100),
     ];
 }

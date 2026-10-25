@@ -12,7 +12,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal IPlayableNativeArmyProgressStageRules RestoreCompletedNormalTurnArmyStages(
         GameState state, CampaignGroupingCheckpoint grouping)
     {
-        var stages = new OrdinaryArmyCombatStages(this, new NativePeriodRemainder(),
+        var stages = new OrdinaryArmyCombatStages(this, new NativePeriodRemainder(this),
             new NormalArmyForceResultDefinitions(CaptureWritableTransportRouteCurrent(state)));
         stages.RestoreCheckpoint(grouping);
         return stages;
@@ -29,7 +29,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var resume = state.NativePeriodContinuation?.Cursor;
         long expectedWaiting = season.ProcessedNativeOrdinal;
         if (resume?.StageIndex is (byte)NativeArmyProgressStage.Defeat or (byte)NativeArmyProgressStage.Combat
-            or (byte)NativeArmyProgressStage.DuelOpportunity)
+            or (byte)NativeArmyProgressStage.DuelOpportunity or (byte)NativeArmyProgressStage.ManualTacticIntervention)
         {
             var reachedDate = season.ThirdDate;
             for (int cycle = 0; cycle <= resume.CycleIndex; cycle++)
@@ -59,7 +59,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         //changes before returning. Movement7/8 and combat13 each borrow one
         //view for their whole actor/pair batch. No stale pool crosses another
         //stage leaf which can replace that pool's saved owners.
-        var stages = new OrdinaryArmyCombatStages(this, new NativePeriodRemainder(),
+        var stages = new OrdinaryArmyCombatStages(this, new NativePeriodRemainder(this),
             new NormalArmyForceResultDefinitions(CaptureWritableTransportRouteCurrent(state)));
         if (resume is not null) stages.RestoreCheckpoint(resume.Grouping);
         var diagnostics = resume?.Diagnostics.ToList() ?? new List<NativeNormalArmyCombatPhaseDiagnostic>();
@@ -120,6 +120,26 @@ public sealed partial class ArmyCampaignRuleAdapter
                             working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedDuel
                                 ? completedDuel with { Cursor = null } : null };
                             RequireInactiveDuelServiceForProgress(working);
+                            break;
+                        case NativeArmyProgressStage.ManualTacticIntervention:
+                            var intervened = stages.AdvanceStage(working, moment);
+                            working = intervened?.State ?? throw PeriodMissing("stage6_manual_manager");
+                            var tacticManager = working.ManualTacticIntervention
+                                ?? throw PeriodMissing("stage6_manual_manager_owner");
+                            if (tacticManager.EffectBusy && tacticManager.Effects.Length != 0)
+                            {
+                                //17AA00's busy branch waits for the actual ordinary
+                                //effect nodes. Resuming starts at this same call;
+                                //the already reached waiting/duel prefix is not replayed.
+                                var suspendedTactic = working.NativePeriodContinuation
+                                    ?? throw PeriodMissing("stage6_preparation");
+                                var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock);
+                                return new(working with { NativePeriodContinuation = suspendedTactic with { Cursor = cursor } }, stages);
+                            }
+                            resume = null;
+                            working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedTactic
+                                ? completedTactic with { Cursor = null } : null };
                             break;
                         case NativeArmyProgressStage.PrepareMovement:
                             movementCurrent = CaptureWritableTransportRouteCurrent(working);
@@ -242,9 +262,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     /// <summary>Only stage6 remains outside the existing concrete stage
     /// composition. Already produced display requests stay in their actual
-    /// queues. A still-unexecuted numerical intervention needs its real host;
-    /// this period never manufactures presentation receipts.</summary>
-    private sealed class NativePeriodRemainder : IStatelessNativeProgressStageRules
+    /// queues. A pending numerical intervention uses the same shared command
+    /// executor and immutable admission as the campaign progress path. This
+    /// period never manufactures presentation receipts.</summary>
+    private sealed class NativePeriodRemainder(ArmyCampaignRuleAdapter campaign) : IStatelessNativeProgressStageRules
     {
         public NativeArmyProgressStageResolution? AdvanceStage(GameState state, NativeArmyProgressStageMoment moment)
         {
@@ -261,8 +282,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return new(state with { ManualTacticIntervention = owner with { EffectBusy = false } },
                     "army.progress.manual-effect-list-completed");
             }
-            if (owner.Pending is not null)
-                throw PeriodMissing("manual_intervention_numerical_host_required");
+            if (owner.Pending is { } request)
+            {
+                var intervention = campaign.TryExecuteManualTacticIntervention(state, moment, request,
+                    campaign._automaticPresentationAdmission);
+                state = intervention.State ?? throw PeriodMissing(intervention.UnresolvedOwner ?? "manual_intervention_execution");
+                owner = state.ManualTacticIntervention ?? throw PeriodMissing("manual_intervention_manager");
+            }
             return new(state, owner.Directions.Length == 0
                 ? "army.progress.manual-manager-no-pending-work"
                 : "army.progress.manual-directions-queued-for-host");

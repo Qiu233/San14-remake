@@ -428,7 +428,8 @@ public partial class MapSceneView
                                 D3D11MapSurface.OutputHeight, effectInputs.OwnedRendererSelection(current),
                                 pendingAtmosphere?.MainSky ?? atmosphereOwner?.MainSky);
                             preparedInput = preparedInput.WithEffects(captureEffects.PrepareFrame(effectFrame,
-                                input.ElapsedSeconds, effectPacer.FramesPerSecond(input.CommandMapFpsMode), surface.EffectComputeDevice));
+                                input.ElapsedSeconds, effectPacer.FramesPerSecond(input.CommandMapFpsMode),
+                                current.Mode.EcB0Index, surface.EffectComputeDevice));
                         }
                         return preparedInput;
                     }

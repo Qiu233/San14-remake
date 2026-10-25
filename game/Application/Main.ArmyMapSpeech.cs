@@ -16,7 +16,7 @@ public partial class Main
         if (world.ArmyMapSpeech is not { } snapshot) return;
         if (_armySpeechSession != session || _armySpeechMap != map)
         {
-            CloseArmyMapSpeech();
+            ReleaseArmyMapSpeechBinding();
             _armySpeechSession = session; _armySpeechMap = map;
             _armySpeechPlayback = new(snapshot);
             map.SetArmyMapSpeechDriver(delta => RunUiAction(() => AdvanceArmyMapSpeech(delta)),
@@ -29,6 +29,7 @@ public partial class Main
         if (!ReferenceEquals(_armySpeechWorld, world)) _armySpeechFailedSequences.Clear();
         _armySpeechWorld = world;
         map.PresentArmyMapSpeech(_armySpeechPlayback!.Visible, snapshot);
+        RefreshOrdinaryTacticBinding(session, map);
     }
 
     private void AdvanceArmyMapSpeech(double delta)
@@ -139,6 +140,12 @@ public partial class Main
     }
 
     private void CloseArmyMapSpeech()
+    {
+        CloseOrdinaryTactics();
+        ReleaseArmyMapSpeechBinding();
+    }
+
+    private void ReleaseArmyMapSpeechBinding()
     {
         if (_armySpeechMap is { } map && GodotObject.IsInstanceValid(map)) map.SetArmyMapSpeechDriver(null);
         _armySpeechPlayback = null; _armySpeechSession = null; _armySpeechMap = null;

@@ -55,6 +55,13 @@ internal partial class D3D11ArmyMapLabels : Control
 
     internal ArmyMapUiCurrentFrame? CurrentFields => _fields;
     internal IReadOnlyDictionary<int, ArmyMapCard> Cards => _cards;
+    internal OrdinaryTacticViewPose TacticViewPose(int unitId)
+    {
+        if (!_rows.TryGetValue(unitId, out var row)) return new(false, null);
+        if (row.ArmyValid is not bool valid) return new(false, null, "tactic.view.Army_native_validity");
+        return valid && _cards.TryGetValue(unitId, out var card) && card.PositionReady
+            ? new(true, new System.Numerics.Vector4(card.UnitPosition, 1)) : new(valid, null);
+    }
     internal ArmyMapSpeechBubbleView? SpeechLayout(int unitId) =>
         _rows.TryGetValue(unitId, out var row) && row.ArmyValid == true && _cards.TryGetValue(unitId, out var card) &&
         GodotObject.IsInstanceValid(card.SpeechLayout) && card.SpeechLayout.IsInsideTree() && !card.SpeechLayout.IsQueuedForDeletion()
@@ -388,6 +395,7 @@ internal partial class D3D11ArmyMapLabels : Control
         internal ArmyMapSpeechBubbleView SpeechLayout { get; }
         internal ArmyMapUiCurrentRow Fields { get; private set; } = null!;
         internal NVector3 UnitPosition { get; private set; }
+        internal bool PositionReady { get; private set; }
         internal ArmyMapLabelPresentation Presentation { get; private set; }
         internal Texture2D? Icon { get; private set; }
         internal Color ForceTint { get; private set; }
@@ -421,6 +429,7 @@ internal partial class D3D11ArmyMapLabels : Control
             bool group = false, ArmySimpleOutlineSelection? simpleStyle = null, MapCornerColors? simpleColors = null)
         {
             Fields = row; UnitPosition = position; Presentation = presentation; Icon = icon; ForceTint = tint;
+            PositionReady = true;
             IsGroup = group;
             SimpleUsesOutline = simpleStyle?.UsesOutline == true;
             if (simpleColors is { } colors)

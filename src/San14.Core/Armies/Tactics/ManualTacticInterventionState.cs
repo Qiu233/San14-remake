@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 namespace San14.Core;
 
@@ -28,6 +29,9 @@ public sealed record TacticActorPresentation(ArmyReceiverId Actor, int TacticId,
 public sealed record TacticPresentationRequest(long Sequence, TacticPresentationKind Kind,
     TacticActorPresentation[] Actors);
 public sealed record TacticPresentationReceipt(long Sequence, TacticPresentationKind Kind);
+/// <summary>The real ordinary node has begun. Result publication is presentation
+/// only; all gameplay numbers were applied before this queue entry was created.</summary>
+public sealed record OrdinaryTacticPlaybackState(long Sequence, bool ResultsPublished);
 
 /// <summary>One campaign's commanded intervention and the independent effect
 /// manager/Direction queues. An absent owner is unknown, not an empty manager.</summary>
@@ -35,6 +39,7 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
     bool EffectBusy, long LastPresentationSequence,
     TacticPresentationRequest[] Effects, TacticPresentationRequest[] Directions)
 {
+    public ImmutableArray<OrdinaryTacticPlaybackState> OrdinaryPlaybacks { get; init; } = [];
     public static ManualTacticInterventionState Empty => new(null, false, 0, [], []);
     public ManualTacticInterventionState Copy() => this with
     { Effects = Effects.Select(CopyRequest).ToArray(), Directions = Directions.Select(CopyRequest).ToArray() };
@@ -49,6 +54,9 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
     };
     public ManualTacticInterventionState Enqueue(TacticPresentationKind kind, TacticActorPresentation[] actors)
     {
+        //168C40 applies the ordinary manager's outer admission before selecting
+        //the ordinary or Direction route. Gameplay numbers are already applied.
+        if (Effects.Length >= 563) return this;
         long sequence = checked(LastPresentationSequence + 1);
         var request = CopyRequest(new(sequence, kind, actors));
         return kind switch
@@ -60,6 +68,8 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
     }
     public ManualTacticInterventionState Acknowledge(TacticPresentationReceipt receipt)
     {
+        if (receipt.Kind == TacticPresentationKind.OrdinaryEffects)
+            throw new InvalidOperationException("Ordinary tactic nodes require their actual start, result and retirement lifecycle.");
         var queue = receipt.Kind == TacticPresentationKind.UniqueDirection ? Directions : Effects;
         if (!Enum.IsDefined(receipt.Kind) || queue.Length == 0 || queue[0].Sequence != receipt.Sequence)
             throw new InvalidDataException("Commanded tactic presentation receipt is stale or out of order.");
@@ -71,6 +81,13 @@ public sealed record ManualTacticInterventionState(ManualTacticRequest? Pending,
         if (value is null) return;
         if (value.LastPresentationSequence < 0 || value.Effects is null || value.Directions is null)
             throw new InvalidDataException("Commanded tactic manager is incomplete.");
+        if (value.OrdinaryPlaybacks.IsDefault || value.OrdinaryPlaybacks.Length > value.Effects.Length)
+            throw new InvalidDataException("Ordinary tactic playback collection is incomplete.");
+        for (int index = 0; index < value.OrdinaryPlaybacks.Length; index++)
+            if (value.OrdinaryPlaybacks[index] is not { Sequence: > 0 } playback ||
+                value.Effects[index] is not { Kind: TacticPresentationKind.OrdinaryEffects } request ||
+                request.Sequence != playback.Sequence)
+                throw new InvalidDataException("Ordinary tactic playbacks do not follow their manager's append order.");
         if (value.Pending is { } pending && (pending.Actor.Value < 1 || pending.TacticId is < 0 or > 200))
             throw new InvalidDataException("Commanded tactic request has an invalid receiver.");
         if (value.Pending?.Target is { Kind: not ManualTacticTargetKind.Hex })

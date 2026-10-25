@@ -27,6 +27,10 @@ internal partial class UiSourcePortrait : Control
     internal void ConfigureMapFace(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
         => ConfigureSource(repository, assets, shader, portrait, new UiSourceLayout(repository, 0x7104E19F), 7, 3);
 
+    internal void ConfigureTacticFace(GameResourceRepository repository, UiAssets assets, Shader shader,
+        LoadedSprite portrait, UiSourceLayout source, int node)
+        => ConfigureSource(repository, assets, shader, portrait, source, node, 2);
+
     internal void ConfigureRankup(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xC5EA2F4C),2,2);
 

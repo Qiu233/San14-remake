@@ -43,8 +43,7 @@ public sealed record ManualTacticProgressOperation(string Revision,
         if (Presentation is { } shown)
         {
             var queue = shown.Kind == TacticPresentationKind.UniqueDirection ? manager.Directions : manager.Effects;
-            if (queue.Length == 0 || queue[0].Sequence != shown.Sequence || queue[0].Kind != shown.Kind ||
-                shown.Kind == TacticPresentationKind.OrdinaryEffects && !manager.EffectBusy)
+            if (queue.Length == 0 || queue[0].Sequence != shown.Sequence || queue[0].Kind != shown.Kind)
                 throw new InvalidDataException("Manual tactic continuation does not name a waiting manager head.");
         }
         long previous = Request.StartCalendarCycleOrdinal - 1;

@@ -84,6 +84,12 @@ public sealed partial class GameSimulation
         }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor
             ?? throw new InvalidOperationException("The normal period has no continuation cursor.");
+        if (cursor.StageIndex == 6)
+        {
+            if (!pending.RequiresAutomaticOrdinaryTacticContinuation)
+                throw new InvalidOperationException("Ordinary tactic effects still require their actual presentation lifecycle.");
+            return;
+        }
         if (pending.Candidate.PersonnelCommands?.Diplomacies?.GetValueOrDefault(cursor.AwaitingDiplomacyTaskId)
             is { AwaitingNegotiation: true, NativeKind: not 6 })
             throw new InvalidOperationException("The diplomatic negotiation requires a player decision.");

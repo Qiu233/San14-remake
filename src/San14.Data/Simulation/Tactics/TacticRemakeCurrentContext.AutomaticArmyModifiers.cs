@@ -27,20 +27,50 @@ public sealed partial class TacticRemakeCurrentContext
     {
         if (instruction.Opcode != 22 || instruction.Index is < 0 or > 1 || prefix.CasterId != caster.Id)
             throw AllModifierMissing("instruction_or_prefix");
+        return ResolveAutomaticArmyModifierInput(state, caster, target, source, instruction,
+            prefix.StageProduct, sourceForce: null);
+    }
+
+    //176610 and176980 share this arithmetic. Only the single-dimension
+    //wrapper consumes Force22/23; all-five has no such parameter read.
+    private (int Modifier, int Duration) ResolveAutomaticArmyModifierInput(GameState state,
+        UnitState caster, UnitState target, TacticSourceRow source, S14TacticEffectInstruction instruction,
+        int stageProduct, int? sourceForce)
+    {
+        bool all = instruction.Opcode is 21 or 22;
+        bool positive = instruction.Opcode is >= 5 and <= 9 or 21;
         var sourceArmy = Pointer(caster);
-        var targetArmy = Pointer(target);
-        int acting = K(_definitions.ReadArmyUnitNativeValidity(sourceArmy), "source_ability_Army_validity")
-            ? Ability(sourceArmy, Selector() == 1 ? 1 : 2) : 0;
-        //16E820 consumes its own selector before checking the recipient.
-        int receiving = Ability(targetArmy, Selector() == 1 ? 1 : 2);
-        byte selector = Selector();
-        int divisor = P(selector == 1 ? SimulationParameterKeys.Tactics.StrengthDifferenceDivisor
-            : SimulationParameterKeys.Tactics.IntelligenceDifferenceDivisor);
-        if (divisor == 0) throw AllModifierMissing("zero_difference_divisor");
-        float factor = (float)unchecked(acting - receiving) / (float)divisor;
-        factor += 1f;
-        float floor = (float)P(SimulationParameterKeys.Tactics.EffectFactorFloorPercent) / 100f;
-        factor = factor > floor ? factor : floor;
+        float factor;
+        if (positive)
+        {
+            //16B6D0 reads both dimensions before its selector, unlike the
+            //negative16B820 source/recipient difference wrapper.
+            int strength = 0, intelligence = 0;
+            if (K(_definitions.ReadArmyUnitNativeValidity(sourceArmy), "source_ability_Army_validity"))
+            { strength = Ability(sourceArmy, 1); intelligence = Ability(sourceArmy, 2); }
+            byte selector = Selector();
+            int divisor = P(selector == 1 ? SimulationParameterKeys.Tactics.StrengthEffectDivisor
+                : SimulationParameterKeys.Tactics.IntelligenceEffectDivisor);
+            if (divisor == 0) throw AllModifierMissing("zero_source_divisor");
+            factor = (float)(selector == 1 ? strength : intelligence) / (float)divisor;
+            factor += 1f;
+        }
+        else
+        {
+            var targetArmy = Pointer(target);
+            int acting = K(_definitions.ReadArmyUnitNativeValidity(sourceArmy), "source_ability_Army_validity")
+                ? Ability(sourceArmy, Selector() == 1 ? 1 : 2) : 0;
+            //16E820 consumes its own selector before checking the recipient.
+            int receiving = Ability(targetArmy, Selector() == 1 ? 1 : 2);
+            byte selector = Selector();
+            int divisor = P(selector == 1 ? SimulationParameterKeys.Tactics.StrengthDifferenceDivisor
+                : SimulationParameterKeys.Tactics.IntelligenceDifferenceDivisor);
+            if (divisor == 0) throw AllModifierMissing("zero_difference_divisor");
+            factor = (float)unchecked(acting - receiving) / (float)divisor;
+            factor += 1f;
+            float floor = (float)P(SimulationParameterKeys.Tactics.EffectFactorFloorPercent) / 100f;
+            factor = factor > floor ? factor : floor;
+        }
         float waiting = 1f;
         if (K(_definitions.ReadArmyUnitNativeValidity(sourceArmy), "waiting_source_Army_validity"))
         {
@@ -49,12 +79,33 @@ public sealed partial class TacticRemakeCurrentContext
                 waiting = (float)P(native.Waiting22 == 0 ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent
                     : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent) / 100f;
         }
+        float panel = 1f;
+        if (!all)
+        {
+            int slot = sourceForce ?? throw AllModifierMissing("source_Force_prefix");
+            var force = _definitions.ReadForceTableReference(slot < 52 ? slot : 0)
+                ?? throw AllModifierMissing("source_Force_pointer");
+            bool firstValid = K(_definitions.ReadForceNativeValidity(force), "source_Force_first_validity");
+            if (firstValid && positive && Category() == 3)
+                panel = (float)K(_definitions.ReadBaseForceModifier(force, 0x22), "positive_Force22") / 100f + 1f;
+            else if (K(_definitions.ReadForceNativeValidity(force), "source_Force_second_validity") && !positive && Category() == 4)
+                panel = (float)K(_definitions.ReadBaseForceModifier(force, 0x23), "negative_Force23") / 100f + 1f;
+        }
         float duration = instruction.EffectValue;
         duration *= factor;
-        duration *= (float)prefix.StageProduct / 100f + 1f;
+        duration *= (float)stageProduct / 100f + 1f;
         duration *= waiting;
+        if (!all) duration *= panel;
         int requestedDuration = duration is >= int.MinValue and < 2147483648f ? (int)duration : int.MinValue;
-        return (unchecked(-(int)instruction.Raw68), requestedDuration);
+        int modifier = instruction.Raw68;
+        return (positive ? modifier : unchecked(-modifier), requestedDuration);
+
+        byte Category()
+        {
+            var tactic = _definitions.ReadSkillTacticReference(source.Slot)
+                ?? throw AllModifierMissing("category_Tactic_pointer");
+            return K(_definitions.ReadSkillTacticRawByte(tactic, 0x40), "category40");
+        }
 
         byte Selector() => FactorSelector(source) ?? throw AllModifierMissing("current_selector6A");
         int P(string key) => ReadAutomaticAllModifierParameter(state, key);

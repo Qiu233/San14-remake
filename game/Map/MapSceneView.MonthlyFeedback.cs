@@ -7,6 +7,8 @@ internal sealed record MonthlyTerritoryFeedbackDispatch(bool AudioAccepted, bool
     string? UnresolvedInput)
 {
     public bool AudioCulled { get; init; }
+    public bool VisualCulled { get; init; }
+    public bool ConsumersCompleted => AudioAccepted && (VisualAccepted || VisualCulled);
 }
 
 internal sealed record MonthlyTerritoryVisual(int EffectKind, int? HexId, int? ForceId,
@@ -53,7 +55,7 @@ public partial class MapSceneView
                     //query a later city's/force's state to replace the snapshot.
                     _baseCaptureVisuals.Add(request, new(source.EffectKind, request.HexId, null, position, source.Scale, null));
                     var admitted = await AdmitCaptureVisualAsync(request, _baseCaptureVisuals[request], linked.Token);
-                    return new(true, admitted.Accepted, admitted.UnresolvedInput);
+                    return new(true, admitted.Accepted, admitted.UnresolvedInput) { VisualCulled = admitted.Culled };
                 }
                 if (request.Event != MapObjectPresentationEvent.BaseOwnershipLostSound)
                     throw new InvalidDataException("base_capture.operation");
@@ -122,7 +124,8 @@ public partial class MapSceneView
             bool audible = x > -1 && x < 1 && y > -1 && y < 1 && z > 0 && z < 1;
             if (audible) await DispatchCaptureSoundAsync(request.EventKind == 4 ? 0xAE : 0xAD, position, audio, linked.Token);
             var admission = await AdmitCaptureVisualAsync(request, _monthlyTerritoryVisuals[request], linked.Token);
-            return new(true, admission.Accepted, admission.UnresolvedInput) { AudioCulled = !audible };
+            return new(true, admission.Accepted, admission.UnresolvedInput)
+            { AudioCulled = !audible, VisualCulled = admission.Culled };
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception error) { return new(false, false, error.Message); }

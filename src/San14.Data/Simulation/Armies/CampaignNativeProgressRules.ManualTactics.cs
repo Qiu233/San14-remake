@@ -51,6 +51,11 @@ public sealed partial class CampaignNativeProgressRules
 
     public CampaignProgressTransition ResumeManualTactic(ManualTacticProgressOperation pending, TacticPresentationReceipt receipt)
     {
+        //Ordinary effects retire through their exact manager-head lifecycle.
+        //That actual retirement changes the pending operation to retryable;
+        //a legacy receipt must not remove a newly created or still-live node.
+        if (receipt.Kind == TacticPresentationKind.OrdinaryEffects)
+            throw Missing("ordinary_tactic_actual_retirement_required");
         if (pending.ContinueAfterPresentation || pending.Revision != Revision || pending.Presentation is not { } shown ||
             shown.Sequence != receipt.Sequence || shown.Kind != receipt.Kind)
             throw Missing("manual_tactic_receipt");

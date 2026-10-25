@@ -41,6 +41,16 @@ public sealed class GameplaySession
     public bool HasPendingOperation => _simulation.HasPendingOperation;
     public CampaignProgressOperation? PendingProgress => _simulation.PendingProgress;
     public ManualTacticProgressOperation? PendingManualTactic => _simulation.PendingManualTactic;
+    public GameState? PendingManualTacticCandidate => _simulation.PendingManualTacticCandidate;
+    public bool TryBeginOrdinaryTacticPresentation(GameState expectedOwner,
+        ManualTacticInterventionState expectedManager, long sequence, GameState? preparedState = null) =>
+        _simulation.TryBeginOrdinaryTacticPresentation(expectedOwner, expectedManager, sequence, preparedState);
+    public bool TryCompleteOrdinaryTacticResults(GameState expectedOwner,
+        ManualTacticInterventionState expectedManager, long sequence) =>
+        _simulation.TryCompleteOrdinaryTacticResults(expectedOwner, expectedManager, sequence);
+    public bool TryCompleteOrdinaryTacticPresentation(GameState expectedOwner,
+        ManualTacticInterventionState expectedManager, long sequence) =>
+        _simulation.TryCompleteOrdinaryTacticPresentation(expectedOwner, expectedManager, sequence);
     public NormalPeriodOperation? PendingNormalPeriod => _simulation.PendingNormalPeriod;
     public bool TryPrepareNormalTurnStoryStep(GameState expectedOwner, ICampaignStoryPreparationRules rules,
         out CampaignStoryPreparationResult result) =>

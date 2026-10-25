@@ -224,7 +224,8 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
                 UnitState acting = staged.Units.GetValueOrDefault(caster.Id) ?? caster;
                 TacticTargetResolution? result = ResolveInstruction(staged, acting, target, source, instruction);
                 if (result is null) return null;
-                steps.Add(new(targetId, result.Effects, result.RandomState) { ResourceStateAfter = result.ResourceStateAfter });
+                steps.Add(new(targetId, result.Effects, result.RandomState)
+                { ResourceStateAfter = result.ResourceStateAfter, NativeResultAmount = result.NativeResultAmount });
                 foreach (PlayableTacticEffect effect in result.Effects) target = ApplyReceipt(target, effect);
                 staged = Stage(staged, target) with { RandomState = result.RandomState,
                     ResourceState = result.ResourceStateAfter ?? staged.ResourceState };
@@ -370,7 +371,8 @@ public sealed class TacticEffectSourceRules : ITacticRuleSource, IPlayableTactic
             TacticHealingSourceResult after = TacticEffectSourceMath.ArmyHealing(input);
             if (after.TroopsAfter < 1) return null;
             return new([new(PlayableTacticEffectKind.ArmyHealing, checked(after.TroopsAfter - target.Troops))
-                { HealingResult = new(after.TroopsAfter, after.WoundedAfter) }], query.RandomState);
+                { HealingResult = new(after.TroopsAfter, after.WoundedAfter) }], query.RandomState)
+                { NativeResultAmount = after.RequestedRecovery };
         }
         if (instruction.Opcode == 23)
         {

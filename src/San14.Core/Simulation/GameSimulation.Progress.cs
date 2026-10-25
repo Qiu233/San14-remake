@@ -6,6 +6,8 @@ public sealed partial class GameSimulation
     public bool HasPendingOperation => _progress is not null || _normalPeriod is not null;
     public CampaignProgressOperation? PendingProgress => _progress?.Story?.Copy();
     public ManualTacticProgressOperation? PendingManualTactic => _progress?.ManualTactic?.Copy();
+    /// <summary>Borrowed read-only candidate for exact-owner presentation transactions.</summary>
+    public GameState? PendingManualTacticCandidate => _progress?.ManualTactic?.Candidate;
     public long LastStorySequence { get; private set; }
     private void RequireNoProgress()
     { if (HasPendingOperation) throw new InvalidOperationException("The campaign is awaiting its current continuation."); }
@@ -63,6 +65,8 @@ public sealed partial class GameSimulation
     public CampaignProgressTransition ResumeManualTactic(ICampaignManualTacticProgressRules rules, TacticPresentationReceipt receipt)
     {
         var pending = _progress?.ManualTactic ?? throw new InvalidOperationException("There is no pending manual tactic.");
+        if (receipt.Kind == TacticPresentationKind.OrdinaryEffects)
+            throw new InvalidOperationException("Ordinary tactics require their actual start, result and retirement transactions.");
         if (pending.ContinueAfterPresentation || pending.Presentation is not { } current ||
             current.Sequence != receipt.Sequence || current.Kind != receipt.Kind)
             throw new InvalidDataException("Manual tactic receipt is stale or does not name the waiting head.");

@@ -104,6 +104,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 use.Instructions[instruction.Index].OrderedArmyIds.Select(id => (instruction.Index, Id: id))).ToArray();
             if (orderedTargets.Length != effects.Steps.Length) throw ManualMissing("effect_instruction_order");
             var presentationEffects = new List<TacticEffectPresentation>();
+            var instructionResults = new[] { new List<TacticResultPresentation>(), new List<TacticResultPresentation>() };
             for (int ordinal = 0; ordinal < effects.Steps.Length; ordinal++)
             {
                 var step = effects.Steps[ordinal];
@@ -111,6 +112,28 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!units.TryGetValue(step.TargetUnitId, out UnitState? target)) throw ManualMissing("effect_target");
                 var targetReceiver = working.ArmyLifecycle?.Receivers.FindUnit(target.Id)?.ReceiverId
                     ?? throw ManualMissing("effect_target_receiver");
+                int instructionIndex = orderedTargets[ordinal].Index;
+                int opcode = use.Program.Instructions[instructionIndex].Opcode;
+                //1763B0/1782F0 append zero for every valid recipient, even
+                //when morale is capped or its abnormal counters already clear.
+                //175FF0 appends only after the native gate succeeds; that
+                //resolver returns no status receipts on gate rejection.
+                //177ED0 carries its pre-saturation recovered amount, not
+                //the applied troop delta or a sum of abnormal-status effects.
+                bool appendResult = opcode switch
+                {
+                    15 or 19 or 20 => true,
+                    23 => step.Effects.Length != 0,
+                    0 => false,
+                    _ => throw ManualMissing("result_instruction_opcode")
+                };
+                if (appendResult)
+                {
+                    int amount = opcode == 20
+                        ? step.NativeResultAmount ?? throw ManualMissing("healing_result_operand") : 0;
+                    instructionResults[instructionIndex].Add(new(TacticResultTargetKind.ArmyReceiver,
+                        targetReceiver.Value, target.HexId, unchecked((ushort)amount)));
+                }
                 foreach (var effect in step.Effects)
                 {
                     target = ApplyManualEffectReceipt(target, effect);
@@ -148,13 +171,16 @@ public sealed partial class ArmyCampaignRuleAdapter
             //The finite nondamage callbacks never set the independent busy98.
             if (manager.Effects.Length < 563)
             {
-                bool direction = ManualKnown(admission.ReadUniqueDirectionAdmission(working, units[actor.Id],
-                    request.TacticId), "unique_direction_admission");
-                var vectors = use.Instructions.Select(instruction => instruction.OrderedArmyIds.Select(id =>
-                    working.ArmyLifecycle?.Receivers.FindUnit(id)?.ReceiverId.Value
-                        ?? throw ManualMissing("presentation_target_receiver")).ToArray()).ToArray();
+                bool direction = context.IsAutomaticSpecialPresentationTactic(request.TacticId) &&
+                    ManualKnown(admission.ReadUniqueDirectionAdmission(working, units[actor.Id],
+                        request.TacticId), "unique_direction_admission");
+                var results = instructionResults.Select(row => row.ToArray()).ToArray();
+                //The presentation receiver vectors project the actual native
+                //result records, not every attempted (possibly rejected) target.
+                var vectors = results.Select(row => row.Select(result => result.TargetId).ToArray()).ToArray();
                 manager = manager.Enqueue(direction ? TacticPresentationKind.UniqueDirection : TacticPresentationKind.OrdinaryEffects,
-                    [new(request.Actor, request.TacticId, request.Target, vectors) { Effects = presentationEffects.ToArray() }]);
+                    [new(request.Actor, request.TacticId, request.Target, vectors)
+                    { InstructionResults = results, Effects = presentationEffects.ToArray() }]);
             }
             return new(working with { ManualTacticIntervention = manager }, null);
         }

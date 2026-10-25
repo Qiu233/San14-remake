@@ -45,9 +45,9 @@ public partial class Main
                     ? await map.DispatchBaseCaptureFeedbackAsync(capture, audio, feedback.Lifetime.Token)
                     : await map.DispatchMonthlyTerritoryFeedbackAsync(request.MonthlyMaintenance!, audio, feedback.Lifetime.Token);
                 if (_monthlyFeedback != feedback || !IsMonthlyFeedbackCurrent) return;
-                //A spatial sound alone does not complete the separate map effect.
-                //Keep the source request until both actual consumers accept it.
-                if (result.AudioAccepted && result.VisualAccepted)
+                //The actual source camera/pool may cull a visual attempt.
+                //That terminal outcome is distinct from a missing consumer.
+                if (result.ConsumersCompleted)
                 {
                     if (session.TryCompletePersonnelPresentation(world, entry.BatchSequence, entry.RequestIndex))
                         map.ForgetCaptureFeedback(request);

@@ -56,14 +56,13 @@ public sealed partial class TacticRemakeCurrentContext
             AvailableTactics(state, caster, formation) is not int[] available)
         { missingOwner = "automatic-selection.formation_or_available_tactics"; return null; }
         if (available.Length == 0 || native.Waiting20 != 0 || native.Abnormal23 != 0) return Skipped();
-        //For25==0 and actions outside4/5/7, either native target-equality
-        //outcome passes. Other reached3C/3E/38/3A paths remain unknown here.
-        if (native.Abnormal25 != 0)
-        { missingOwner = "automatic-selection.abnormal25_target_equality"; return null; }
-        if (ArmyConfigurationSourceAdapter.ReadAction(state, caster) is not byte action)
-        { missingOwner = "automatic-selection.action37"; return null; }
-        if (action is 4 or 5 or 7)
-        { missingOwner = "automatic-selection.action_" + action + "_target_equality"; return null; }
+        //The requested descriptor is kind27 plus its actual native receiver
+        //ordinal. A gameplay UnitId is not the native target word3A/3E.
+        bool? targetGate = ReadAutomaticArmyTargetGate(state, caster, 27,
+            checked((ushort)pair.Target.NativePoolSlot), out var targetMissing);
+        if (targetGate is null)
+        { missingOwner = targetMissing; return null; }
+        if (!targetGate.Value) return Skipped();
         bool? selectedGate = ReadSelectedCommanderAutomaticGate(state, caster, operationDate);
         if (selectedGate is null)
         { missingOwner = "automatic-selection.player_selected_commander_gate"; return null; }

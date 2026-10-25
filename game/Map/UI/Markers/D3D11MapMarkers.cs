@@ -138,6 +138,7 @@ internal partial class D3D11MapMarkers : Control
     {
         MouseFilter = MouseFilterEnum.Ignore;
         ClipContents = true;
+        tacticRepository = repository;
         _assets = sharedAssets ?? new UiAssets(repository);
         _ownsAssets = sharedAssets is null;
         _citySources = CityGateMapMarkerSources.Load(repository);

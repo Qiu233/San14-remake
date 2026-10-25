@@ -13,7 +13,10 @@ public sealed record OrdinaryTacticActorPublication(TacticActorPresentation Acto
 }
 
 public sealed record OrdinaryTacticPresentationPublication(long Sequence,
-    IReadOnlyList<OrdinaryTacticActorPublication> Actors);
+    IReadOnlyList<OrdinaryTacticActorPublication> Actors)
+{
+    public OrdinaryTacticBeamPublication Beams { get; } = OrdinaryTacticBeamPublication.Read(Actors);
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
@@ -28,11 +31,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (request.Kind != TacticPresentationKind.OrdinaryEffects)
                 throw new InvalidDataException("tactic.presentation.unique_direction_host");
+            if (request.Actors.Length is < 1 or > 11)
+                throw new InvalidDataException("tactic.presentation.linked_actor_count");
             var current = CaptureOwnedArmyReturnWorld(state).Context;
             var actors = new List<OrdinaryTacticActorPublication>(request.Actors.Length);
             foreach (var actor in request.Actors)
             {
-                if (actor.TacticId is < 0 or > 200 || actor.TacticId >= _catalog.Rows.Count ||
+                if (actor.TacticId is < 1 or > 200 || actor.TacticId >= _catalog.Rows.Count ||
                     actor.InstructionResults is not { Length: 2 })
                     throw new InvalidDataException("tactic.presentation.source_payload");
                 var source = _catalog.Rows[actor.TacticId];

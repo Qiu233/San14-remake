@@ -6,9 +6,9 @@ using San14.Data.Formats;
 /// It retains the parent detail while owning input, media and both footers.</summary>
 internal partial class PoemEventView : Control
 {
-    private sealed class PlayingClip(PoemEventAnimationClip source, bool repeat)
+    private sealed class PlayingClip(LcskAnimationClip source, bool repeat)
     {
-        internal readonly PoemEventAnimationClip Source = source;
+        internal readonly LcskAnimationClip Source = source;
         internal readonly bool Repeat = repeat;
         internal double Elapsed;
     }

@@ -252,9 +252,11 @@ public partial class MapSceneView
             // Normal interactive Map scope; original dialog/transition v30
             // mappings are still a separate UI-state task.
             _d3d11AnimationDue=D3D11MapInteractive&&_d3d11AnimationPacer?.TryAccept()==true;
+            bool tacticUpdateDue = _d3d11AnimationDue;
             if (_d3d11AnimationDue && _d3d11AnimationPacer is { } pacer)
                 _d3d11Markers?.AdvanceCityAttention(pacer.FramesPerSecond(pacer.FpsMode));
             PublishSourceCamera();
+            if (tacticUpdateDue) ordinaryTacticUpdate?.Invoke();
         });
     }
 

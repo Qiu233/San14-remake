@@ -1,0 +1,81 @@
+using Godot;
+using San14.Data;
+
+/// <summary>Authored pane hierarchy and curves for the map's name/number
+/// layouts. Content and clip selection stay with each actual view owner.</summary>
+internal partial class UiSourceAnimationView : Control
+{
+    protected UiSourceLayout AnimationLayout = null!;
+    protected readonly Dictionary<int, Node2D> AnimationPanes = [];
+    private readonly Dictionary<int, Transform2D> transforms = [];
+    private IReadOnlyDictionary<string, LcskAnimationClip> clips = null!;
+    private LcskAnimationClip? playing;
+    private double elapsed;
+    internal bool IsPlaying => playing is not null;
+
+    protected void ConfigureAnimation(UiSourceLayout source, IReadOnlySet<string> names, IEnumerable<int> nodes)
+    {
+        MouseFilter = MouseFilterEnum.Ignore;
+        AnimationLayout = source; Size = source.Rectangle(0).Size;
+        clips = LcskAnimationReader.Read(source.Source.Layout, names).ToDictionary(clip => clip.Name);
+        foreach (int index in nodes)
+        {
+            var node = source.Nodes[index]; var transform = source.NodeTransform(index);
+            var pane = new Node2D { Name = node.Name };
+            if (node.ParentIndex is int parent && AnimationPanes.TryGetValue(parent, out var parentPane))
+            {
+                transform = source.NodeTransform(parent).AffineInverse() * transform;
+                parentPane.AddChild(pane);
+            }
+            else AddChild(pane);
+            pane.Transform = transform;
+            AnimationPanes.Add(index, pane); transforms.Add(index, transform);
+        }
+        Hide();
+    }
+
+    protected void PlayAnimation(string name)
+    {
+        playing = clips[name]; elapsed = 0;
+        foreach (var (index, pane) in AnimationPanes)
+            pane.Visible = playing.NodeIds.Contains(index);
+        Show(); ApplyFrame(playing.StartFrame);
+    }
+
+    public override void _Process(double delta)
+    {
+        if (playing is not { } clip) return;
+        elapsed += delta; ApplyFrame(clip.FrameAfter(elapsed));
+        if (elapsed >= clip.DurationSeconds) { playing = null; Hide(); }
+    }
+
+    private void ApplyFrame(float frame)
+    {
+        foreach (var (index, pane) in AnimationPanes)
+        {
+            var node = AnimationLayout.Nodes[index]; var f = node.HeaderValues;
+            float x = f[0], y = f[1], scaleX = f[7], scaleY = f[8], alpha = 1;
+            foreach (var track in playing!.Tracks)
+            {
+                if (track.NodeId != index) continue;
+                float value = (float)track.Curve.Sample(frame);
+                switch (track.Channel)
+                {
+                    case 0: x = value; break;
+                    case 1: y = value; break;
+                    case 2: break;
+                    case 6: scaleX = value; break;
+                    case 7: scaleY = value; break;
+                    case 10: alpha = (byte)(int)Math.Clamp(value * 255, 0, 255) / 255f; break;
+                    default: throw new InvalidDataException("map-action.animation_channel");
+                }
+            }
+            var original = transforms[index]; var current = original;
+            current.X *= scaleX / f[7]; current.Y *= scaleY / f[8];
+            byte anchor = (byte)node.Value48;
+            var pivot = new Vector2((anchor >> 4) * .5f * node.Value44, (anchor & 15) * .5f * node.Value46);
+            current.Origin += original.BasisXform(pivot) - current.BasisXform(pivot) + new Vector2(x - f[0], -(y - f[1]));
+            pane.Transform = current; pane.Modulate = new(1, 1, 1, alpha);
+        }
+    }
+}

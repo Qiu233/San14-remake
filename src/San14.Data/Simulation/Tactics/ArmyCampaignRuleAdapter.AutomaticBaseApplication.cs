@@ -110,6 +110,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             AutomaticBaseWallTacticRequest? wallPrefix = null;
             AutomaticArmySingleAbnormalPrefix? singleAbnormalPrefix = null;
             AutomaticArmyAllModifierPrefix? modifierPrefix = null;
+            AutomaticArmyModifierExtensionPrefix? extendedModifierPrefix = null;
             AutomaticArmyMoraleDamagePrefix? moraleDamagePrefix = null;
             switch (instruction.Opcode)
             {
@@ -133,6 +134,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                         ? new(casterId, new(resume!.MoralePrefix!.SourceArmyPhysicalSlot),
                             new(resume.MoralePrefix.SourceHexId), resume.MoralePrefix.StageFactor, resume.MoralePrefix.WaitingFactor)
                         : BeginBorrowedAutomaticArmyMoraleDamage(working, current, context, casterId, 0);
+                    break;
+                case >= 5 and <= 14 or 21:
+                    extendedModifierPrefix = BeginBorrowedAutomaticArmyModifierExtensions(working, current,
+                        context, casterId, instruction, 0);
                     break;
                 case 22:
                     modifierPrefix = BeginBorrowedAutomaticArmyAllModifiers(working, current,
@@ -197,6 +202,23 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var receiver = target.Receipt ?? throw BaseAutomaticMissing(target.UnresolvedOwner ?? "effect_Hex_receiver");
                 if (receiver.NativeKind == 255) continue;
                 actor = working.Units.GetValueOrDefault(casterId) ?? throw BaseAutomaticMissing("effect_actor");
+                if (instruction.Opcode is >= 5 and <= 14 or 21)
+                {
+                    //176610/176980 admit only Army receivers here. A Base
+                    //target does not become a fabricated Army modifier target.
+                    var applied = ApplyBorrowedAutomaticArmyModifierExtensions(working, current, context,
+                        casterId, receiver, source, instruction, extendedModifierPrefix!, sampler, operationDate, effects);
+                    working = applied.State;
+                    if (applied.TargetResultMarker)
+                    {
+                        AddCurrentMarker(receiver, nodeHex, instruction.Index, 0);
+                        details.Add(new("effect", checked(state.PeriodNumber + 1), actor.ForceId,
+                            actor.Id, actor.OfficerId, selected.TacticSlot, receiver.GameplayArmyId)
+                        { NativeUpdateOrdinal = state.NativeClock!.UpdateOrdinal, TargetHexId = nodeHex,
+                            InstructionIndex = instruction.Index });
+                    }
+                    continue;
+                }
                 if (receiver.NativeKind is 5 or 6)
                 {
                     int location = receiver.BaseLocationId ?? throw BaseAutomaticMissing("effect_Base_location");
