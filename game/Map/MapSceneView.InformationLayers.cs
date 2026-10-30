@@ -95,7 +95,9 @@ public partial class MapSceneView
     internal MapInformationLayerSnapshot? CaptureInformationLayers(GameState world)
     {
         RefreshInformationMenu();
-        if(!informationNeighbors&&!informationDiplomacy&&(_mapPresentation is null||!InformationCategoryVisible(_mapPresentation.Policy.Category16)))return null;
+        bool baseInkNeedsPublication=_d3d11Markers?.RequiresInformationPublication==true;
+        if(!baseInkNeedsPublication&&!informationNeighbors&&!informationDiplomacy&&
+            (_mapPresentation is null||!InformationCategoryVisible(_mapPresentation.Policy.Category16)))return null;
         if(!_periodMapActive&&!ReferenceEquals(informationWorld,world))
         {
             informationSnapshot=informationQuery?.Invoke(world);

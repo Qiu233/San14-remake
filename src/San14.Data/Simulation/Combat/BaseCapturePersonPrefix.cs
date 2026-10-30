@@ -54,6 +54,9 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     ?? throw Missing("borrowed_current_pool"));
             current = world.Context;
             var restored = input.BaseCaptureContinuation;
+            if (restored is { PersonPrefixProgress: null }) throw Missing("person_prefix_source_time_unavailable");
+            if (restored?.PersonPrefixProgress?.Stage == BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice)
+                return new(input, null, current, null);
             if (restored is { PendingCapturedRulerTreatment: not null } || input.PersonDeathContinuation is not null)
                 throw Missing("Base_capture_player_decision_pending");
             continuationContext = restored?.Operation ?? continuationContext;
@@ -84,6 +87,9 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             }
             else if (newForce is < 1 or > 45 || newForce == oldForce || !winningForceValid)
                 throw Missing("branch.nonordinary_winner_Force");
+            int reportRaw = K(current.ReadDistrictForceSlot(targetDistrict), "report_winner_District10");
+            var reportWinnerForce = current.ReadForceTableReference(reportRaw <= 51 ? reportRaw : 0)
+                ?? throw Missing("report_winner_District_Force_pointer");
             int winnerPerson = winnerArmyValid ? Commander(current, winnerArmy)
                 : K(current.ReadPersonLookupReference(0)?.PhysicalSlot, "winner_Person0_pointer");
             if (winnerArmyValid && !K(current.ReadPersonNativeValidity(winnerPerson), "winner Commander validity")) throw Missing("branch.invalid_winner_Commander");
@@ -93,6 +99,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             var homes = restored?.People.HomeOfficerIds.ToList() ?? [];
             var decisions = new List<BaseCapturePersonDecision>();
             var working = input;
+            DistrictReference? sourceCapturedDistrict = null;
             NativeMapSeasonDate? sourceDate = operationThirdDate ?? input.NativeMapSeason?.ThirdDate;
             var sourceSampler = continuationContext is { SampleDay: int day, SampleSalt: int salt }
                 ? new TacticSourceSamplerWorld(day, salt) : sampler;
@@ -137,6 +144,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     }
                 }
 
+                sourceCapturedDistrict = current.ReadBaseDistrictReference(target) ?? throw Missing("source_captured_District80");
                 //This descriptor starts as230DD0's status6/E4 Base list, is
                 //cleared (not destroyed) and reused for ordinarycaptured people.
                 captured = Temporary(current); current.ClearTemporaryHexList(captured);
@@ -224,11 +232,59 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 (int)K(current.ReadPersonIdentity(item.Person), "special Person10")).ToArray();
             var pendingNoncapturedOrder = ReadPeople(current, noncaptured!).Select(item =>
                 (int)K(current.ReadPersonIdentity(item.Person), "noncaptured Person10")).ToArray();
-            int firstCaptured = restored is null ? 0 : restored.People.CapturedIndex + 1;
+            var prefixProgress = restored?.PersonPrefixProgress ?? new(
+                BaseCapturePersonPrefixStage.ReadyToMergeCapturedPeople, capturedOrder.Length, null, null);
+            if (restored is null)
+            {
+                var aggregateEffects = new List<CampaignEffectRequest>();
+                var aggregate = package.PrepareBaseCapturePeopleReportsCurrent(working, current, target, winnerArmy,
+                    sourceCapturedDistrict ?? throw Missing("source_captured_District"), reportWinnerForce,
+                    ReadPeople(current, captured!).Select(row => row.Person).ToArray(),
+                    ReadPeople(current, special!).Select(row => row.Person).ToArray(), aggregateEffects);
+                working = aggregate.State;
+                AppendFeedback(aggregateEffects);
+                if (aggregate.SpecialNotice is { } text)
+                {
+                    var outbox = (working.CampaignEffectRequests ?? throw Missing("special_notice_outbox"))
+                        .Append(CampaignEffectSource.ArmyBattleDefeat,
+                            working.NativeClock?.UpdateOrdinal ?? throw Missing("special_notice_revision"),
+                            [new(null, null) { TalentCommandPresentation = new(
+                                TalentCommandPresentationOperation.Announcement, null, null, null, null, text) }]);
+                    working = working with { CampaignEffectRequests = outbox };
+                    prefixProgress = prefixProgress with { Stage = BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice,
+                        AnnouncementBatchSequence = outbox.LastBatchSequence, AnnouncementTextAtSource = text };
+                    return Pause(-1, null, null);
+                }
+            }
+            if (prefixProgress.Stage == BaseCapturePersonPrefixStage.ReadyToMergeCapturedPeople)
+            {
+                //243620 copies actual special payload nodes to the end. An
+                //unsuccessful allocation is not retried by resume or replaced
+                //with an array concatenation that invents a captured callback.
+                foreach (var item in ReadPeople(current, special!))
+                    _ = current.AppendPersonReturnTemporary(captured!, item.Person);
+                capturedOrder = ReadPeople(current, captured!).Select(item =>
+                    (int)K(current.ReadPersonIdentity(item.Person), "merged_Person10")).ToArray();
+                prefixProgress = prefixProgress with { Stage = BaseCapturePersonPrefixStage.CapturedCallbacks,
+                    AnnouncementBatchSequence = null, AnnouncementTextAtSource = null };
+            }
+            int firstCaptured = restored?.PersonPrefixProgress?.Stage == BaseCapturePersonPrefixStage.CapturedCallbacks
+                ? restored.People.CapturedIndex + 1 : 0;
             var orderedCaptured = ReadPeople(current, captured!);
             for (int index = firstCaptured; index < orderedCaptured.Count; index++)
             {
                 var item = orderedCaptured[index];
+                if (!K(current.ReadPersonNativeValidity(item.Person), "callback_Person_validity")) continue;
+                if (!K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(item.Person)), "callback_Person15E") &&
+                    K(current.ReadPersonStatus(item.Person), "callback_PersonE6") != 5)
+                {
+                    var specialEffects = new List<CampaignEffectRequest>();
+                    working = package.ApplyBaseCaptureSpecialPersonCurrent(working, current,
+                        current.ReadOwnedCurrentListPool() ?? throw Missing("special_callback_pool"),
+                        item.Person, sourceDate, sourceSampler, specialEffects);
+                    AppendFeedback(specialEffects);
+                    continue;
+                }
                 var branch = package.ReadRulerCaptureBranchCurrent(working, current, item.Person,
                     winningForce, sourceSampler);
                 if (branch.Branch == RulerCaptureBranch.DispositionRequired)
@@ -270,9 +326,6 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 working = result.State ?? throw Missing(result.UnresolvedOwner ?? "2E0FC0 captured callback");
                 custody.Add(result.Receipt!);
             }
-            if (K(current.ReadTemporaryHexListCount(special), "special captured count") != 0)
-                throw Missing("branch.special_captured_callback");
-
             //The originalTaskScene callback is separate from27E870's early
             //task gate. This independent client supplies an actual absent
             //presentation owner; present source TaskScene remains separate.
@@ -340,7 +393,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     ?? throw Missing("last_City_feedback_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
                         working.NativeClock?.UpdateOrdinal ?? throw Missing("last_City_feedback_clock"), noncapturedFeedback) };
             var receipt = new BaseCapturePersonPrefixReceipt(link, oldForce, newForce, homeArmies.ToArray(), homes.ToArray(),
-                decisions.ToArray(), capturedOrder, specialOrder,
+                decisions.ToArray(), capturedOrder.Take(prefixProgress.OrdinaryCapturedCount).ToArray(), specialOrder,
                 noncapturedOrder, homeWrites.ToArray(), custody.ToArray(), captured, noncaptured, special, changedForce)
                 { HomeArmyCause4 = homeArmyCause4.ToArray(), HasCompleteDiagnosticHistory = restored is null };
             working = WithPool(working, current, borrowed);
@@ -394,7 +447,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     capturedOrder.ToImmutableArray(), specialOrder.ToImmutableArray(),
                     pendingNoncapturedOrder.ToImmutableArray(), index);
                 working = working with { BaseCaptureContinuation = new(-1, context, people)
-                    { PendingCapturedRulerTreatment = pending, ChosenDisposition = chosen } };
+                    { PersonPrefixProgress = prefixProgress, PendingCapturedRulerTreatment = pending, ChosenDisposition = chosen } };
                 if (changedForce is not null) { Release(current, changedForce); changedForce = null; }
                 if (special is not null) { Release(current, special); special = null; }
                 if (noncaptured is not null) { Release(current, noncaptured); noncaptured = null; }

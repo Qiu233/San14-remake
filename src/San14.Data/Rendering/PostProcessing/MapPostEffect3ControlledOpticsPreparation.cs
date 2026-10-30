@@ -51,6 +51,8 @@ public sealed class MapPostEffect3ControlledOpticsPreparation
         initialGhosts=initial.SelectedGhostRecords640.ToArray();
         initialWrites=Array.AsReadOnly(resetWrites.Concat(initial.Writes).Select(w=>w.CopyAcceptedSnapshot()).ToArray());
     }
+    internal void PreserveConstructionGhostBytes(MapPostEffect3ControlledOpticsPreparation previous)
+        =>initialGhosts=previous.initialGhosts.ToArray();
     internal static MapPostEffect3ControlledOpticsPreparation RetainUnchanged(
         MapPostEffect3ControlledOpticsPreparation previous,MapPostEffect3ParameterState state,
         MapPostEffect3AllocationPlan allocation)
@@ -84,6 +86,14 @@ public sealed class MapPostEffect3ControlledOpticsPreparation
         if(!currentApplied||!ReferenceEquals(state,appliedState)||!ReferenceEquals(allocation,appliedAllocation))
             throw new InvalidDataException("Controlled preparation return is not from this applied scalar bank/allocation.");
         RequireOwner(state,allocation);
+    }
+    public void ApplyRetainedToCurrentState(MapPostEffect3ParameterState state,MapPostEffect3AllocationPlan allocation)
+    {
+        if(initializationApplied||currentApplied||appliedState is not null)
+            throw new InvalidOperationException("Retained optics was already applied.");
+        RequireOwner(state,allocation);
+        initializationApplied=true;appliedState=state;appliedAllocation=allocation;
+        ApplyToCurrentState(state,allocation);
     }
     public void ValidateAppliedState(MapPostEffect3ParameterState state)
     {
@@ -149,6 +159,44 @@ public sealed class LoadedMapPostEffect3ControlledOpticsSource
     public LoadedDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
 
+    /// <summary>Same retained optical controller after its real prior module
+    /// returned. This finite path retains FC/FD-disabled dimensions and ghost
+    /// selection. A changed FStop/anamorphic flag still requires the caller's
+    /// actual source A1 snapshot; this method owns AF and numeric optics only.</summary>
+    public MapPostEffect3ControlledOpticsPreparation PrepareRetainedCurrentCamera(
+        MapCameraConstructionPacket camera,MapCameraConstructionPacket previousCamera,
+        MapPostEffect3ApplyDerivedScalarPlan dimensions,MapPostEffect3ApplyDerivedScalarPlan previousDimensions,
+        MapPostEffect3ControlledOpticsPreparation previous,MapPostEffect3ParameterState state,
+        MapPostEffect3AllocationPlan allocation,NativeLogDispatch dispatch)
+    {
+        if(camera.ExecutableLocale!=Native.Locale||previousCamera.ExecutableLocale!=Native.Locale||
+            camera.FrameNumber!=previousCamera.FrameNumber+1||state.FrameNumber!=camera.FrameNumber||
+            previous.FrameNumber!=previousCamera.FrameNumber||dimensions.FrameNumber!=camera.FrameNumber||
+            previousDimensions.FrameNumber!=previousCamera.FrameNumber||dispatch!=NativeLogDispatch.Sse)
+            throw new InvalidDataException("Retained optics requires the same source generation and consecutive owned camera frames.");
+        var raw=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(camera,state.OwnerIdentity);
+        var old=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(previousCamera,state.OwnerIdentity);
+        var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,state.OwnerIdentity);
+        var oldTail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(previousCamera,state.OwnerIdentity);
+        if((tail.Settings.DepthOfField.Flags&0x30)!=0||(oldTail.Settings.DepthOfField.Flags&0x30)!=0||
+            dimensions.EffectiveWidth80!=previousDimensions.EffectiveWidth80||
+            dimensions.EffectiveHeight84!=previousDimensions.EffectiveHeight84||
+            dimensions.AspectRatioF4!=previousDimensions.AspectRatioF4||dimensions.SensorHeightRatioF0!=previousDimensions.SensorHeightRatioF0||
+            tail.Settings.LensEffects.GhostNum!=oldTail.Settings.LensEffects.GhostNum||camera.Optics.Limb.Weight!=previousCamera.Optics.Limb.Weight)
+            throw new NotSupportedException("Retained optics candidate admits stable FC/FD-disabled dimensions, ghost count and limb weight; their independent setters remain separate.");
+        float distance=M(raw.Float(0x12FC),DistanceScale),focal=M(M(raw.Float(0x1300),10),FocalScale),stop=raw.Float(0x1304);
+        float start=raw.Float(0x7A8),end=A(start,raw.Float(0x7AC));
+        bool anamorphic=raw.Word(0x131C)!=0;
+        bool dirty=distance!=previous.ObjectDistance60||focal!=previous.FocalLength64||stop!=previous.FStop68||
+            start!=old.Float(0x7A8)||end!=A(old.Float(0x7A8),old.Float(0x7AC))||anamorphic!=(old.Word(0x131C)!=0);
+        if(!dirty)return MapPostEffect3ControlledOpticsPreparation.RetainUnchanged(previous,state,allocation);
+        if(new[]{distance,focal,stop,start,end}.Any(x=>!float.IsFinite(x))||distance<=0||focal<=0||stop<=0||distance<=focal)
+            throw new NotSupportedException("Retained optics left its source finite positive distance/focal/FStop domain.");
+        var current=Calculate(camera.FrameNumber,state.OwnerIdentity,distance,focal,stop,start,end,camera.Optics.Limb.Weight,
+            unchecked((int)tail.Settings.LensEffects.GhostNum),anamorphic,dimensions,dispatch,true,retained:true);
+        current.PreserveConstructionGhostBytes(previous);return current;
+    }
+
     public MapPostEffect3ControlledOpticsPreparation PrepareFreshCurrentCamera(
         MapCameraConstructionPacket camera,MapPostEffect3ApplyDerivedScalarPlan dimensions,
         string actualControllerScalarOwner,NativeLogDispatch actualOwnedLogDispatch)
@@ -195,7 +243,7 @@ public sealed class LoadedMapPostEffect3ControlledOpticsSource
 
     private MapPostEffect3ControlledOpticsPreparation Calculate(long frame,string owner,float distance,float focal,float stop,
         float limbStart,float limbEnd,float limbWeight,int requestedGhosts,bool anamorphic,
-        MapPostEffect3ApplyDerivedScalarPlan dimensions,NativeLogDispatch dispatch,bool dirty)
+        MapPostEffect3ApplyDerivedScalarPlan dimensions,NativeLogDispatch dispatch,bool dirty,bool retained=false)
     {
         float Log(float x)=>NativeLogarithm.Log(x,log,dispatch);
         float Pow(float x,float e)=>SkyWeatherNativePower.PowSse(x,e,power);
@@ -248,7 +296,7 @@ public sealed class LoadedMapPostEffect3ControlledOpticsSource
         byte[] selected=new byte[count*28];int[] order=[0,2,6,15,7,3,8,14,9,1,4,10,13,11,5,12];
         for(int i=0;i<count;i++)allGhosts.AsSpan(order[i]*28,28).CopyTo(selected.AsSpan(i*28));
         var writes=new List<MapPostEffect3ApplyValueWrite>();string evidence=SourceEvidence+
-            $"frame={frame};owner={owner};fresh-AF0;current-setters-AF={(dirty?1:0)};-fixedAL1";
+            $"frame={frame};owner={owner};{(retained?"retained-prior-AF0":"fresh-AF0")};current-setters-AF={(dirty?1:0)};-fixedAL1";
         void F(string name,MapPostEffect3WriteStage stage,params float[] values)
         {
             if(values.Any(v=>!float.IsFinite(v)))throw new NotSupportedException("Actual controller optics reaches a nonfinite named writer: "+name);

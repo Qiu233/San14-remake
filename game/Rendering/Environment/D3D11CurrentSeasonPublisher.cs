@@ -55,6 +55,7 @@ public sealed class D3D11CurrentSeasonFrame
         PatternSettings = patternSettings;
         RainSettings = rainSettings;
     }
+    internal D3D11CurrentPostOpticsSnapshot? PostOptics {get;set;}
     public MainMapCameraModePacket Mode { get; }
     public MapSeasonCalendarFrame Calendar { get; }
     public NativeMapSeasonState WorldSeason => Calendar is MapSeasonRuntimeFrame live ? live.State
@@ -104,6 +105,9 @@ public sealed class D3D11CurrentSeasonPublisher
     private readonly SkySceneSky2Parameters _sky;
     private readonly LoadedSkyDirectionalSetterColorNativeSource _color;
     private AcceptedSkyLightingState? _previousLighting;
+    private D3D11CurrentPostOpticsPublisher? _postOptics;
+    internal void BindCurrentPost(D3D11NormalPostInitialConstants initial,D3D11CurrentSeasonFrame opening)
+    {_postOptics=new(initial);opening.PostOptics=_postOptics.Prepare(opening);}
     private D3D11CurrentSeasonFrame? _lastPreparedFrame;
     private D3D11CurrentSeasonFrame? _lastAcceptedFrame;
     private readonly D3D11CurrentSeasonLibrary? _library;
@@ -235,6 +239,7 @@ public sealed class D3D11CurrentSeasonPublisher
         var prepared = new D3D11CurrentSeasonFrame(mode, calendar, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
             CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars, _resources.PatternSettings, _resources.RainSettings);
+        prepared.PostOptics=_postOptics?.Prepare(prepared);
         _lastPreparedFrame=prepared;
         return prepared;
     }
@@ -245,5 +250,6 @@ public sealed class D3D11CurrentSeasonPublisher
             throw new InvalidDataException("Only this publisher's actual prepared season frame can be accepted.");
         _previousLighting=AcceptedSkyLightingState.Capture(frame.Rgb);
         _lastAcceptedFrame=frame;
+        if(frame.PostOptics is {} post)_postOptics!.Accept(post);
     }
 }

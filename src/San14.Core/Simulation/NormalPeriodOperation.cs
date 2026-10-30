@@ -45,12 +45,14 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         Candidate.PersonDeathContinuation?.PendingSuccession;
 
     public bool RequiresAutomaticArmyDefeatContinuation =>
+        !HiredArmyCaptureProgress.IsAwaitingAnnouncement(Candidate) &&
         Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 5 or 13 or 25 } &&
         Candidate.ArmyDefeatContinuation is not null &&
         PendingCapturedRulerTreatment is null && PendingRulerSuccession is null &&
         Candidate.AutomaticEmperorCapture?.PendingDecision is null && !AutomaticEmperorCaptureLifecycle.IsPresentationPending(Candidate);
 
     public bool RequiresAutomaticBaseCaptureContinuation =>
+        !BaseCapturePersonPrefixProgress.IsAwaitingNotice(Candidate) &&
         Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 6 or 13 or 25 } &&
         (Candidate.BaseCaptureContinuation is not null || Candidate.CityCaptureEmperorTail is not null || Candidate.BaseWinnerEmperorTail is not null) &&
         PendingCapturedRulerTreatment is null && PendingRulerSuccession is null &&
@@ -60,6 +62,8 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         RequiresAutomaticTacticPresentationContinuation;
 
     public bool RequiresAutomaticTacticPresentationContinuation =>
+        !HiredArmyCaptureProgress.IsAwaitingAnnouncement(Candidate) &&
+        !BaseCapturePersonPrefixProgress.IsAwaitingNotice(Candidate) &&
         Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 6 } &&
         Candidate.ManualTacticExecutionContinuation is null &&
         Candidate.ManualTacticIntervention is { Directions.Length: 0 } manager &&
@@ -68,6 +72,8 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         Candidate.AutomaticEmperorCapture?.PendingDecision is null && !AutomaticEmperorCaptureLifecycle.IsPresentationPending(Candidate);
 
     public bool RequiresAutomaticManualTacticContinuation =>
+        !HiredArmyCaptureProgress.IsAwaitingAnnouncement(Candidate) &&
+        !BaseCapturePersonPrefixProgress.IsAwaitingNotice(Candidate) &&
         Candidate.NativePeriodContinuation?.Cursor is { StageIndex: 6 } &&
         Candidate.ManualTacticExecutionContinuation is not null &&
         PendingCapturedRulerTreatment is null && PendingRulerSuccession is null &&

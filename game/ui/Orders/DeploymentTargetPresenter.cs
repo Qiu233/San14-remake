@@ -151,7 +151,7 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
                 ?repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[0]:captions).Records[option.CaptionDataIndex].Text
                 ??throw new InvalidDataException("Missing deployment command caption."),Icon(option.ActionKey),Hint(option),
                 option.Enabled==true&&UnitTargetMenuMessages.AllowsPresentation(option)&&
-                    (option.ActionKey=="waypoint"||option.Action is not null&&option.ActionKey is "move" or "enter" or "attack" or "repair" or "demolish" or "fire" or "occupy"||
+                    (option.ActionKey is "waypoint" or "build"||option.Action is not null&&option.ActionKey is "move" or "enter" or "attack" or "repair" or "demolish" or "fire" or "occupy"||
                         chooseFalseReportDestination is not null&&option.Action is {ActionKey:"capture",Target.Kind:DeploymentTargetKind.Unit}),()=>
         {
             if(disposed||popup is null||menu!=popup)return;
@@ -162,6 +162,7 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
                 accepted.Action!=option.Action||accepted.GoalHexId!=option.GoalHexId)
             {if(current.CanOpen is null)unavailable(current.UnresolvedInput??"deployment.target.menu");return;}
             if(accepted.ActionKey=="waypoint"){AppendWaypoint(target);return;}
+            if(accepted.ActionKey=="build"){OpenFacilities(target);return;}
             if(accepted.Action is null)return;
             if(accepted.Action is {ActionKey:"capture",Target.Kind:DeploymentTargetKind.Unit} action)
             {

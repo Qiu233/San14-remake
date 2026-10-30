@@ -6,7 +6,8 @@ internal sealed record D3D11MapInitialEnvironment(
     SkyAtmosphereResourceOwner AtmosphereOwner, SkyMainResourceOwner SkyResources,
     D3D11SkyAtmosphereResources AtmosphereResources, SkyStarResources? StarResources,
     D3D11AmbientRenderResources AmbientResources, D3D11CloudProgramMedia CloudMedia,
-    D3D11CloudRenderResources CloudResources, ShadowReceiverPatternResources ReceiverPatterns)
+    D3D11CloudRenderResources CloudResources, ShadowReceiverPatternResources ReceiverPatterns,
+    D3D11NormalPostInitialConstants Post)
 {
     internal static D3D11MapInitialEnvironment Prepare(D3D11MapCpuResources cpu,
         D3D11CurrentSeasonFrame current, MainMapCameraFrame currentMain,
@@ -133,14 +134,14 @@ internal sealed record D3D11MapInitialEnvironment(
                 D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
             token.ThrowIfCancellationRequested();
             }
-            D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(repository,
+            var normalPost=D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(repository,
                 current, inputs, cpu.Width, cpu.Height,sceneColor);
             D3D11PrimaryForwardInputs.WriteFreshNativeInputs(repository,
                 cpu.PrimaryTemplates, cpu.SeasonResources, current, inputs,
                 cpu.Width, cpu.Height);
             token.ThrowIfCancellationRequested();
             return new(atmosphereOwner!,skyResources!,atmosphereResources!,starResources,
-                ambientResources!,cloudMedia!,cloudResources!,receiverPatterns!);
+                ambientResources!,cloudMedia!,cloudResources!,receiverPatterns!,normalPost);
         }
         catch { if(atmosphereOwner is not null)atmosphereOwner.Dispose();else skyResources?.Dispose();throw; }
     }

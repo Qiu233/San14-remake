@@ -26,7 +26,7 @@ internal static class D3D11CurrentSeasonEncoding
         byte[] specialBytes = D3D11SpecialEffectEncoding.Write(frame);
         byte[] rainBytes = D3D11RainDropEncoding.Write(frame);
         byte[] occlusionBytes = D3D11ContactOcclusionEncoding.Write(frame);
-        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length + specialBytes.Length + rainBytes.Length + occlusionBytes.Length];
+        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length + specialBytes.Length + rainBytes.Length + occlusionBytes.Length + (frame.PostOptics is null?0:D3D11CurrentPostOpticsSnapshot.ByteLength)];
         var bytes = result.AsSpan();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)frame.MainMode);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], (uint)frame.SeasonIndex);
@@ -97,6 +97,8 @@ internal static class D3D11CurrentSeasonEncoding
         at += specialBytes.Length;
         rainBytes.CopyTo(bytes[at..]);
         at += rainBytes.Length;
+        frame.PostOptics?.Write(bytes[at..]);
+        if(frame.PostOptics is not null)at+=D3D11CurrentPostOpticsSnapshot.ByteLength;
         occlusionBytes.CopyTo(bytes[at..]);
         return result;
     }

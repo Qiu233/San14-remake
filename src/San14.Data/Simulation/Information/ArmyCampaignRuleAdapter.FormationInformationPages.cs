@@ -44,7 +44,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         catch (InvalidDataException error) { return AreaAdministrationQuery<OfficerInformationPageSet>.Unknown(error.Message); }
     }
 
-    private sealed class FormationInformationCurrent(ArmyCampaignRuleAdapter rules, GameState state)
+    private sealed partial class FormationInformationCurrent(ArmyCampaignRuleAdapter rules, GameState state)
     {
         private readonly Dictionary<(int Id, int Column), PreparedCell> prepared = [];
         internal FormationInformationPageSet Pages()

@@ -111,7 +111,8 @@ public partial class Main
                     continue;
                 }
                 owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!);
-                if ((session.PendingNormalPeriod is null || IntelligenceNarrationContinuation(owner) is not null) &&
+                if ((session.PendingNormalPeriod is null || IntelligenceNarrationContinuation(owner) is not null ||
+                    BaseCapturePersonPrefixProgress.IsPresentationPending(owner) || HiredArmyCaptureProgress.IsPresentationPending(owner)) &&
                     owner.CampaignAppRandom32 is { } random)
                     _presentationRandom.InstallCommittedState(random.State);
                 if (owner.ArmyMapSpeech!.Entries.FirstOrDefault(row => row.Sequence == sequence) is
@@ -140,26 +141,38 @@ public partial class Main
         // Shared admission is checked once; each live page retains its own
         // strict predecessor, view and parent lifecycle below.
         if (ReferenceEquals(previous, replacement) || _session != session || _residentMap != map) return;
-        //A real NoWait intelligence SE6 also retains its queue-admission
+        //Real NoWait intelligence/battle cues retain their queue-admission
         //holder through this exact speech-only commit, outside a typed wait.
-        if (_personnelSound is { IntelligenceCue: true } sound && sound.Session == session && sound.Map == map &&
+        if (_personnelSound is { } sound && (sound.IntelligenceCue || sound.BattleCue || BaseCapturePersonPrefixProgress.IsPresentationPending(previous)) &&
+            sound.Session == session && sound.Map == map &&
             ReferenceEquals(sound.Owner, previous) && ReferenceEquals(PersonnelPresentationOwner(session), replacement) &&
             ReferenceEquals(previous.NativePeriodContinuation, replacement.NativePeriodContinuation) &&
             ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands) &&
+            (!sound.BattleCue || ReferenceEquals(previous.ArmyDefeatContinuation, replacement.ArmyDefeatContinuation)) &&
             ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests)) sound.Owner = replacement;
         if (session.PendingNormalPeriod is { } pending)
         {
             //Only this synchronous speech publication may adopt a retained
-            //intelligence presentation. Its task and outbox owners are unchanged.
-            if (!ReferenceEquals(pending.Candidate, replacement) || IntelligenceNarrationContinuation(previous) is null ||
+            //wait presentation. Its continuation and outbox owners are unchanged.
+            if (!ReferenceEquals(pending.Candidate, replacement) ||
+                IntelligenceNarrationContinuation(previous) is null && !BaseCapturePersonPrefixProgress.IsPresentationPending(previous) &&
+                    !HiredArmyCaptureProgress.IsPresentationPending(previous) ||
+                BaseCapturePersonPrefixProgress.IsPresentationPending(previous) &&
+                    !ReferenceEquals(previous.BaseCaptureContinuation, replacement.BaseCaptureContinuation) ||
+                HiredArmyCaptureProgress.IsPresentationPending(previous) &&
+                    (!ReferenceEquals(previous.ArmyDefeatContinuation, replacement.ArmyDefeatContinuation) ||
+                        !ReferenceEquals(previous.NativePeriodContinuation?.Cursor, replacement.NativePeriodContinuation?.Cursor)) ||
                 !ReferenceEquals(previous.NativePeriodContinuation, replacement.NativePeriodContinuation) ||
                 !ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands) ||
                 !ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests)) return;
             map.AdoptSpeechWorld(previous, replacement);
-            if (_personnelPresentationIntelligenceWait && _personnelPresentation is not null &&
+            if ((_personnelPresentationIntelligenceWait || _personnelPresentationBaseCaptureWait || _personnelPresentationHiredCaptureWait) && _personnelPresentation is not null &&
                 _personnelPresentationSession == session && _personnelPresentationMap == map &&
                 ReferenceEquals(_personnelPresentationWorld, previous))
                 _personnelPresentationWorld = replacement;
+            if (_duelCaptureAnnouncement is { RetainedHiredOwner: true, Playback: null } capture &&
+                capture.Session == session && capture.Map == map && ReferenceEquals(capture.World, previous))
+                capture.World = replacement;
             return;
         }
         if (!ReferenceEquals(session.World, replacement)) return;

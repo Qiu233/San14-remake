@@ -127,13 +127,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     Relation() == UnitTargetMenuRelation.Other,
                 () => InitialAction("attack", AttackTarget()));
             AddInitialFire();
-            Add("build", 0x10B, 0x56A4, () =>
-            {
-                if (!(Kind() is UnitTargetMenuKind.Empty or UnitTargetMenuKind.Army ||
-                    Kind() == UnitTargetMenuKind.Trap && Relation() == UnitTargetMenuRelation.Other) ||
-                    Relation() == UnitTargetMenuRelation.Friendly || SameSite()) return false;
-                throw Missing("mode0_build_definition_search");
-            }, null);
+            AddInitialConstruction();
             Add("repair", 0x10C, 0x56A5, () => Kind() == UnitTargetMenuKind.Obstacle ||
                 (Kind() is UnitTargetMenuKind.Facility or UnitTargetMenuKind.Trap) && Relation() == UnitTargetMenuRelation.Own,
                 () => InitialAction("repair", StructureTarget()));
@@ -189,8 +183,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                     current.ReadPersonForce(person) != own) throw Missing("initial_selected_Person_Force");
                 if (firstPerson < 0) firstPerson = person;
             }
-            if (key == "attack" && Kind() is not (UnitTargetMenuKind.Army or UnitTargetMenuKind.Base))
-                throw Missing("mode0_structure_attack_command");
             var error = OCReadDeploymentTarget(state, current, firstPerson, [action], out var command);
             if (error is not null) throw Missing(error.MissingRuleKey ?? error.ErrorCode ?? "initial_target_rejected");
             if (command is null || key != "occupy" && command.GoalHex != targetHex)

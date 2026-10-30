@@ -22,7 +22,7 @@ internal sealed record HistoryTextResult(GameState State, string Text)
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment, MonthlyMaintenance, ArmyMapSpeech, DoctrineResearch, NormalTurn, StrategicCommands, Proposal, IntelligenceCommands, Occupation, DuelPresentation, DuelCapture, PersonnelItemTransfer, StoryStateControl }
+    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment, MonthlyMaintenance, ArmyMapSpeech, DoctrineResearch, NormalTurn, StrategicCommands, Proposal, IntelligenceCommands, Occupation, DuelPresentation, DuelCapture, PersonnelItemTransfer, StoryStateControl, BaseCapturePeople }
     internal string ReadHistoryDataText(int section, int id)
     {
         var data = _repository.LoadMessages(Seed.Language, MessageKind.Data).Messages;
@@ -173,6 +173,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReportMessageOrigin.PersonnelAdministration=>vm.ResolvePersonnelAdministrationReport(context,Draw,root),
             ReportMessageOrigin.PersonnelItemTransfer=>vm.ResolvePersonnelItemTransfer(context,Draw,root),
             ReportMessageOrigin.StoryStateControl=>vm.ResolveStoryStateControl(context,Draw,root),
+            ReportMessageOrigin.BaseCapturePeople=>vm.ResolveBaseCapturePeople(context,Draw,root),
             ReportMessageOrigin.PersonnelDevelopment=>vm.ResolvePersonnelDevelopmentReport(context,Draw,root),
             ReportMessageOrigin.MonthlyMaintenance=>vm.ResolveMonthlyMaintenance(context,Draw,root),
             ReportMessageOrigin.NormalTurn=>vm.ResolveNormalTurnReport(context,Draw,root),

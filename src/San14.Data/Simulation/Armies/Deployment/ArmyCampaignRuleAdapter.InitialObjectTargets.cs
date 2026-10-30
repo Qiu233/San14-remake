@@ -4,8 +4,8 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //7EB310 items5/6 select9/10 and22DFF0's actual Object identity. Resolve
-    //the typed Structure through the current Hex/Object owner, without an Army.
+    //7EB310 item3 Object attack and items5/6 share22DFF0's actual physical
+    //Object identity. Resolve the current Structure without allocating an Army.
     private static CommandResult? OCReadInitialObjectTarget(GameState state, SourceWorldContext current,
         ForceReference actorForce, DeploymentAction action, out ArmyCommandTarget? result)
     {
@@ -29,10 +29,26 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (!OCKnown(current.ReadObjectDefinitionValidity(definition), "initial_Object_definition_validity"))
             return CommandResult.Reject("The selected object is not a facility.", "deployment.target");
         int category = OCKnown(current.ReadObjectDefinitionRaw2C(definition), "initial_Object_category");
-        bool repair = action.ActionKey == "repair";
+        bool attack = action.ActionKey == "attack", repair = action.ActionKey == "repair";
+        if (attack)
+        {
+            //7C70D0 includes item3 only for Other Army/Base/Facility/Obstacle;
+            //a generic Object here must be category2/3, never a Trap4.
+            if (category is not (2 or 3))
+                return CommandResult.Reject("This object is not an ordinary attack target.", "deployment.target");
+            int rawForce = OCKnown(current.ReadObjectForceSlot13(obj), "initial_attack_Object_Force");
+            var targetForce = current.ReadForceTableReference(rawForce <= 51 ? rawForce : 0)
+                ?? throw OCMissing("initial_attack_Object_Force_pointer");
+            if (OCKnown(current.ReadForceNativeValidity(targetForce), "initial_attack_Object_Force_validity") &&
+                (targetForce == actorForce ||
+                    OCKnown(current.ReadForceNativeValidity(actorForce), "initial_attack_Commander_Force_validity") &&
+                    OCKnown(ArmyMarchDevelopmentSource.ReadFriendlyRelation(state, actorForce, targetForce),
+                        "initial_attack_Object_friendly_relation")))
+                return CommandResult.Reject("The selected facility is not an Other-force target.", "deployment.target");
+        }
         //Original item5 permits Obstacles independently of affiliation. Both
-        //items require the actual own Force for Facility/Trap receivers.
-        if (!(repair && category == 3))
+        //work items require the actual own Force for Facility/Trap receivers.
+        else if (!(repair && category == 3))
         {
             if (category is not (2 or 4))
                 return CommandResult.Reject("This object does not support the selected work order.", "deployment.target");
@@ -48,7 +64,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (repair && !FacilityConstructionDefinitions.IsSupported(OCKnown(definition.PhysicalSlot, "initial_repair_definition_identity")))
             throw OCMissing(category == 3 ? "initial_repair_continuous_obstacle_consumer"
                 : "initial_repair_definition_consumer");
-        result = new(repair ? (byte)9 : (byte)10, new(11, checked((ushort)physical)), goal);
+        //The packet stores physical Object identity, not the Hex1A lookup
+        //alias or the domain Structure ID. Later lookups keep their own owner.
+        result = new(attack ? (byte)6 : repair ? (byte)9 : (byte)10,
+            new(11, checked((ushort)physical)), goal);
         return null;
     }
 }

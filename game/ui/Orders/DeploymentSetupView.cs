@@ -31,12 +31,14 @@ internal partial class DeploymentSetupView : Control
     private readonly List<UiSourceBottomButton> batchButtons=[];
     private Action<DeploymentSetupBatchAction>? batchRequested;
     private bool abandoned;
+    private Control? definitionChild;
+    private bool definitionCanvasVisible,definitionBackdropVisible;
     internal DeploymentUnitInformationView UnitInformation {get;private set;}=null!;
     internal DeploymentOfficerInformationView OfficerInformation {get;private set;}=null!;
-    internal void RequestClose() => close?.Invoke();
+    internal void RequestClose() {if(!abandoned&&definitionChild is null)close?.Invoke();}
     internal void Abandon()
     {
-        abandoned=true;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
+        abandoned=true;definitionChild=null;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
         foreach(var button in batchButtons)button.Disabled=true;
         balloonOwner=null;balloon?.DisplayText(null);
         Hide();
@@ -144,6 +146,28 @@ internal partial class DeploymentSetupView : Control
 
     internal void RegisterHeader(UiSourceHeaderStack owner) => sourceHeader.Publish(owner);
 
+    // Definition children are actual siblings of this canvas. Keep the page
+    // itself alive and visible so their own admission/lifetime remains real.
+    internal void BeginDefinitionSelection(Control owner)
+    {
+        if(abandoned||definitionChild is not null||!IsInsideTree()||IsQueuedForDeletion())
+            throw new InvalidOperationException("The deployment setup cannot acquire another definition child.");
+        if(!ReferenceEquals(owner.GetParent(),this))
+            throw new InvalidOperationException("The deployment definition child must belong to this setup.");
+        definitionCanvasVisible=canvas.Visible;definitionBackdropVisible=CommonBackdrop.Visible;
+        definitionChild=owner;balloonOwner=null;balloon?.DisplayText(null);
+        canvas.Hide();CommonBackdrop.Hide();
+    }
+
+    internal void EndDefinitionSelection(Control owner)
+    {
+        if(!ReferenceEquals(definitionChild,owner))return;
+        definitionChild=null;
+        if(abandoned||IsQueuedForDeletion()||!IsInsideTree())return;
+        if(GodotObject.IsInstanceValid(canvas)&&!canvas.IsQueuedForDeletion())canvas.Visible=definitionCanvasVisible;
+        if(GodotObject.IsInstanceValid(CommonBackdrop)&&!CommonBackdrop.IsQueuedForDeletion())CommonBackdrop.Visible=definitionBackdropVisible;
+    }
+
     internal void ApplyDraftResources(DeploymentDraftResources resources)
     {
         resourceHeader.Apply(resources);
@@ -215,7 +239,7 @@ internal partial class DeploymentSetupView : Control
     }
     public override void _ExitTree()
     {
-        close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
+        definitionChild=null;close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
         font?.Dispose(); assets?.Dispose(); shader?.Dispose();
     }
 }

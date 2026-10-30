@@ -3,7 +3,22 @@ using San14.Data;
 
 public partial class AudioPlaybackService
 {
-    internal async Task<NormalSoundAdmission> PlaySpatialEffectAsync(SpatialEffectSoundPlayback source,
+    private readonly AudioCueSelectionRandom _cueSelectionRandom = new();
+
+    internal Task<NormalSoundAdmission> PlaySpatialEffectAsync(SpatialEffectSoundPlayback source,
+        OriginalSpatialOutput output, object owner, Node3D world, Vector3 position, SpatialSoundMode mode,
+        Func<SpatialSoundCameraFrame> readCamera, CancellationToken cancellationToken)
+        => PlaySpatialEffectCoreAsync(source.ManagerId, source, null, output, owner, world, position,
+            mode, readCamera, cancellationToken);
+
+    internal Task<NormalSoundAdmission> PlayArmyDamageSoundAsync(ArmyDamageSoundDeclaration declaration,
+        OriginalSpatialOutput output, object owner, Node3D world, Vector3 position, SpatialSoundMode mode,
+        Func<SpatialSoundCameraFrame> readCamera, CancellationToken cancellationToken)
+        => PlaySpatialEffectCoreAsync(declaration.ManagerId, null, declaration, output, owner, world, position,
+            mode, readCamera, cancellationToken);
+
+    private async Task<NormalSoundAdmission> PlaySpatialEffectCoreAsync(int managerId,
+        SpatialEffectSoundPlayback? source, ArmyDamageSoundDeclaration? declaration,
         OriginalSpatialOutput output, object owner, Node3D world, Vector3 position, SpatialSoundMode mode,
         Func<SpatialSoundCameraFrame> readCamera, CancellationToken cancellationToken)
     {
@@ -17,7 +32,7 @@ public partial class AudioPlaybackService
         EffectVoice? effect = null;
         var context = new NormalSoundManagerContext(_repository is not null, !_lifetime.IsCancellationRequested,
             IsInsideTree() && _decoder is not null, false);
-        var admission = _normalSounds.TryAllocateSpatial(source.ManagerId,
+        var admission = _normalSounds.TryAllocateSpatial(managerId,
             new(position.X, position.Y, position.Z), mode, context, QueryEffectHandle, request =>
             {
                 effect = new(request.Slot, request.ManagerId, "effects:" + request.Slot)
@@ -27,9 +42,12 @@ public partial class AudioPlaybackService
             }, RetireEffect);
         if (effect is null) { lifetime.Dispose(); return admission; }
 
-        var clips = new List<AudioClip>(source.Layers.Count);
+        var clips = new List<AudioClip>();
         try
         {
+            // Selection belongs to the admitted audio-library request. Parsing,
+            // clip rejection and map/World replacement never reset this stream.
+            source ??= declaration!.Select(_cueSelectionRandom);
             //All layers are prepared before any starts. Each layer retains its
             //native sample rate, pitch, cursor and authored distance curve.
             foreach (var layer in source.Layers)

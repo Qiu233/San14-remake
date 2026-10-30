@@ -10,6 +10,7 @@ struct PostHistorySeed {
     uint32_t warmupApplications{}, stagingReadSide{};
     bool cocWriteSide{}, apertureChanged{}, previousGatherApplied{};
     float previousApplyTime{};
+    bool hasApplied{};
 };
 struct PostHistoryFrame {
     float applyTime{}, deltaTime{};
@@ -34,7 +35,7 @@ public:
         if(!std::isfinite(applyTime)||!std::isfinite(deltaTime))throw std::runtime_error("Post application time must be finite");
         PostHistoryFrame frame;
         frame.applyTime=applyTime;frame.deltaTime=std::max(0.f,deltaTime);
-        frame.initializeCoc=resetHistory||resetView||(!state_.previousGatherApplied&&dofEnabled);
+        frame.initializeCoc=!state_.hasApplied||resetHistory||resetView||(!state_.previousGatherApplied&&dofEnabled);
         frame.rebuildAperture=state_.apertureChanged;
         if(frame.initializeCoc)state_.warmupApplications=2;
         state_.cocWriteSide=!state_.cocWriteSide;
@@ -64,7 +65,7 @@ public:
         if(state_.warmupApplications)--state_.warmupApplications;
         state_.apertureChanged=false;
         if(returned&&callIndex==callCount-1)state_.previousGatherApplied=gatherEnabled;
-        applicationInProgress_=false;
+        state_.hasApplied=true;applicationInProgress_=false;
     }
 private:
     PostHistorySeed state_;

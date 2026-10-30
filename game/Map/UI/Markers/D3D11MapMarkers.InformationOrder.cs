@@ -22,6 +22,10 @@ internal partial class D3D11MapMarkers
     private long informationOrdinal;
     private int? informationPlayer;
 
+    // Base ink needs the actual current-player reference for its source order,
+    // including command-map modes that hide the ordinary information panels.
+    internal bool RequiresInformationPublication => _baseInformationVisible || campaignMarkerHexes is not null;
+
     internal void SetInformationPlayer(int? actualPlayer)
     {informationPlayer=actualPlayer;}
 
@@ -154,6 +158,7 @@ internal partial class D3D11MapMarkers
             rect=box;return true;
         }
         if(entry.Marker is not {} marker||(!_baseInformationVisible&&campaignMarkerHexes is null))return false;
+        if(campaignPresentation is not null)return TryReadCampaignHitRectangle(marker,frame,out rect);
         if(!marker.PositionReady||!CampaignMarkerVisible(marker)||!TargetMarkerVisible(marker)||!TargetMarkerEnabled(marker)||DirectionSuppresses(marker))return false;
         AreaMapLabelPresentation area=default;
         if(marker.Kind==Kind.Area)

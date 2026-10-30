@@ -4,7 +4,7 @@ using San14.Data.Formats;
 using System.Globalization;
 
 internal enum CampaignDeploymentUiStage { Target, District, Footholds }
-internal sealed record CampaignDeploymentBarSegment(double Fraction, MapCornerColors? Colors);
+internal sealed record CampaignDeploymentBarSegment(float Fraction, MapCornerColors? Colors);
 internal sealed record CampaignDeploymentBarValues(long? OtherTroops, long? SelectedTroops,
     IReadOnlyList<CampaignDeploymentBarSegment> Segments, IReadOnlyList<LoadedSprite?> Portraits,
     string AdditionalArmiesText);
@@ -18,7 +18,8 @@ internal partial class CampaignDeploymentView : Control
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
-    private Control canvas = null!, bar = null!, fills = null!, faces = null!;
+    private Control canvas = null!, bar = null!, fills = null!, faces = null!, numbersHost = null!;
+    private Texture2D segmentTexture = null!;
     private UiSourceLayout barLayout = null!;
     private UiSourceHeader header = null!;
     private UiSourceRoundButton firstBack = null!, sourceBack = null!, confirm = null!;
@@ -27,7 +28,7 @@ internal partial class CampaignDeploymentView : Control
     private Action? returned, accepted;
     private Func<bool>? admitted;
     private CampaignDeploymentUiStage stage;
-    private string defaultHint = "",returnHint = "",emptyHint = "";
+    private string defaultHint = "",returnHint = "",emptyHint = "",confirmHint = "";
     private string? hoveredHint;
     private bool abandoned, busy;
 
@@ -52,15 +53,25 @@ internal partial class CampaignDeploymentView : Control
         canvas.AddChild(bar);
         barLayout.Art(bar,1,barLayout.Rectangle(1),assets,shader);
         barLayout.Art(bar,3,barLayout.Rectangle(3),assets,shader);
-        fills = new() { Name = "CampaignTroopDistribution", MouseFilter = MouseFilterEnum.Ignore }; bar.AddChild(fills);
+        //870B30 resource9 selects the common bar sprite through930580.
+        //The authored node4 remains suppressed; it is not this resource.
+        segmentTexture=assets.SrgbSprite("000_cmn_bar",new LocalizedUiSpriteSource(repository).LoadCommonSprite("000_cmn_bar"));
+        // The authored grd is submitted in the loaded Root hierarchy.
+        //870B30 appends its seventeen dynamic panes after those children.
+        barLayout.Art(bar,5,barLayout.Rectangle(5),assets,shader);
+        fills = new() { Name = "CampaignTroopDistribution", MouseFilter = MouseFilterEnum.Ignore };
         faces = new() { Name = "CampaignFirstCommanders", MouseFilter = MouseFilterEnum.Ignore }; bar.AddChild(faces);
         additional = barLayout.Text(bar,27,default,"",font);
         var numbers = new UiSourceLayout(repository,0xADD1B984);
-        Vector2 numbersMount = barLayout.Rectangle(28).Position;
-        otherTroops = numbers.Text(bar,1,numbersMount,"",font);
-        selectedTroops = numbers.Text(bar,2,numbersMount,"",font);
-        arrow = numbers.Art(bar,3,numbers.Rectangle(3,numbersMount),assets,shader);
-        numbers.Art(bar,4,numbers.Rectangle(4,numbersMount),assets,shader);
+        numbersHost=new() {Name="CampaignTroopComparison",Position=barLayout.Rectangle(28).Position,
+            Size=numbers.Rectangle(0).Size,MouseFilter=MouseFilterEnum.Ignore};
+        bar.AddChild(numbersHost);
+        var presets=MapTextPresets.Create();
+        otherTroops = numbers.Text(numbersHost,1,default,"",font,presets[48]);
+        selectedTroops = numbers.Text(numbersHost,2,default,"",font,presets[47]);
+        arrow = numbers.Art(numbersHost,3,numbers.Rectangle(3),assets,shader);
+        numbers.Art(numbersHost,4,numbers.Rectangle(4),assets,shader);
+        bar.AddChild(fills);
         var footer = new UiSourceLayout(repository,0xD8913AB2); Vector2 footerMount = new(0,904);
         firstBack = Button("CampaignReturnFirst",1,"000_cmn_txt_decision_modoru",RequestBack,UiAudioCue.Cancel);
         sourceBack = Button("CampaignReturnSource",4,"000_cmn_txt_decision_modoru",RequestBack,UiAudioCue.Cancel);
@@ -71,7 +82,7 @@ internal partial class CampaignDeploymentView : Control
         foreach (var node in guide.Nodes.Where(node=>node.Type is 1 or 3))
             guide.Art(canvas,node.Index,guide.Rectangle(node.Index,guideMount),assets,shader);
         hint = guide.Text(canvas,guide.Nodes.Single(node=>node.Type==2).Index,guideMount,"",font);
-        returnHint = Literal(0x2733); emptyHint = Literal(0x5686);
+        returnHint = Literal(0x2733); emptyHint = Literal(0x5686); confirmHint = Literal(0x580C);
         Resized += Fit; Fit(); SetBusy(false);
         SetMeta("source_layout",root.Source.Source.ResourceUri);
 
@@ -99,15 +110,24 @@ internal partial class CampaignDeploymentView : Control
         otherTroops.Text = Number(values.OtherTroops);
         selectedTroops.Text = Number(values.SelectedTroops);
         selectedTroops.Visible = arrow.Visible = stage == CampaignDeploymentUiStage.Footholds;
-        additional.Text = values.AdditionalArmiesText;
+        bool footholds=stage==CampaignDeploymentUiStage.Footholds;
+        additional.Text = values.AdditionalArmiesText;additional.Visible=faces.Visible=footholds;
+        float sourceWidth=barLayout.Rectangle(4).Size.X;
+        int boundary=values.OtherTroops==0?(int)sourceWidth:
+            values.SelectedTroops is long own&&values.OtherTroops is long other&&own+other!=0?
+                (int)(sourceWidth*((float)own/(own+other))):0;
+        numbersHost.Position=new(footholds?boundary-94:796,numbersHost.Position.Y);
         ClearChildren(fills); ClearChildren(faces);
         Rect2 area = barLayout.Rectangle(4);
         float x = area.Position.X;
-        foreach (var segment in values.Segments)
+        foreach (var segment in values.Segments.Take(17))
         {
-            float width = (float)Math.Floor(area.Size.X * segment.Fraction);
+            int width = (int)(area.Size.X * segment.Fraction);
             if (width > 0 && segment.Colors is { } colors)
-                barLayout.Art(fills,4,new(new(x,area.Position.Y),new(width,area.Size.Y)),assets,shader,colors);
+            {
+                var pane=new UiSourceSprite {Position=new(x,area.Position.Y),Size=new(width,area.Size.Y)};
+                fills.AddChild(pane);pane.Configure(shader,segmentTexture,UiSourceSprite.Blend.Ordinary,colors);
+            }
             x += width;
         }
         int[] mounts = [6,9,12,15,18,21,24];
@@ -138,7 +158,8 @@ internal partial class CampaignDeploymentView : Control
         if(abandoned||!IsVisibleInTree())return;
         var control=GetViewport().GuiGetHoveredControl();
         hint.Text=control==firstBack||control==sourceBack?returnHint:
-            stage==CampaignDeploymentUiStage.Footholds&&control==confirm&&confirm.Disabled?emptyHint:hoveredHint??defaultHint;
+            stage==CampaignDeploymentUiStage.Footholds&&control==confirm?
+                (confirm.Disabled?emptyHint:confirmHint):hoveredHint??defaultHint;
     }
     private static void ClearChildren(Control parent)
     { foreach (Node child in parent.GetChildren()) { parent.RemoveChild(child); child.QueueFree(); } }

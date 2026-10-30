@@ -69,6 +69,17 @@ internal sealed class DeploymentSetupDraft(GameState world,int sourceLocationId,
         edit=next;PaneUnresolvedInput=null;return null;
     }
 
+    internal string? SetTactics(IReadOnlyList<int> selectedBodyIds)
+    {
+        if(FocusedOfficerId is not int officer||edit is null)
+            return PaneUnresolvedInput??"deployment.definition_selection.selected_row";
+        var result=rules.QueryDeploymentTacticSelectionEdit(world,officer,edit,selectedBodyIds);
+        if(result.Value is not { } next)return result.UnresolvedInput??"deployment.definition_selection.unavailable";
+        rows=Array.AsReadOnly(rows.Select(row=>row.Request.OfficerId!=officer?row:row with
+        {Request=row.Request with{TacticIds=Array.AsReadOnly(next.Tactics.ToArray())}}).ToArray());
+        edit=next;PaneUnresolvedInput=null;return null;
+    }
+
     internal string? SetAllTroops(int troops)=>AcceptBatch(
         rules.ApplyDeploymentBatchTroops(world,rows,troops,FocusedOfficerId));
     internal string? MaximizeTroops()=>AcceptBatch(

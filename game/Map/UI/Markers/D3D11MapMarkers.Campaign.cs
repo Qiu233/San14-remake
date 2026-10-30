@@ -9,6 +9,14 @@ internal partial class D3D11MapMarkers
     //paint a candidate Hex bitmap or create a marker at an invented center.
     internal void SetCampaignMarkers(IReadOnlySet<int>? visibleHexes,IReadOnlySet<int>? selectedHexes=null)
     {
+        bool restoreProjection=campaignPresentation is not null;
+        ClearCampaignPresentationControls();
+        ApplyCampaignMarkerSets(visibleHexes,selectedHexes);
+        if(restoreProjection&&_frame is {} frame)ProjectMarkers(frame);
+    }
+
+    private void ApplyCampaignMarkerSets(IReadOnlySet<int>? visibleHexes,IReadOnlySet<int>? selectedHexes)
+    {
         campaignMarkerHexes=visibleHexes;campaignSelectedHexes=selectedHexes;
         PositionFoodWarnings();
         PositionCityAttention();

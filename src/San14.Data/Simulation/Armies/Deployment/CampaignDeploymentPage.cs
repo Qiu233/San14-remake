@@ -24,7 +24,7 @@ public sealed record CampaignDeploymentConfirmation(int? PayerDistrictId, int? C
 
 /// <summary>A single page's detached current inputs and lazy candidate caches.
 /// Hover lookups never capture a world or build deployment packets.</summary>
-public sealed class CampaignDeploymentPage
+public sealed partial class CampaignDeploymentPage
 {
     private readonly ICampaignDeploymentPageSource source;
     internal CampaignDeploymentPage(ICampaignDeploymentPageSource source) => this.source = source;
@@ -96,6 +96,8 @@ internal interface ICampaignDeploymentPageSource
     int? FootholdAtHex(int hex);
     bool? CanPickMapHex(int hex);
     ImmutableArray<CampaignArmyDeployment> Prepare(int province, int district, int location);
+    CampaignMapPresentation MapPresentation(CampaignDeploymentMapStage stage, int? province, int? district);
+    CampaignDeploymentHint HoverHint(CampaignDeploymentMapStage stage, int? province, int? district, int? identity);
     CampaignDeploymentBar Bar(int province, IReadOnlyList<CampaignArmyDeployment> armies);
     CampaignDeploymentConfirmation Confirmation(IReadOnlyList<CampaignArmyDeployment> armies);
     DeploymentNarrationQuery Handover(int province, IReadOnlyList<CampaignArmyDeployment> armies, string locale, Func<int, int> appRandom);

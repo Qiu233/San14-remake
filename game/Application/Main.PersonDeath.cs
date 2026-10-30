@@ -4,11 +4,12 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
-    private sealed class PersonnelSoundWorkspace(GameplaySession session, GameState owner, MapSceneView map, bool intelligenceCue)
+    private sealed class PersonnelSoundWorkspace(GameplaySession session, GameState owner, MapSceneView map, bool intelligenceCue, bool battleCue)
     {
         internal GameplaySession Session { get; } = session;
         internal GameState Owner { get; set; } = owner;
         internal bool IntelligenceCue { get; } = intelligenceCue;
+        internal bool BattleCue { get; } = battleCue;
         internal MapSceneView Map { get; } = map;
         internal CancellationTokenSource Lifetime { get; } = new();
         internal bool Running { get; set; } = true;
@@ -23,7 +24,8 @@ public partial class Main
     {
         var audio = _sceneAudioBinding ?? throw new InvalidOperationException("Personnel sound needs its actual scene audio owner.");
         var sound = new PersonnelSoundWorkspace(session, owner, map,
-            entry.Source == CampaignEffectSource.IntelligenceCommands && soundId == 6);
+            entry.Source == CampaignEffectSource.IntelligenceCommands && soundId == 6,
+            entry.Source == CampaignEffectSource.ArmyBattleDefeat && soundId is 6 or 8);
         _personnelSound = sound;
         RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
         map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(false); HideDeploymentHud();
@@ -40,7 +42,7 @@ public partial class Main
                 if (_personnelSound != sound || !IsPersonnelSoundCurrent) return;
                 //The admitted cue keeps its actual holder through a pure
                 //map-speech publication; it is not queued a second time.
-                var receiptOwner = sound.IntelligenceCue ? sound.Owner : owner;
+                var receiptOwner = sound.Owner;
                 if (!session.TryCompletePersonnelPresentation(receiptOwner, entry.BatchSequence, entry.RequestIndex)) return;
                 ClosePersonnelSound();
                 if (!TryOpenPersonnelPresentation()) { RefreshPlayControls(); RefreshDiplomaticNegotiation(); }

@@ -44,7 +44,7 @@ public partial class Main
         AddChild(view);
         try
         {
-            view.Configure(_repository!,_ui,page,()=>RunUiAction(()=>CompleteDuel(owner)),
+            view.Configure(_repository!,_ui,page,()=>RunUiAction(()=>CompleteDuel(owner), allowDuringPeriod: owner.Playback is not null),
                 ()=>_duelPresentation==owner&&CurrentDuel(owner)&&!_failed&&!_shuttingDown&&!IsReturningToTitle&&
                     !HasEnvironmentSettings&&!HasCampaignSavePage&&!HasMapSystemMenu);
         }

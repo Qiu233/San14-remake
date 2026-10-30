@@ -1087,6 +1087,10 @@ public partial class MapSceneView : Control
         _unitLayer?.SelectUnit(next.Id);
     }
 
+    // The resident HUD follows the map's actual overlay state, including the
+    // opening interval before a command page has installed its own owner.
+    internal bool HasOpenMapOverlay => _detailsOpen || IsCityCommandMenuOpen;
+
     internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
         if (open)
@@ -1104,6 +1108,7 @@ public partial class MapSceneView : Control
         viewport.RenderTargetUpdateMode = open || UseD3D11Map ?
             SubViewport.UpdateMode.Disabled : SubViewport.UpdateMode.Always;
         Visible = !open || keepMapVisible;
+        SynchronizeContextActions();
         MapOverlayChanged?.Invoke(open);
         if (open) { _status.Text = _sceneSummary; RemoveMeta("city_details_error"); }
         else

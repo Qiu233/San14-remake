@@ -6,6 +6,7 @@ internal static class RulerDecisionSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        HiredArmyCaptureSaveFields.RejectLegacyFields(state, version);
         if (version >= 175) return;
         if (state["ArmyDefeatContinuation"] is not null || state["PersonDeathContinuation"] is not null ||
             state["NativeNormalTurnContinuation"]?["RemainingDeathPersonPhysicalSlots"] is not null ||
@@ -31,6 +32,7 @@ internal static class RulerDecisionSaveFields
             return;
         }
         MigrateArmyDefeatHome(state, version);
+        HiredArmyCaptureSaveFields.Migrate(state, version);
         Nullable(state, "ArmyDefeatContinuation", Defeat);
         Nullable(state, "PersonDeathContinuation", Death);
         if (state["NativeNormalTurnContinuation"] is JsonObject turn)
@@ -79,7 +81,7 @@ internal static class RulerDecisionSaveFields
             !NullableInt(value, "WinnerArmyPhysicalSlot") || !NullableInt(value, "WinnerOfficerId") ||
             !NullableShape(value, "WinnerBase", Base) || !NullableInt(value, "WinnerForceId") ||
             !NullableInt(value, "SampleDay") || !NullableInt(value, "SampleSalt") ||
-            !Integer(value["ResumePoint"], 0, 1) || !Bool(value, "DeathReturnedEarly") ||
+            !Integer(value["ResumePoint"], 0, (int)ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement) || !Bool(value, "DeathReturnedEarly") ||
             !Bool(value, "SpecialCommanderReclaim") || !DefeatHomeContext(value) ||
             !NullableShape(value, "ReclaimDefeatedCommander", node => node is JsonValue b && b.TryGetValue<bool>(out _)) ||
             (Integer(value["ResumePoint"], (int)ArmyDefeatResumePoint.AfterPersonDeath, (int)ArmyDefeatResumePoint.AfterPersonDeath)

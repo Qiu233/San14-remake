@@ -4,7 +4,7 @@ using San14.Data;
 
 /// <summary>Connects the original setup controls to an unsubmitted local draft.
 /// Accept hands that draft to target selection, never to a world transaction.</summary>
-internal sealed class DeploymentSetupPresenter : IDisposable
+internal sealed partial class DeploymentSetupPresenter : IDisposable
 {
     private readonly DeploymentSetupView view;
     private readonly GameResourceRepository repository;
@@ -17,6 +17,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     private readonly Action<string> unavailable;
     private readonly Func<int>? scrollSpeed;
     private readonly UiSourceHeaderStack headers;
+    private readonly Func<int,int> nextApplication;
     private readonly Dictionary<int,LoadedSprite?> portraits=[];
     private readonly Dictionary<int,AreaAdministrationQuery<DeploymentOfficerPanePublication>> officerPanes=[];
     private int? displayedOfficer;
@@ -48,7 +49,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         view.UnitInformation.IsInsideTree();
     internal bool UnitConfigurationActive=>UnitConfigurationPresent&&view.UnitInformation.IsVisibleInTree()&&
         view.UnitInformation.CanProcess()&&modal is null&&batchCalculator is null&&automaticMenu is null&&
-        !view.UnitInformation.HasCalculator;
+        definitionModal is null&&!view.UnitInformation.HasCalculator;
     internal int? SelectedFormationId=>view.UnitInformation.SelectedFormationId;
     internal DeploymentTroopMarker? TroopMarker=>view.UnitInformation.TroopMarker;
     internal bool TryApplyTutorialTacticCue(int? markerId,bool enabled)=>
@@ -76,12 +77,13 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     internal DeploymentSetupPresenter(DeploymentSetupView view,GameResourceRepository repository,PreviewText text,
         GameState world,ScenarioCityPreview scenario,ArmyCampaignRuleAdapter rules,int sourceLocationId,
         Action<IReadOnlyList<DeploymentDraftRow>> accepted,Action<string> unavailable,UiSourceHeaderStack headers,
+        Func<int,int> nextApplication,
         IReadOnlyList<DeploymentDraftRow>? acceptedRows=null,Func<int>? scrollSpeed=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.scenario=scenario;this.rules=rules;
         source=sourceLocationId;this.accepted=accepted;this.unavailable=unavailable;
         this.scrollSpeed=scrollSpeed;
-        this.headers=headers;
+        this.headers=headers;this.nextApplication=nextApplication;
         Draft=new(world,source,rules);
         if(acceptedRows is not null)Draft.RestoreAcceptedRows(acceptedRows);
         RefreshAll();
@@ -95,7 +97,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     internal void OpenOfficerSelection()
     {
-        if(disposed||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
+        if(disposed||definitionModal is not null||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
         var query=rules.QueryDeploymentPersonBasicList(world,source,0);
         if(!query.Available){unavailable(query.UnresolvedInput??"deployment.person-list.unavailable");return;}
         var entries=DeploymentPersonListContent.Create(repository,text,world,scenario,query);
@@ -130,6 +132,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     internal bool TryCancelModal()
     {
         if(disposed)return false;
+        if(definitionModal is { } definition){definition.RequestCancel();return true;}
         if(modal is { } selection){selection.RequestCancel();return true;}
         if(batchCalculator is { } calculator){calculator.RequestCancel();return true;}
         if(automaticMenu is { } automatic){automatic.RequestCancel();return true;}
@@ -141,7 +144,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     private void OpenAutomaticMenu(IReadOnlyList<bool> available,Action<int> apply)
     {
-        if(disposed||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
+        if(disposed||definitionModal is not null||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
         var menu=new DeploymentAutomaticMenu();automaticMenu=menu;view.AddAutomaticMenu(menu);
         try
         {
@@ -157,6 +160,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     private void RefreshAll()
     {
+        if(disposed||definitionModal is not null)return;
         var figures=rules.QueryDeploymentDraftFigures(world,Draft.Rows);
         var routes=rules.QueryOfficerPortraitRoutes(world,Draft.Rows.Select(row=>row.Request.OfficerId).ToArray());
         portraits.Clear();var sprites=new LocalizedUiSpriteSource(repository);
@@ -166,9 +170,9 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         var contents=Draft.Rows.Select(row=>DeploymentSummaryContent.Create(repository,text,world,row,
             portraits.GetValueOrDefault(row.Request.OfficerId),figures[row.Request.OfficerId])).ToArray();
         view.ApplyDraftSummaries(repository,contents,Draft.FocusedOfficerId,officer=>
-        {if(disposed)return;Draft.FocusOfficer(officer);RefreshAll();},officer=>
+        {if(disposed||definitionModal is not null)return;Draft.FocusOfficer(officer);RefreshAll();},officer=>
         {
-            if(disposed)return;
+            if(disposed||definitionModal is not null)return;
             var previous=Draft.Rows;
             if(Draft.RemoveOfficer(officer) is { } error)unavailable(error);
             else {RecordSettingsChange(previous);RefreshAll();}
@@ -195,7 +199,9 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         if(Draft.FocusedOfficerId is not int officer)
         {
             view.UnitInformation.ApplySelection(null,null,null,null,null);
-            view.UnitInformation.ApplyTacticChoices(null,null);return;
+            view.UnitInformation.ApplyTacticChoices(null,null);
+            view.UnitInformation.ApplyDefinitionButtons(null,null);
+            RefreshUnitPresentation(null,null,null);return;
         }
         if(Draft.WorkingRow is not { } working)
         {
@@ -204,7 +210,9 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             view.UnitInformation.ApplySelection(row,null,new(officer,null,null,null,reason,reason,reason),
                 portraits.GetValueOrDefault(officer),null);
             view.UnitInformation.ApplyLandFormationChoices(null,0,null);
-            view.UnitInformation.ApplyTacticChoices(null,null);return;
+            view.UnitInformation.ApplyTacticChoices(null,null);
+            view.UnitInformation.ApplyDefinitionButtons(null,null);
+            RefreshUnitPresentation(officer,null,null);return;
         }
         var rows=Draft.Rows.Select(row=>row.Request.OfficerId==officer?working:row).ToArray();
         int ordinal=Array.FindIndex(rows,row=>row.Request.OfficerId==officer);
@@ -212,14 +220,14 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         var figures=rules.QueryDeploymentDraftFigures(world,rows)[officer];
         view.UnitInformation.ApplySelection(working,info,figures,portraits.GetValueOrDefault(officer),value=>
         {
-            if(disposed)return;
+            if(disposed||definitionModal is not null)return;
             var previous=Draft.Rows;
             if(Draft.SetTroops(value) is { } error){unavailable(error);RefreshUnit();return;}
             RecordTroopsAccepted(previous);
             RefreshEditedSummary(officer,value);RefreshUnit();RefreshHeader();
         },result=>
         {
-            if(disposed)return;
+            if(disposed||definitionModal is not null)return;
             int value=result??working.Request.Troops;
             var previous=Draft.Rows;
             if(Draft.SetTroops(value) is { } error){unavailable(error);RefreshUnit();return;}
@@ -232,7 +240,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         view.UnitInformation.ApplyLandFormationChoices(rules.QueryDeploymentLandFormationChoices(world,officer),
             working.Request.FormationId,formation=>
             {
-                if(disposed)return;
+                if(disposed||definitionModal is not null)return;
                 var previous=Draft.Rows;
                 if(Draft.SetLandFormation(formation) is { } error)unavailable(error);
                 else
@@ -245,11 +253,13 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         view.UnitInformation.ApplyTacticChoices(rules.QueryDeploymentTacticChoices(world,officer,
             working.Request.FormationId,working.Request.TacticIds),occurrence=>
             {
-                if(disposed)return;
+                if(disposed||definitionModal is not null)return;
                 var previous=Draft.Rows;
                 if(Draft.ToggleTacticOccurrence(occurrence) is { } error)unavailable(error);
                 else {RecordSettingsChange(previous);RefreshAll();}
             });
+        view.UnitInformation.ApplyDefinitionButtons(OpenFormationDefinitions,OpenTacticDefinitions);
+        RefreshUnitPresentation(officer,working.Request.FormationId,info.UsesSpecialNavalTacticText);
     }
 
     private void RefreshHeader()
@@ -267,7 +277,8 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     internal void RefreshDecisionAdmission()=>view.ApplyDraftDecision(CanAcceptDecision(),AcceptSetupDraft);
 
-    private bool CanAcceptDecision()=>!disposed&&ordinaryDecisionAllowed&&
+    private bool CanAcceptDecision()=>!disposed&&definitionModal is null&&modal is null&&batchCalculator is null&&
+        automaticMenu is null&&!view.UnitInformation.HasCalculator&&ordinaryDecisionAllowed&&
         (decisionAdmission?.Invoke(Draft.Rows)??true);
 
     private void AcceptSetupDraft()
@@ -293,7 +304,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
 
     private void RequestBatch(DeploymentSetupBatchAction action)
     {
-        if(disposed||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
+        if(disposed||definitionModal is not null||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
         if(action==DeploymentSetupBatchAction.Automatic)
         {
             // The source's five permission trials share their own formation
@@ -368,11 +379,13 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     public void Dispose()
     {
         if(disposed)return;disposed=true;
+        RetireDefinitionSelection();
         if(modal is { } selection)
         {officerSelectionChanges+=selection.SelectionChangedSequence;modal=null;selection.Abandon();selection.QueueFree();}
         if(batchCalculator is { } calculator){batchCalculator=null;calculator.Abandon();calculator.QueueFree();}
         if(automaticMenu is { } automatic){automaticMenu=null;automatic.Abandon();automatic.QueueFree();}
         view.UnitInformation.AbandonInteraction();
         view.OfficerInformation.Abandon();officerPanes.Clear();
+        AbandonUnitPresentations();
     }
 }

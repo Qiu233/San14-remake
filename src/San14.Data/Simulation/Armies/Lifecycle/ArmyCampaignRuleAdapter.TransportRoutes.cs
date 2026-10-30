@@ -51,18 +51,6 @@ public sealed partial class ArmyCampaignRuleAdapter
     private SourceWorldContext CaptureWritableTransportRouteCurrent(GameState state)
     {
         var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("current.transport_route_saved_arena");
-        var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
-        current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
-        _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        current.BindArmyMapOccupancy(state);
-        current.RestoreOwnedArmyReturnSlots(state, arena);
-        OwnedArmyDestructorFlags.BindCurrent(arena, current);
-        BaseCaptureCurrentInputs.BindCurrent(state, current);
-        // Nullable gameplay IDs do not encode known native empty receivers.
-        // Restore their saved values before appearance captures flag names;
-        // explicit force reset images then retain the last writer's precedence.
-        OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
-        ForceUnregisterInputs.BindCurrent(state, current);
-        return current;
+        return _definitions.CaptureWritableOwnedCurrent(state, arena);
     }
 }

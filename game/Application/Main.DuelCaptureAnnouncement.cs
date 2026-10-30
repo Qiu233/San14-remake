@@ -10,7 +10,14 @@ public partial class Main
         CampaignPeriodPlayback? playback, CancellationToken cancellation, bool mapWasFocused)
     {
         internal readonly GameplaySession Session = session;
-        internal readonly GameState World = world;
+        internal GameState World = world;
+        internal readonly bool RetainedHiredOwner = playback is null &&
+            session.PendingNormalPeriod is { } retained && ReferenceEquals(retained.Candidate, world) &&
+            HiredArmyCaptureProgress.IsPresentationPending(world);
+        internal readonly bool OwnedHiredWait = playback is null &&
+            session.PendingNormalPeriod is { } pending && ReferenceEquals(pending.Candidate, world) &&
+            HiredArmyCaptureProgress.IsAwaitingAnnouncement(world) &&
+            world.ArmyDefeatContinuation!.HiredCapture!.AnnouncementBatchSequence == entry.BatchSequence;
         internal readonly MapSceneView Map = map;
         internal readonly PersonnelPresentationEntry Entry = entry;
         internal readonly DuelCaptureAnnouncementRequest Request = request;
@@ -110,8 +117,9 @@ public partial class Main
             if (_duelCaptureAnnouncement != owner) return;
             if (!CurrentDuelCapture(owner)) { CloseDuelCaptureAnnouncement(); return; }
             bool accepted = playback is not null
-                ? playback.TryCompleteDuelCaptureAnnouncement(world, entry.Source, entry.BatchSequence, entry.RequestIndex, request)
-                : session.TryCompleteDuelCaptureAnnouncement(world, entry.Source, entry.BatchSequence, entry.RequestIndex, request);
+                ? playback.TryCompleteDuelCaptureAnnouncement(owner.World, entry.Source, entry.BatchSequence, entry.RequestIndex, request)
+                : session.TryCompleteDuelCaptureAnnouncement(owner.World, entry.Source, entry.BatchSequence, entry.RequestIndex, request,
+                    owner.OwnedHiredWait ? new(_presentationRandom.State) : null);
             if (!accepted) throw new InvalidOperationException("duel.capture.completion_owner");
             CloseDuelCaptureAnnouncement();
             if (playback is not null)

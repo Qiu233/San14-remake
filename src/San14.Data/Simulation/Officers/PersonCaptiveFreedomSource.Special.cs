@@ -99,7 +99,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             ?? throw CaptiveFreedomMissing("special_hire_Person_pointer:" + officerId);
     }
 
-    internal GameState ApplyForcedDuelSpecialPersonCaptureCurrent(GameState state, SourceWorldContext current,
+    internal GameState ApplyCapturedSpecialPersonReleaseCurrent(GameState state, SourceWorldContext current,
         WorldIndexContext pool, int person, NativeMapSeasonDate? date, TacticSourceSamplerWorld? sampler,
         List<CampaignEffectRequest> effects)
     {

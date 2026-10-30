@@ -23,6 +23,13 @@ public static class DuelCaptureAnnouncementPlaybackRules
                 if (request.HistoryNotification is not null) continue;
                 if (batch.Sequence != batchSequence || index != requestIndex ||
                     !ReferenceEquals(request.DuelCaptureAnnouncement, expectedRequest)) return false;
+                var defeat = owner.ArmyDefeatContinuation;
+                var hired = defeat?.HiredCapture;
+                bool completesHiredCapture = hired?.AnnouncementBatchSequence == batchSequence;
+                if (completesHiredCapture &&
+                    (defeat!.ResumePoint != ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement ||
+                        hired!.Phase != HiredArmyCapturePhase.AwaitingAnnouncement || batch.Requests.Length != 1 ||
+                        expectedRequest.MessageRoot != 0x34AA)) return false;
                 CampaignEffectBatch[] batches;
                 if (batch.Requests.Length == 1)
                     batches = effects.PendingBatches.Where((_, at) => at != batchIndex).ToArray();
@@ -32,7 +39,13 @@ public static class DuelCaptureAnnouncementPlaybackRules
                     batches[batchIndex] = batch with
                     { Requests = batch.Requests.Where((_, at) => at != index).ToArray() };
                 }
-                next = owner with { CampaignEffectRequests = effects with { PendingBatches = batches } };
+                next = owner with
+                {
+                    CampaignEffectRequests = effects with { PendingBatches = batches },
+                    ArmyDefeatContinuation = completesHiredCapture
+                        ? defeat! with { HiredCapture = hired! with { Phase = HiredArmyCapturePhase.ReadyToRelease } }
+                        : defeat
+                };
                 return true;
             }
         }

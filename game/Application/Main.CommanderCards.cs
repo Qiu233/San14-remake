@@ -25,7 +25,7 @@ public partial class Main
 
     private bool CommanderCardInputAdmitted()=>_commanderCards is not null&&!_failed&&!_shuttingDown&&
         !IsReturningToTitle&&_mapFocused&&_commanderCardsSession==_session&&_commanderCardsMap==_residentMap&&
-        GameplayMapKeyboardAdmitted(allowCommanderTarget:true)&&
+        GameplayMapKeyboardAdmitted(allowCommanderTarget:true)&&_residentMap is {HasOpenMapOverlay:false}&&
         (_advancingPeriod?_periodPlayback is not null:ReferenceEquals(_commanderCardsWorld,_world));
 
     private void RefreshCommanderCards(GameState? borrowed=null)
@@ -98,7 +98,8 @@ public partial class Main
         if (_commanderCards is not null)
         {
             _commanderCards.Visible = !_failed && !_shuttingDown && !IsReturningToTitle &&
-                _mapFocused && GameplayMapKeyboardAdmitted(allowCommanderTarget:true) && !HasCommanderSelectionPage;
+                _mapFocused && GameplayMapKeyboardAdmitted(allowCommanderTarget:true) &&
+                _residentMap is {HasOpenMapOverlay:false} && !HasCommanderSelectionPage;
             if(!_commanderCards.Visible)_commanderCardsMap?.SetMapSummaryHover(_commanderCards,null);
         }
     }

@@ -12,7 +12,12 @@ struct ExposureTransition {
 };
 // One accepted season publication. Optional values retain unavailable imported
 // knowledge until the operation that actually requires it; they are not defaults.
+struct CurrentOptics {
+    uint32_t apertureChanged{},blades{},diaphragm{},width{},height{};
+    std::array<float,11> values{};
+};
 struct Settings {
+    std::optional<CurrentOptics> currentOptics;
     source_camera::CameraTransform camera;
     std::array<LightIdentity,5> lights{};
     std::array<float,3> selectedSunDirection{};

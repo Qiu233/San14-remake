@@ -4,6 +4,8 @@
 #include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include "PostProcessHistory.h"
+#include "DynamicDofFrame.h"
+#include <optional>
 
 struct PostConstantBinding {
     std::string stage,file;
@@ -18,12 +20,17 @@ struct PostPassTemplate {
 struct PostProcessTemplates {
     float heatCoefficient{};
     UINT gatherMode{},depthOfFieldMode{};
+    San14::Render::DynamicDof::Inputs dofProfile;
+    std::optional<San14::Render::DynamicDof::Inputs> currentDof;
+    std::optional<int64_t> currentOpticsCamera;
     std::vector<PostPassTemplate> passes;
     std::map<std::string,std::vector<char>> constants;
 };
 struct NormalPostTimeline {
     San14::Render::PostProcessHistory history;
     PostProcessTemplates templates;
+    San14::Render::DynamicDof::State dofState;
+    std::optional<int64_t> returnedOpticsCamera;
 };
 struct PostFramePass {
     std::string name;
@@ -32,6 +39,8 @@ struct PostFramePass {
 };
 struct NormalPostFrame {
     San14::Render::PostHistoryFrame history;
+    std::optional<San14::Render::DynamicDof::Frame> dof;
+    std::optional<int64_t> opticsCamera;
     std::vector<PostFramePass> passes;
     std::map<std::string,std::vector<char>> constants;
 };
@@ -59,6 +68,14 @@ static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
     if(!fixed)throw std::runtime_error("Normal post fixed inputs absent");
     seed.cocWriteSide=history!=0;seed.apertureChanged=change!=0;seed.previousGatherApplied=applied!=0;
     owner.history=San14::Render::PostProcessHistory(seed);
+    NativePreparedInputFile profile(source/"current-dof-profile.bin",std::ios::binary);
+    auto word=[&](){uint32_t v{};profile.read(reinterpret_cast<char*>(&v),4);return v;};
+    auto& fields=templates.dofProfile;fields.contextHeight=height;fields.contextWord=word();fields.descriptorMode=word();fields.quality=int(word());
+    for(auto extent:{&fields.rear,&fields.scene,&fields.prefiltered,&fields.preComposite})
+        {extent->present=word()!=0;extent->width=uint16_t(word());extent->height=uint16_t(word());}
+    if(!profile)throw std::runtime_error("Current DOF source extent profile absent");
+    owner.dofState.shapeHeight=owner.dofState.initializeHeight=height;
+
     NativePreparedInputFile order(source/"ordered-required-color-passes.txt");std::string name;
     if(!order)throw std::runtime_error("Normal post pass directory absent");
     while(order>>name) {
@@ -88,20 +105,39 @@ static NormalPostFrame beginNormalPostFrame(NormalPostTimeline& owner,
     NormalPostFrame frame;
     frame.history=owner.history.prepare(applyTime,actualDelta,owner.templates.depthOfFieldMode!=0,resetHistory,resetView);
     const float heat=owner.templates.heatCoefficient*applyTime;
+    if(owner.templates.currentDof) {
+        frame.opticsCamera=owner.templates.currentOpticsCamera;
+        auto fields=*owner.templates.currentDof;
+        fields.changeFStop=fields.changeFStop&&frame.opticsCamera!=owner.returnedOpticsCamera;
+        fields.firstExecution=frame.history.initializeCoc;fields.heat[2]=heat;
+        frame.dof=San14::Render::DynamicDof::prepare(fields,owner.dofState);
+    }
+    uint32_t reachedDofMask=0;
+
     for(size_t index=0;index<owner.templates.passes.size();++index) {
         const auto& pass=owner.templates.passes[index];
-        if(pass.role==PostPassRole::ApertureShape&&!frame.history.rebuildAperture||
+        if(frame.dof&&pass.name.ends_with("-dof")) {
+            const unsigned directoryIndex=unsigned(std::stoul(pass.name.substr(0,3)));
+            const auto& mapping=San14::Render::DynamicDof::directoryPasses;
+            auto found=std::find(mapping.begin(),mapping.end(),directoryIndex);
+            if(found==mapping.end())throw std::runtime_error("DOF union has no original cache index");
+            const uint32_t bit=1u<<unsigned(found-mapping.begin());
+            if(!(frame.dof->passMask&bit))continue;
+            reachedDofMask|=bit;
+        } else if(pass.role==PostPassRole::ApertureShape&&!frame.history.rebuildAperture||
             pass.role==PostPassRole::CocInitialize&&!frame.history.initializeCoc||
             pass.role==PostPassRole::CocAccumulate&&frame.history.initializeCoc)continue;
         frame.passes.push_back({pass.name,pass.role,index});
         for(const auto& binding:pass.bindings) {
             const auto key=pass.name+"/"+binding.file;if(frame.constants.find(key)!=frame.constants.end())continue;
             auto bytes=owner.templates.constants.at(key);
-            if(binding.parameter==18){if(bytes.size()!=144)throw std::runtime_error("Complete post CB18 differs");std::memcpy(bytes.data()+120,&heat,4);}
+            if(binding.parameter==18){if(bytes.size()!=144)throw std::runtime_error("Complete post CB18 differs");
+                if(frame.dof)std::memcpy(bytes.data(),frame.dof->constants.data(),144);else std::memcpy(bytes.data()+120,&heat,4);}
             if(binding.parameter==24){if(bytes.size()!=64)throw std::runtime_error("Complete post CB24 differs");std::memcpy(bytes.data()+20,&frame.history.deltaTime,4);}
             frame.constants.emplace(key,std::move(bytes));
         }
     }
+    if(frame.dof&&reachedDofMask!=frame.dof->passMask)throw std::runtime_error("Current DOF selected program is outside loaded original ordinary resource union");
     owner.history.begin(frame.history);
     return frame;
 }
@@ -112,6 +148,7 @@ static NormalPostFrame beginNormalPostFrameFromClock(NormalPostTimeline& owner,f
 
 // Clone only current pass arguments/COM references from the one-time GPU union.
 // Both physical CoC histories and module pairs already exist in the GPU owner.
+#ifndef SOURCE_POST_FRAME_CPU_ONLY
 static std::vector<NativeNormalPostPass> selectNormalPostFramePasses(
     const NormalPostFrame& frame,const std::vector<NativeNormalPostPass>& gpuUnion) {
     std::vector<NativeNormalPostPass> selected;selected.reserve(frame.passes.size());
@@ -174,9 +211,11 @@ static void uploadNormalPostFrameConstants(ID3D11DeviceContext* context,
     }
 }
 
+#endif
 // GPU aliases rotate first, then this accepted application completes its CPU
 // timeline. The next application sees the retained feedback and clock.
 static void completeNormalPostFrame(NormalPostTimeline& owner,const NormalPostFrame& frame,
     UINT returned=1,UINT callIndex=0,UINT callCount=1) {
     owner.history.complete(frame.history,owner.templates.gatherMode!=0,returned!=0,callIndex,callCount);
+    if(frame.dof){owner.dofState=frame.dof->next;owner.returnedOpticsCamera=frame.opticsCamera;}
 }

@@ -43,7 +43,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         if (action.ActionKey is not ("attack" or "enter" or "repair" or "demolish")) throw OCMissing("initial_action:" + action.ActionKey);
         var actorForce = current.ReadPersonForce(commanderPhysical) ?? throw OCMissing("initial_Commander_Force_pointer");
-        return action.ActionKey is "repair" or "demolish"
+        return action.ActionKey is "repair" or "demolish" ||
+            action is { ActionKey: "attack", Target.Kind: DeploymentTargetKind.Structure }
             ? OCReadInitialObjectTarget(state, current, actorForce, action, out result)
             : ReadCurrentTargetCommand(state, current, actorForce, null, action, out result);
     }

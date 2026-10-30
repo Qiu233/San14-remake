@@ -12,6 +12,8 @@ public partial class Main
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
     private bool _personnelPresentationIntelligenceWait;
+    private bool _personnelPresentationBaseCaptureWait;
+    private bool _personnelPresentationHiredCaptureWait;
     private bool HasPersonnelPresentation=>HasDuelCaptureAnnouncement||HasDuelPresentation||_personnelPresentation is not null||HasEncirclementPresentation||HasFirePresentation||HasDamagePresentation||HasFacilityEffectsPresentation||HasFacilityConstructionPresentation||HasFacilityRepairPresentation||HasMonthlyFeedback||_resourceNotice is not null||_personnelSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
     //A presentation receipt changes only its real outbox owner. Keep the
@@ -315,6 +317,8 @@ public partial class Main
             _personnelPresentationSession=session;_personnelPresentationWorld=owner;_personnelPresentationMap=map;
             _personnelPresentationIntelligenceWait = entry.Source == CampaignEffectSource.IntelligenceCommands &&
                 IntelligenceNarrationContinuation(owner)?.NarrationBatchSequence == entry.BatchSequence;
+            _personnelPresentationBaseCaptureWait = BaseCapturePersonPrefixProgress.IsPresentationPending(owner);
+            _personnelPresentationHiredCaptureWait = HiredArmyCaptureProgress.IsPresentationPending(owner);
             AddChild(view);
             try
             {
@@ -434,14 +438,21 @@ public partial class Main
                 if(!IsPersonnelPresentationCurrent){ClosePersonnelPresentation();return;}
                 //A real map-speech commit may have replaced this same view's
                 //owner. Capture its adopted owner before closing the view.
-                var receiptOwner = _personnelPresentationIntelligenceWait ? _personnelPresentationWorld! : owner;
+                var receiptOwner = _personnelPresentationIntelligenceWait || _personnelPresentationBaseCaptureWait || _personnelPresentationHiredCaptureWait
+                    ? _personnelPresentationWorld! : owner;
                 ClosePersonnelPresentation();
                 bool intelligenceWait = entry.Source == CampaignEffectSource.IntelligenceCommands &&
                     IntelligenceNarrationContinuation(receiptOwner) is
                         { Phase: PersonnelIntelligenceNarrationPhase.AwaitingNarration } wait && wait.NarrationBatchSequence == entry.BatchSequence;
+                bool baseCaptureWait = entry.Source == CampaignEffectSource.ArmyBattleDefeat &&
+                    receiptOwner.BaseCaptureContinuation?.PersonPrefixProgress is
+                        { Stage: BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice } completedNotice &&
+                    completedNotice.AnnouncementBatchSequence == entry.BatchSequence;
                 bool consumed = intelligenceWait
                     ? session.TryCompleteIntelligenceNarration(receiptOwner, entry.BatchSequence, entry.RequestIndex, new(_presentationRandom.State))
-                    : session.TryCompletePersonnelPresentation(owner, entry.BatchSequence, entry.RequestIndex);
+                    : baseCaptureWait
+                        ? session.TryCompleteBaseCaptureSpecialNotice(receiptOwner, entry.BatchSequence, entry.RequestIndex, new(_presentationRandom.State))
+                        : session.TryCompletePersonnelPresentation(receiptOwner, entry.BatchSequence, entry.RequestIndex);
                 if(!consumed)return;
                 //Only the effect outbox changed. Keep the resident map resources;
                 //the next domain publication refreshes them normally.
@@ -473,6 +484,8 @@ public partial class Main
         if(_personnelPresentationOwnsVoice)_sceneAudioBinding?.StopNarrationVoice();
         _personnelPresentationOwnsVoice=false;
         _personnelPresentationIntelligenceWait=false;
+        _personnelPresentationBaseCaptureWait=false;
+        _personnelPresentationHiredCaptureWait=false;
         var view=_personnelPresentation;var map=_personnelPresentationMap;
         _personnelPresentation=null;_personnelPresentationSession=null;_personnelPresentationWorld=null;_personnelPresentationMap=null;
         if(view is not null){view.Abandon();view.GetParent()?.RemoveChild(view);view.QueueFree();}

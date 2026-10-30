@@ -64,6 +64,13 @@ public static class SpatialEffectSoundSource
     }
 
     private static AudioCueStaticGroupParameters ReadGroup(AudioSelectionBank bank, string name)
+        => ReadGroup(bank, name, 0, null);
+
+    internal static AudioCueStaticGroupParameters ReadArmyDamageGroup(AudioSelectionBank bank, string name,
+        float additiveRate) => ReadGroup(bank, name, 0x10010, additiveRate);
+
+    private static AudioCueStaticGroupParameters ReadGroup(AudioSelectionBank bank, string name,
+        uint expectedFlags, float? selectedAdditiveRate)
     {
         var matches = bank.Cues.Where(cue => cue.Name == name).Take(2).ToArray();
         if (matches.Length != 1) throw new InvalidDataException("Spatial capture sound has no unique cue.");
@@ -83,9 +90,9 @@ public static class SpatialEffectSoundSource
         }
         if (U(begin + 32) != 1) throw new NotSupportedException("Spatial capture cue needs one group.");
         int table = checked(begin + (int)U(begin + 36)), group = checked(begin + (int)U(table));
-        if (U(group) != 0x562FC4B9 || U(group + 12) != 0)
+        if (U(group) != 0x562FC4B9 || U(group + 12) != expectedFlags)
             throw new NotSupportedException("Spatial capture cue group is unsupported.");
-        return new(group, U(group + 24), F(group + 28), F(group + 32), F(group + 36), F(group + 40),
+        return new(group, U(group + 24), F(group + 28), F(group + 32), F(group + 36), selectedAdditiveRate ?? F(group + 40),
             F(group + 44), F(group + 48), F(group + 52),
             new(F(group + 56), F(group + 60), F(group + 64), F(group + 68), U(group + 72), F(group + 76)));
     }

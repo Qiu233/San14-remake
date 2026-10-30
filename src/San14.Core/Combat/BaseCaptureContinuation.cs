@@ -15,6 +15,7 @@ public sealed record BaseCapturePeopleContinuation(ImmutableArray<int> HomeArmyS
 public sealed record BaseCaptureContinuation(int SettlementIndex, BaseCaptureOperationContext Operation,
     BaseCapturePeopleContinuation People)
 {
+    public BaseCapturePersonPrefixProgress? PersonPrefixProgress { get; init; }
     public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment { get; init; }
     public CapturedRulerDisposition? ChosenDisposition { get; init; }
 }
@@ -44,9 +45,26 @@ internal static class BaseCaptureContinuationValidation
             (operation.SampleDay is null) != (operation.SampleSalt is null) || value.People is not { } people ||
             people.HomeArmySlots.IsDefault || people.HomeOfficerIds.IsDefault || people.CapturedOfficerIds.IsDefault ||
             people.SpecialCapturedOfficerIds.IsDefault || people.NoncapturedOfficerIds.IsDefault ||
-            people.CapturedIndex < 0 || people.CapturedIndex >= people.CapturedOfficerIds.Length ||
+            (value.PersonPrefixProgress is { Stage: BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice or
+                BaseCapturePersonPrefixStage.ReadyToMergeCapturedPeople }
+                ? people.CapturedIndex != -1
+                : people.CapturedIndex < 0 || people.CapturedIndex >= people.CapturedOfficerIds.Length) ||
             value.ChosenDisposition is { } chosen && !Enum.IsDefined(chosen))
             throw new InvalidDataException("The Base capture continuation has no matching occupation or current person.");
+        if (value.PersonPrefixProgress is { } progress)
+        {
+            if (!Enum.IsDefined(progress.Stage) || progress.OrdinaryCapturedCount < 0 ||
+                progress.OrdinaryCapturedCount > people.CapturedOfficerIds.Length ||
+                (progress.AnnouncementBatchSequence is null) != (progress.AnnouncementTextAtSource is null) ||
+                progress.AnnouncementBatchSequence is <= 0 ||
+                progress.Stage is BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice or BaseCapturePersonPrefixStage.ReadyToMergeCapturedPeople &&
+                    (progress.OrdinaryCapturedCount != people.CapturedOfficerIds.Length ||
+                        people.SpecialCapturedOfficerIds.IsEmpty || progress.AnnouncementBatchSequence is null ||
+                        value.PendingCapturedRulerTreatment is not null || value.ChosenDisposition is not null) ||
+                progress.Stage == BaseCapturePersonPrefixStage.CapturedCallbacks &&
+                    progress.AnnouncementBatchSequence is not null)
+                throw new InvalidDataException("The Base capture people prefix has invalid source-time progress.");
+        }
         if (value.PendingCapturedRulerTreatment is { } pending &&
             (pending.CapturingForceId != operation.WinnerForceId || pending.OfficerId is < 1 or > 6000 ||
              pending.CapturingRulerId is < 1 or > 6000 || pending.TextAtSource is null || value.ChosenDisposition is not null))

@@ -8,7 +8,7 @@ internal partial class UiSourceCaptionButton : UiSourceButton
     private Rect2 hit;
     private UiSourceText label=null!;
     internal void ApplyCaption(string value)=>label.Text=value;
-    public override bool _HasPoint(Vector2 point)=>hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point)=>SourceInputAdmitted&&hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,
         MapFont font,uint sourceLayout,string text,Action released)
@@ -51,7 +51,7 @@ internal partial class UiSourceCaptionButton : UiSourceButton
         var presets=MapTextPresets.Create();
         ConfigureStates(states,state=>
         {caption.Configure(font,profile.WithPreset(presets[firstPreset+state]));caption.QueueRedraw();});
-        Pressed+=()=>{if(!Disabled)released();};
+        Pressed+=()=>{if(!Disabled&&SourceInputAdmitted)released();};
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }
 }

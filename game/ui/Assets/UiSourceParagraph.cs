@@ -31,7 +31,7 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
         // These are the ordinary 30D290 cells. Ruby, font switches and other
         // alignment modes need their own source consumers.
         if (profile.RawAlign is not (0 or 1) ||
-            profile.RawLineArrange != 1 || profile.WidthFitMode is not (0 or 3) || profile.RawCharacterMode != 2)
+            profile.RawLineArrange is not (0 or 1) || profile.WidthFitMode is not (0 or 3) || profile.RawCharacterMode != 2)
             throw new InvalidDataException("Unsupported ordinary source paragraph profile.");
         font = sourceFont; original = profile; fitted = profile;
         MouseFilter = MouseFilterEnum.Ignore; SetNotifyTransform(true);
@@ -63,7 +63,7 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
         {
             // Block alignment is consumed below. Each fixed-height glyph line
             // is prepared at its explicit baseline without a second alignment.
-            font.Prepare([line.VisibleText], profile.UsesFixedLineHeight ? profile with { RawAlign = 0 } : profile);
+            font.Prepare([line.VisibleText], profile.UsesFixedLineHeight ? profile with { RawAlign = 0, RawLineArrange = 1 } : profile);
             positions.Add(totalAdvance + baseline);
             preparedColours.Add(line.Runs.SelectMany(run => Enumerable.Repeat<uint?>(run.Colour switch
             {

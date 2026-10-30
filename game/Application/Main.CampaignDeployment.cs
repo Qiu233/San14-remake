@@ -90,15 +90,14 @@ public partial class Main
     private void HoverCampaignDeployment(int? id)
     {
         if(!CanPickCampaignDeployment||_campaignDeploymentPage is not {} page)return;
-        int? hintId=_campaignDeploymentStage switch
+        var hover=page.QueryHoverHint(_campaignDeploymentStage switch
         {
-            CampaignDeploymentUiStage.Target=>page.QueryTargets().FirstOrDefault(row=>row.Id==id)?.HintMessageId,
-            CampaignDeploymentUiStage.District when _campaignTargetProvince is int province=>
-                page.QueryDistricts(province).FirstOrDefault(row=>row.Id==id)?.HintMessageId,
-            CampaignDeploymentUiStage.Footholds when _campaignTargetProvince is int province&&_campaignSourceDistrict is int district=>
-                page.QueryFootholds(province,district).FirstOrDefault(row=>row.Id==id)?.HintMessageId,
-            _=>null
-        };
+            CampaignDeploymentUiStage.Target=>CampaignDeploymentMapStage.TargetProvince,
+            CampaignDeploymentUiStage.District=>CampaignDeploymentMapStage.District,
+            _=>CampaignDeploymentMapStage.Foothold
+        },_campaignTargetProvince,_campaignSourceDistrict,id);
+        if(hover.UnresolvedOwner is {} missing)GD.PushWarning(missing);
+        int? hintId=hover.MessageId;
         if(_campaignDeploymentStage==CampaignDeploymentUiStage.Target&&_campaignHoveredProvince!=id)
         {_campaignHoveredProvince=id;RefreshCampaignDeployment();}
         _campaignDeploymentView!.ApplyHoverHint(hintId.HasValue?CampaignLiteral(hintId.Value):null);
@@ -113,9 +112,11 @@ public partial class Main
         {
             var bar=_campaignDeploymentPage!.QueryBar(selected,_campaignDeploymentDraft);
             var segments=new List<CampaignDeploymentBarSegment>();
-            if(_campaignDeploymentStage==CampaignDeploymentUiStage.Footholds&&bar.OurTroops is int own&&bar.OtherTroops is int other)
-                segments.Add(new(own+other==0?0:(double)own/(own+other),CampaignBarColors(bar.PlayerForceColor49)));
-            segments.AddRange(bar.Segments.Select(segment=>new CampaignDeploymentBarSegment(segment.Fraction,CampaignBarColors(segment.ForceColor49))));
+            int total=unchecked((bar.OurTroops??0)+(bar.OtherTroops??0));
+            if(_campaignDeploymentStage==CampaignDeploymentUiStage.Footholds&&bar.OurTroops is int own)
+                segments.Add(new(total==0?0:(float)own/total,CampaignBarColors(bar.PlayerForceColor49)));
+            segments.AddRange(bar.Segments.Select(segment=>new CampaignDeploymentBarSegment(
+                total==0?0:(float)segment.Troops/total,CampaignBarColors(segment.ForceColor49))));
             var portraits=bar.Commanders.Select(person=>LoadCampaignPortrait(person.FacePortrait)).ToArray();
             values=new(bar.OtherTroops,bar.OurTroops,segments,portraits,bar.AdditionalArmiesText??"");
             if(bar.UnresolvedOwner is {} missing)GD.PushWarning(missing);

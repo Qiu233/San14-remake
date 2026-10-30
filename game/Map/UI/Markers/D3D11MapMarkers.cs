@@ -451,6 +451,7 @@ internal partial class D3D11MapMarkers : Control
         var matrix = frame.Camera.Matrices.WorldToProjection100;
         foreach (Marker marker in _markers.Values)
         {
+            if(ProjectCampaignDistrictMarker(marker,frame))continue;
             bool visible = TryProject(marker.Position, matrix, out Vector2 screen) && marker.PositionReady;
             if (marker.Kind == Kind.Area)
             {
@@ -459,7 +460,7 @@ internal partial class D3D11MapMarkers : Control
             }
             else
             {
-                marker.CityPresentation = ReadTargetCityPresentation(marker,frame);
+                marker.CityPresentation = ReadCampaignCityPresentation(marker,ReadTargetCityPresentation(marker,frame));
                 visible &= marker.CityPresentation.Visible;
             }
             marker.Screen = screen;
@@ -510,9 +511,10 @@ internal partial class D3D11MapMarkers : Control
                 }
                 return;
             }
+            if(DrawCampaignDistrictMarker(canvas,marker))return;
             var city = marker.CityPresentation;
-            bool disabled=TargetMarkerDisabled(marker);
-            int interaction = campaignSelectedHexes?.Contains(marker.Hex)==true ? 2 :
+            bool disabled=TargetMarkerDisabled(marker)||CampaignMarkerDisabled(marker);
+            int interaction = disabled ? 0 : campaignSelectedHexes?.Contains(marker.Hex)==true ? 2 :
                 _hoveredHex == marker.Hex ? (_pressedHex == marker.Hex ? 2 : 1) : 0;
             bool numbers = city.Display == 1;
             string simpleText = numbers ? marker.Troops : marker.Name;
@@ -631,6 +633,7 @@ internal partial class D3D11MapMarkers : Control
         //A mounted canvas is already retired with this marker subtree.
         if (GodotObject.IsInstanceValid(tacticBaseCanvas) && tacticBaseCanvas.GetParent() is null)
             tacticBaseCanvas.Free();
+        ReleaseCampaignPresentation();
         ReleaseFacilityInfo();
         foodWarningShader?.Dispose();
         cityAttentionShader?.Dispose();

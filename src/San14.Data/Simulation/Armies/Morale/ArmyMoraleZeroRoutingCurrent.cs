@@ -212,13 +212,15 @@ internal static class ArmyMoraleZeroRoutingCurrent
         if (K(current.ReadObjectNativeValidity(obj), "winner_Object_validity"))
         {
             int identity = K(current.ReadObjectPhysicalSlot(obj), "winner_Object_identity");
-            if (identity is >= 52 and <= 61) throw Missing("branch.nonordinary_City_winner");
-            if (identity is not (>= 1 and <= 51)) return (null, null);
-            var city = current.ReadCityTableReference(identity) ?? throw Missing("winner_City_pointer");
-            if (!city.PhysicalSlot.HasValue) return (null, null);
-            int location = K(current.ReadBaseObjectLink(city), "winner_City_location");
-            if (!state.Cities.ContainsKey(location)) throw Missing("winner_City_entity_mapping");
-            return (null, new(SettlementBaseKind.City, location));
+            if (identity is not (>= 1 and <= 61)) return (null, null);
+            //The nearby winner uses the same real32C7D0 Base lookup after
+            //232780/232D00 classification, including its registry fallback.
+            var basis = BaseLookup.Find(identity, current);
+            if (!basis.PhysicalSlot.HasValue) return (null, null);
+            int location = K(current.ReadBaseObjectLink(basis), "winner_Base_location");
+            bool exists = basis.Kind == BaseKind.City ? state.Cities.ContainsKey(location) : state.Gates.ContainsKey(location);
+            if (!exists) throw Missing("winner_Base_entity_mapping");
+            return (null, new(basis.Kind == BaseKind.City ? SettlementBaseKind.City : SettlementBaseKind.Gate, location));
         }
         return ArmyWinnerAt(state, current, hex);
     }

@@ -160,6 +160,7 @@ public partial class MapSceneView
             environment = await Task.Run(() => D3D11MapInitialEnvironment.Prepare(preparingCpu,
                 initialCurrent, openingMain, cameraInputs, currentField, token), token);
             if (!IsCurrent()) return;
+            season.BindCurrentPost(environment.Post,initialCurrent);
 
             // Transfer all prepared CPU owners together. No worker can access
             // this repository or these owners after the awaited preparation.

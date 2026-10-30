@@ -24,11 +24,14 @@ internal sealed partial class DeploymentTargetPresenter
     internal IReadOnlyList<DeploymentDraftRow> LastConstructionAssignedRows {get;private set;}=[];
     internal int? LastConstructionAssignedHexId {get;private set;}
 
-    private void OpenFacilities()
+    private void OpenFacilities() => OpenFacilities(null);
+
+    private void OpenFacilities(int? capturedSiteHexId)
     {
         if(disposed||confirmation is not null||facilityQuery is not null||Draft.SelectedRows.Count==0)return;
         CloseMenu();
-        facilityQuery=rules.CreateDeploymentFacilitySelectionQuery(world,Draft.FacilityRows,tutorialRestrictsFacilities);
+        facilityQuery=rules.CreateDeploymentFacilitySelectionQuery(world,Draft.FacilityRows,tutorialRestrictsFacilities,
+            capturedSiteHexId);
         ShowFacilityPage();
     }
 

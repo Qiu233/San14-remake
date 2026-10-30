@@ -85,6 +85,10 @@ public sealed partial class GameSimulation
 
     private static void RequireNormalPeriodConfirmed(NormalPeriodOperation pending)
     {
+        if (HiredArmyCaptureProgress.IsAwaitingAnnouncement(pending.Candidate))
+            throw new InvalidOperationException("The hired commander capture announcement requires its actual completion.");
+        if (BaseCapturePersonPrefixProgress.IsAwaitingNotice(pending.Candidate))
+            throw new InvalidOperationException("The captured personnel notice requires its actual completion.");
         if (pending.Candidate.AutomaticEmperorCapture?.PendingDecision is not null || AutomaticEmperorCaptureLifecycle.IsPresentationPending(pending.Candidate))
             throw new InvalidOperationException("The emperor capture requires its actual choice or presentation receipts.");
         if (pending.PendingRulerSuccession is not null || pending.PendingCapturedRulerTreatment is not null)

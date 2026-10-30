@@ -66,7 +66,7 @@ public sealed class DeploymentCommandRules(IDeploymentEligibility eligibility, I
             if (unit.Actions is null || unit.Actions.Count == 0 || unit.Actions.Any(action => !DeploymentStateValidation.IsActionTargetValid(state, action)))
                 return CommandResult.Reject("A deployment action or target is invalid.", "deployment.target");
             if (unit.Actions.Any(action => action.Target.Kind == DeploymentTargetKind.Structure &&
-                (state.NativeArmySimulation is null || action.ActionKey is not ("repair" or "demolish"))))
+                (state.NativeArmySimulation is null || action.ActionKey is not ("attack" or "repair" or "demolish"))))
                 return CommandResult.RuleUnavailable("rules.deployment_structures", "Structure target state has not been implemented.");
             if (unit.WaypointHexIds is null || unit.WaypointHexIds.Count > 5 ||
                 unit.WaypointHexIds.Any(hex => hex < 0 || hex >= checked(state.MapWidth * state.MapHeight)))

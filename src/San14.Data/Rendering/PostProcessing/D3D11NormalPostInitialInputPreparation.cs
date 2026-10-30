@@ -23,6 +23,11 @@ public sealed class D3D11NormalPostInitialConstants
         =>(Allocation,Frame,Controller,Passes,HeatCoefficient,GatherSize,EnableDof,HistoryPairs,Resources)=
             (allocation,frame,controller,passes,heatCoefficient,gatherSize,enableDof,historyPairs,resources);
 
+    public MapPostEffect3OwnedControlledCameraSources Sources {get;internal set;}=null!;
+    internal IReadOnlyDictionary<string,(bool Present,ushort Width,ushort Height)> DofExtents {get;set;}=null!;
+    internal uint DofContextWord {get;set;}
+    internal uint DofDescriptorMode {get;set;}
+    internal int DofQuality {get;set;}
     public MapPostEffect3AllocationPlan Allocation{get;}
     public MapPostEffect3OwnedControlledCameraFrame Frame{get;}
     public MapPostEffect3DepthOfField2Controller Controller{get;}
@@ -44,6 +49,13 @@ public sealed class D3D11NormalPostInitialConstants
             $"{HeatCoefficient:R} {Allocation.ContextWidth} {Allocation.ContextHeight} {GatherSize} {EnableDof} {Controller.Count10} {(Controller.HistoryFlip16?1:0)} {Controller.SpriteSide28} 1 0 0\n"));
         File.WriteAllLines(Path.Combine(continuous,"ordered-required-color-passes.txt"),Passes.Select(p=>p.Name));
         File.WriteAllLines(Path.Combine(continuous,"history-pairs.txt"),HistoryPairs);
+        using(var profile=new BinaryWriter(File.Create(Path.Combine(continuous,"current-dof-profile.bin"))))
+        {
+            profile.Write(DofContextWord);profile.Write(DofDescriptorMode);profile.Write(DofQuality);
+            foreach(string name in new[]{"DOF2SpriteDofAccumRear","DOF2InputColor","DOF2PrefilteredColor","DOF2PreComposite"})
+            {var extent=DofExtents[name];profile.Write(extent.Present?1u:0u);profile.Write((uint)extent.Width);profile.Write((uint)extent.Height);}
+        }
+
         foreach(var pass in Passes)
         {
             WritePass(continuous,pass);
@@ -178,6 +190,19 @@ public static class D3D11NormalPostInitialInputPreparation
             resources.AddDepthOfField(prepared,table,dof.PrepareBefore(pass));
             passes.Add(prepared);
         }
+        // The owned CG quality writer can disable DOF and later re-enable the
+        // ordinary sprite/function family. Import that real resource union once;
+        // each invocation's mask still decides which of these programs executes.
+        var saved=new[]{"EnableDof","EnableSpriteDof","DiaphragmType","QualityLevel","IsFirstExec","ChangeFStop"}
+            .ToDictionary(n=>n,n=>owned.State.RequireValue(n).ToArray());
+        var unionWrites=new[]{("EnableDof",1),("EnableSpriteDof",1),("DiaphragmType",0),("QualityLevel",configuration.QualityLevel),("IsFirstExec",1),("ChangeFStop",1)}
+            .Select(v=>new MapPostEffect3ApplyValueWrite(v.Item1,MapPostEffect3WriteStage.OpticsFocasuedDistance,BitConverter.GetBytes(v.Item2),"ordinary current DOF resource union only"));
+        owned.State.ApplyKnownCameraWrites(new(frame,unionWrites.ToArray(),"load potential ordinary source consumers"));
+        var ordinary=dofSource.PrepareAndInitialize(owned.State,allocation,dofInputs,dofSource.ConstructFreshController(owned.State,allocation));
+        foreach(int pass in ordinary.PassSelection.OrderedFactory7Passes.Where(p=>passes.All(existing=>existing.SourcePassIndex!=p)))
+        {var prepared=Pass($"{pass:D3}-dof",pass,ordinary.ConstantBuffer);resources.AddDepthOfField(prepared,table,ordinary.PrepareBefore(pass));passes.Add(prepared);}
+        owned.State.ApplyKnownCameraWrites(new(frame,saved.Select(v=>new MapPostEffect3ApplyValueWrite(v.Key,MapPostEffect3WriteStage.OpticsFocasuedDistance,v.Value,"restore current initial source values")).ToArray(),"resource union does not alter first invocation"));
+        passes.Sort((a,b)=>a.SourcePassIndex.CompareTo(b.SourcePassIndex));
         // The next CoC variant has the same complete CB18 writer. Its different
         // texture/history bindings remain actual RDB/pass-owner inputs.
         int cocIndex=passes.FindIndex(p=>p.SourcePassIndex==66);
@@ -223,7 +248,7 @@ public static class D3D11NormalPostInitialInputPreparation
         }).ToArray();
         var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,owner+"/tail");
         return new(allocation,owned,dofController,passes.AsReadOnly(),tail.Settings.HeatShimmer.Speed,fresh.GatherSizeTypeC0,
-            fresh.GatherSizeTypeC0,Array.AsReadOnly(history),resources);
+            fresh.GatherSizeTypeC0,Array.AsReadOnly(history),resources){Sources=native,DofExtents=dofInputs.Extents,DofContextWord=contextWord,DofDescriptorMode=(uint)configuration.ProjectionConvention,DofQuality=configuration.QualityLevel};
 
         D3D11NormalPostInitialPass Pass(string name,int pass,
             params MapPostEffect3ParameterConstantBuffer[] buffers)

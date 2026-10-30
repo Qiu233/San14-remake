@@ -109,6 +109,36 @@ inline Inputs prepareSimpleCurrent(const Settings& current,bool actualAdaptation
 inline bool cbFile(const std::string& key,const char* name){
     const std::string suffix=name;return key.size()>=suffix.size()&&key.compare(key.size()-suffix.size(),suffix.size(),suffix)==0;
 }
+template<class PostTimeline>
+inline void publishCurrentOptics(const Settings& current,bool autoExposure,int64_t cameraIdentity,PostTimeline& post) {
+    if(!current.currentOptics)return;
+    const auto& source=*current.currentOptics;const auto& v=source.values;
+    auto fields=post.templates.dofProfile;
+    if(source.width!=fields.scene.width||source.height!=fields.contextHeight)
+        throw std::runtime_error("Current optics needs its real resized post resource owner");
+    const auto flags=requireSetting(current.depthOfFieldMode);
+    if(flags&0x30u)throw std::runtime_error("Current ordinary post has no FC/FD extent transition owner");
+    fields.enabled=(flags&7)!=0;fields.gatherType=int(flags&7);fields.changeFStop=source.apertureChanged!=0;
+    fields.spriteEnabled=requireSetting(current.spriteThreshold)>=0;fields.diaphragmType=int(source.diaphragm);
+    if(fields.enabled&&(!fields.spriteEnabled||fields.diaphragmType!=0))
+        throw std::runtime_error("Current ordinary post has no declared non-sprite/image resource union");
+    fields.bladeCount=int(source.blades);fields.gatherMaximum=v[0];fields.focusDistance=v[1];fields.lensCoefficient=v[2];
+    fields.screenAspect=v[3];fields.anamorphic={v[4],v[5]};fields.stopPolyRate=v[6];
+    fields.automaticExposure=autoExposure?1:0;fields.userExposure=current.userExposure;
+    fields.spriteThreshold=requireSetting(current.spriteThreshold);
+    fields.nearFar={current.camera.optics.reversedDepth?current.camera.optics.farPlane:current.camera.optics.nearPlane,
+        current.camera.optics.reversedDepth?current.camera.optics.nearPlane:current.camera.optics.farPlane};
+    fields.heat={requireSetting(current.heat[0]),requireSetting(current.heat[1]),0};
+    post.templates.currentDof=fields;post.templates.currentOpticsCamera=cameraIdentity;
+    // Composite's other fields and Eye/exposure histories remain current.
+    for(auto& item:post.templates.constants)if(cbFile(item.first,"cb22.bin")) {
+        auto& bytes=item.second;
+        if(bytes.size()!=208)throw std::runtime_error("Current optics Composite CB22 extent");
+        std::memcpy(bytes.data()+16,&v[3],4);
+        const std::array<float,4> limb{v[7],v[8],postCameraDiv(1,v[9]),v[10]};
+        std::memcpy(bytes.data()+80,limb.data(),16);
+    }
+}
 // The held source normal scope retains optics-derived focus/coefficient,
 // complete gather/Shape producer and Eye log/pow fields. This function updates
 // only named lanes with these direct current writers. Invoke before Begin;

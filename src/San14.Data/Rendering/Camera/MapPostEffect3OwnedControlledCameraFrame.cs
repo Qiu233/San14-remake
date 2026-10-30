@@ -279,14 +279,26 @@ public sealed class MapPostEffect3OwnedControlledCameraFrame
             if(module is null||!ReferenceEquals(module.Allocation,allocation)||!ReferenceEquals(previous.Allocation,allocation)||
                 previous.Invocation.NativeControllerReturn!=true||snapshot.FrameNumber!=previous.FrameNumber+1)
                 throw new InvalidDataException("Retained Camera requires its exact preceding returned controlled module.");
-            RequireUnchangedRetainedOptics(previous,snapshot,derived,inputs);
+            if(inputs.ActualPostApplyControllerScalars is null)
+                throw new InvalidDataException("Retained optics requires the actual current controller snapshot, including source A1 after setters.");
+            // The existing World caller carries its returned A1 snapshot;
+            // it has no current aperture-setter producer. Keep that boundary
+            // until those setters can publish their actual current result.
+            var beforeAperture=previous.camera.Optics;
+            var currentAperture=snapshot.Optics;
+            if(currentAperture.LensSimulation.FStop!=beforeAperture.LensSimulation.FStop||
+                currentAperture.LensSimulation.AnamorphicFlag!=beforeAperture.LensSimulation.AnamorphicFlag||
+                currentAperture.LensEffects.DiaphragmBladeCounts!=beforeAperture.LensEffects.DiaphragmBladeCounts||
+                ((currentAperture.DepthOfField.Flags^beforeAperture.DepthOfField.Flags)&8)!=0)
+                throw new NotSupportedException("Changed retained aperture needs its current source setter/A1 producer; this World controller admits unchanged aperture only.");
         }
         var defaults=previous?.Defaults??MapPostEffect3ApplyCompleteInitialScalars.CreateFresh(allocation.Source,snapshot.FrameNumber,
             allocation.ContextOwnerIdentity,native.Allocator);
         var state=previous is null?defaults.State:module!.CloneRetainedScalarState(previous.State,snapshot.FrameNumber);
         state.BindOwnedAllocation(allocation);
         var optics=previous is null?native.Optics.PrepareFreshCurrentCamera(snapshot,derived,allocation.ContextOwnerIdentity,inputs.ActualOwnedLogDispatch):
-            MapPostEffect3ControlledOpticsPreparation.RetainUnchanged(previous.Optics,state,allocation);
+            native.Optics.PrepareRetainedCurrentCamera(snapshot,previous.camera,derived,previous.Derived,
+                previous.Optics,state,allocation,inputs.ActualOwnedLogDispatch);
         if(previous is null)
         {
             state.ApplyKnownCameraWrites(new(snapshot.FrameNumber,derived.InitializationWrites,native.Camera.SourceEvidence));
@@ -302,6 +314,7 @@ public sealed class MapPostEffect3OwnedControlledCameraFrame
             inputs.SelectedHdr.SourceEvidence);
         native.Tone.Apply(state,allocation,tone);
         if(previous is null)optics.ApplyToCurrentState(state,allocation);
+        else if(optics.ActualDirtyAfBeforePreparation)optics.ApplyRetainedToCurrentState(state,allocation);
         optics.ValidateCurrent(state,allocation);
         var actualController=inputs.ActualPostApplyControllerScalars??inputs.ActualFreshCaller!.CapturePostApplyController(derived,optics);
         if(actualController.EnableDofA4!=inputs.Caller.ActualGatherSizeTypeC0||
@@ -322,23 +335,7 @@ public sealed class MapPostEffect3OwnedControlledCameraFrame
             previous is null?null:state);
     }
 
-    private static void RequireUnchangedRetainedOptics(MapPostEffect3OwnedControlledCameraFrame previous,
-        MapCameraConstructionPacket camera,MapPostEffect3ApplyDerivedScalarPlan derived,
-        MapPostEffect3OwnedControlledCameraInputs inputs)
-    {
-        var before=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(previous.camera,previous.State.OwnerIdentity);
-        var now=MapPostEffect3ApplyUncontrolledCameraInputs.ConstructFreshSource(camera,previous.State.OwnerIdentity);
-        int[] fields=[0x12FC,0x1300,0x1304,0x131C,0x7A8,0x7AC];
-        var oldTail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(previous.camera,previous.State.OwnerIdentity);
-        var newTail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,previous.State.OwnerIdentity);
-        if(fields.Any(o=>before.Word(o)!=now.Word(o))||oldTail.Int(0x1344)!=newTail.Int(0x1344)||
-            oldTail.Int(0x1348)!=newTail.Int(0x1348)||oldTail.Word(0x1320)!=newTail.Word(0x1320)||
-            previous.camera.Optics.Limb.Weight!=camera.Optics.Limb.Weight||
-            previous.Derived.EffectiveWidth80!=derived.EffectiveWidth80||previous.Derived.EffectiveHeight84!=derived.EffectiveHeight84||
-            previous.Derived.AspectRatioF4!=derived.AspectRatioF4||previous.Derived.SensorHeightRatioF0!=derived.SensorHeightRatioF0||
-            inputs.ActualOwnedLogDispatch!=NativeLogDispatch.Sse)
-            throw new NotSupportedException("Changed retained optics needs its actual AF/A1/setter source producer; this owner admits the unchanged current profile.");
-    }
+
 }
 
 public sealed class LoadedMapPostEffect3ControlledCameraSource
@@ -355,6 +352,8 @@ public sealed class LoadedMapPostEffect3ControlledCameraSource
     public LoadedDeferredSamplerNativeSource Native{get;}
     public string SourceEvidence{get;}
     public uint LockedAdaptationBits => lockedAdaptationBits;
+    public float PrepareCurrentGatherMaximum(int gatherSize,float effectiveHeight) => MathF.Min(BitConverter.UInt32BitsToSingle(gatherMaximumBits),
+        D(M(A(A(gatherSize,gatherSize),1),BitConverter.UInt32BitsToSingle(gatherFactorBits)),effectiveHeight));
     internal float ProjectionThreshold => BitConverter.UInt32BitsToSingle(lightThresholdBits);
     internal float ProjectionLimit => BitConverter.UInt32BitsToSingle(lightLimitBits);
     internal float ProjectionEpsilon => BitConverter.UInt32BitsToSingle(lightEpsilonBits);

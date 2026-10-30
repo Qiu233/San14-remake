@@ -45,27 +45,28 @@ public partial class D3D11MapSurface : Control
         // Only Main's actual PostDraw/marker or Close completes this gate.
         // Unlike Task continuations, the one pump waiter resumes on this owner
         // call stack, including acceptance and the next native-job admission.
-        internal readonly MainCanvasGate Completion=new(owner);
+        internal readonly MainOwnerCompletion<bool> Completion=new(owner);
         internal bool DrawReady,Submitted,PostDrawObserved,MarkerCompleted;
     }
 
-    // Canvas has one Main owner and one waiter (the surface pump). Task's
-    // ConfigureAwait(false) may still queue its continuation under a custom
-    // SynchronizationContext. This gate dispatches no Task or deferred callback.
-    private sealed class MainCanvasGate(int owner)
+    // Canvas and delivered native results each have one Main owner and one
+    // pump waiter. Completion resumes that waiter on the same Main call stack.
+    // The native worker alone queues its result delivery; this gate queues none.
+    private sealed class MainOwnerCompletion<T>(int owner)
     {
-        private bool _completed,_result;
+        private bool _completed;
+        private T _result=default!;
         private Exception? _error;
         private Action? _continuation;
         private void RequireOwner()
         {
             if(Environment.CurrentManagedThreadId!=owner)
-                throw new InvalidOperationException("The Canvas gate belongs to its Main owner.");
+                throw new InvalidOperationException("The presentation completion belongs to its Main owner.");
         }
         internal Awaiter GetAwaiter()=>new(this);
-        internal bool TrySetResult(bool result)=>Complete(result,null);
-        internal bool TrySetException(Exception error)=>Complete(false,error);
-        private bool Complete(bool result,Exception? error)
+        internal bool TrySetResult(T result)=>Complete(result,null);
+        internal bool TrySetException(Exception error)=>Complete(default!,error);
+        private bool Complete(T result,Exception? error)
         {
             RequireOwner();
             if(_completed)return false;
@@ -74,13 +75,13 @@ public partial class D3D11MapSurface : Control
             continuation?.Invoke();
             return true;
         }
-        internal readonly struct Awaiter(MainCanvasGate gate):INotifyCompletion
+        internal readonly struct Awaiter(MainOwnerCompletion<T> gate):INotifyCompletion
         {
             public bool IsCompleted { get { gate.RequireOwner();return gate._completed; } }
-            public bool GetResult()
+            public T GetResult()
             {
                 gate.RequireOwner();
-                if(!gate._completed)throw new InvalidOperationException("Canvas completion was not observed.");
+                if(!gate._completed)throw new InvalidOperationException("Presentation completion was not observed.");
                 if(gate._error is { } error)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
                 return gate._result;
             }
@@ -88,7 +89,7 @@ public partial class D3D11MapSurface : Control
             {
                 gate.RequireOwner();
                 if(gate._completed){continuation();return;}
-                if(gate._continuation is not null)throw new InvalidOperationException("The Canvas gate already has its pump waiter.");
+                if(gate._continuation is not null)throw new InvalidOperationException("The presentation completion already has its pump waiter.");
                 gate._continuation=continuation;
             }
         }
@@ -195,7 +196,7 @@ public partial class D3D11MapSurface : Control
                 var output=_outputs[0];
                 string source=_sourceDirectory,library=_nativeDLLPath;uint mask=_populationMask;
                 ulong device=_device,queue=_queue;
-                var created=await OnMain(OnNativeWorker(()=>
+                var created=await OnNativeWorker(()=>
                 {
                     var session=new D3D11RenderSession(source,library,mask,nativeWorker:true);
                     return session.RunNativeJob(()=>
@@ -203,7 +204,7 @@ public partial class D3D11MapSurface : Control
                         try { return (Session:session,Receipt:session.Create(device,queue,output.NativeOutput,initial)); }
                         catch { session.Dispose();throw; }
                     });
-                }));
+                });
                 _session=created.Session;
                 if(_closed)return;
                 var opening=Present(output,initial,created.Receipt);
@@ -216,11 +217,11 @@ public partial class D3D11MapSurface : Control
                 var updates=_animationPending.ToArray();_animationPending.Clear();
                 var output=_outputs.First(slot=>!ReferenceEquals(slot,_displayed));
                 var session=_session!;bool sampled=output.HasCanvasSampling;
-                var receipt=await OnMain(OnNativeWorker(()=>session.RunNativeJob(()=>
+                var receipt=await OnNativeWorker(()=>session.RunNativeJob(()=>
                 {
                     foreach(var update in updates)session.UpdateAnimations(update.Input,update.FpsMode);
                     return session.Next(output.NativeOutput,input,sampled);
-                })));
+                }));
                 if(_closed)return;
                 var stage=Present(output,input,receipt);
                 if(!await stage.Completion||!Accept(stage))return;
@@ -377,7 +378,7 @@ public partial class D3D11MapSurface : Control
         var session=_session;
         try
         {
-            if(session is not null)await OnMain(OnNativeWorker(()=>session.RunNativeJob(()=>{session.Dispose();return true;})));
+            if(session is not null)await OnNativeWorker(()=>session.RunNativeJob(()=>{session.Dispose();return true;}));
         }
         finally
         {
@@ -430,9 +431,9 @@ public partial class D3D11MapSurface : Control
             }
         }
     }
-    private static Task<T> OnNativeWorker<T>(Func<T> action)
+    private MainOwnerCompletion<T> OnNativeWorker<T>(Func<T> action)
     {
-        var done=new TaskCompletionSource<T>();
+        var done=new MainOwnerCompletion<T>(_ownerMainThreadId);
         _=Task.Run(()=>
         {
             try
@@ -442,7 +443,7 @@ public partial class D3D11MapSurface : Control
             }
             catch(Exception error) { Callable.From(()=>done.TrySetException(error)).CallDeferred(); }
         });
-        return done.Task;
+        return done;
     }
     private static Task<T> OnRenderThread<T>(Func<RenderingDevice,T> action)
     {

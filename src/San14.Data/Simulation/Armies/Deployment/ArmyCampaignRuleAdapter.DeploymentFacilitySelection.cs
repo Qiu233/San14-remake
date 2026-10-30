@@ -5,12 +5,13 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    /// <summary>7E17B0 mode0, with no captured site. All ordinary retained
+    /// <summary>7E17B0 mode0, optionally with the actual popup site. All ordinary retained
     /// rows are required for source preselection; only Selected rows supply
     /// the real Person list. The nullable tutorial input belongs to the
     /// actual application controller, not a default inferred from Phase.</summary>
     public DeploymentFacilitySelectionQuery CreateDeploymentFacilitySelectionQuery(GameState state,
-        IReadOnlyList<DeploymentFacilityDraftRow> pageRows, bool? tutorialRestrictsFacilities)
+        IReadOnlyList<DeploymentFacilityDraftRow> pageRows, bool? tutorialRestrictsFacilities,
+        int? capturedSiteHexId = null)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(pageRows);
         // The page retains these ordinary rows while the child dialog and
@@ -43,6 +44,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             catch (InvalidDataException error) { peopleMissing = error.Message; }
         }
         return CreateConstructionPeopleSelectionQuery(state,current,captureMissing,people,peopleMissing,selected.Select(row=>(int?)row.Request.Troops).ToArray(),
-            rows.Select(row => row.RetainedConstructionDefinitionPhysical).ToArray(),tutorialRestrictsFacilities);
+            rows.Select(row => row.RetainedConstructionDefinitionPhysical).ToArray(),tutorialRestrictsFacilities,capturedSiteHexId);
     }
 }

@@ -10,7 +10,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     // are synthesized for existing Armies.
     private DeploymentFacilitySelectionQuery CreateConstructionPeopleSelectionQuery(GameState state,
         SourceWorldContext? current, string? captureMissing, int?[]? people, string? peopleMissing,int?[]? selectionTroops,
-        IReadOnlyList<int?>? retainedDefinitions, bool? tutorialRestrictsFacilities)
+        IReadOnlyList<int?>? retainedDefinitions, bool? tutorialRestrictsFacilities, int? capturedSiteHexId = null)
     {
         var directory = current is null
             ? new UnitFacilityDirectory([], captureMissing, "facility.directory.original_column_descriptors",
@@ -73,6 +73,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (people.Length == 0) return (false, "structure.selection.commander", null);
             try
             {
+                if (capturedSiteHexId is int capturedSite)
+                {
+                    if (capturedSite is < 0 or >= 48400) return (false, "structure.selection.target", null);
+                    var list = current!.CreateNearbyTemporary();
+                    try
+                    {
+                        foreach (int? person in people) current.AppendConstructionPersonTemporary(list, person);
+                        string? rejected = null;
+                        bool siteAllowed = FacilityConstructionLegality.Check(state, current, list,
+                            new HexReference(capturedSite), reference, reason => rejected = reason);
+                        return (siteAllowed, siteAllowed ? null : rejected ?? "structure.site.unavailable", null);
+                    }
+                    finally { current.ClearNearbyTemporary(list, true); }
+                }
                 if (definition is null) throw Missing("draft_facility_definition_fields");
                 //7E17B0 first requires an intrinsic2C5830 match for +32,
                 //unless the real tutorial shortcut applies. This is not the

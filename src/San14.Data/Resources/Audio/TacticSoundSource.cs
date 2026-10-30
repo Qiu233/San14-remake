@@ -25,6 +25,18 @@ public static class TacticSoundSource
     // multi-child selector or unknown scheduling branch is inferred here.
     internal static TacticSoundPlayback ReadSingleLayerPlayback(AudioSelectionBank bank, int managerId,
         uint distanceCurveCount)
+        => ReadLayer(bank, managerId, distanceCurveCount, 0, false, out _);
+
+    internal static TacticSoundPlayback ReadArmyDamageVariant(AudioSelectionBank bank, int managerId,
+        int childIndex, out float leafAdditiveRate)
+    {
+        if (managerId is not (161 or 162) || (uint)childIndex >= 3)
+            throw new InvalidDataException("army_damage.sound.variant");
+        return ReadLayer(bank, managerId, 1, childIndex, true, out leafAdditiveRate);
+    }
+
+    private static TacticSoundPlayback ReadLayer(AudioSelectionBank bank, int managerId,
+        uint distanceCurveCount, int childIndex, bool armyDamage, out float leafAdditiveRate)
     {
         ArgumentNullException.ThrowIfNull(bank);
         if (bank.Source.ResourceUri != GameResourceId.Rdb("RRPreview", SelectionBankId).ToString())
@@ -51,8 +63,9 @@ public static class TacticSoundSource
         if (U(begin + 32) != 1)
             throw new NotSupportedException("tactic.sound.group_count");
         int rootTable = Pointer(begin, 36), group = checked(begin + (int)U(rootTable));
-        if (U(group) != 0x562FC4B9 || U(group + 12) != 0 || U(group + 16) != 1 ||
-            F(group + 40) != 0 || F(group + 44) != 0 || F(group + 48) != 0)
+        if (U(group) != 0x562FC4B9 || U(group + 12) != (armyDamage ? 0x10010u : 0u) ||
+            U(group + 16) != (armyDamage ? 3u : 1u) ||
+            (!armyDamage && F(group + 40) != 0) || F(group + 44) != 0 || F(group + 48) != 0)
             throw new NotSupportedException("tactic.sound.group_scheduling");
         float groupGain = F(group + 28);
         if (groupGain < 0) throw new InvalidDataException("tactic.sound.negative_gain");
@@ -75,7 +88,7 @@ public static class TacticSoundSource
                 curve.Add(point);
             }
         }
-        int leafTable = Pointer(group, 20), leaf = checked(group + (int)U(leafTable));
+        int leafTable = Pointer(group, 20), leaf = checked(group + (int)U(checked(leafTable + childIndex * 4)));
         uint opcode = U(leaf);
         bool extended = opcode == 0x941ECC07;
         if ((!extended && opcode != 0xA5170472) || U(leaf + 4) != (extended ? 76u : 68u) ||
@@ -83,7 +96,8 @@ public static class TacticSoundSource
             F(leaf + 44) != 0 || F(leaf + 48) != 0 || F(leaf + 52) != 0 || F(leaf + 56) != 0 ||
             U(leaf + 60) != 0 || U(leaf + 64) != 0)
             throw new NotSupportedException("tactic.sound.sample_scheduling");
-        float gain = groupGain * F(leaf + 32), rate = MathF.Pow(2, F(leaf + 40));
+        leafAdditiveRate = F(leaf + 40);
+        float gain = groupGain * F(leaf + 32), rate = MathF.Pow(2, leafAdditiveRate);
         if (!float.IsFinite(gain) || gain < 0 || !float.IsFinite(rate) || rate <= 0)
             throw new InvalidDataException("tactic.sound.sample_gain_rate");
         //Older A5170472 leaves have no LFE/start overrides.941ECC07's two

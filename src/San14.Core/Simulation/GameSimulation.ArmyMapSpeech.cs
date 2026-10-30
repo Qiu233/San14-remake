@@ -44,7 +44,8 @@ public sealed partial class GameSimulation
         //during this reached wait. Other suspended transactions keep their
         //existing candidate-owned stream contract.
         bool sharesPresentationApp = pending is null || pending.PendingIntelligenceNarrationTaskId is not null ||
-            pending.RequiresAutomaticIntelligenceContinuation;
+            pending.RequiresAutomaticIntelligenceContinuation || BaseCapturePersonPrefixProgress.IsPresentationPending(owner) ||
+            HiredArmyCaptureProgress.IsPresentationPending(owner);
         if (sharesPresentationApp && appRandomSnapshot is not null)
             working = working with { CampaignAppRandom32 = appRandomSnapshot };
         result = rules.Start(working, sequence, armyLayoutAvailable);

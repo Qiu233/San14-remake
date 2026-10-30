@@ -71,12 +71,19 @@ public:
             const auto values=source_current_season_post::prepareSimpleCurrent(season->post,
                 caller.adaptationLocked,caller.lockedAdaptation,caller.autoExposure);
             source_current_season_post::publishSimpleCurrent(values,timeline_);
+            source_current_season_post::publishCurrentOptics(season->post,caller.autoExposure,season->cameraIdentity,timeline_);
             projection_=source_current_season_post::publishProjectionBeforeBegin(
                 season->post,camera_,timeline_);
         } else projection_=updateNativeNormalPostCameraBeforeBegin(camera_,camera,timeline_);
         auto plan=beginNormalPostFrameFromClock(timeline_,currentClock);
         auto passes=selectNormalPostFramePasses(plan,passUnion_);
         uploadNormalPostFrameConstants(context,timeline_.templates,plan,passes);
+        if(std::none_of(passes.begin(),passes.end(),[](const auto& pass){return pass.name=="057-dof";})) {
+            // No source Before57 is reached when DOF is disabled. Do not map
+            // absent sprite feedback merely to complete the shared timeline.
+            plan.history.readScatterFeedback=false;
+            applyNormalPostScatterFeedback(timeline_,plan,nullptr,passes);
+        }
         NativeNormalPostStagingMap mapped;bool readStaging=false;
         auto beforeScatter=[&]() {
             if(plan.history.readScatterFeedback) {

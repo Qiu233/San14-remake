@@ -298,6 +298,12 @@ public sealed partial class GameplaySession
             (speechExpectedOwner is null || ReferenceEquals(speechExpectedOwner, speechOwner)))
             savedNormalPeriod = savedNormalPeriod with
             { Candidate = savedNormalPeriod.Candidate with { CampaignAppRandom32 = appRandomSnapshot } };
+        if (appRandomSnapshot is not null && savedNormalPeriod is not null &&
+            (BaseCapturePersonPrefixProgress.IsPresentationPending(speechOwner) ||
+                HiredArmyCaptureProgress.IsPresentationPending(speechOwner)) &&
+            (speechExpectedOwner is null || ReferenceEquals(speechExpectedOwner, speechOwner)))
+            savedNormalPeriod = savedNormalPeriod with
+            { Candidate = savedNormalPeriod.Candidate with { CampaignAppRandom32 = appRandomSnapshot } };
         // A stale display snapshot must not replace a newer queue or another
         // suspended transaction's owner. Saving never mutates the live session.
         if (speechSnapshot is not null && ReferenceEquals(speechExpectedOwner, speechOwner) &&

@@ -1,3 +1,4 @@
+using Godot;
 using San14.Data;
 
 internal enum CampaignTargetMapStage { TargetProvince,District,Foothold }
@@ -5,7 +6,7 @@ internal enum CampaignTargetMapStage { TargetProvince,District,Foothold }
 public partial class MapSceneView
 {
     private CampaignDeploymentPage? campaignTargetPage;
-    private IReadOnlyList<CampaignFootholdChoice>? campaignTargetMarkers;
+    private CampaignMapPresentation? campaignMapPresentation;
     private Func<bool>? campaignTargetAdmitted;
     private Action<int>? campaignTargetPicked;
     private Action<int?>? campaignTargetHovered;
@@ -50,14 +51,22 @@ public partial class MapSceneView
                 break;
             default:throw new ArgumentOutOfRangeException(nameof(stage));
         }
-        //Build before replacing any renderer owner, so a failed source read
-        //does not leave a partly installed selection/predicate publication.
-        var hexes=markers.Where(row=>row.HexId is not null).Select(row=>row.HexId!.Value).ToHashSet();
+        var publication=page.QueryMapPresentation(stage switch
+        {
+            CampaignTargetMapStage.TargetProvince=>CampaignDeploymentMapStage.TargetProvince,
+            CampaignTargetMapStage.District=>CampaignDeploymentMapStage.District,
+            _=>CampaignDeploymentMapStage.Foothold
+        },provinceId,districtId);
+        if(publication.Value is not {} presentation)
+            throw new InvalidOperationException(publication.UnresolvedInput??"campaign.presentation.unavailable");
+        //Build before replacing any renderer owner. Disabled existing bases
+        //stay present; only the actual business rows admit a selection.
+        var hexes=presentation.Markers.Select(row=>row.HexId).ToHashSet();
         var allowed=new HashSet<int>();var markerIdentities=new Dictionary<int,int>();
         foreach(var row in markers)
             if(row.HexId is int hex&&identity(hex) is int id)
             {markerIdentities[hex]=id;if(row.Available==true)allowed.Add(id);}
-        campaignTargetPage=page;campaignTargetMarkers=markers;
+        campaignTargetPage=page;campaignMapPresentation=presentation;
         campaignTargetIdentity=identity;campaignTargetAdmitted=admitted;
         campaignTargetPicked=picked;campaignTargetHovered=hovered;campaignMarkerHexes=hexes;
         campaignAllowedIdentities=allowed;campaignMarkerIdentities=markerIdentities;
@@ -86,7 +95,18 @@ public partial class MapSceneView
         var selectedHexes=new HashSet<int>();
         foreach(var row in campaignMarkerIdentities)
             if(selected.Contains(row.Value))selectedHexes.Add(row.Key);
-        _d3d11Markers?.SetCampaignMarkers(campaignMarkerHexes,selectedHexes);
+        _d3d11Markers?.SetCampaignPresentation(campaignMapPresentation,selectedHexes,ProjectCampaignDistrictMarker);
+    }
+
+    private Vector2? ProjectCampaignDistrictMarker(int hex,MainMapCameraFrame frame)
+    {
+        if(_sourceMainCameraTerrain is not {} terrain)return null;
+        if(_deploymentTargetAnchors?.Terrain!=terrain)_deploymentTargetAnchors=new(terrain);
+        if(_deploymentTargetAnchors.Query(hex).GroundWorld is not {} ground)return null;
+        //198230 adds800 to the actual terrain-owned Foothold ground.
+        var world=new System.Numerics.Vector3(ground.X,ground.Y+800f,ground.Z);
+        var pixel=DeploymentTargetProjection.ProjectCanonical1920(world,frame.Camera.Matrices.WorldToProjection100);
+        return pixel is {} point?new Vector2(point.X,point.Y):null;
     }
 
     private bool CampaignPointerAllowed(int hex)
@@ -126,11 +146,11 @@ public partial class MapSceneView
         if(campaignFocus is not null&&ReferenceEquals(_commandMapDisplay?.Data,campaignFocus))
             _commandMapDisplay=D3D11CommandMapPublication.ForCampaignFocus(null,checked(++_commandMapRevision),0,
                 checked(++_commandMapProviderGeneration));
-        campaignTargetPage=null;campaignTargetMarkers=null;campaignTargetIdentity=null;
+        campaignTargetPage=null;campaignMapPresentation=null;campaignTargetIdentity=null;
         campaignTargetAdmitted=null;campaignTargetPicked=null;campaignTargetHovered=null;
         campaignMarkerHexes=null;campaignFocus=null;campaignHoverIdentity=null;
         campaignAllowedIdentities=null;campaignMarkerIdentities=null;
-        _d3d11Markers?.SetCampaignMarkers(null);ApplyKeyboardMapInformation();
+        _d3d11Markers?.SetCampaignPresentation(null);ApplyKeyboardMapInformation();
         ScheduleD3D11MapFrame();
     }
 }

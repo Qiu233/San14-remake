@@ -69,11 +69,13 @@ public sealed partial class ArmyOperationContext
         return _source.Snapshot.Characters[physical].DistrictSlot;
     }
 
-    public SourceWorldContext? Capture(GameState state)
+    public SourceWorldContext? Capture(GameState state) => CaptureWithCurrentFields(state, false);
+
+    private SourceWorldContext? CaptureWithCurrentFields(GameState state, bool immediatelyImportSavedIndexes)
     {
         if (state.MapWidth != 220 || state.MapHeight != 220 || state.MapSha256 != _map.Source.Sha256 ||
             !Matches(state, _source.ScenarioSource) || !Matches(state, _source.FixedDataSource)) return null;
-        SourceWorldContext native = CaptureSourcePrefix();
+        SourceWorldContext native = CaptureSourcePrefixCore(immediatelyImportSavedIndexes);
         PersonalityEditorRuntime.Apply(state.CreatedPersonalities, native);
         AreaFlagsSourceAdapter.BindCurrent(state, native);
         // Overlay every receiver so an old or absent owner cannot retain the
@@ -160,7 +162,9 @@ public sealed partial class ArmyOperationContext
 
     /// <summary>Immutable-source consumers used by the native tick adapter do
     /// not need a fresh capture of the 48400 ownership/overlay entries per tick.</summary>
-    internal SourceWorldContext CaptureSourcePrefix()
+    internal SourceWorldContext CaptureSourcePrefix() => CaptureSourcePrefixCore(false);
+
+    private SourceWorldContext CaptureSourcePrefixCore(bool immediatelyImportSavedIndexes)
     {
         var native = new SourceWorldContext();
         native.BindMapIdentityDefinitions(_mapTopology);
@@ -170,6 +174,9 @@ public sealed partial class ArmyOperationContext
         //explicit allocation precedes source/map-overlay writes.
         native.BindMapDefinitions(_mapTopology);
         var normalization = Volatile.Read(ref _initialSkillNormalization);
+        //Only this complete owned factory immediately replaces these lists.
+        //Cold skill post-load still requires its real temporary pool.
+        bool omitInitialGraph = immediatelyImportSavedIndexes && normalization is not null;
         if (normalization is null)
             for (int physical = 0; physical < 1851; physical++) native.ResetPersonTraitFields(physical);
         native.MaterializeStaticSource(_source, normalization?.Values, materializePersonalities: false,
@@ -201,29 +208,34 @@ public sealed partial class ArmyOperationContext
         native.ResetPersonIdLookup(); PostRegistrationLookups.RebuildPersonIds(native);
         PostRegistrationLookups.BindHirePersonLookups(native);
 
-        var pool = new WorldIndexContext(native);
-        native.SetRegistryDescriptor(RegistryKind.Object, new(pool.AllocateDescriptor().Identity));
+        WorldIndexContext? pool = omitInitialGraph ? null : new(native);
+        if (pool is not null)
+            native.SetRegistryDescriptor(RegistryKind.Object, new(pool.AllocateDescriptor().Identity));
         foreach (var obj in _source.Snapshot.ObjectSourceRecords!.Objects)
         {
-            _ = ObjectRegistration.Register(new(RegistryKind.Object, obj.PhysicalSlot), native);
+            if (pool is not null)
+                _ = ObjectRegistration.Register(new(RegistryKind.Object, obj.PhysicalSlot), native);
             if (obj.PhysicalSlot is < 1 or > 61 || native.ReadObjectNativeValidity(new(obj.PhysicalSlot)) != true) continue;
             BaseReference reference = obj.PhysicalSlot <= 51 ? new(BaseKind.City, obj.PhysicalSlot)
                 : new(BaseKind.Gate, obj.PhysicalSlot - 51);
             //The consumed331AC0/3311C0 Base link writer, before its lists.
             native.WriteBaseObjectLink(reference, (ushort)obj.PhysicalSlot);
         }
-        native.SetBaseRegistryHandle(new(pool.AllocateDescriptor().Identity));
-        BaseRegistration.Apply(native);
-        foreach (BaseReference? reference in native.ReadRegisteredBases()!)
-            if (reference is not null) native.SetBaseHexListHandle(reference, pool.AllocateDescriptor());
-        _ = BaseNeighborhoodInitialization.Apply(native);
-        //Actual registration helper uses fresh linked-object validity for the
-        //City descriptor at registry90. Growth2AAD00 traverses this separate
-        //descriptor and later reads current District ownership from the capture.
-        native.SetRegistryDescriptor(RegistryKind.City, new(pool.AllocateDescriptor().Identity));
-        for (int city = 0; city < 52; city++)
-            _ = ObjectRegistration.Register(native.ReadRegistryTableReference(RegistryKind.City, city), native);
-        MapOverlayInitialization.ApplyObjects(1, native);
+        if (pool is not null)
+        {
+            native.SetBaseRegistryHandle(new(pool.AllocateDescriptor().Identity));
+            BaseRegistration.Apply(native);
+            foreach (BaseReference? reference in native.ReadRegisteredBases()!)
+                if (reference is not null) native.SetBaseHexListHandle(reference, pool.AllocateDescriptor());
+            _ = BaseNeighborhoodInitialization.Apply(native);
+            //Default and cold captures retain the real source registration
+            //and overlay consumers. Owned warm captures bind current objects
+            //before importing the actual saved list owner.
+            native.SetRegistryDescriptor(RegistryKind.City, new(pool.AllocateDescriptor().Identity));
+            for (int city = 0; city < 52; city++)
+                _ = ObjectRegistration.Register(native.ReadRegistryTableReference(RegistryKind.City, city), native);
+            MapOverlayInitialization.ApplyObjects(1, native);
+        }
         if (normalization is not null) normalization.Apply(native);
         else
         {

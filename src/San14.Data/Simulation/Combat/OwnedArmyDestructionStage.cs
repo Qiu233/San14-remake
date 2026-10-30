@@ -443,19 +443,25 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 //callbacks. A real AI release can therefore close this early
                 //return without pretending that normal captivity has run.
                 bool ordinaryPerson = Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(commander)), "captured_Person15E");
-                if (!ordinaryPerson && forcedDuelCapture &&
+                if (!ordinaryPerson &&
                     Known(current.ReadPersonStatus(commander), "special_captured_PersonE6") != 5)
                 {
-                    //2E0FC0(0,1) reports the original player's special Person
-                    //before265250; retain the receipt without queueing twice.
+                    //For bit14,2E0FC0 clears the ordinary caller's report flag.
+                    //Both(1,1) and forced(0,1) retain the same34AA/SE notice.
+                    //The forced prefix already formatted it exactly once.
+                    if (!forcedDuelCapture)
+                        captureAnnouncement = package.CaptureForcedDuelCaptureAnnouncement(state, current,
+                            commander, captured.WinnerForce, next => state = next);
                     if (captureAnnouncement is { } announced)
                     {
-                        feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announced.OfficerId,
-                            announced.OfficerNameAtSource, announced.MessageRoot, announced.SoundId)
-                                { TextAtSource = announced.TextAtSource, Speaker = announced.Speaker } });
+                        var notice = BeginHiredCaptureAnnouncementCurrent(state, current, pool, announced,
+                            () => Checkpoint(ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement),
+                            feedback, allowPlayerRulerPause);
+                        state = notice.State;
                         captureAnnouncementAlreadyQueued = true;
+                        if (notice.AwaitingAnnouncement) return (state, null);
                     }
-                    state = package.ApplyForcedDuelSpecialPersonCaptureCurrent(state, current, pool,
+                    state = package.ApplyCapturedSpecialPersonReleaseCurrent(state, current, pool,
                         commander, sourceDate, sampler, feedback);
                     returnedByCapture = true;
                     effects.Add("25B75x.2E0FC0_special_265250_pending_hire_release");

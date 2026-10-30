@@ -8,7 +8,7 @@ public sealed record CapturedRulerTreatmentRequest(int OfficerId, int CapturingF
 public sealed record ConfirmCapturedRulerTreatmentOrder(int ForceId, int OfficerId,
     CapturedRulerDisposition Disposition) : GameOrder(ForceId);
 
-public enum ArmyDefeatResumePoint { AfterRulerTreatment, AfterPersonDeath }
+public enum ArmyDefeatResumePoint { AfterRulerTreatment, AfterPersonDeath, AfterSpecialCaptureAnnouncement }
 /// <summary>The already executed defeat prefix is retained in the candidate.
 /// These captured operands resume only the remaining settlement tail.</summary>
 public sealed record ArmyDefeatContinuation(int SettlementIndex, UnitDefeatRequest Defeat,
@@ -20,6 +20,7 @@ public sealed record ArmyDefeatContinuation(int SettlementIndex, UnitDefeatReque
     public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment { get; init; }
     public CapturedRulerDisposition? ChosenDisposition { get; init; }
     public bool DeathReturnedEarly { get; init; }
+    public HiredArmyCaptureProgress? HiredCapture { get; init; }
     /// <summary>The actual captured Base, including a Gate's location identity.
     /// HomeCityId remains only the report's current City context.</summary>
     public SettlementBase? VictimHome { get; init; }
@@ -115,7 +116,12 @@ internal static class RulerDecisionContinuationValidation
                 defeat.HexId is < 0 or > 48400 || defeat.WinnerArmyPhysicalSlot is < 0 ||
                 defeat.WinnerOfficerId is < 0 or > 6000 || defeat.WinnerForceId is < 0 or > 51 ||
                 (defeat.SampleDay is null) != (defeat.SampleSalt is null) || !Enum.IsDefined(defeat.ResumePoint) ||
-                defeat.ChosenDisposition is { } disposition && !Enum.IsDefined(disposition))
+                defeat.ChosenDisposition is { } disposition && !Enum.IsDefined(disposition) ||
+                (defeat.ResumePoint == ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement
+                    ? defeat.HiredCapture is not { AnnouncementBatchSequence: > 0 } hired ||
+                        !Enum.IsDefined(hired.Phase) || defeat.PendingCapturedRulerTreatment is not null ||
+                        defeat.ChosenDisposition is not null || defeat.ReclaimDefeatedCommander != false
+                    : defeat.HiredCapture is not null))
                 throw new InvalidDataException("Invalid saved army defeat continuation.");
             if (defeat.PendingCapturedRulerTreatment is { } request &&
                 (request.OfficerId is < 1 or > 6000 || request.CapturingForceId is < 1 or > 45 ||

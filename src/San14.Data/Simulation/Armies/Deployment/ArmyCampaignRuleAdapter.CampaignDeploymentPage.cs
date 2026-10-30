@@ -36,7 +36,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         public string AreaText(int a, int f) => throw CampaignPageMissing("confirmation_area");
     }
 
-    private sealed class CampaignPageSource : ICampaignDeploymentPageSource
+    private sealed partial class CampaignPageSource : ICampaignDeploymentPageSource
     {
         private readonly ArmyCampaignRuleAdapter owner;
         private readonly GameState state;

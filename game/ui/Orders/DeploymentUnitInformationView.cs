@@ -46,9 +46,7 @@ internal partial class DeploymentUnitInformationView : Control
         slider.Configure(repository,assets,shader,1000,0,100,0,false,value=>changeTroops?.Invoke(value));
         primaryThreshold=Threshold("PrimaryTroopThreshold",82,3,()=>primaryTroops);
         secondaryThreshold=Threshold("SecondaryTroopThreshold",80,5,()=>secondaryTroops);
-        var functions=new UiSourceLayout(repository,0x2B7AA77D);var palettes=MapSpritePalettes.Create();
-        foreach(int node in new[]{75,111})functions.Art(this,11,source.Rectangle(node),assets,shader);
-        foreach(int node in new[]{77,113})source.Art(this,node,source.Rectangle(node),assets,shader,palettes[28]);
+        ConfigureDefinitionButtons();
         var numberBox=source.Rectangle(86);
         number=new UiSourceNumberButton {Name="DeploymentTroopNumber",Position=numberBox.Position,Size=numberBox.Size,Disabled=true};AddChild(number);
         number.Configure(repository,assets,shader,font,0,OpenCalculator);
@@ -59,6 +57,7 @@ internal partial class DeploymentUnitInformationView : Control
         maximumLabel=source.Text(this,88,default,"/0",font);
         chart=new DeploymentCombatChart {Name="UnitCombatChart",Position=source.Rectangle(7).Position};AddChild(chart);
         chart.Configure(repository,assets,shader,font,text);
+        ConfigureUnitPresentation(modalHost);
         ApplySelection(null,null,null,null,null);
 
         UiSourceTroopThresholdButton Threshold(string name,int node,int classification,Func<int?> value)
@@ -140,6 +139,8 @@ internal partial class DeploymentUnitInformationView : Control
     {
         abandoned=true;
         AbandonTacticInteraction();
+        AbandonDefinitionButtons();
+        AbandonUnitPresentation();
         formationSelectionBound=false;
         changeTroops=null;calculatorReturned=null;
         number.Disabled=primaryThreshold.Disabled=secondaryThreshold.Disabled=true;

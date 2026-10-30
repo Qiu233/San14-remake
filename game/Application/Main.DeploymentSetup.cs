@@ -56,7 +56,7 @@ public partial class Main
                     if(!IsDeploymentCurrent(world,map)||_deploymentSetup!=view)return;
                     var targets=_deploymentCityDraft!.AcceptMake(rows);
                     CloseDeploymentMakeView();OpenDeploymentTarget(world,map,cityId,force,targets);
-                }),DeploymentUnavailable,_sourceHeaders,_deploymentCityDraft.AcceptedRows,CurrentListScrollSpeed);
+                }),DeploymentUnavailable,_sourceHeaders,_presentationRandom.Next,_deploymentCityDraft.AcceptedRows,CurrentListScrollSpeed);
             _deploymentAdoptSpeechWorld=(previous,replacement)=>
             {
                 if(_deploymentSetup!=view||!ReferenceEquals(world,previous))return;

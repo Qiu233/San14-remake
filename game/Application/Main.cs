@@ -1093,9 +1093,11 @@ public partial class Main : Control
         _mapOverview = campaign.Composition.Overview;
         _session = campaign.Session;
         SynchronizeApplicationCrtRandom(_session.World);
-        var loadedRandomOwner = _session.PendingNormalPeriod is
-            { Candidate.NativePeriodContinuation.Cursor.AwaitingIntelligenceTaskId: not null } intelligence
-            ? intelligence.Candidate : _session.World;
+        var loadedRandomOwner = _session.PendingNormalPeriod is { } normal &&
+            (normal.Candidate.NativePeriodContinuation?.Cursor?.AwaitingIntelligenceTaskId is not null ||
+                BaseCapturePersonPrefixProgress.IsPresentationPending(normal.Candidate) ||
+                HiredArmyCaptureProgress.IsPresentationPending(normal.Candidate))
+            ? normal.Candidate : _session.World;
         if (loadedRandomOwner.CampaignAppRandom32 is { } appRandom)
             _presentationRandom.InstallCommittedState(appRandom.State);
         AttachCampaignApplication(restoredPlayerForceId.HasValue);

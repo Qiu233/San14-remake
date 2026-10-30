@@ -48,6 +48,8 @@ public sealed partial class OwnedArmyDestructionStage
             throw Missing("ruler_treatment_receiver_changed");
         if (checkpoint.PendingCapturedRulerTreatment is not null || state.PersonDeathContinuation is not null)
             throw Missing("ruler_treatment_actual_player_decision");
+        if (checkpoint.ResumePoint == ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement)
+            return ResumeHiredCaptureAnnouncementCurrent(state, current, pool, checkpoint, date, feedback);
         if (checkpoint.ResumePoint == ArmyDefeatResumePoint.AfterPersonDeath)
         {
             state = state with { ArmyDefeatContinuation = null };

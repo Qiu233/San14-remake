@@ -318,6 +318,13 @@ inline Frame decode(std::span<const uint8_t> bytes){
         if(bytes.size()-at<rainBytes)throw std::runtime_error("Current Rain packet is truncated");
         r.rain=San14::Render::rain::Interop::decode(bytes.subspan(at,rainBytes));at+=rainBytes;
     }
+    if(bytes.size()-at>=4&&read<std::uint32_t>(bytes,at)==0x314f4450u) {
+        if(bytes.size()-at<68)throw std::runtime_error("Current post optics packet truncated");
+        source_current_season_post::CurrentOptics optics;
+        optics.apertureChanged=read<uint32_t>(bytes,at+4);optics.blades=read<uint32_t>(bytes,at+8);
+        optics.diaphragm=read<uint32_t>(bytes,at+12);optics.width=read<uint32_t>(bytes,at+16);optics.height=read<uint32_t>(bytes,at+20);
+        optics.values=read<std::array<float,11>>(bytes,at+24);r.post.currentOptics=optics;at+=68;
+    }
     if(at<bytes.size()) {
         r.contactOcclusion=San14::Render::Interop::decodeContactOcclusionInput(bytes.subspan(at));
         at=bytes.size();

@@ -162,7 +162,7 @@ internal static class FacilityConstructionLegality
 
 public sealed partial class SourceWorldContext
 {
-    internal void AppendConstructionPersonTemporary(HexListHandle list, int person)
+    internal void AppendConstructionPersonTemporary(HexListHandle list, int? person)
     {
         ConditionalRegistryEnter();
         try

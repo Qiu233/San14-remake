@@ -23,6 +23,14 @@ public sealed partial class GameSimulation
             request.TalentCommandPresentation is { Operation: TalentCommandPresentationOperation.OfficerText or
                 TalentCommandPresentationOperation.ConditionalOfficerText } &&
             IsIntelligenceNarrationOwnedByWait(owner, batchSequence)) return false;
+        if (batch.Source == CampaignEffectSource.ArmyBattleDefeat &&
+            request.TalentCommandPresentation is { Operation: TalentCommandPresentationOperation.Announcement } &&
+            IsBaseCaptureSpecialNoticeOwned(owner, batchSequence)) return false;
+        if ((BaseCapturePersonPrefixProgress.IsPresentationPending(owner) ||
+                HiredArmyCaptureProgress.IsPresentationPending(owner)) &&
+            batch.Source == CampaignEffectSource.ArmyBattleDefeat &&
+            !TryReadSourcePresentationHead(expectedOwner, batch.Source, batchSequence, requestIndex,
+                out _, out _, out _, out _, out _)) return false;
         if (IsBaseCaptureRequest(request) && !IsPresentationHead(effects, batchIndex, requestIndex, IsBaseCaptureRequest)) return false;
         if (request.PersonDeathReport is not null &&
             !IsPresentationHead(effects, batchIndex, requestIndex, static item => item.PersonDeathReport is not null)) return false;
