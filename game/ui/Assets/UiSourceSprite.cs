@@ -11,8 +11,11 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
     private ShaderMaterial? _material;
     private Texture2D? _texture;
     private MapCornerColors? _colors;
+    private uint _materialColorScale = 0x00FFFFFF;
+    private uint _materialColorOffset;
     private bool _flipU, _flipV;
     private Rect2? _samplingRectangle;
+    private bool _addressedSampling;
     private uint? _drawingVisibilityLayer;
 
     // A prefix capture needs structural ancestors in several layers, while
@@ -33,6 +36,12 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         _material!.SetShaderParameter("component_rotation", new Vector4(1 - 2 * s * s,
             -2 * s * c, 2 * s * c, 1 - 2 * s * s));
         QueueRedraw();
+    }
+
+    internal void SetMaskUvRotation(float degrees)
+    {
+        SetGaugeUvRotation(degrees);
+        _material!.SetShaderParameter("has_component_rotation",true);
     }
 
     internal void SetGaugeComponent(Texture2D texture)
@@ -77,6 +86,19 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         _samplingRectangle=rectangle;QueueRedraw();
     }
 
+    internal void SetAddressedSampling(Rect2 rectangle,uint addressU,uint addressV)
+    {
+        if(!float.IsFinite(rectangle.Position.X)||!float.IsFinite(rectangle.Position.Y)||
+            !float.IsFinite(rectangle.Size.X)||!float.IsFinite(rectangle.Size.Y)||
+            rectangle.Size.X<=0||rectangle.Size.Y<=0||addressU is not (1 or 2 or 3)||addressV is not (1 or 2 or 3))
+            throw new InvalidDataException("Local source addressing requires a finite rectangle and supported source sampler.");
+        _material!.SetShaderParameter("addressed_sampling",true);
+        _addressedSampling=true;
+        _material.SetShaderParameter("sampling_uv",new Vector4(rectangle.Position.X,rectangle.Position.Y,rectangle.Size.X,rectangle.Size.Y));
+        _material.SetShaderParameter("source_address",new Vector2(addressU,addressV));
+        QueueRedraw();
+    }
+
     internal void SetUvFlip(bool horizontal,bool vertical)
     {_flipU=horizontal;_flipV=vertical;QueueRedraw();}
 
@@ -85,6 +107,12 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         MouseFilter = MouseFilterEnum.Ignore;
         SetNotifyTransform(true);
         _material = new ShaderMaterial { Shader = shader };
+        _addressedSampling=false;
+        _materialColorScale = 0x00FFFFFF;
+        _materialColorOffset = 0;
+        _material.SetShaderParameter("material_color_scale", Vector3.One);
+        _material.SetShaderParameter("material_color_offset", Vector3.Zero);
+        _material.SetShaderParameter("material_saturation", 1f);
         _material.SetShaderParameter("blend_kind", (int)blend);
         SetSource(texture, colors);
     }
@@ -96,8 +124,45 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         QueueRedraw();
     }
 
+    //The layout material has a separate RGB scale, independent of the
+    //four vertex colours and alpha. Its ordinary Gamma1 path squares each
+    //normalised byte before the pixel shader applies the white interpolation.
+    internal void SetMaterialColorScale(uint packed)
+    {
+        uint rgb = packed & 0x00FFFFFF;
+        if (_materialColorScale == rgb) return;
+        var scale = new Vector3((byte)rgb / 255f, (byte)(rgb >> 8) / 255f,
+            (byte)(rgb >> 16) / 255f);
+        _material!.SetShaderParameter("material_color_scale", scale * scale);
+        _materialColorScale = rgb;
+    }
+
+    //AC4D80 derives the black interpolation endpoint from low24 RGB;
+    //the packed alpha byte does not enable or disable that endpoint.
+    internal void SetMaterialColorOffset(uint packed)
+    {
+        uint rgb=packed&0x00FFFFFF;
+        if(_materialColorOffset==rgb)return;
+        var offset=new Vector3((byte)rgb/255f,(byte)(rgb>>8)/255f,(byte)(rgb>>16)/255f);
+        _material!.SetShaderParameter("material_color_offset",offset*offset);
+        _materialColorOffset=rgb;
+    }
+    internal void SetMaterialSaturation(float saturation)=>
+        _material!.SetShaderParameter("material_saturation",saturation);
+
+    // The pane alpha is separate from vertex tint and material RGB.
+    internal void SetSourceAlpha(byte alpha) =>
+        _material!.SetShaderParameter("pane_alpha", alpha / 255f);
+
+    internal void ResetColors()
+    {
+        if(_colors is null)return;
+        _colors=null;QueueRedraw();
+    }
+
     internal void SetColors(MapCornerColors colors)
     {
+        if(_colors==colors)return;
         _colors = colors;
         QueueRedraw();
     }
@@ -152,9 +217,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         }
         Rect2 rectangle = new(Vector2.Zero, Size);
         _material.SetShaderParameter("draw_size", Size);
-        // The copy RID inherits this node's transform. Godot transforms its
-        // local copy rectangle into each viewport, including prefix targets.
-        RenderingServer.CanvasItemSetCopyToBackbuffer(_copy, true, rectangle.Grow(1));
+        UiSourceBackBufferCopy.Configure(this, _copy, rectangle.Grow(1));
         Texture2D texture = _texture;
         Rect2 uv = new(Vector2.Zero, Vector2.One);
         if (texture is AtlasTexture atlas)
@@ -164,6 +227,8 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         }
         if(_samplingRectangle is { } sample)
             uv=new(uv.Position+uv.Size*sample.Position,uv.Size*sample.Size);
+        if(_addressedSampling)
+            _material.SetShaderParameter("source_region",new Vector4(uv.Position.X,uv.Position.Y,uv.Size.X,uv.Size.Y));
         Color[] colors = _colors is MapCornerColors palette
             ? [ColorOf(palette.LT), ColorOf(palette.RT), ColorOf(palette.RB), ColorOf(palette.LB)]
             : [Colors.White, Colors.White, Colors.White, Colors.White];
@@ -199,10 +264,19 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         uniform bool has_second_mask = false;
         uniform vec2 draw_size;
         uniform int blend_kind = 0;
+        uniform vec3 material_color_scale = vec3(1.0);
+        uniform vec3 material_color_offset = vec3(0.0);
+        uniform float material_saturation = 1.0;
+        uniform float pane_alpha = 1.0;
         uniform vec4 component_rotation = vec4(1.0, 0.0, 0.0, 1.0);
+        uniform bool has_component_rotation = false;
+        uniform bool addressed_sampling = false;
+        uniform vec4 source_region;
+        uniform vec4 sampling_uv;
+        uniform vec2 source_address = vec2(3.0);
         varying vec4 sprite_tint;
         varying vec2 local_position;
-        void vertex() { sprite_tint = COLOR; local_position = VERTEX; }
+        void vertex() { sprite_tint = COLOR; sprite_tint.a *= pane_alpha; local_position = VERTEX; }
         vec3 decode_srgb(vec3 v) {
             return mix(pow((v + 0.055) / 1.055, vec3(2.4)), v / 12.92, lessThanEqual(v, vec3(0.04045)));
         }
@@ -210,11 +284,32 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             return mix(1.055 * pow(max(v, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055,
                 v * 12.92, lessThanEqual(v, vec3(0.0031308)));
         }
+        float address_local(float value,float mode) {
+            if(mode==1.0)return fract(value);
+            if(mode==2.0)return 1.0-abs(1.0-mod(value,2.0));
+            return clamp(value,0.0,1.0);
+        }
         void fragment() {
-            vec4 sample_color = texture(TEXTURE, UV);
+            vec2 image_uv=UV;
+            if(addressed_sampling) {
+                vec2 local=sampling_uv.xy+sampling_uv.zw*((UV-source_region.xy)/source_region.zw);
+                local=vec2(address_local(local.x,source_address.x),address_local(local.y,source_address.y));
+                image_uv=source_region.xy+source_region.zw*local;
+            }
+            vec4 sample_color = texture(TEXTURE, image_uv);
             // The source image was decoded per texel before bilinear sampling.
             // These sprite nodes use compare=7: even alpha zero must write.
             vec4 src = sample_color * sprite_tint;
+            vec3 base_rgb = src.rgb;
+            src.rgb *= material_color_scale;
+            if (any(notEqual(material_color_offset, vec3(0.0)))) {
+                // PS13/20 add black using the original pre-white endpoint C.
+                src.rgb += (vec3(1.0) - base_rgb) * material_color_offset;
+            }
+            if (material_saturation != 1.0) {
+                float gray = dot(src.rgb, vec3(0.298910, 0.586610, 0.114480));
+                src.rgb = material_saturation * (src.rgb - vec3(gray)) + vec3(gray);
+            }
             vec4 dst = texture(screen_texture, SCREEN_UV);
             vec3 rgb = decode_srgb(dst.rgb);
             float alpha;
@@ -251,6 +346,10 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                 // Source mode13 selects PS25. Only mask alpha participates;
                 // zero coverage discards without writing the destination.
                 vec2 point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
+                if(has_component_rotation) {
+                    vec2 centred=point-vec2(0.5);
+                    point=vec2(dot(component_rotation.xy,centred),dot(component_rotation.zw,centred))+vec2(0.5);
+                }
                 if (blend_kind == 9) point = clamp(point + mask_uv_offset, vec2(0.0), vec2(1.0));
                 float coverage = texture(mask_image, mask_uv.xy + point * mask_uv.zw).a;
                 if (coverage == 0.0) discard;
@@ -278,6 +377,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                 // Original PS19 component mode2/1: RGB lerp and alpha min,
                 // followed by the pane's vertex tint, in a single draw.
                 src = vec4(mix(sample_color.rgb, second.rgb, second.a), min(sample_color.a, second.a)) * sprite_tint;
+                src.rgb *= material_color_scale;
                 rgb = src.rgb * src.a + rgb * (1.0 - src.a);
                 alpha = src.a * src.a + dst.a * (1.0 - src.a);
             } else if (blend_kind == 4) {

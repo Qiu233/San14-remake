@@ -101,6 +101,10 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFalseReportCo
                 throw FM("saved_command_target_identity");
             var saved = savedAction == 0 ? ArmySavedCommandState.Cleared :
                 ArmySavedCommandState.Store(new(new(savedAction), decoded));
+            //Capture the exact old operand before the current main target is
+            //replaced. Lookup0 is meaningful and cannot be reconstructed later.
+            ushort? savedObjectAlias = savedAction != 0 && oldTarget.Kind38 == 11
+                ? FK(oldTarget.Identity3A, "saved_Object_lookup_alias") : null;
             var actorReceiver = lifecycle.Receivers.Find(lifecycle.Slots[physical].ReceiverId) ?? throw FM("actor_receiver");
             ushort goal = ArmyMarchSourceAdapter.EncodeDestination(actorReceiver.FalseReportDestination) ?? throw FM("destination_encoding");
             var march = target.March ?? throw FM("target_march");
@@ -137,6 +141,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFalseReportCo
                 { Receivers = lifecycle.Receivers.With(latestReceiver with { SavedCommand = saved,
                     OverrideTarget = runtime.Abnormal25 == 0 ? ArmyOverrideTargetState.Cleared : latestReceiver.OverrideTarget }),
                   Source = lifecycle.Source with { Slots = sources } });
+            working = working with { ResourceState = CampaignSourceKnowledge.From(working.ResourceState)
+                .WithArmySavedTargetLookupAlias(targetReceiver.ReceiverId, savedObjectAlias) };
             int n = Math.Max(unchecked(target.Troops - FP(working, "merit-troop-threshold")), 0);
             int requested = FDoubleInt((Math.Sqrt(n) + 100d) * unchecked(FP(working, "merit-scale") * 10) / 100d);
             var reward = _pendingMerit.TryApplyWithinArmyOperation(working, current, actor.OfficerId, requested);
@@ -175,25 +181,8 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFalseReportCo
         if (!OwnedArmyDestructorFlags.SetSourceBit(current, physical, 2, false)) throw FM("finish_pending_flag_write");
         state = state.WithArmyLifecycle(OwnedArmyDestructorFlags.PublishCurrent(state.ReadArmyLifecycle()!, current));
         if (FK(image.NativeMapUiByte13C, "finish_pending_MapUi13C") != 0)
-            throw FM("finish_pending_MapUi_policy");
-        int force = FK(current.ReadForcePhysicalSlot(current.ReadArmyUnitForceReference(army)), "finish_pending_Force");
-        if (force is >= 46 and <= 51) throw FM("finish_pending_special_Force_policy");
-        byte choice = FK(image.NativeCommandChoice41, "finish_pending_Choice41");
-        if (choice == 0) return state;
-        if (choice == 1) throw FM("finish_pending_withdrawal_2EA480");
-        if (choice != 2) throw FM("finish_pending_Choice41_policy");
-        //304A20 guards action, all five points and main target with validity,
-        //but reads2A and clears48 unconditionally. Its3D speech again rejects
-        //this invalid Army. Do not fabricate an active image or restore it.
-        _ = FK(current.ReadArmyUnitRawHex2A(army), "finish_pending_Hold_Army2A");
-        var held = image with { March = (image.March ?? throw FM("finish_pending_March")) with
-            { NextStep = ArmyMarchDestination.None } };
-        if (state.Units.ContainsKey(image.Id))
-            return state with { Units = new(state.Units) { [image.Id] = held } };
-        var lifecycle = state.ReadArmyLifecycle()!;
-        var receiver = lifecycle.Receivers.Find(lifecycle.Slots[physical].ReceiverId) ?? throw FM("finish_pending_receiver");
-        if (receiver.PendingImage?.Id != image.Id) throw FM("finish_pending_image");
-        return state.WithArmyLifecycle(lifecycle with { Receivers = lifecycle.Receivers.With(receiver with { PendingImage = held }) });
+            return CompleteCampaignExpeditionArmyCommand(state, current, image, (FacilityOperation)moment);
+        return CompleteArmyCommandPolicyCurrent(state, current, image, (FacilityOperation)moment);
     }
 
     private static GameState FPublishCompletedCapture(GameState state, int physical)

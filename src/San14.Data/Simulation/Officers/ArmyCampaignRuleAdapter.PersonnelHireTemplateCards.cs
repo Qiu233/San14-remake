@@ -32,7 +32,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             try
             {
-                if (Seed.Language != "TC") throw HireMissing("template.traits_context0_selected_edition_table");
+                if (Seed.Language is not ("TC" or "SC")) throw HireMissing("template.traits_context0_selected_edition_table");
                 var slots = person.CurrentTraitIds ?? throw HireMissing("template.trait_slots");
                 var result = new List<AreaAdministrationOfficerTrait>(5);
                 for (int index = 0; index < 5; index++)

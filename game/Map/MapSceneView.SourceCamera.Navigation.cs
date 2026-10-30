@@ -7,7 +7,7 @@ public partial class MapSceneView
     private readonly MapCameraNavigation sourceNavigation = new();
     private MapCameraNavigationOptions sourceNavigationOptions = new();
     private uint sourceCameraHeldCommands;
-    private bool sourceCameraControlHeld, sourceCameraShiftHeld, sourceCameraPointerOverSurface;
+    private bool sourceCameraControlHeld, sourceCameraShiftHeld;
     private Window? sourceCameraInputWindow;
     private IReadOnlyList<int> sourceKeyboardBindings = new int[KeyboardBindingCatalog.BindingCount];
     private readonly HashSet<int> sourceCameraPressedUsages = [];
@@ -41,8 +41,6 @@ public partial class MapSceneView
     {
         sourceCameraInputWindow = GetWindow();
         sourceCameraInputWindow.FocusExited += ResetSourceCameraInput;
-        _surface.MouseEntered += () => sourceCameraPointerOverSurface = true;
-        _surface.MouseExited += () => sourceCameraPointerOverSurface = false;
     }
 
     private void ReleaseSourceNavigationInput()
@@ -155,7 +153,7 @@ public partial class MapSceneView
 
     private void ApplySourceNavigationEdge(SceneViewSourceCameraInputs input)
     {
-        if (_sourceMainCamera is not { } camera || !sourceCameraPointerOverSurface || !_sourceCameraCurrentCursorKnown ||
+        if (_sourceMainCamera is not { } camera || !MapPointerOverSurface() || !_sourceCameraCurrentCursorKnown ||
             sourceNavigationOptions.Edge == MapEdgeScrollSpeed.Disabled) return;
         var cursor = _sourceCameraCurrentCursor;
         var direction = sourceNavigation.EdgeDirection(cursor.X34, cursor.Y38, (int)_surface.Size.X, (int)_surface.Size.Y);

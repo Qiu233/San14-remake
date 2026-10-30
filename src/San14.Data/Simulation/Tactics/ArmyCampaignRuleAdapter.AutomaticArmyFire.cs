@@ -60,7 +60,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, TacticRemakeCurrentContext context, int casterId,
         TacticSourceRow row, S14TacticEffectInstruction instruction, int stageOrdinal)
     {
-        var caster = state.Units.GetValueOrDefault(casterId) ?? throw FireMissing("source_Army_image");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         var army = current.ReadArmyUnitTableReference(FireNeed(caster.NativeArmyOrigin?.NativeSlotIndex,
             "source_Army_physical")) ?? throw FireMissing("source_Army_pointer");
         var scale = context.ResolveAutomaticArmyFireScale(state, current, caster, row, instruction, stageOrdinal);
@@ -92,13 +92,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate date, long revision,
         List<CampaignEffectRequest> effects)
         => ApplyAutomaticFireHexCurrent(state, current, prefix.Duration, prefix.SourceForce, nodeHex, primaryHex,
-            reached => (sampler.Read(reached) ?? throw FireMissing("report_Day450")).Day450, revision, effects);
+            reached => (sampler.Read(reached) ?? throw FireMissing("report_Day450")).Day450, revision, effects,date);
 
     //Source-independent177C60 Hex body shared with the real Base wrapper.
     //It retains2C6CE0/2C6D20,2CA650,2E3CB0,17A1C0 in their native order.
     private BaseOriginAutomaticFireResult ApplyAutomaticFireHexCurrent(GameState state,
         SourceWorldContext current, int duration, int sourceForce, int nodeHex, int primaryHex,
-        Func<GameState, int> readDay, long revision, List<CampaignEffectRequest> effects)
+        Func<GameState, int> readDay, long revision, List<CampaignEffectRequest> effects,NativeMapSeasonDate date)
     {
         var hex = current.ReadHexTableReference(nodeHex) ?? throw FireMissing("target_Hex_pointer");
         if (hex.PhysicalSlot is not int physical) return new(state, false, null);
@@ -124,7 +124,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var changes = new List<HexFireChange>();
         var announcements = new List<ArmyFireAnnouncement>();
         var working = IgniteCurrentHex(state, current, physical, duration, true,
-            readDay, revision, changes, announcements, effects);
+            readDay, revision, changes, announcements, effects,date);
         if (announcements.Count != 0)
             working = working with { PendingArmyFireAnnouncements =
                 [.. working.PendingArmyFireAnnouncements, .. announcements] };

@@ -32,7 +32,8 @@ internal static class ArmyRouteMobilitySource
             ushort currentHex = K(current.ReadArmyUnitRawHex2A(receiver), "Army2A");
             return ArmyRouteMobilityEvaluation.Read(state, current,
                 new(commander, forcePhysical, status, currentHex, 0, 0, 0, false,
-                    () => ArmySavedCommandKnowledge.ReadControl(state, army)), formationPhysical, explicitHexSurface10);
+                    () => ArmySavedCommandKnowledge.ReadControl(state, army), slot), formationPhysical, explicitHexSurface10,
+                () => ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army));
         }
         catch (MissingOwner missing) { return new(null, null, missing.Message); }
     }

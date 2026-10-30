@@ -27,6 +27,13 @@ internal static class CampaignStoryPreparationSaveFields
             scene["HighlightedSlot"] = null;
             return;
         }
+        ValidatePreparedStory(story);
+    }
+
+    internal static void ValidatePreparedStory(JsonObject story)
+    {
+        if (story["Scene"] is not JsonObject scene)
+            throw new InvalidDataException("Saved story scene is missing.");
         if (story["TextLog"] is not JsonArray log || log.Any(entry => entry is null || !Text(entry)) ||
             !story.ContainsKey("PreparedStep") || story["PreparedStep"] is JsonNode prepared &&
             (prepared is not JsonObject step || !Integer(step["Step"], 0, int.MaxValue) ||
@@ -39,8 +46,10 @@ internal static class CampaignStoryPreparationSaveFields
     }
 
     private static JsonObject? Story(JsonObject state) =>
-        state["NativeNormalTurnContinuation"]?["StoryPlayback"]?["Story"] as JsonObject;
-    private static bool Text(JsonNode node) => node is JsonObject text && String(text["SpeakerName"]) && String(text["Text"]) &&
+        state["NativeNormalTurnContinuation"]?["StoryPlayback"]?["Story"] as JsonObject ??
+        state["CampaignEventCommandPlayback"]?["Invocation"]?["Story"] as JsonObject;
+    internal static bool Text(JsonNode node) => node is JsonObject text && String(text["SpeakerName"]) && String(text["Text"]) &&
+        text["SpeechOnly"] is JsonValue speechOnly && speechOnly.TryGetValue<bool>(out _) &&
         text["Pages"] is JsonArray pages && pages.All(String) && text.ContainsKey("Speaker") &&
         (text["Speaker"] is null || Speaker(text["Speaker"])) && text["Voices"] is JsonArray voices && voices.All(Voice);
     private static bool Speaker(JsonNode? node) => node is JsonObject speaker && Integer(speaker["OfficerId"], 0, 6000) &&

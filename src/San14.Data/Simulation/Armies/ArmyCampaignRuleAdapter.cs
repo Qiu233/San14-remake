@@ -85,6 +85,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     {
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Owned Army package revision is missing.");
         _repository = repository;
+        definitions.BindPortraitResources(repository);
         _automaticPresentationAdmission = automaticPresentationAdmission;
         _campaignEvents = new(() => repository.LoadEvents(CampaignEventCatalog.SourcePath));
         _definitions = definitions; _scenario = scenario; _skills = skills; _catalog = catalog; _map = map; _terrain = terrain;
@@ -194,6 +195,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             throw new InvalidDataException("Fresh owned sampler epoch requires its complete actual scenario World.");
         GameState fresh = _marchPenaltySeed.InstallFresh(_mobilitySeed.InstallFresh(
             _battleSeed.InstallFresh(Seed.CreateFreshOwnedSimulation(state, Revision), Revision)));
+        fresh = InstallFreshCampaignEndingBranchInputs(fresh);
         bool hasMapObjects = fresh.MapObjects is not null;
         bool hasMapObjectSource = CampaignSourceKnowledge.From(fresh.ResourceState).MapObjectSource is not null;
         if (hasMapObjects != hasMapObjectSource)
@@ -220,6 +222,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         fresh = PersonDeathReportInputs.InstallFreshPopularityScale(fresh, _scenario, Seed.Language);
         fresh = AnnualPersonLifespanNotificationSource.InstallFreshParameters(fresh, _scenario, Seed.Language);
         fresh = _rulerCaptureReleaseInputs.InstallFresh(fresh);
+        fresh = CaptiveReleaseInitialParameters.InstallFresh(fresh, _scenario);
         fresh = CaptureBaseThreatInputs.InstallFresh(fresh, _scenario);
         fresh = CommanderSelectionSource.InstallFresh(fresh);
         fresh = _baseCaptureResourceInputs.InstallFresh(fresh);
@@ -251,17 +254,33 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         GameState morale = _moraleSeed.InstallFresh(policies, definitions, policies.NativeArmySimulation!.Parameters.Revision);
         GameState control = TacticRemakeCurrentBattleControl.CreateFreshOwnedControl(morale);
         GameState settings = BattleRemakeCurrentSettings.InstallFresh(control, _scenario);
-        GameState credit = PersonCreditFreshSource.InstallFresh(settings, _scenario,
-            CaptureCurrentDefinitions(settings) ?? throw new InvalidDataException("Fresh credit current Person capture is unresolved."));
+        //These are source-field/constant owners, independent of credit and
+        //area aggregates. Construct the actual registries before3361D0 removes
+        //women and held items, rather than approximating those writes later.
+        GameState returnServices = OwnedArmyReturnServiceInputs.InstallFresh(
+            _governorInputs.InstallFresh(_baseCapacityInputs.InstallFresh(settings)));
+        GameState lifecycle = InstallFreshArmyLifecycle(HistoricalOfficerScenario.InstallFreshFlags(
+            returnServices, _scenario.InitialHistoricalOfficerEditsAdopted));
+        var commandWorld = CaptureOwnedArmyReturnWorld(lifecycle);
+        GameState capturedItems = _personCaptureInputs.InstallFresh(lifecycle, commandWorld.Context);
+        //Construct the fresh condition/service owners before226480 resets
+        //selected women; a later constructor must not overwrite those resets.
+        capturedItems = CreateFreshDuelService(capturedItems);
+        var initializationPeople = commandWorld.Context;
+        var initializationPool = initializationPeople.ReadOwnedCurrentListPool()
+            ?? throw new InvalidDataException("Fresh current Person registry is unresolved.");
+        var female = ApplyFreshFemaleSetting(capturedItems, initializationPeople, initializationPool);
+        //3361D0 precedes335E90's city writes and bloodline candidate collection;
+        //the real3255D0 credit pass follows all three transformations.
+        GameState appearance = NewGameWanderingCityInitialization.Apply(female.State, initializationPeople);
+        GameState family = NewGameBloodlineInitialization.Apply(appearance, initializationPeople);
+        _personRelationInputs.BindCurrent(family, initializationPeople);
+        GameState credit = PersonCreditFreshSource.InstallFresh(family, _scenario, initializationPeople, female.ResetIdentities);
         GameState region = _regionSeed.InstallFresh(_personReward.InstallFresh(
             _pendingMerit.InstallFresh(_growthQueries.InstallFresh(credit))), Revision);
         GameState areas = AreaStatisticsSourceAdapter.Initialize(region, _scenario, _map, _terrain);
-        GameState lifecycle = InstallFreshArmyLifecycle(OwnedArmyReturnServiceInputs.InstallFresh(
-            _governorInputs.InstallFresh(_baseCapacityInputs.InstallFresh(areas))));
-        var commandWorld = CaptureOwnedArmyReturnWorld(lifecycle);
-        GameState capturedItems = _personCaptureInputs.InstallFresh(lifecycle, commandWorld.Context);
         GameState bases = BaseCaptureCurrentInputs.InstallFresh(ForceUnregisterInputs.InstallFresh(
-            PersonReturnCommands.InstallFresh(capturedItems, commandWorld.Context), _scenario), _scenario);
+            PersonReturnCommands.InstallFresh(areas, initializationPeople), _scenario), _scenario);
         GameState cityCapture = _cityCaptureTerritoryInputs.InstallFresh(
             BaseSupplyExpenseAccumulatorSource.InstallFresh(BaseReturnCaptivesInputs.InstallFresh(bases)), _scenario);
         var completed = CityCaptureFoodWarningSource.InstallFreshInputs(cityCapture, _repository);
@@ -269,13 +288,18 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         InitializeMapArmyGroupsKnownReset(Enumerable.Range(0, 501));
         var ready = InstallFreshCampaignEventState(InstallFreshLandmarkInvestments(SubdayStatusParameters.InstallFresh(FireCommandParameters.InstallFresh(
             HexFireParameters.InstallFresh(BaseWoundedRecoveryParameters.InstallFresh(initialized)))))) with { RegionOccupationFollowups = new([], []) };
+        ready = OriginalAiStrategyMemoryLifecycle.InitializeFresh(ready);
         ready = MonthlyCampaignMaintenanceRules.InstallFresh(ready);
         ready = InstallFreshNormalTurnForeignRelations(ready);
         ready = InstallFreshForeignTradeProgress(ready);
+        ready = InstallFreshNormalTurnTradeAdmissionParameters(ready);
         ready = InstallFreshNormalTurnDistrictHistory(ready);
         ready = InstallFreshNormalTurnChallengeService(ready);
         ready = CityDomesticParameters.InstallFresh(ready, _repository.LoadCityDomesticParameters(Seed.Language), _scenario);
         ready = PersonnelCommandParameters.InstallFresh(ready);
+        ready = EmperorCaptureConfiguration.InstallFresh(ready, Seed.Language);
+        ready = NormalTurnPersonnelLoyaltyParameters.InstallFresh(ready, Seed.Language);
+        ready = NormalTurnDisasterParameters.InstallFresh(ready, Seed.Language);
         ready = GovernanceRosterParameters.InstallFresh(ready);
         ready = CityFoodIncomeSource.InstallFreshParameters(ready);
         ready = ArmyFoodExpenseParameters.InstallFresh(ready);
@@ -391,7 +415,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 NativeMapUiByte13C = receipt.NativeMapUiByte13C,
                 NativeCommandControl140 = receipt.NativeCommandControl140,
                 NativeRouteHold56 = receipt.NativeRouteHold56, NativeRouteGoal1F8 = receipt.NativeRouteGoal1F8,
-                NativeHomeSequence28 = receipt.NativeHomeSequence28,
+                NativeHomeSequence28 = receipt.NativeHomeSequence28, AiActionFlags = receipt.AiActionFlags,
                 CarriedStores = receipt.CarriedStores, OverrideTarget = receipt.OverrideTarget,
                 WoundedTroops = receipt.WoundedTroops
             });
@@ -495,6 +519,10 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         return current is null ? new(PersonNormalArmyRewardOutcome.CurrentInputsUnresolved, state, null, "current-definitions") :
             _personReward.TryApplyWithinArmyOperation(state, current, Context(current), this, officerId, kind, amount);
     }
+
+    internal PersonNormalArmyRewardResult TryApplyNativeNormalPersonRewardDuringArmyOperation(GameState state,
+        SourceWorldContext current, int officerId, int kind, int amount) =>
+        _personReward.TryApplyWithinArmyOperation(state, current, Context(current), this, officerId, kind, amount);
 
     internal PersonGrowthResult ApplyPersonGrowthDuringArmyOperation(GameState state, int officerId,
         int abilityIndex, int requestedGrowth, int reportContext)
@@ -602,7 +630,12 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         if (retainedCombat is not null)
         {
             var interrupted = projection.OrderedPairs[nextPairIndex];
-            working = ResumeNormalCombatImmediateDefeatCurrent(working, current, date, revision);
+            working = ResumeImmediateCombatSettlementCurrent(working, current, date, revision, effects);
+            if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
+            if (working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                return RetainSuspendedMixedPair(nextPairIndex, retainedCombat.ReportWord20,
+                    retainedCombat.AutomaticExecution, retainedCombat.BaseAutomaticExecution,
+                    retainedCombat.PendingAutomaticFatalFeedback);
             if (interrupted.Actor.Kind == 27 && interrupted.Target.Kind == 27 && phase is not null)
             {
                 if (retainedCombat.AutomaticExecution is { } automaticExecution)
@@ -613,6 +646,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                         NormalArmyNonlethalPairOutcome.DestructionRequired)
                         throw ImmediateCombatMissing(resumedPair.MissingOwner ?? "resumed_automatic_pair");
                     working = resumedPair.State;
+                    if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                     if (resumedPair.Outcome == NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision)
                         return RetainSuspendedPair(resumedPair, nextPairIndex);
                 }
@@ -624,17 +658,25 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 var resumedPair = ResumeBorrowedArmyBasePairAfterAutomatic(working, current, interrupted,
                     retainedCombat.ReportWord20, baseAutomatic, sampler, date, revision, effects);
                 working = resumedPair.State;
+                if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                 if (resumedPair.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(nextPairIndex, word20, resumedPair.AutomaticExecution);
+                    return RetainSuspendedMixedPair(nextPairIndex, word20, resumedPair.AutomaticExecution,
+                        resumedPair.BaseAutomaticExecution, resumedPair.PendingAutomaticFatalFeedback);
             }
+            else if (interrupted.Actor.Kind == 27 && interrupted.Target.Kind is 5 or 6 &&
+                retainedCombat.AutomaticExecution is null && retainedCombat.BaseAutomaticExecution is null)
+                working = CompleteBorrowedArmyBasePairAfterCapture(working, current, interrupted,
+                    retainedCombat.ReportWord20, retainedCombat.PendingAutomaticFatalFeedback, sampler);
             else if (interrupted.Actor.Kind is 5 or 6 && interrupted.Target.Kind == 27 &&
                 retainedCombat.BaseAutomaticExecution is { } sourceBaseAutomatic)
             {
                 var resumedPair = ResumeBorrowedBaseArmyPairAfterAutomatic(working, current, interrupted,
                     retainedCombat.ReportWord20, sourceBaseAutomatic, sampler, date, revision, effects);
                 working = resumedPair.State;
+                if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                 if (resumedPair.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(nextPairIndex, word20, null, resumedPair.BaseAutomaticExecution);
+                    return RetainSuspendedMixedPair(nextPairIndex, word20, null, resumedPair.BaseAutomaticExecution,
+                        resumedPair.PendingAutomaticFatalFeedback);
             }
             else if (interrupted.Actor.Kind is 5 or 6 && interrupted.Target.Kind == 27 &&
                 retainedCombat.AutomaticExecution is null)
@@ -693,6 +735,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                     throw failure;
                 }
                 working = completed.State;
+                if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                 if (completed.Outcome == NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision)
                 {
                     return RetainSuspendedPair(completed, mixedPairIndex);
@@ -705,8 +748,10 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 var appliedBase = CompleteBorrowedBaseArmyPair(working, current, pair,
                     baseDivisor, sourceQueries, sampler, date, revision, effects);
                 working = appliedBase.State;
+                if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                 if (appliedBase.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution, appliedBase.BaseAutomaticExecution);
+                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution,
+                        appliedBase.BaseAutomaticExecution, appliedBase.PendingAutomaticFatalFeedback);
             }
             else if (pair.Actor.Kind == 27 && pair.Target.Kind is 5 or 6)
             {
@@ -715,8 +760,14 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 var appliedBase = CompleteBorrowedArmyBasePair(working, current, pair,
                     baseDivisor, sourceQueries, sampler, date, revision, effects);
                 working = appliedBase.State;
+                if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
                 if (appliedBase.SuspendedWord20 is ushort word20)
-                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution, appliedBase.BaseAutomaticExecution);
+                    return RetainSuspendedMixedPair(mixedPairIndex, word20, appliedBase.AutomaticExecution,
+                        appliedBase.BaseAutomaticExecution, appliedBase.PendingAutomaticFatalFeedback);
+            }
+            else if (pair.Target.Kind == 11 && pair.Actor.Kind is 5 or 6 or 27)
+            {
+                working = CompleteBorrowedObjectCombatPair(working, current, pair, sampler, date, effects);
             }
             else
             {
@@ -734,6 +785,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 .Append(CampaignEffectSource.NormalCombatApplication, revision, effects) };
         return working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
 
+        GameState PublishStoppedCombat()
+        {
+            working = FlushNormalCombatEffects(working, revision, effects);
+            //A terminal callback has no remaining instruction/pair to resume.
+            //Its real clock and pending source requests are retained.
+            return (working with { NormalCombatImmediateContinuation = null })
+                .WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
+        }
+
         GameState RetainSuspendedPair(NormalArmyNonlethalPairResult result, int mixedPairIndex)
         {
             ushort word20 = result.PendingOrdinaryFrame20 ?? result.Prefix?.Application?.Receipt?.Request.FrameWord20After
@@ -743,7 +803,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
 
         GameState RetainSuspendedMixedPair(int mixedPairIndex, ushort word20,
             AutomaticTacticExecutionContinuation? automaticExecution,
-            BaseAutomaticTacticExecutionContinuation? baseAutomaticExecution = null)
+            BaseAutomaticTacticExecutionContinuation? baseAutomaticExecution = null,
+            bool pendingAutomaticFatalFeedback = false)
         {
             var retained = retainedCombat is null
                 ? CaptureImmediateCombatContinuation(state, projection, descriptors, mixedPairIndex, word20,
@@ -751,7 +812,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
                 : ContinueImmediateCombatSnapshot(retainedCombat, mixedPairIndex, word20);
             working = FlushNormalCombatEffects(working, revision, effects);
             return working with { NormalCombatImmediateContinuation = retained with
-                { AutomaticExecution = automaticExecution, BaseAutomaticExecution = baseAutomaticExecution } };
+                { AutomaticExecution = automaticExecution, BaseAutomaticExecution = baseAutomaticExecution,
+                    PendingAutomaticFatalFeedback = pendingAutomaticFatalFeedback } };
         }
     }
 
@@ -854,13 +916,16 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeMapUiByte13C = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].MapUiByte13C,
             NativeCommandControl140 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].CommandControl140,
             NativeRouteGoal1F8 = state.ReadArmyLifecycle()?.Slots[nativeArmySlot].RouteGoal1F8,
+            AiActionFlags = state.ReadArmyLifecycle() is { } aiArena ? aiArena.Slots[nativeArmySlot].AiActionFlags : (ushort)0,
             CommanderPosition = OfficerLocationSourceAdapter.DecodePosition(
                 PersonArmyLocationSource.EncodeArmySecondLocation(nativeArmySlot), OfficerLocationSourceAdapter.Receivers(state)),
             NativeHomeSequence28 = state.ReadArmyLifecycle() is null ? null :
                 ArmyHomeSequenceSource.ReadNextOrdinary(state, CaptureOwnedArmyReturnWorld(state).Context, army.OfficerId),
             NativeSavedRegionHex152 = selectedBase?.PhysicalSlot is not null
                 ? ArmyCurrentRegionSource.ResolveCreationRegion(selectedBase, definitions) : null };
-        var march = ArmyDeploymentMarchSource.Read(deployment, result.NativeCommandControl140, normalTarget);
+        var march = normalConfiguration is { SourceDeparture: true } sourcePacket && normalTarget is { } sourceGoal
+            ? ArmyDeploymentMarchSource.ReadSourceDeparture(sourceGoal, (byte)Math.Clamp(sourcePacket.Action34, 0, 17), result.NativeCommandControl140)
+            : ArmyDeploymentMarchSource.Read(deployment, result.NativeCommandControl140, normalTarget);
         // Preserve the draft's independent credit/hold. The wrapper's final
         // next is unknown until its actual route branch has completed.
         result = result with { March = march is null ? null : march.March with { NextStep = null },
@@ -883,7 +948,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             NativeMapUiByte13C = result.NativeMapUiByte13C,
             NativeCommandControl140 = result.NativeCommandControl140,
             NativeRouteHold56 = result.NativeRouteHold56, NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
-            NativeHomeSequence28 = result.NativeHomeSequence28,
+            NativeHomeSequence28 = result.NativeHomeSequence28, AiActionFlags = result.AiActionFlags,
             WoundedTroops = result.WoundedTroops };
         if (beforeRegistration is not null) state = beforeRegistration(state, result);
         ArmyLifecycleCreationAdmission? lifecycle = OwnedArmyLifecycleCurrent.PrepareCreationAdmission(

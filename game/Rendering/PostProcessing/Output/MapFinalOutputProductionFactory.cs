@@ -3,7 +3,7 @@ using San14.Data;
 
 public sealed record MapFinalOutputProductionFrameInputs(
     MapCameraConstructionPacket Camera,MapSourceCreatedLightingPacket Lighting,
-    MapSeasonRuntimeFrame CurrentSeason,NativeCameraTangentDispatch TangentMode,
+    MapSeasonCalendarFrame CurrentSeason,NativeCameraTangentDispatch TangentMode,
     string SourceFrameOwner)
 {
     public SkySeasonMainCameraRgbFrame? AppliedSeasonCamera { get; init; }
@@ -17,7 +17,7 @@ public sealed record MapFinalOutputProductionFrameInputs(
     public static MapFinalOutputProductionFrameInputs FromOwnedSourceFrame(
         NativeMapFrameContext context,MapCameraConstructionPacket camera,
         MapSourceCreatedLightingPacket lighting,MapSourceCreatedF103FeaturePacket selectedFeature,
-        MapSeasonRuntimeFrame season,NativeCameraTangentDispatch tangent,string actualFrameOwner,
+        MapSeasonCalendarFrame season,NativeCameraTangentDispatch tangent,string actualFrameOwner,
         SkySeasonMainCameraRgbFrame? appliedSeasonCamera=null)
     {
         ArgumentNullException.ThrowIfNull(context);ArgumentNullException.ThrowIfNull(selectedFeature);
@@ -31,7 +31,7 @@ public sealed record MapFinalOutputProductionFrameInputs(
     /// it does not observe native D59120's independent original publisher.</summary>
     public static MapFinalOutputProductionFrameInputs FromSourceSession(
         MapSourceCreatedNativeSessionPreparedFrame current,NativeMapFrameContext context,
-        MapSeasonRuntimeFrame season,NativeCameraTangentDispatch tangent,
+        MapSeasonCalendarFrame season,NativeCameraTangentDispatch tangent,
         SkySeasonMainCameraRgbFrame? appliedSeasonCamera=null)
     {
         ArgumentNullException.ThrowIfNull(current);ArgumentNullException.ThrowIfNull(context);
@@ -49,7 +49,7 @@ public sealed record MapFinalOutputProductionFrameInputs(
     public static MapFinalOutputProductionFrameInputs FromWorldSourceSession(
         MapSourceCreatedNativeSessionPreparedFrame current,NativeMapFrameContext context,
         SceneViewNativeMapWorldF103SourceOwner.CurrentFrame world,
-        MapSeasonRuntimeFrame season,NativeCameraTangentDispatch tangent)
+        MapSeasonCalendarFrame season,NativeCameraTangentDispatch tangent)
     {
         ArgumentNullException.ThrowIfNull(world);
         if(!ReferenceEquals(current.PreparedSourceFrame,world.First)||

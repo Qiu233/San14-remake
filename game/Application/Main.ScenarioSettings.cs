@@ -18,14 +18,14 @@ public partial class Main
         if (!adapter.CanViewCurrentScenarioSettings(world)) return;
         var publication = adapter.CaptureCurrentScenarioSettings(world, _ui.SourceLocale);
         var view = new CurrentScenarioSettingsView(); _scenarioSettingsView = view;
-        parent.SetBusy(true); parent.Hide(); AddChild(view);
+        parent.SetBusy(true); parent.SuspendContent(); AddChild(view);
         try { view.Configure(_repository, _ui, publication, Current, () => RunUiAction(() =>
             { if (Current()) CloseScenarioSettings(); })); }
         catch { CloseScenarioSettings(); throw; }
 
         bool Current() => !_failed && !_shuttingDown && _scenarioSettingsView == view &&
             _mapSystemMenu == parent && _residentMap == map && ReferenceEquals(_session, session) &&
-            ReferenceEquals(session.World, world) && ReferenceEquals(_world, world);
+            ReferenceEquals(session.World, _mapSystemWorld) && ReferenceEquals(_world, _mapSystemWorld);
     }
 
     private void CloseScenarioSettings(bool resumeParent = true)

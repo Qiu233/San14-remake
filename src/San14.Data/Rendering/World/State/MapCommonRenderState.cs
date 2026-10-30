@@ -16,7 +16,15 @@ public sealed record CommonAuxiliaryState(uint Flags, CommonLightingOptions Ligh
     uint ModelExclusionMask, byte ViewGroupSelector, byte ModelGroupSelector,
     byte SkyEnableFlags, int? ShadowAngleMode = null, uint? ClipPlaneMask = null,
     ModelAuxiliaryColorMasks? ColorWriteMasks = null, bool? SuppressOceanDrawing = null,
-    SkyAlphaBlendMode? SkyAlphaBlend = null);
+    SkyAlphaBlendMode? SkyAlphaBlend = null)
+{
+    /// <summary>Actual current FlagEX2 word. Unknown older publications
+    /// remain null; record copies retain the selected owner's value.</summary>
+    public uint? Flags14 { get; init; }
+    /// <summary>Current Common axis coordinates supplied by its actual
+    /// resource loader or complete runtime-record import.</summary>
+    public CommonClipPlaneCoordinates? ClipPlanes { get; init; }
+}
 
 /// <summary>Current Common render state. Raw resource and runtime record layouts
 /// are decoded at their respective import boundaries, never retained here.</summary>
@@ -44,6 +52,7 @@ public sealed class MapCommonRenderState
     public uint CommonFlags => Auxiliary?.Flags ?? 0;
     public bool AuxiliaryPresent => Auxiliary is not null;
     public uint? AuxiliaryLightingFlags => Auxiliary is { } aux ? (uint)aux.LightingOptions : null;
+    public uint? AuxiliaryFlags14 => Auxiliary?.Flags14;
     public bool SuppressAmbient => Auxiliary is { } aux && !aux.LightingOptions.HasFlag(CommonLightingOptions.PreserveAmbient);
     public bool AmbientSelectionPresent => Ambient.HasValue;
     public uint? ModelExclusionMask => Auxiliary?.ModelExclusionMask;

@@ -55,7 +55,10 @@ public readonly record struct G1EffectGpuVariant(uint Word0, uint Word1, uint Wo
 
 public readonly record struct G1EffectGpuPipelineKey(int RuntimeBankIndex,
     G1EffectGpuFeatureRequest FeatureRequest, G1EffectGpuVariant Variant,
-    uint Pass, int? MeshIndex, bool FullMeshLayout, int DynamicStride);
+    uint Pass, int? MeshIndex, bool FullMeshLayout, int DynamicStride)
+{
+    public int? RetainedFeatureRow { get; init; }
+}
 
 public sealed record G1EffectGpuMissing(string Operation, string Reason);
 

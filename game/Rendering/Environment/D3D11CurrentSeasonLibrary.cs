@@ -15,6 +15,7 @@ public sealed class D3D11CurrentSeasonLibrary
     private readonly uint _lutSelector;
     private readonly Dictionary<uint, D3D11CurrentSeasonOceanStaticSource> _oceanImages = new();
     private readonly D3D11CurrentSeasonInstallation?[] _loaded = new D3D11CurrentSeasonInstallation?[4];
+    private bool _previewCalendarAdopted;
 
     public D3D11CurrentSeasonLibrary(GameResourceRepository repository,
         D3D11CurrentSeasonResources initial, MainMapCameraFrame initialMain)
@@ -40,8 +41,46 @@ public sealed class D3D11CurrentSeasonLibrary
     {
         int index = MapSeasonRuntime.PrepareFrame(ownedSeason,
             currentMain.Camera.FrameNumber).Selection.SeasonIndex;
+        if(_loaded[index] is not { } installed)
+            return _loaded[index] = LoadInstallation(D3D11CurrentSeasonResources
+                .LoadSourceReadyCpu(_repository, ownedSeason, currentMain));
+        if(installed.Resources.Source.CameraSource.Season.Calendar is MapSeasonScenarioPreviewFrame)
+        {
+            if(!_previewCalendarAdopted)
+                throw new InvalidOperationException("Adopt the started campaign before resolving a cached preview source as live.");
+            installed.Resources.AdoptStartedCampaignCalendar(ownedSeason,currentMain);
+        }
+        return installed;
+    }
+
+    /// <summary>A pre-game page borrows the same four actual source packages.
+    /// The scenario third date never acquires a simulation-clock cursor.</summary>
+    public D3D11CurrentSeasonInstallation ResolveScenarioPreview(MapSeasonScenarioPreviewFrame preview,
+        MainMapCameraFrame currentMain)
+    {
+        if(_previewCalendarAdopted)
+            throw new InvalidOperationException("A started campaign library cannot return to scenario-preview ownership.");
+        var calendar = MapSeasonRuntime.PrepareScenarioPreviewFrame(preview, currentMain.Camera.FrameNumber);
+        int index = calendar.Selection.SeasonIndex;
         return _loaded[index] ??= LoadInstallation(D3D11CurrentSeasonResources
-            .LoadSourceReadyCpu(_repository, ownedSeason, currentMain));
+            .LoadScenarioPreviewSourceReadyCpu(_repository, calendar, currentMain));
+    }
+
+    /// <summary>One explicit source ownership transfer after real Start and
+    /// request drain. No LUT, CPU resource or installation is reconstructed.</summary>
+    public D3D11CurrentSeasonInstallation AdoptStartedCampaignCalendar(
+        NativeMapSeasonState actualNativeState,MainMapCameraFrame actualMain)
+    {
+        ArgumentNullException.ThrowIfNull(actualMain);
+        var calendar=MapSeasonRuntime.PrepareFrame(actualNativeState,actualMain.Camera.FrameNumber);
+        if(actualMain.Camera.ExecutableLocale!=_locale)
+            throw new InvalidDataException("Calendar adoption cannot change the loaded library locale.");
+        if(_previewCalendarAdopted)
+            throw new InvalidOperationException("The preview library has already adopted a started campaign calendar.");
+        var installed=RequireLoaded(calendar.Selection.SeasonIndex);
+        installed.Resources.AdoptStartedCampaignCalendar(actualNativeState,actualMain);
+        _previewCalendarAdopted=true;
+        return installed;
     }
 
     public D3D11CurrentSeasonInstallation RequireLoaded(int seasonIndex)

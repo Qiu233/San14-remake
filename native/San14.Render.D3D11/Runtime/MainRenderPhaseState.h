@@ -16,6 +16,7 @@ public:
     // Node71 publishes the ordinary combined-light path after preparing its
     // actual cluster producer. Queue allocation alone does not set this state.
     void publishClusteredLights() { deferredQueue_|=ClusteredLights; }
+    void publishRainWetness(bool present) { if(present)deferredQueue_|=0x800000u; }
     void publishSpecialTail() { deferredQueue_|=SpecializedGeometry; }
     void completeOuterApply() { hostCompletion_|=3; deferredQueue_|=OuterApplyComplete; }
 

@@ -8,6 +8,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         DeploymentAction action, out ArmyCommandTarget? result)
     {
         result = null;
+        //7CA9A0's ordinary target-first caller supplies the clicked Hex
+        //directly. It is not the Area-center operand of7EB310 case7.
+        if (action.Target is { Kind: DeploymentTargetKind.Hex, Id: >= 0 and < 48400 })
+        {
+            var selected = current.ReadHexTableReference(action.Target.Id) ?? throw OCMissing("initial_occupation_direct_Hex_pointer");
+            int physical = OCKnown(selected.PhysicalSlot,"initial_occupation_direct_Hex");
+            result = new(14,new(9,checked((ushort)physical)),physical);
+            return null;
+        }
         if (action.Target is not { Kind: DeploymentTargetKind.Area, Id: >= 1 and <= 500 })
             return CommandResult.Reject("The selected initial occupation area is invalid.", "deployment.occupation_target");
         var area = new AreaReference(action.Target.Id);
@@ -27,7 +36,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int force, IReadOnlyList<DeploymentUnitRequest> rows, IReadOnlyDictionary<int, ArmyCommandTarget> targets)
     {
         foreach (var group in rows.Where(row => row.Actions is [{ ActionKey: "occupy" }])
-            .GroupBy(row => row.Actions[0].Target.Id))
+            .GroupBy(row => row.Actions[0].Target))
         {
             var officers = group.Select(row => row.OfficerId).ToArray();
             int goal = targets[officers[0]].GoalHex;
@@ -35,10 +44,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             //does not interpret its representative as a new map press. Only
             //the explicit Area predicate is read; no menu/route is rebuilt.
             var reader = new UnitTargetMenuReader(this, state, officers, goal, force, new(false, null), current);
-            if (!reader.ReadDeploymentOccupationCommand(group.Key))
+            if (group.Key.Kind == DeploymentTargetKind.Area ? !reader.ReadDeploymentOccupationCommand(group.Key.Id)
+                : !reader.ReadGeneralDeploymentOccupationCommand())
                 return CommandResult.Reject("These commanders cannot occupy the selected area.", "deployment.occupation_target");
         }
         return null;
+    }
+
+    private static int ReadInitialOccupationAreaCurrent(SourceWorldContext current,DeploymentAction action,int goalHex)
+    {
+        if (action.Target.Kind == DeploymentTargetKind.Area) return action.Target.Id;
+        var hex = current.ReadHexTableReference(goalHex) ?? throw OCMissing("initial_occupation_mission_Hex");
+        int raw = OCKnown(current.ReadHexAreaSlot(hex),"initial_occupation_mission_Area_link");
+        return OCKnown((current.ReadAreaTableReference(raw <= 500 ? raw : 0)
+            ?? throw OCMissing("initial_occupation_mission_Area_pointer")).PhysicalSlot,"initial_occupation_mission_Area");
     }
 
     private sealed partial class UnitTargetMenuReader
@@ -63,8 +82,24 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!Need(current.ReadPersonNativeValidity(person), "initial_occupation_Person_validity") ||
                     current.ReadPersonForce(person) != own) return false;
             }
-            RequireTutorialOwner();
+            if (!TutorialTargetQualification.AllowsHex(package.ReadTutorialControlState(state), current, targetHex,
+                route.HasActiveRouteGroup ? route.FirstActiveWaypointIndex : null))
+                return false;
             return AreaIncluded(new AreaReference(expectedAreaPhysical));
+        }
+
+        internal bool ReadGeneralDeploymentOccupationCommand()
+        {
+            //The target-first Hex caller has already selected its exact
+            //receiver.1EC980 does not reopen the Area-center menu predicate.
+            foreach (int id in selectedOfficerIds)
+            {
+                int physical = Need(current.ReadPersonLookupReference(id <= 6000 ? id : 0)?.PhysicalSlot,"general_occupation_Person");
+                if (!Need(current.ReadPersonNativeValidity(physical),"general_occupation_Person_validity") ||
+                    current.ReadPersonForce(physical) != own) return false;
+            }
+            return TutorialTargetQualification.AllowsHex(package.ReadTutorialControlState(state),current,targetHex,
+                route.HasActiveRouteGroup ? route.FirstActiveWaypointIndex : null);
         }
     }
 }

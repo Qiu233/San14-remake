@@ -75,21 +75,38 @@ public sealed class PlayableTalentOrders(IOrderRules otherCommands,
         }
         if (recruitMode is not (0 or 10 or 30))
             return CommandResult.Reject("Recruitment mode is unsupported.", "talent.recruit_mode");
-        if (!state.Cities.TryGetValue(cityId, out CityState? city) || city.ForceId != force.Id)
-            return CommandResult.Reject("Talent command requires an owned city.", "talent.city");
-        if (city.DistrictId is not int districtId ||
+        CityState? city = state.Cities.GetValueOrDefault(cityId);
+        int? sourceDistrict;
+        if (city is not null && city.ForceId == force.Id) sourceDistrict = city.DistrictId;
+        else if (kind == TalentOrderKind.Recruit && state.Gates.TryGetValue(cityId, out var gate) && gate.ForceId == force.Id)
+            sourceDistrict = gate.DistrictId;
+        else return CommandResult.Reject("Talent command requires an owned source Base.", "talent.city");
+        if (sourceDistrict is not int districtId ||
             !state.Districts.TryGetValue(districtId, out DistrictState? district))
             return CommandResult.RuleUnavailable("rules.city_district",
                 "Talent command district is unresolved.");
+        int paymentDistrictId = district.Id;
+        if (kind == TalentOrderKind.Recruit)
+        {
+            if (rules is null) return CommandResult.RuleUnavailable("talent.current_command_rules", "Talent source rules are not installed.");
+            var source = rules.QueryRecruitSource(state, force.Id, cityId, executorId);
+            if (source.IsAvailable is null) return CommandResult.RuleUnavailable(source.MissingRuleKey ?? "talent.recruit.source", "Recruitment source is unresolved.");
+            if (!source.IsAvailable.Value) return CommandResult.Reject("Recruitment source is unavailable.", "talent.qualification");
+            if (source.MembershipDistrictId is not int member || !state.Districts.TryGetValue(member, out district) ||
+                source.PaymentDistrictId is not int payment || !state.Districts.ContainsKey(payment))
+                return CommandResult.RuleUnavailable("talent.recruit.source_district", "Recruitment source District is unresolved.");
+            if (district.ForceId != force.Id) return CommandResult.Reject("Recruitment executor is outside this force.", "talent.district_scope");
+            paymentDistrictId = payment;
+        }
         if (context.DelegatedDistrictId is int delegated ? delegated != district.Id : district.Number != 1)
             return CommandResult.Reject("Talent command is outside the authorized district.",
                 "talent.district_scope");
         if (rules is not null)
             return rules.PrepareTalent(state, force, new PreparedTalentOrder(executorId,
-                force.Id, cityId, district.Id, kind, targetId)
+                force.Id, cityId, paymentDistrictId, kind, targetId)
             {
                 TargetHexId = order is PrepareTalentSearchOrder searchOrder
-                    ? searchOrder.TargetHexId ?? city.HexId : null,
+                    ? searchOrder.TargetHexId ?? city!.HexId : null,
                 RecruitMode = recruitMode
             }, context);
         return CommandResult.RuleUnavailable("talent.current_command_rules",

@@ -42,6 +42,19 @@ struct ShadowReceiverShadowValues {
     std::array<ReceiverVector,12> lightPlanes{};
     std::optional<std::array<std::uint32_t,3>> shadowEnabled;
     std::optional<ReceiverVector> secondaryAtlasScale;
+
+    static ShadowReceiverShadowValues allocateFresh() {
+        //97A580 constructs all four input68/token2 matrix backings as identity,
+        //independently of the current Compact cascade count. The original
+        //inactive atlas/plane bytes have no default writer: value-initializing
+        //their owned storage is this project's allocation policy, not a claim
+        //that those original fields had zero defaults. Active writers replace
+        //their real ranges; subsequent updates retain this same backing.
+        ShadowReceiverShadowValues values{};
+        const ReceiverMatrix identity{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+        values.worldToShadow.fill(identity);
+        return values;
+    }
 };
 struct ShadowReceiverSubShadowValues {
     std::int32_t count{};

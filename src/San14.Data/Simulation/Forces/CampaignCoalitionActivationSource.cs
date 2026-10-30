@@ -36,7 +36,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = state with { NativeArmySimulation = native with
                 { Forces = new(native.Forces) { [id] = force with { Flags12 = (byte)((flags & ~4) | 2) } } } };
         }
-        //TC cached typed/data.tsv141A4AC3C=20 and141A4AC48=-100.
+        //TC and SC independently use these two file-backed relation adjustments.
         //The original effect8 output marker records an owned matching State,
         //including a matching effect whose magnitude is zero.
         for (int first = 0; first < members.Count; first++)
@@ -51,14 +51,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var right = PersonReturnPathSource.ReadForceAdvantage(state, current, b, 8, defaultValue: 100);
                 int rightValue = right.Value ?? throw CoalitionActivationMissing(right.UnresolvedOwner ?? "second_effect8");
                 int effect = left.QualifiedStates.Length != 0 ? leftValue : rightValue;
-                int after = Math.Clamp(unchecked(unchecked(effect * 20) / 100 + before), 20, 200);
+                int adjustment = NormalTurnCoalitionParameters.Read(state, "member-relation-adjustment", 20);
+                int after = Math.Clamp(unchecked(unchecked(effect * adjustment) / 100 + before), 20, 200);
                 state = ApplyNormalTurnForceRelationCurrent(state, current, pool, a, b, unchecked(after - before));
             }
         }
         foreach (var member in members)
         {
             int before = Relation(member, target);
-            int after = Math.Clamp(unchecked(before - 100), 0, 200);
+            int after = Math.Clamp(unchecked(before + NormalTurnCoalitionParameters.Read(state, "target-relation-adjustment", -100)), 0, 200);
             state = ApplyNormalTurnForceRelationCurrent(state, current, pool, member, target, unchecked(after - before));
         }
         //1A3E60 refreshes the City views' two derived relation indicators.

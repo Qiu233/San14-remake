@@ -82,6 +82,14 @@ public sealed class NativeArmyCombatCycleSampler
         return new(clock, season, new(unchecked(epoch.Day450 + (int)advancedDays), epoch.Salt45C));
     }
 
+    internal static NativeArmyCombatCycleSampler RestoreManualIntervention(GameState state,
+        NativeArmyProgressStageMoment moment, int day, int salt)
+    {
+        if (CreateAtManualIntervention(state, moment) is null)
+            throw new InvalidDataException("manual-tactic.resume_sampler_boundary");
+        return new(state.NativeClock!, state.NativeMapSeason!, new(day, salt));
+    }
+
     public TacticSourceSamplerWorld? Read(GameState current) =>
         current.NativeClock == clock && current.NativeMapSeason == savedBoundary ? world : null;
 }

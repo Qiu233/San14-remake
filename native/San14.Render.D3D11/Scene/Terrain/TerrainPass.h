@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // A retained terrain pass owns its imported inputs and mutable camera buffers.
 // Targets, frame camera and season are borrowed only for the current request.
 #include "SeasonTerrainPalette.h"
@@ -133,7 +134,7 @@ class TerrainPass {
         context->PSSetConstantBuffers(0, 1, &cb);
     }
     void prepareMaterials(ID3D11Device *device, ID3D11DeviceContext *context, const fs::path &input) {
-        std::ifstream textureRows(input / "textures.txt");
+        NativePreparedInputFile textureRows(input / "textures.txt");
         std::string stage, name;
         UINT slot;
         while (textureRows >> stage >> slot >> name) {
@@ -153,7 +154,7 @@ class TerrainPass {
             textures_.push_back(texture);
             views_.push_back(view);
         }
-        std::ifstream samplerRows(input / "samplers.txt");
+        NativePreparedInputFile samplerRows(input / "samplers.txt");
         UINT filter, u, v, w, aniso, comparison;
         float bias, minLod, maxLod;
         while (samplerRows >> stage >> slot >> filter >> u >> v >> w >> bias >> aniso >> comparison >>

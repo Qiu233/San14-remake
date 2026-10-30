@@ -119,7 +119,7 @@ public partial class MapSceneView
 
     private void RefreshArmyVisuals(GameState world)
     {
-        if (_acceptHex is null || _projection is null || TerrainMeshes is null ||
+        if (!_worldScene || _projection is null || TerrainMeshes is null ||
             !PlayableSkeleton.IsPlayableRuleset(world.RulesetId))
         {
             ReleaseArmyVisuals();

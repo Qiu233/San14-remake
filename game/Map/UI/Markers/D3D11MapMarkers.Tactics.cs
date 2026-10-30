@@ -10,7 +10,7 @@ internal partial class D3D11MapMarkers
     private readonly Node2D tacticBaseCanvas = new() { Name = "BaseUnitActions", ZIndex = 40 };
     private GameResourceRepository tacticRepository = null!;
 
-    internal void StartArmyTacticName(int unit, OrdinaryTacticNamePublication name) => _armyLabels?.StartTacticName(unit, name);
+    internal void StartArmyTacticName(int receiver, OrdinaryTacticNamePublication name) => _armyLabels?.StartTacticName(receiver, name);
 
     internal void StartBaseTacticName(OrdinaryTacticViewIdentity view, string name, int palette)
     {

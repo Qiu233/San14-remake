@@ -21,7 +21,7 @@ internal partial class UiSourceColumnButton : UiSourceButton
     }
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
-        MapFont font, string caption, string? icon = null, bool personList = false, bool normalLayout = false)
+        MapFont font, string caption, string? icon = null, bool personList = false, bool normalLayout = false, bool sortArrows = false)
     {
         var source = normalLayout ? new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_btn_clm"))
             : new UiSourceLayout(repository, 0x7A7B5B8C);
@@ -58,7 +58,7 @@ internal partial class UiSourceColumnButton : UiSourceButton
             }
             ApplyPictureColours(state);
         });
-        if (personList && !normalLayout)
+        if ((personList || sortArrows) && !normalLayout)
         {
             var arrows = new UiSourceLayout(source.Source, new Dictionary<int,UiSourceNodeGeometry>
             {

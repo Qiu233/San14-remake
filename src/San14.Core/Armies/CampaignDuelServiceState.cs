@@ -43,7 +43,7 @@ public sealed record CampaignDuelResult(CampaignDuelOutcome PlayerOutcome, bool 
 
 /// <summary>Registered numerical result awaiting the real campaign aftermath.
 /// Presentation timing and skip input never select its winner or aftermath.</summary>
-public sealed record CampaignRegisteredDuel(long Sequence, long CalendarCycleOrdinal,
+public sealed partial record CampaignRegisteredDuel(long Sequence, long CalendarCycleOrdinal,
     NativeMapSeasonDate Date, CampaignDuelPair Pair, CampaignDuelResult Result)
 {
     //Null preserves unknown presentation knowledge in a historical142 save.
@@ -114,6 +114,7 @@ public sealed record CampaignDuelServiceState(bool? Active, bool? Busy,
             throw new InvalidDataException("Campaign registered duel is invalid.");
         ValidateParticipant(result.Actor); ValidateParticipant(result.Opponent);
         duel.AftermathPresentation?.Validate(state);
+        duel.PresentationSnapshot?.Validate(pair);
         foreach (int? id in new[] { result.FirstStrikerOfficerId, result.WinnerOfficerId, result.LoserOfficerId })
             if (id.HasValue && id != pair.ActorOfficerId && id != pair.OpponentOfficerId)
                 throw new InvalidDataException("Campaign duel result names another participant.");

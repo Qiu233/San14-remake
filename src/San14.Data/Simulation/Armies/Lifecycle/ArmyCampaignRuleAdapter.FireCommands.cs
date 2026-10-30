@@ -34,7 +34,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             var changes = new List<HexFireChange>();
             var trials = new List<ArmyFireCommandTrial>();
             var announcements = new List<ArmyFireAnnouncement>(state.PendingArmyFireAnnouncements);
-            var casts = new List<ArmyFireCastPresentation>(state.PendingArmyFireCasts);
             var reports = new List<PeriodReportEntry>(state.PendingCommandReports);
             TacticSourceSamplerWorld? sampler = null;
             foreach (int physical in order)
@@ -80,6 +79,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!OccupationKnown(current.ReadArmyUnitNativeValidity(army), "fire_command_army_validity")) continue;
                 int person = OccupationKnown(current.ReadPersonLookupReference(unit.OfficerId <= 6000 ? unit.OfficerId : 0)?.PhysicalSlot, "fire_command_person");
                 if (!OccupationKnown(current.ReadPersonNativeValidity(person), "fire_command_person_validity")) continue;
+                working=AppendArmyFireCastCurrent(working,current,army,ownHex,moment.CalendarCycleOrdinal);
                 int occupant = unchecked((short)OccupationKnown(current.ReadHexRaw1C(Hex(goal)), "fire_command_target_army"));
                 //2C6D20 only admits signed1C1..500. Army0/negative values do
                 //not select an occupant; validity is a separate later query.
@@ -121,7 +121,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int sample = TacticEffectSourceSamplerMath.Sample(100, 1, goal, unchecked(2 * ownHex), unit.OfficerId, 0, sampler);
                 bool success = sample <= rate, backfire = false;
                 int? ignition = null, duration = null;
-                casts.Add(new(unit.Id, unit.OfficerId, ownHex)); // Unplayed effect56 intent.
                 if (success)
                 {
                     var merit = _pendingMerit.TryApplyWithinArmyOperation(working, current, unit.OfficerId,
@@ -211,7 +210,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             working = BaseCaptureCurrentInputs.PublishCurrent(working, current).WithArmyLifecycle(
                 OwnedArmyDestructorFlags.PublishCurrent(working.ReadArmyLifecycle()!, current));
-            return new(working with { PendingArmyFireAnnouncements = announcements.ToArray(), PendingArmyFireCasts = casts.ToArray(),
+            return new(working with { PendingArmyFireAnnouncements = announcements.ToArray(),
                 PendingCommandReports = reports.ToArray() }, trials.ToArray(), changes.ToArray(), null);
 
             int P(string key) => working.NativeArmySimulation?.Parameters is { } bank && !bank.Float32Values.ContainsKey(key) &&

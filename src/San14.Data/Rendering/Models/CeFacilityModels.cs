@@ -3,8 +3,8 @@ using San14.Data.Formats;
 namespace San14.Data;
 
 /// <summary>
-/// Resolves supported two-state facility models through the current CE field scene's
-/// declared catalog and dictionary. It does not assign these models to other scenes.
+/// Resolves the normal facility and connection categories through the current
+/// CE field scene's declared catalog and dictionary.
 /// </summary>
 public static class CeFacilityModels
 {
@@ -12,12 +12,37 @@ public static class CeFacilityModels
     private const uint CatalogId = 0x77916472;
     private const uint DictionaryId = 0xE755DAEE;
     private const uint ModelClass = 0xD40B3C8F;
-    private const uint BuildingDefinitionId = 0xE37A48A2; // category 61, object bit 0 set
-    private const uint UnfinishedDefinitionId = 0x6A000341; // category 76, object bit 0 clear
-    private const uint FortBuildingDefinitionId = 0x1EB96DE6; // category 62, bit 0 set
-    private const uint FortUnfinishedDefinitionId = 0xA53F2885; // category 77, bit 0 clear
-    private const uint ArcherTowerBuildingDefinitionId = 0xA3ED34D0; // category 63, bit 0 set
-    private const uint ArcherTowerUnfinishedDefinitionId = 0x2A72EF6F; // category 78, bit 0 clear
+    // Declared normal category names61..88, signed UTF8 name hashes. These
+    // identify WorldPQ definitions, including the separate connection models.
+    private static readonly uint[] DefinitionHashes =
+    [
+        0xE37A48A2u,0x1EB96DE6u,0xA3ED34D0u,0x06C0BE75u,
+        0x10D4CFD3u,0x20B850BBu,0x23328C51u,0x95541F56u,
+        0x7AEF28B7u,0x52F53ADDu,0xCD54B7F1u,0x0622F1EBu,
+        0xDF08940Bu,0xAE01A187u,0x602B603Cu,0x6A000341u,
+        0xA53F2885u,0x2A72EF6Fu,0x8D467914u,0x975A8A72u,
+        0xA73E0B5Au,0xA9B846F0u,0x1BD9D9F5u,0x0174E356u,
+        0xD97AF57Cu,0x099357B5u,0x43F01FF8u,0x1BF6321Eu
+    ];
+
+    public static int CategoryFor(int objectDefinitionSlot,bool completed) => objectDefinitionSlot switch
+    {
+        >=3 and <=6 => (completed?61:76)+objectDefinitionSlot-3,
+        >=7 and <=10 => (completed?66:81)+objectDefinitionSlot-7,
+        >=11 and <=14 => 71+objectDefinitionSlot-11,
+        15 => completed?65:80,
+        16 => 70,
+        17 => 75,
+        _ => throw new InvalidDataException($"CE facility object slot {objectDefinitionSlot} has no source model binding.")
+    };
+
+    // The normal category table's projected-shadow field is0 for61..88.
+    // The shared model bind therefore calls its explicit caster-disable writer.
+    public static bool UsesProjectedShadow(int category)
+    {
+        if(category is <61 or >88)throw new ArgumentOutOfRangeException(nameof(category));
+        return false;
+    }
 
     public static (SceneModelReference Unfinished, SceneModelReference Completed) Resolve(
         GameResourceRepository repository, LoadedSceneResources scene,
@@ -29,6 +54,10 @@ public static class CeFacilityModels
     /// model, material records and slot table for its actual asset owner.</summary>
     public static LoadedModelTextureResources LoadTextureResources(GameResourceRepository repository,
         LoadedSceneResources scene, int objectDefinitionSlot, bool completed)
+        =>LoadTextureResourcesByCategory(repository,scene,CategoryFor(objectDefinitionSlot,completed));
+
+    public static LoadedModelTextureResources LoadTextureResourcesByCategory(GameResourceRepository repository,
+        LoadedSceneResources scene,int category)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(scene);
@@ -40,14 +69,8 @@ public static class CeFacilityModels
         if (dictionaries.Length != 1)
             throw new InvalidDataException("CE field scene must declare exactly one facility model dictionary.");
         LoadedObjects dictionary = dictionaries[0];
-        (uint unfinishedId, uint completedId) = objectDefinitionSlot switch
-        {
-            3 => (UnfinishedDefinitionId, BuildingDefinitionId),
-            4 => (FortUnfinishedDefinitionId, FortBuildingDefinitionId),
-            5 => (ArcherTowerUnfinishedDefinitionId, ArcherTowerBuildingDefinitionId),
-            _ => throw new InvalidDataException($"CE facility object slot {objectDefinitionSlot} has no source model binding.")
-        };
-        uint definitionId = completed ? completedId : unfinishedId;
+        if(category is <61 or >88)throw new InvalidDataException($"CE facility category {category} has no source model binding.");
+        uint definitionId = DefinitionHashes[category-61];
         LoadedModelTextureResources links = ModelTextureResources.LoadForDefinition(
             repository, dictionary, scene.ModelCatalog, definitionId);
         if (links.ModelObject.Kind != DokObjectKind.Inline || links.ModelObject.ClassId != ModelClass)

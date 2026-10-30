@@ -132,6 +132,17 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private sealed partial class OfficerDetailsCurrentReader
     {
+        private IReadOnlyDictionary<int, PersonnelGroupPersonCell>? groupDevelopmentPreview;
+
+        private PersonnelGroupPersonCell ReadGroupDevelopmentPreviewCell(int column)
+        {
+            // The four selector columns share one source preview evaluation.
+            // This reader already belongs to one Person and retained page current.
+            groupDevelopmentPreview ??= owner.ReadPersonnelGroupDevelopmentPreviewCurrent(state, current, physical)
+                .ToDictionary(cell => cell.ColumnId);
+            return groupDevelopmentPreview[column];
+        }
+
         internal PersonnelGroupPersonCell ReadGroupListCell(int column)
         {
             PersonnelGroupPersonCell Text(Func<string?> read, Func<CityDomesticPersonCellSource.SortValue>? key = null)
@@ -164,8 +175,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                     (force, effect) => owner._baseCapacityInputs.ReadPanelModifier(state, force, effect))
                 ?? throw GroupListMissing("effective_ability");
             string Mark(bool yes) => Data(1, yes ? 0x338 : 0x339);
-            int Credit(int kind) => kind == 2 ? PersonAreaAppointmentSource.AdditionalCount(state, current, physical)
-                : OfficerCommandCapacity.ResolveCreditKindBonus(state, current, physical, kind).Bonus
+            int Credit(int kind) => kind == 2 ? PersonAreaAppointmentSource.AdditionalCount(state, current, physical, owner.ReadApplicationGameplay()?.UserSelectionServicePresent)
+                : OfficerCommandCapacity.ResolveCreditKindBonus(state, current, physical, kind, owner.ReadApplicationGameplay()?.UserSelectionServicePresent).Bonus
                     ?? throw GroupListMissing("credit_kind_" + kind);
             string? Responsibility(int index)
             {
@@ -180,7 +191,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
                 var responsibility = index == 0 ? DeploymentPersonResponsibilityDisplaySource.Read(state, current, physical, Count, Entry)
                     : DeploymentPersonResponsibilityDisplaySource.ReadSecondary(state, current, physical, index,
-                        p => PersonAreaAppointmentSource.AdditionalCount(state, current, p), Count, Entry);
+                        p => PersonAreaAppointmentSource.AdditionalCount(state, current, p, owner.ReadApplicationGameplay()?.UserSelectionServicePresent), Count, Entry);
                 return responsibility.Kind switch
                 {
                     DeploymentPersonResponsibilityKind.Empty => "",
@@ -193,38 +204,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                     _ => throw GroupListMissing("responsibility_kind")
                 };
             }
-            int? Remaining()
-            {
-                var task = DetailLinkedTask(); if (task is null) return null;
-                if (task.Kind == 16) return null;
-                var today = state.NativeMapSeason?.ThirdDate ?? throw GroupListMissing("task_current_date");
-                var due = task.Due;
-                if (task.ClampElapsed) due = PersonReturnCommands.EnsureArrivalDate(state, current, task.Identity, today).ArrivalDate
-                    ?? throw GroupListMissing("task_return_deadline");
-                int start = PersonReturnCommands.CalendarOrdinal(task.Start);
-                int elapsed = PersonReturnCommands.CalendarOrdinal(today) - start;
-                if (task.ClampElapsed) elapsed = Math.Max(0, elapsed);
-                return Math.Max(0, PersonReturnCommands.CalendarOrdinal(due) - start - elapsed);
-            }
-            CityDomesticPersonCellSource.SortValue TaskKey()
-            {
-                var army = DetailCommanderArmy();
-                if (army is not null)
-                    return DetailArmyCommandVisible(army) ? Numeric(DetailArmyAction(army) + 0x73b)
-                        : CityDomesticPersonCellSource.SortValue.Empty;
-                return DetailLinkedTask() is { } task ? Numeric(task.Kind) : CityDomesticPersonCellSource.SortValue.Empty;
-            }
+            CityDomesticPersonCellSource.SortValue TaskKey() =>
+                PersonTasks.InformationTaskNameKey() is int value ? Numeric(value) : CityDomesticPersonCellSource.SortValue.Empty;
             PersonnelGroupPersonCell RemainingCell()
             {
                 try
                 {
-                    var task = DetailLinkedTask();
-                    if (task is null) return new(column, "", null, int.MaxValue, null, true, null) { SortGroup = 1 };
-                    if (task.Kind == 16) return new(column, Data(1, 0x353), null, null, null, false, null)
+                    var remaining = PersonTasks.ReadRemainingCell();
+                    if (remaining is null) return new(column, "", null, int.MaxValue, null, true, null) { SortGroup = 1 };
+                    if (remaining.NotApplicable) return new(column, Data(1, 0x353), null, null, null, false, null)
                         { SortUnresolvedOwner = "personnel.groups.task16_remaining_sort" };
-                    return Number(Remaining, format: days => days.ToString(CultureInfo.InvariantCulture));
+                    return Number(() => remaining.Value, format: days => days.ToString(CultureInfo.InvariantCulture));
                 }
                 catch (InvalidDataException error) { return new(column, null, null, null, null, false, error.Message); }
+            }
+            PersonnelGroupPersonCell LocationCell(bool actual)
+            {
+                var cell = Text(() => actual ? ReadPlace(true)?.Name : Cells.Home(candidate));
+                try { return cell with { LocationOrder = Cells.LocationOrderInput(candidate, actual), SortUnresolvedOwner = null }; }
+                catch (InvalidDataException error) { return cell with { SortUnresolvedOwner = error.Message }; }
             }
             return column switch
             {
@@ -232,8 +230,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 1 => Text(() => Cells.ForceName(candidate)?.Text),
                 2 => Number(() => Cells.DistrictNumber(candidate), () => Cells.DistrictKey(candidate),
                     value => Data(1, 0x494).Replace("%d", value.ToString(CultureInfo.InvariantCulture))),
-                3 => Text(() => Cells.Home(candidate)),
-                4 => Text(() => ReadPlace(true)?.Name),
+                3 => LocationCell(false),
+                4 => LocationCell(true),
                 5 => Text(() => (Flags & 0x4000) != 0 ? Data(1, 0x859) : Status < 10 ? Data(0, 0xf9 + Status) : "",
                     () => Numeric(Cells.ServiceStatusKey(candidate))),
                 6 => Number(() => Cells.Loyalty(candidate), () => Cells.LoyaltyKey(candidate)),
@@ -243,16 +241,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                 20 => Number(ReadItemCount),
                 21 => Text(() => Cells.Office(candidate), () => Cells.OfficeKey(candidate)),
                 22 => Text(() => "", () => CityDomesticPersonCellSource.SortValue.Empty), //reserved source column
-                23 => Number(() => !DistrictValid || Status == 1 ? null : ForceId == 51 || ForceId is >= 46 and <= 50
-                    ? 0 : ArmyReturnCaptivesSource.ReadGuard(state, current, physical)),
+                23 => Number(() => Cells.OtherMetric(candidate), () => Cells.OtherMetricKey(candidate)),
                 34 => Text(() => Mark((Flags & 1) == 0), () => Numeric(Cells.ReturningKey(candidate))),
                 35 => Text(() => Responsibility(0)),
                 36 => Text(() => Cells.Doctrine(candidate), () => Cells.DoctrineKey(candidate)),
                 37 => Text(ReadTaskName, TaskKey),
                 86 => Text(ReadTaskTarget),
                 88 => RemainingCell(),
-                132 or 133 or 134 => new(column, null, null, null, null, false, "personnel.groups.development_341D30.current_preview_context"),
-                139 => new(column, null, null, null, null, false, "personnel.groups.occupation_341D30.current_preview_context"),
+                132 or 133 or 134 or 139 => ReadGroupDevelopmentPreviewCell(column),
                 193 => Number(ReadMerit, () => Cells.MeritKey(candidate)),
                 194 => Text(ReadMeritRank, () => Cells.RankStageKey(candidate)),
                 196 or 197 or 198 => Number(() => Credit(column == 196 ? 1 : column == 197 ? 2 : 3),

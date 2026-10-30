@@ -12,7 +12,9 @@ public partial class MapSceneView
     private KeyboardBindingCatalog? informationKeyboard;
     private bool informationNeighbors,informationDiplomacy;
     private int informationStyle;
-    internal int InformationTerritoryStyle => informationStyle;
+    private static bool InformationDeveloperMenuEnabled=>System.Environment.GetEnvironmentVariable("SAN14_DEVELOPER_WORKSPACE")=="1";
+    private static bool InformationCategoryVisible(byte flags)=>(flags&1)!=0||(flags&2)==0&&(flags&4)!=0;
+    internal int InformationTerritoryStyle => chronologyOwner is not null?0:informationStyle;
 
     internal void SetInformationLayerQuery(Func<GameState,MapInformationLayerSnapshot> query)
     { informationQuery=query; informationWorld=null; }
@@ -20,11 +22,11 @@ public partial class MapSceneView
     internal void InitializeInformationLayers()
     {
         if(informationCanvas is not null)return;
-        var parent=_sourceMainCameraAspect as Control??_surface.GetParent() as Control??this;
+        var parent=StrategicMapOverlayParent();
         informationCanvas=new(){Name="MapInformationLayers",ZIndex=3};
         parent.AddChild(informationCanvas);
         informationCanvas.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        informationCanvas.Configure(_repository,_text,_playerForceId,
+        informationCanvas.Configure(_repository,_text,_d3d11Markers??throw new InvalidOperationException("Map ink bucket is not initialized."),
             hex=>
             {
                 var point=_projection!.Project(hex);
@@ -33,11 +35,11 @@ public partial class MapSceneView
             },ForcePalette,()=>
             {
                 bool visible=IsInsideTree()&&IsVisibleInTree()&&!_detailsOpen&&!_periodMapActive;
-                if(informationMenu is not null)informationMenu.Visible=visible;
+                if(informationMenu is not null)informationMenu.Visible=visible&&InformationDeveloperMenuEnabled;
                 return visible;
             });
         informationKeyboard=KeyboardBindingCatalog.Load(_repository,_text.SourceLocale);
-        informationMenu=new(){Name="MapInformationMenu",Text=_text.Get("play_map_information"),
+        informationMenu=new(){Name="MapInformationMenu",Visible=InformationDeveloperMenuEnabled,Text=_text.Get("play_map_information"),
             Position=new(12,12),ZIndex=5};
         parent.AddChild(informationMenu);
         var popup=informationMenu.GetPopup();
@@ -62,7 +64,7 @@ public partial class MapSceneView
                 break;
             case 21:
                 _mapPresentation.SetBaseInformationVisible((_mapPresentation.Policy.Category16&4)==0);
-                informationDiplomacy=(_mapPresentation.Policy.Flags15&4)!=0;
+                informationDiplomacy=InformationCategoryVisible(_mapPresentation.Policy.Flags15);
                 break;
             case 22:ToggleKeyboardMapInformation(22);break;
             default:return false;
@@ -75,7 +77,7 @@ public partial class MapSceneView
 
     private void RefreshInformationMenu()
     {
-        informationDiplomacy=_mapPresentation is not null&&(_mapPresentation.Policy.Flags15&4)!=0;
+        informationDiplomacy=_mapPresentation is not null&&InformationCategoryVisible(_mapPresentation.Policy.Flags15);
         if(informationMenu is null)return;
         var popup=informationMenu.GetPopup();
         foreach(int action in new[]{17,18,19,20,21,22})
@@ -84,7 +86,7 @@ public partial class MapSceneView
             popup.SetItemChecked(index,action switch
             {
                 17=>informationNeighbors,18=>informationStyle==0,19=>informationStyle==1,
-                20=>informationDiplomacy,21=>_mapPresentation is not null&&(_mapPresentation.Policy.Category16&4)!=0,
+                20=>informationDiplomacy,21=>_mapPresentation is not null&&InformationCategoryVisible(_mapPresentation.Policy.Category16),
                 _=>_keyboardArmyInformationVisible
             });
         }
@@ -93,7 +95,7 @@ public partial class MapSceneView
     internal MapInformationLayerSnapshot? CaptureInformationLayers(GameState world)
     {
         RefreshInformationMenu();
-        if(!informationNeighbors&&!informationDiplomacy)return null;
+        if(!informationNeighbors&&!informationDiplomacy&&(_mapPresentation is null||!InformationCategoryVisible(_mapPresentation.Policy.Category16)))return null;
         if(!_periodMapActive&&!ReferenceEquals(informationWorld,world))
         {
             informationSnapshot=informationQuery?.Invoke(world);
@@ -107,8 +109,8 @@ public partial class MapSceneView
     internal void PresentInformationLayers(D3D11MapInput input)
     {
         if(informationCanvas is null||input.SourceFrame is not {} frame)return;
-        informationCanvas.Present(input.InformationLayers,frame,informationNeighbors,informationDiplomacy);
-        if(informationMenu is not null)informationMenu.Visible=!_detailsOpen&&!_periodMapActive;
+        informationCanvas.Present(input.InformationLayers,frame,informationNeighbors,informationDiplomacy,input.SceneryWorld);
+        if(informationMenu is not null)informationMenu.Visible=InformationDeveloperMenuEnabled&&!_detailsOpen&&!_periodMapActive;
     }
 
     internal void ReleaseInformationLayers()

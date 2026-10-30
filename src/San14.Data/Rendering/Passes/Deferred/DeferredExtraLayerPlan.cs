@@ -62,6 +62,29 @@ public static class DeferredExtraLayerPlan
         return new(deferred,rs,rr,target,reflection,sdf);
     }
 
+    /// <summary>Bind the independently owned current Common word only if
+    /// the reached screen-evaluation branch needs it. Earlier skips and a
+    /// failed intermediate provider do not read an unused feature input.
+    /// A known absent Common admits the source branch; an unknown present
+    /// word must not become false or borrow the initial settings template.</summary>
+    public static DeferredReflectionState BindCurrentReflectionCommon(
+        DeferredReflectionState source, MapCommonRenderState? actualCommon)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (!source.RendererValidFrame || source.ViewIndex >= 32 || !source.ViewPresent ||
+            (source.Renderer3E4 & 3) != 1 || !source.PreparedShaderReady ||
+            !source.View1C80Present || !source.ProviderReady) return source;
+        if (actualCommon is null)
+            throw new NotSupportedException("reflection.screen.current_Common_owner");
+        bool admitted = !actualCommon.AuxiliaryPresent ||
+            (actualCommon.AuxiliaryFlags14 is uint flags ? (flags & 0x80u) != 0 :
+                throw new NotSupportedException("reflection.screen.current_Common_FlagEX2"));
+        return source with { FeatureEnabled = admitted };
+    }
+
+    public static DeferredReflectionDecision Reflection(DeferredReflectionState source,
+        MapCommonRenderState? actualCommon) => Reflection(BindCurrentReflectionCommon(source, actualCommon));
+
     public static DeferredReflectionDecision Reflection(DeferredReflectionState source)
     {
         ArgumentNullException.ThrowIfNull(source);

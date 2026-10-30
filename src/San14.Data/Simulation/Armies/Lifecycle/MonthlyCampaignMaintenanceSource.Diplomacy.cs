@@ -54,6 +54,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 if (key is < 1 or > 51) continue;
                 if (current.ReadArmyUnitRawForceSlot(new(physical)) != key) continue;
+                // CForceArmyUnitIterator also excludes233560 receivers before
+                // any caller can mutate their morale, territory or logistics.
+                if (Need(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "force_iterator_Army233560")) continue;
                 yield return physical;
                 _ = Physical(force);
             }
@@ -205,13 +208,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //292BA0's185D00 flags1,1,0, on the same current and pool. Presentation
         //requests describe source work; they never claim animation or sound ACK.
-        private void RestoreMonthlyOccupation(HexReference hex, int force, int cityId, bool enqueueEncirclement = true,
-            bool allowType3Override = false)
+        private bool RestoreMonthlyOccupation(HexReference hex, int force, int cityId, bool enqueueEncirclement = true,
+            bool allowType3Override = false, bool showAppearance = true)
         {
-            if (!hex.PhysicalSlot.HasValue) return;
+            if (!hex.PhysicalSlot.HasValue) return false;
             if (!GateCaptureTerritorySource.Eligible(state, current, hex, force, false) &&
-                (!allowType3Override || !TerritoryExpansionType3Override(hex))) return;
-            if (Need(current.ReadHexForceSlot(hex), "restore_Hex14") == force) return;
+                (!allowType3Override || !TerritoryExpansionType3Override(hex))) return false;
+            if (Need(current.ReadHexForceSlot(hex), "restore_Hex14") == force) return false;
             int physical = Need(hex.PhysicalSlot, "restore_Hex_identity");
             int surface = Need(current.ReadHexSurfaceCode(hex), "restore_Hex10");
             bool ordinary = (force is >= 1 and <= 45 or 51) && cityId is >= 1 and <= 51;
@@ -226,7 +229,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     //This existing leaf retains240AA0's Person home writes,
                     //native HomeArmy key30 notices and the encirclement seed.
-                    state = PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: enqueueEncirclement);
+                    state = package.PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: enqueueEncirclement, sourceDate: borrowedTerritoryDate);
                     changedArea = rawArea;
                 }
                 else if (force is >= 46 and <= 51)
@@ -267,8 +270,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var city = current.ReadCityTableReference(cityRaw <= 51 ? cityRaw : 0) ?? throw Missing("restore_special_City_pointer");
                     if (Need(current.ReadBaseForceSlot(city), "restore_special_City_Force") != force)
                     {
-                        var owner = Force(force);
-                        if (Valid(owner)) write = Need(current.ReadConditionForceDependence(new(force)), "restore_special_Force194")
+                        //185D00's parameter is a raw Force table operand.
+                        //The validity and194 reads belong to its lookup result.
+                        var owner = current.ReadForceTableReference(force) ?? throw Missing("restore_special_Force_pointer");
+                        if (Valid(owner)) write = Need(current.ReadConditionForceDependence(new(Physical(owner))), "restore_special_Force194")
                             != Need(current.ReadHexForceSlot(hex), "restore_special_Hex14");
                         requested = 0;
                     }
@@ -279,12 +284,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             int currentForce = Need(current.ReadHexForceSlot(hex), "restore_final_Hex14");
             var appearanceForce = current.ReadForceTableReference(currentForce <= 51 ? currentForce : 0)
                 ?? throw Missing("restore_appearance_Force_pointer");
-            if (Valid(appearanceForce))
+            if (showAppearance && Valid(appearanceForce))
                 Append(new(MonthlyMaintenanceOperation.TerritoryOccupation, appearanceCenter ? 4 : 5, null, null)
                     { ForceId = force, HexId = physical });
             var mode = current.ArmyReturnTransferMode ?? throw Missing("restore_transfer_mode");
             if (mode.Present && Need(mode.Value, "restore_transfer_mode_value") != 0)
-                throw Missing("restore_tutorial_counter_owner");
+                state = IncrementTutorialTerritoryTransfer(state);
+            return true;
         }
         private void PublishRestoredHex(HexReference hex, int? changedArea)
         {
@@ -328,7 +334,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //1B4AB0 captures the commander and its actual position inside
                 //this source call; later playback does not reselect a speaker.
                 if (current.ReadOwnedPersonCommandManager() is null) PersonReturnCommands.BindCurrent(state, current);
-                var date = state.NativeMapSeason?.ThirdDate ?? throw Missing("scenery_notify_source_date");
+                var date = borrowedTerritoryDate ?? state.NativeMapSeason?.ThirdDate ?? throw Missing("scenery_notify_source_date");
                 int position = PersonReturnCommands.ResolvePersonPosition(state, current, person, date).PhysicalSlot ?? 48400;
                 var arena = state.ReadArmyLifecycle() ?? throw Missing("scenery_notify_lifecycle");
                 var receiver = arena.Receivers.Find(arena.Slots[physical].ReceiverId) ?? throw Missing("scenery_notify_Army_owner");

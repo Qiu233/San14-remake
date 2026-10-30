@@ -18,6 +18,7 @@ public sealed class TransportArmyPacket
     {
         Request = request; CommanderPhysical = commanderPhysical; ForcePhysical = forcePhysical;
         SourceCityPhysical = sourcePhysical; DestinationCityPhysical = targetPhysical;
+        SourceBase = new(BaseKind.City, sourcePhysical);
         _words = [request.OfficerId, request.Troops, naval, request.Gold, request.Supplies,
             0xBD10, 0xBD10, 0xBD10, 0xBD10, 0xBD10, 2, 5, targetPhysical, request.ReturnToSource ? 1 : 0, 1];
         Dwords = Array.AsReadOnly(_words);
@@ -27,6 +28,7 @@ public sealed class TransportArmyPacket
     {
         CommandOrder = order; CommanderPhysical = commanderPhysical; ForcePhysical = forcePhysical;
         SourceCityPhysical = sourcePhysical; DestinationCityPhysical = kind == 5 ? targetPhysical : 0;
+        SourceBase = new(BaseKind.City, sourcePhysical);
         _words = [order.OfficerId, order.Troops, order.NavalFormationId, order.Gold, order.Supplies,
             48400, 48400, 48400, 48400, 48400, action, kind, targetPhysical,
             order.ReturnOfficerToSource ? 1 : 0, order.SourceBehaviorChoice];
@@ -34,6 +36,23 @@ public sealed class TransportArmyPacket
         Dwords = Array.AsReadOnly(_words);
     }
     internal DispatchTransportArmyOrder? CommandOrder { get; }
+    internal OriginalAiEmergencyTransportRequest? EmergencyRequest { get; }
+    internal TransportArmyPacket(OriginalAiEmergencyTransportRequest request, int commanderPhysical,
+        BaseReference sourceBase, int currencyCityPhysical, byte action, byte targetKind, int targetPhysical)
+    {
+        EmergencyRequest = request; CommanderPhysical = commanderPhysical; ForcePhysical = request.ForceId;
+        SourceBase = sourceBase; SourceCityPhysical = currencyCityPhysical;
+        DestinationCityPhysical = targetKind == 5 ? targetPhysical : 0;
+        _words = [request.OfficerId, request.Troops, request.NavalFormationId, request.Gold, request.Food,
+            48400, 48400, 48400, 48400, 48400, action, targetKind, targetPhysical, 1, 1];
+        Dwords = Array.AsReadOnly(_words);
+    }
+    public BaseReference SourceBase { get; }
+    internal bool HasExplicitRequest => CommandOrder is not null || EmergencyRequest is not null;
+    internal int? CommandDistrictId => CommandOrder?.DistrictId ?? EmergencyRequest?.DistrictId;
+    internal ArmyGroupPurpose? SelectedGroupPurpose => CommandOrder?.GroupPurpose ??
+        (EmergencyRequest is { } request ? new(ArmyGroupPurposeKind.TransportToFoothold,
+            new(ArmyGroupPurposeTargetKind.Foothold, request.DestinationLocationId)) : null);
     /// <summary>Present only for the compatibility City-only producer. The
     /// full producer carries its own explicit command, without a fake City.</summary>
     public TransportArmyCityRequest? Request { get; }
@@ -53,7 +72,7 @@ public sealed record TransportArmyPacketResult(TransportArmyPacket? Packet, stri
 
 /// <summary>The real TransportState732250/780A70 and target7EB310/7E8D80
 /// packet projection. This does not allocate an Army or execute2009B0.</summary>
-public static class TransportArmyPacketSource
+public static partial class TransportArmyPacketSource
 {
     /// <summary>Explicit Make selections and the real mode2 target. Kind/ID
     /// encodings stay in this boundary; no UI default or route vector is used.</summary>
@@ -70,7 +89,12 @@ public static class TransportArmyPacketSource
         if (person?.PhysicalSlot is not int physical || current.ReadPersonNativeValidity(physical) != true ||
             current.ReadPersonIdentity(physical) != order.OfficerId)
             return Missing("current.transport_Person");
-        if (current.ReadPersonStatus(physical) != 4) return Missing("branch.transport_ordinary_status4");
+        if (order.DistrictId is int district)
+        {
+            if (current.ReadPersonDistrictSlot(physical) != district || current.ReadPersonStatus(physical) is not (>= 1 and <= 4))
+                return Missing("current.transport_command_PersonE0_status");
+        }
+        else if (current.ReadPersonStatus(physical) != 4) return Missing("branch.transport_ordinary_status4");
         if (current.ReadPersonFirstLocation(physical) is not ushort home) return Missing("current.transport_HomeE2");
         var force = current.ReadPersonForce(physical);
         if (force?.PhysicalSlot is not int owner || owner is < 1 or > 45 || current.ReadForceNativeValidity(force) != true)

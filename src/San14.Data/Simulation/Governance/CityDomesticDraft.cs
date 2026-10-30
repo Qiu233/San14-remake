@@ -9,6 +9,7 @@ public sealed partial class CityDomesticDraft : IDisposable
     private sealed record Snapshot(ushort[] People, byte[] Focus, ushort Recruiter, ushort Trainer,
         (ushort Person, byte Target)[] Associations);
     private readonly GameState _state;
+    private GameState _presentationWorld;
     private readonly SourceWorldContext _current;
     private readonly CityState _city;
     private readonly ArmyOperationContext _definitions;
@@ -21,6 +22,7 @@ public sealed partial class CityDomesticDraft : IDisposable
     private readonly CityDomesticNarrationSource? _narrationSource;
     private readonly OwnedArmyGovernorComparatorInputs? _governorInputs;
     private readonly GameResourceRepository? _personResources;
+    private readonly bool? _userSelectionServicePresent;
     private readonly int[] _held;
     private readonly int _forceId;
     private readonly bool _forceValid;
@@ -40,10 +42,12 @@ public sealed partial class CityDomesticDraft : IDisposable
     internal CityDomesticDraft(GameState state, SourceWorldContext current, CityState city,
         ArmyOperationContext definitions, LoadedScenario scenario, string language, OwnedBaseCapacityInputs panels,
         bool capacityBound, AreaAdministrationOfficerCardSource card, AreaAdministrationPreviewSource preview, bool initializePolicy = true,
-        CityDomesticNarrationSource? narrationSource = null, OwnedArmyGovernorComparatorInputs? governorInputs = null, GameResourceRepository? personResources = null)
+        CityDomesticNarrationSource? narrationSource = null, OwnedArmyGovernorComparatorInputs? governorInputs = null, GameResourceRepository? personResources = null,
+        bool? userSelectionServicePresent = null)
     {
-        _state = state; _current = current; _city = city; _definitions = definitions; _scenario = scenario;
+        _state = state; _presentationWorld = state; _current = current; _city = city; _definitions = definitions; _scenario = scenario;
         _language = language; _panels = panels; _capacityBound = capacityBound; _card = card; _preview = preview; _narrationSource = narrationSource; _governorInputs = governorInputs; _personResources = personResources;
+        _userSelectionServicePresent = userSelectionServicePresent;
         var receiver = City();
         if (K(receiver.PhysicalSlot, "city_identity") != city.Id) throw Missing("city_domain_identity");
         if (!K(current.ReadBaseNativeValidity(receiver), "city_validity")) throw Missing("invalid_city");
@@ -210,7 +214,17 @@ public sealed partial class CityDomesticDraft : IDisposable
     private void Record(CityDomesticDuty duty, CityDomesticSelectionKind selection, int physical, ushort identity) =>
         _operations.Add(new(duty == CityDomesticDuty.Recruiter ? CityDutyKind.Recruitment : CityDutyKind.Training,
             selection, physical, identity));
-    public bool IsForWorld(GameState state) => !_closed && ReferenceEquals(_state, state);
+    public bool IsForWorld(GameState state) => !_closed && ReferenceEquals(_presentationWorld, state);
+    /// <summary>Adopts the exact successor of a presentation-only transaction
+    /// already established by the caller. The draft's baseline and staged local
+    /// changes remain intact; this does not admit a gameplay world replacement.</summary>
+    public bool TryAdoptPresentationWorld(GameState previous, GameState replacement)
+    {
+        if (_closed || _checkpoint is not null || ReferenceEquals(previous, replacement) ||
+            !ReferenceEquals(_presentationWorld, previous)) return false;
+        _presentationWorld = replacement;
+        return true;
+    }
     public AreaAdministrationQuery<CityDomesticCompletionIntent> ExportCompletionIntent(CityDomesticTerminal terminal)
     {
         try

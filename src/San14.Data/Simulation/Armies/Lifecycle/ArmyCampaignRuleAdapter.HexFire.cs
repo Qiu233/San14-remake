@@ -113,14 +113,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         List<ArmyFireAnnouncement> announcements, List<PeriodReportEntry> reports)
         => IgniteCurrentHex(state, current, hexId, duration, commandFire,
             latest => ReadFireStageSampler(latest, moment).Day450, moment.CalendarCycleOrdinal,
-            changes, announcements);
+            changes, announcements,sourceDate:moment.PreWriterThirdDate);
 
     //The real2E3CB0 body is also called by automatic tactics outside the
     //scheduled fire stages. Its writer takes the actual day getter and sink;
     //no invented scheduler moment or second world is needed by that caller.
     private GameState IgniteCurrentHex(GameState state, SourceWorldContext current, int hexId, int duration,
         bool commandFire, Func<GameState, int> readDay, long revision, List<HexFireChange> changes,
-        List<ArmyFireAnnouncement> announcements, List<CampaignEffectRequest>? feedback = null)
+        List<ArmyFireAnnouncement> announcements, List<CampaignEffectRequest>? feedback = null,
+        NativeMapSeasonDate? sourceDate = null)
     {
         var latest = state;
         Apply();
@@ -176,7 +177,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                     FirstImmunity(person) is int trait)
                 {
                     ImmunityReport(trait, army, null, originalHex);
-                    announcements.Add(new(unitId.Value, officerId, trait));
+                    latest=AppendArmyFireAnnouncementCurrent(latest,current,army,officerId,trait,false,
+                        sourceDate??throw OccupationMissing("fire_speech_source_date"),revision,feedback);
                     return;
                 }
             }
@@ -205,7 +207,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (terrain.RawField2A == 0 || Fire(hexId) != 0 ||
                 terrain.RawField41 == 0 && ((terrain.RawField2C & 2) == 0 || !validArmy)) return;
             Write(hexId, Math.Clamp(duration, 0, 720), true);
-            if (unitId is int burnedUnit) announcements.Add(new(burnedUnit, officerId, null) { FromFireCommand = commandFire });
+            if (unitId is not null) latest=AppendArmyFireAnnouncementCurrent(latest,current,army,officerId,null,commandFire,
+                sourceDate??throw OccupationMissing("fire_speech_source_date"),revision,feedback);
         }
         int Person(int id) => OccupationKnown(current.ReadPersonLookupReference(id <= 6000 ? id : 0)?.PhysicalSlot, "fire_Person_pointer");
         int? FirstImmunity(int person, bool testCondition = true)

@@ -12,6 +12,10 @@ internal partial class UiSourcePortrait : Control
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xACFB207E),1,3);
 
+    internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
+        LoadedSprite portrait, UiSourceLayout face4)
+        => ConfigureSource(repository,assets,shader,portrait,face4,1,3);
+
     internal void ConfigureFace2(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait)
         => ConfigureSource(repository,assets,shader,portrait,new UiSourceLayout(repository,0xA9487A40),1,3);
 
@@ -56,6 +60,15 @@ internal partial class UiSourcePortrait : Control
         ConfigureSource(repository, assets, shader, portrait, source, 1, 3);
     }
 
+    internal void ConfigureLayoutPane(GameResourceRepository repository,UiAssets assets,Shader shader,
+        LoadedSprite portrait,UiSourceLayout source,int nodeIndex)
+    {
+        var pane=LcskSpriteNodeReader.Read(source.Source.Layout,source.Nodes[nodeIndex]);
+        int components=pane.Groups.Single().ComponentCount;
+        if(components is not (2 or 3))throw new InvalidDataException("Summary portrait requires its actual two/three texture mask.");
+        ConfigureSource(repository,assets,shader,portrait,source,nodeIndex,components);
+    }
+
     private void ConfigureSource(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait,
         UiSourceLayout source,int nodeIndex,int componentCount)
     {
@@ -84,8 +97,12 @@ internal partial class UiSourcePortrait : Control
         SetMeta("portrait_sprite",portrait.Definition.Name);
         SetMeta("source_component_count",componentCount);
 
-        Texture2D Mask(LcskSpriteNodePart part) => MapPortraitQuad.UsesSrgbView(repository,assets,part.SpriteName)
-            ? assets.SrgbLayoutSpritePart(source.Source,part.SpriteName,part.Uv)
-            : assets.SpritePart(part.SpriteName,part.Uv);
+        Texture2D Mask(LcskSpriteNodePart part)
+        {
+            var declared = assets.SourceLayoutSprite(source.Source, part.SpriteName);
+            return MapPortraitQuad.UsesSrgbView(repository, assets, part.SpriteName, declared)
+                ? assets.SrgbSpritePart(part.SpriteName, part.Uv, declared)
+                : assets.SpritePart(part.SpriteName, part.Uv, declared);
+        }
     }
 }

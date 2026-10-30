@@ -112,22 +112,37 @@ public static class PlayableSkeleton
         commands = new PlayableOfficerMoveOrders(commands, cityOfficerMovementRules);
         commands = new PlayableTalentOrders(commands, talent as IPlayableTalentCommandRules);
         commands = new CampaignExpeditionOrders(commands, armyCreationRules as ICampaignExpeditionExecution);
+        commands = new OrdinaryArmyDeploymentOrders(commands, armyCreationRules as IGeneralUnitTargetExecution);
+        commands = new CityArmyDeploymentCancellationOrders(commands, armyCreationRules as IPlayableDeploymentCancellationRules);
         commands = new PlayableFalseReportOrders(commands, falseReportCommandRules);
         commands = new PlayableWaypointOrders(commands, routes, PlayableDiplomacy.IsHostile, cityEntryResources, cityEntryState,
             armyConstructionRules, unitBehaviorRules, armyMovementCommands);
         commands = new PlayableDiplomacyOrders(commands, diplomacyPolicy);
         commands = new PlayableTacticOrders(commands, routes, tactics);
         commands = new PlayablePersonnelOrders(commands, personnel);
+        commands = new PersonnelHireExecutionOrders(commands, armyCreationRules as IPersonnelHireExecutionRules);
         commands = new DistrictCommandOrders(commands, armyCreationRules as IDistrictCommandRules);
         commands = new PersonnelGroupOrders(commands, armyCreationRules as IPersonnelGroupEditExecution,
             armyCreationRules as IPersonnelGroupMovementExecution);
         commands = new DoctrineResearchOrders(commands, armyCreationRules as IDoctrineResearchCommandRules);
+        commands = new ProposalOrders(commands, armyCreationRules as IProposalExecution);
         commands = new StrategicCommandOrders(commands, armyCreationRules as IStrategicCommandRules);
+        commands = new ForeignTradeOrders(commands, armyCreationRules as IForeignTradeCommandRules);
+        commands = new SceneryInvestmentOrders(commands, armyCreationRules as IPlayableSceneryInvestmentRules);
+        commands = new IntelligenceCommandOrders(commands, armyCreationRules as IIntelligenceCommandRules);
+        commands = new DistrictIntelligenceOrders(commands, armyCreationRules as IIntelligenceSlotCommandRules,
+            armyCreationRules as IDistrictMilitaryIntelligenceTransferRules);
         commands = new SelfRecommendationOrders(commands, nativePeriodContinuationRules as INormalTurnSelfRecommendationRules);
         commands = new CoalitionInvitationOrders(commands, nativePeriodContinuationRules as INormalTurnCoalitionInvitationRules);
         commands = new OfficerPriorityOrders(commands, armyCreationRules as IOfficerPriorityRules);
+        commands = new AiStrategyMemoryOrders(commands, armyCreationRules as IAiStrategyMemoryExecution,
+            armyCreationRules as IDistrictPurposeExecution);
+        commands = new ArmyCautionOrders(commands, armyCreationRules as IArmyCautionCommandRules);
+        commands = new ArmyGroupPurposeOrders(commands, armyCreationRules as IArmyGroupPurposeExecution);
+        commands = new ArmyInstructionOrders(commands, armyCreationRules as IArmyInstructionExecution);
         commands = new RulerDecisionOrders(commands, nativePeriodContinuationRules as INormalPeriodCapturedRulerRules,
             nativePeriodContinuationRules as IRulerSuccessionRules ?? armyCreationRules as IRulerSuccessionRules);
+        commands = new CurrentWorldEditOrders(commands, armyCreationRules as ICurrentWorldEditExecution);
         commands = new PlayableDiplomaticOfficerGuard(commands);
         if (armyCreationRules is IPlayableArmyCreationPreparationRules preparationRules)
             commands = new PlayableArmyCreationPreparationGuard(commands, preparationRules);
@@ -140,7 +155,7 @@ public static class PlayableSkeleton
                 baseCaptureAftermathRules, cityEntryResources, cityEntryState, siegeSettlementRules, fieldSettlementRules,
                 nativePeriodContinuationRules, captureReturningPersonRules, captureArmyHomeRules, lastCityPersonnelRules, gateEntryState,
                 baseContactPriorityRules, armyContactRules, districtCommandBudgetRules, armyWithdrawalRules),
-            new Reporting(districtCommandBudgetRules), routes)
+            new Reporting(districtCommandBudgetRules, armyCreationRules as IPlayableStrategyEntryRules), routes)
         { TacticRules = tactics, OrdinaryDeploymentRules = ordinaryDeploymentCommitRules, PersonnelRules = personnel,
             GovernanceRosterRules = governanceRosterRules };
     }
@@ -259,6 +274,8 @@ public static class PlayableSkeleton
             if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
                 throw new InvalidOperationException("The campaign has ended.");
             var resumedPeriod = state.NativePeriodContinuation;
+            if (resumedPeriod is null && armyCreationRules is IPlayableStrategyExitRules strategyExit)
+                state = strategyExit.ExitStrategyForProgress(state);
             if (resumedPeriod is null) routes.ValidateWorld(state);
             // A report belongs to this period only. Diplomacy can retain missions
             // across periods, while its completed reports are appended once.
@@ -488,6 +505,12 @@ public static class PlayableSkeleton
                         PreparedDeployments = [], PreparedOfficerMoves = [], PreparedTalentOrders = [],
                         PeriodReports = resumedPeriod is null ? [] : tacticState.PeriodReports
                     }, nativeSubdayRules ?? throw new InvalidDataException("Native Army waiting rules are unavailable."));
+                if (nativeState.CampaignTurnStop is not null || nativeState.NativePlayableTerminal is not null)
+                {
+                    reports.AddRange(nativeState.PeriodReports);
+                    reports.AddRange(nativeState.PendingCommandReports);
+                    return TerminalReport(nativeState with { NativePeriodContinuation = null });
+                }
                 if (nativeState.NativePeriodContinuation?.Cursor is not null) return nativeState;
                 var normalTurn = nativePeriodContinuationRules as IPlayableNativeNormalTurnRules
                     ?? throw new InvalidDataException("Native normal Turn rules are unavailable after completed Army Progress.");
@@ -1635,20 +1658,23 @@ public static class PlayableSkeleton
         }
     }
 
-    private sealed class Reporting(IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules) : IReportingRules
+    private sealed class Reporting(IPlayableDistrictCommandBudgetRules? districtCommandBudgetRules,
+        IPlayableStrategyEntryRules? strategyEntryRules) : IReportingRules
     {
         public GameState CompleteReport(GameState state)
         {
             RequireSkeleton(state);
             if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
                 return state with { Phase = TurnPhase.Strategy };
+            GameState strategy;
             if (districtCommandBudgetRules is not null)
-                return districtCommandBudgetRules.RefreshDistrictCommandBudgets(state) with { Phase = TurnPhase.Strategy };
-            if (state.NativeArmySimulation is not null)
+                strategy = districtCommandBudgetRules.RefreshDistrictCommandBudgets(state) with { Phase = TurnPhase.Strategy };
+            else if (state.NativeArmySimulation is not null)
                 throw new InvalidDataException("The owned campaign needs current district command budget rules.");
+            else strategy = state with { Phase = TurnPhase.Strategy };
             // Legacy skeletons retain their known quantities. No inferred
             // replenishment is installed when the current rule owner is absent.
-            return state with { Phase = TurnPhase.Strategy };
+            return strategyEntryRules?.EnterStrategyAfterReport(strategy) ?? strategy;
         }
     }
 

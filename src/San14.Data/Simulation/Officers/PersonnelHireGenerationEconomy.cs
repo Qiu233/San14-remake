@@ -51,7 +51,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                         area, city, abilities, AssignmentCount));
                     //3417B0 offset16 uses2BD730(CityCA,2): remaining-month
                     //recruitment, independently of Army food consumption.
-                    cityTroops = unchecked(cityTroops + HireEconomyValue(preview.Soldiers(physical)));
+                    cityTroops = unchecked(cityTroops + HireEconomyValue(preview.Soldiers(physical, recruitmentPolicy: force =>
+                        ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, 0x1C, true).Value)));
                 }
                 int percent = ReadHireGoldLandmarkPercent(state, current, city);
                 if (percent > 0 && cityGold > 0)
@@ -68,15 +69,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         return new(gold, food, expense, recruitment);
 
-        int AssignmentCount(int physical)
-        {
-            int count = (current.ReadAssignmentPersonAreaVector(physical)
-                ?? throw HireEconomyMissing("Person_task_vector")).ActiveCount1E8;
-            //The quote's ordinary one-task result is independent of the
-            //unowned full-effort switch. A reached multi-task branch is not.
-            if (count > 1) throw HireEconomyMissing("Person_multiple_tasks_full_effort_current");
-            return count;
-        }
+        int AssignmentCount(int physical) => (current.ReadAssignmentPersonAreaVector(physical)
+            ?? throw HireEconomyMissing("Person_task_vector")).ActiveCount1E8;
     }
 
     //2BD250, the actual Area income scalar used by22D9E0. No draft selection
@@ -105,8 +99,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (valid)
         {
             int full = HireEconomyK(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "gold_Person_trait126");
-            task = full > 0 ? 100 : assignmentCount(person) is 0 or 1 ? 100
-                : throw HireEconomyMissing("gold_Person_multiple_task_effort");
+            int? count = full > 0 ? null : assignmentCount(person);
+            task = CeEconomyRuntimeContext.ReadPersonTaskPercent(false, full, count, null)
+                ?? throw HireEconomyMissing("gold_Person_task_count_fallback");
             int identity = HireEconomyK(current.ReadPersonIdentity(person), "gold_Person_identity");
             intelligence = abilities is TacticRemakeCurrentAbilities actual
                 ? HireEconomyK(actual.ResolveDimension(state, identity, 2), "gold_Person_Intelligence")
@@ -141,10 +136,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private int ReadHireCityGoldExpense(GameState state, SourceWorldContext current,
         BaseReference city, NativeMapSeasonDate date, IReadOnlyList<AreaReference?> areas,
-        AreaAdministrationPreviewSource recruitment)
+        AreaAdministrationPreviewSource recruitment, bool? includeMonthlyPayrollAndRecruitment = null)
     {
         if (current.ReadSpecialBaseCapacity(city)) return int.MaxValue;
-        int expense = date.Day is >= 21 and <= 30 ? ReadHireSalaryQuote(state, current, city) : 0;
+        bool includeMonthly = includeMonthlyPayrollAndRecruitment ?? (date.Day is >= 21 and <= 30);
+        int expense = includeMonthly ? ReadHireSalaryQuote(state, current, city) : 0;
         ReadRepair(city);
         foreach (var entry in current.ReadArmyReturnRegisteredGates() ?? throw HireEconomyMissing("Gate_registryA0"))
         {
@@ -159,7 +155,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (HireEconomyK(current.ReadAreaCitySlot(area), "expense_Area35") != city.PhysicalSlot ||
                 HireEconomyK(current.ReadAreaCurrentForceSlot(area), "expense_Area_Force") != force) continue;
             int physical = HireEconomyK(area.PhysicalSlot, "expense_Area_identity");
-            if (date.Day is >= 21 and <= 30 && HireEconomyValue(recruitment.Soldiers(physical)) != 0)
+            if (includeMonthly && HireEconomyValue(recruitment.Soldiers(physical, recruitmentPolicy: owner =>
+                ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, owner, 0x1C, true).Value)) != 0)
                 expense = unchecked(expense + ReadHireDomesticFeeCurrent(state, current, city, recruit: true));
         }
         expense = unchecked(expense + ReadHireAreaAdministrationGoldExpenseCurrent(state, current, city));

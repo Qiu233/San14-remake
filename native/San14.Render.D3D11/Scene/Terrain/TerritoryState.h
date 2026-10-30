@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Original CE 18CA70 ScreenMap style writer and original 3F6EB0 camera inverse.
 // The caller owns current display controls. No fitted camera, screenshot color,
 // frame ordinal, original-process pointer, or per-request file access is used.
@@ -38,7 +39,7 @@ struct Controls {std::int32_t styleSelector=0,width4Selector=0,width5Selector=-1
 struct Selection {std::int32_t band=0,fraction=0;double distance=0;Controls controls;};
 struct Owner {Constants constants{};};
 inline Profile loadProfile(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"profile.bin",std::ios::binary);
+    NativePreparedInputFile input(directory/"profile.bin",std::ios::binary);
     if(!input)throw std::runtime_error("Original ScreenMap source profile is absent");
     auto read=[&](void* value,std::size_t bytes){input.read(static_cast<char*>(value),bytes);
         if(!input)throw std::runtime_error("Original ScreenMap source profile is incomplete");};

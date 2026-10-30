@@ -115,20 +115,25 @@ public sealed record LcskAnimationClip(string Name, float StartFrame, float EndF
         .Select(track => new LcskAnimationValue(track.NodeId, track.Channel, track.Curve.Sample(frame))).ToArray());
 }
 
-/// <summary>Kind2 clip / kind1 curve reader shared by authored UI layouts. It
-/// consumes the normal repository's retained LCSK pools, not offline snapshots.</summary>
+/// <summary>Kind2 clips with either separate kind1 curves and bindings or
+/// the older inline curve/binding records. Both use the authored64-byte keys
+/// in the normal repository's retained LCSK pools.</summary>
 public static class LcskAnimationReader
 {
     public static IReadOnlyList<LcskAnimationClip> Read(LcskDocument layout, IReadOnlySet<string> namesToRead)
     {
         var animations = Block(layout, 4, 2);
         var groups = Block(layout, 3, 2);
-        var curves = Block(layout, 9, 1);
         var bindings = Block(layout, 2, 1);
+        var separateCurves = layout.Blocks.SingleOrDefault(block => block.Tag == 9 && block.Kind == 1);
+        bool inline = separateCurves is null;
+        var curves = separateCurves ?? bindings;
+        int curveStride = inline ? 40 : 32;
+        int bindingStride = inline ? 40 : 12;
         if (animations.RecordBytes.Length != animations.RecordCount * 44 ||
             groups.RecordBytes.Length != groups.RecordCount * 4 ||
-            curves.RecordBytes.Length != curves.RecordCount * 32 ||
-            bindings.RecordBytes.Length != bindings.RecordCount * 12)
+            curves.RecordBytes.Length != curves.RecordCount * curveStride ||
+            bindings.RecordBytes.Length != bindings.RecordCount * bindingStride)
             throw Missing("record_boundaries");
         var names = Pool(animations, 9);
         var linkedGroups = Pool(animations, 10);
@@ -137,7 +142,7 @@ public static class LcskAnimationReader
         var curveValues = new LcskAnimationCurve[curves.RecordCount];
         for (int index = 0; index < curveValues.Length; index++)
         {
-            var row = curves.RecordBytes.AsSpan(index * 32, 32);
+            var row = curves.RecordBytes.AsSpan(index * curveStride, 32);
             int keyIndex = U16(row, 24);
             if ((uint)keyIndex >= (uint)keys.Entries.Count) throw Missing("curve_key_reference");
             byte[] bytes = keys.Entries[keyIndex].Data;
@@ -157,11 +162,14 @@ public static class LcskAnimationReader
         int nodeCount = layout.Blocks.Single(block => block.Tag == 1).RecordCount;
         for (int i = 0; i < bindings.RecordCount; i++)
         {
-            var row = bindings.RecordBytes.AsSpan(i * 12, 12);
-            int curve = BinaryPrimitives.ReadInt32LittleEndian(row);
-            int node = U16(row, 4);
+            var row = bindings.RecordBytes.AsSpan(i * bindingStride, bindingStride);
+            //The old record embeds the same32-byte curve declaration before
+            //its node/property binding. The split form names a shared curve.
+            int curve = inline ? i : BinaryPrimitives.ReadInt32LittleEndian(row);
+            int bindingOffset = inline ? 32 : 4;
+            int node = U16(row, bindingOffset);
             if ((uint)curve >= (uint)curveValues.Length || node >= nodeCount) throw Missing("binding_reference");
-            tracks.Add(new(node, row[7], curveValues[curve]));
+            tracks.Add(new(node, row[bindingOffset + 3], curveValues[curve]));
         }
         var result = new List<LcskAnimationClip>();
         for (int i = 0; i < animations.RecordCount; i++)

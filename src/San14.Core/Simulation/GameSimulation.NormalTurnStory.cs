@@ -20,7 +20,7 @@ public sealed partial class GameSimulation
         result = rules.PrepareNormalTurnStoryStep(pending.Candidate, story);
         if (result.UnresolvedOwner is not null || result.Prepared is not { } prepared || prepared.Step != story.NextStep)
             return false;
-        if ((story.Steps[story.NextStep] is StoryMessage or StoryNarration) && prepared.Text is null)
+        if ((story.Steps[story.NextStep] is StoryMessage or StoryNarration or StoryFormatOnlyMessage) && prepared.Text is null)
         {
             result = result with { UnresolvedOwner = "story.prepared_text" };
             return false;
@@ -47,11 +47,11 @@ public sealed partial class GameSimulation
             playback.Story is not { } story || receipt.RequestSequence != story.Sequence ||
             receipt.Step != story.NextStep || story.NextStep >= story.Steps.Length)
             return false;
-        if ((story.Steps[story.NextStep] is StoryMessage or StoryNarration) &&
+        if ((story.Steps[story.NextStep] is StoryMessage or StoryNarration or StoryFormatOnlyMessage) &&
             story.PreparedStep is not { Text: not null }) return false;
         _normalPeriod = pending with { Candidate = pending.Candidate with
         {
-            NativeNormalTurnContinuation = turn with { StoryPlayback = playback with { Story = story.CompleteStep() } }
+            NativeNormalTurnContinuation = turn with { StoryPlayback = playback with { Story = story.CompleteStep(receipt) } }
         } };
         return true;
     }

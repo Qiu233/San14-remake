@@ -32,7 +32,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             int earnedGold = ReadHireAreaGoldIncomeCurrent(state, current, area, city, abilities, AssignmentCount);
             int earnedFood = CityFoodIncomeSource.ReadArea(state, current, area, city, force, date.Month, abilities);
             gold = unchecked(gold + earnedGold); food = unchecked(food + earnedFood);
-            int recruited = HireEconomyValue(preview.Soldiers(id, mode: 0));
+            int recruited = HireEconomyValue(preview.Soldiers(id, mode: 0, recruitmentPolicy: force =>
+                ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, 0x1C, true).Value));
             int mapped = EconomyK(current.ReadAreaCitySlot(area), "recruit_Area35");
             var mappedCity = current.ReadCityTableReference(mapped < 52 ? mapped : 0)
                 ?? throw EconomyMissing("recruit_City_pointer");
@@ -129,10 +130,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             state.Areas[areaId] = owner with { NativeNormalAftermath = population,
                 TurnIncomeTotals = totals with { RecruitedTroops = unchecked((ushort)Math.Max(0, amount)) } };
         }
-        int AssignmentCount(int person)
-        {
-            int count = (current.ReadAssignmentPersonAreaVector(person) ?? throw EconomyMissing("income_Person_vector")).ActiveCount1E8;
-            return count is 0 or 1 ? count : throw EconomyMissing("income_multiple_task_full_effort_current");
-        }
+        int AssignmentCount(int person) => (current.ReadAssignmentPersonAreaVector(person)
+            ?? throw EconomyMissing("income_Person_vector")).ActiveCount1E8;
     }
 }

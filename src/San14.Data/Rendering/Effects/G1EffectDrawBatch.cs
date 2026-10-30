@@ -31,6 +31,8 @@ public sealed record G1EffectDrawPacket(LoadedMapEffectResources Resources,
     int DynamicByteOffset, int DynamicStride, int DynamicCount, int? MeshSubdrawIndex,
     int SortBucket, long SubmissionOrdinal, ReadOnlyMemory<byte> MaterialBytes)
 {
+    /// <summary>Live CPU submission identity; never encoded in the GPU ABI.</summary>
+    public G1EffectParticleRenderSource? Source { get; init; }
     public bool IsTail => Configuration == 6;
     public int DynamicStart32 => DynamicByteOffset >> 5;
     public bool UsesFullMeshLayout => (Flags & 0x3C500) != 0;

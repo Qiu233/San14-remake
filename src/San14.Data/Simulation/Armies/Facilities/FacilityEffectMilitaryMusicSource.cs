@@ -7,7 +7,8 @@ internal static class FacilityEffectMilitaryMusicSource
 {
     internal static GameState Apply(GameState state, SourceWorldContext current,
         NativeArmyProgressStageMoment moment,
-        Func<GameState, List<CampaignEffectRequest>, TrapEffectApplication> createDamageOperation)
+        Func<GameState, List<CampaignEffectRequest>, TrapEffectApplication> createDamageOperation,
+        Func<GameState,ArmyUnitReference,FacilityArmyViewSnapshot> captureView)
     {
         var effects = state.CampaignEffectRequests ?? throw Missing("effect_owner");
         var requests = new List<CampaignEffectRequest> { new(null, null) { FacilityAuraReset = new() } };
@@ -24,7 +25,7 @@ internal static class FacilityEffectMilitaryMusicSource
                 var facility = new ObjectReference(entry.PhysicalSlot);
                 if (K(current.ReadObjectNativeValidity(facility), "consumer_Object_validity"))
                     working = ApplyFacility(working, current, facility, requests,
-                        createDamageOperation, ref damageOperation);
+                        createDamageOperation, captureView, ref damageOperation);
                 node = current.ReadRegistryNodeNext(node) ?? throw Missing("candidate_next");
             }
             if (damageOperation is not null) working = damageOperation.CompleteOrdinaryFacilityEffects(working);
@@ -41,6 +42,7 @@ internal static class FacilityEffectMilitaryMusicSource
     private static GameState ApplyFacility(GameState state, SourceWorldContext current,
         ObjectReference facility, List<CampaignEffectRequest> requests,
         Func<GameState, List<CampaignEffectRequest>, TrapEffectApplication> createDamageOperation,
+        Func<GameState,ArmyUnitReference,FacilityArmyViewSnapshot> captureView,
         ref TrapEffectApplication? damageOperation)
     {
         var channels = new List<HexListHandle>(2);
@@ -57,7 +59,7 @@ internal static class FacilityEffectMilitaryMusicSource
             //190F40 fills both real channels before testing them. Empty lists
             //return before1902C0 or any numerical handler, for every kind.
             //A nonempty unsupported facility still needs its real writer.
-            if (kind == 5)
+            if (kind is 3 or 4 or 5 or 6 or 8 or 15)
             {
                 damageOperation ??= createDamageOperation(state, requests);
                 damageOperation.ApplyOrdinaryFacility(state, facility, kind, channels.ToArray());
@@ -97,7 +99,8 @@ internal static class FacilityEffectMilitaryMusicSource
                             var image = state.Units.GetValueOrDefault(id) ?? throw Missing("handler_Army_image");
                             state = state with { Units = new(state.Units) { [id] = ArmyMoraleSourceAdapter.WithCurrent(image, receipt.After1A) } };
                             var directory = current.CurrentMapObjectDirectory ?? throw Missing("pulse_facility_identity");
-                            requests.Add(new(null, null) { MilitaryMusicPulse = new(directory.ReceiverAtPhysical(facility.PhysicalSlot!.Value), id, at) });
+                            requests.Add(new(null, null) { MilitaryMusicPulse = new(directory.ReceiverAtPhysical(facility.PhysicalSlot!.Value), id, at)
+                                {Positive=true,SourceView=captureView(state,army)} });
                         }
                     }
                     finally { current.ClearNearbyTemporary(copy, true); }

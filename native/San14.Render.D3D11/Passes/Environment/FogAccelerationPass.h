@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Include after model constant-buffer creation and the render-target scope.
 #include "FogAccelerationCamera.h"
 namespace San14::Render {
@@ -12,7 +13,7 @@ class FogAccelerationPass {
     FogAccelerationPass& operator=(const FogAccelerationPass&)=delete;
 
     void prepare(ID3D11Device* device,const fs::path& source) {
-        unsigned mode,profile,enabled;std::ifstream settings(source/"settings.txt");
+        unsigned mode,profile,enabled;NativePreparedInputFile settings(source/"settings.txt");
         if(!(settings>>mode>>profile>>enabled)||mode!=7||profile!=2||enabled>1)
             throw std::runtime_error("Fog reduction requires the supported scattering profile");
         fogEnabled_=enabled!=0;
@@ -59,7 +60,7 @@ class FogAccelerationPass {
 
     static Resources prepareResources(ID3D11Device* device,const fs::path& source) {
         UINT resource,sampled,target,width,height;
-        std::ifstream descriptor(source/"target.txt");descriptor>>resource>>sampled>>target>>width>>height;
+        NativePreparedInputFile descriptor(source/"target.txt");descriptor>>resource>>sampled>>target>>width>>height;
         if(!descriptor||width!=1||height!=1)throw std::runtime_error("Original fog acceleration 1x1 target absent");
         Resources out;D3D11_TEXTURE2D_DESC td{};
         td.Width=width;td.Height=height;td.MipLevels=td.ArraySize=1;td.Format=DXGI_FORMAT(resource);
@@ -70,7 +71,7 @@ class FogAccelerationPass {
         D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=DXGI_FORMAT(target);rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
         check(device->CreateRenderTargetView(out.texture.Get(),&rd,&out.target),"PrepareMain original fog acceleration RTV");
         out.viewport={0,0,float(width),float(height),0,1};out.scissor={0,0,LONG(width),LONG(height)};
-        std::ifstream manifest(source/"passes.txt");std::string relative;
+        NativePreparedInputFile manifest(source/"passes.txt");std::string relative;
         if(!manifest)throw std::runtime_error("Original fog acceleration pass list absent");
         UINT index=0;
         while(manifest>>relative) {
@@ -79,13 +80,13 @@ class FogAccelerationPass {
             auto vs=load(directory/"vs.dxbc"),ps=load(directory/"ps.dxbc");
             check(device->CreateVertexShader(vs.data(),vs.size(),nullptr,&pass.vertex),"PrepareMain original fog acceleration VS");
             check(device->CreatePixelShader(ps.data(),ps.size(),nullptr,&pass.pixel),"PrepareMain original fog acceleration PS");
-            std::ifstream cbs(directory/"cbuffers.txt");std::string stage,file;UINT slot;
+            NativePreparedInputFile cbs(directory/"cbuffers.txt");std::string stage,file;UINT slot;
             if(!cbs)throw std::runtime_error("Original fog acceleration CB list absent");
             while(cbs>>stage>>slot>>file){auto cb=buffer(device,load(directory/file),D3D11_BIND_CONSTANT_BUFFER);
                 if(stage=="VS"||stage=="vs")pass.vertexConstants.at(slot)=cb;
                 else if(stage=="PS"||stage=="ps")pass.pixelConstants.at(slot)=cb;
                 else throw std::runtime_error("Original fog acceleration CB stage differs");}
-            UINT topology;std::ifstream geometry(directory/"geometry.txt");geometry>>pass.count>>topology;
+            UINT topology;NativePreparedInputFile geometry(directory/"geometry.txt");geometry>>pass.count>>topology;
             if(!geometry||pass.count!=(index==0?1u:500u)||topology!=1)throw std::runtime_error("Original fog acceleration POINT draw differs");
             pass.topology=D3D11_PRIMITIVE_TOPOLOGY(topology);++index;
         }

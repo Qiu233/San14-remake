@@ -14,7 +14,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var title = ReadHistoryDataText(0, kind + 0x127);
             (int, string)[] choices = kind == 11 ? [(0, ReadHistoryDataText(1, 0xB4)),
                 (10, ReadHistoryDataText(1, 0xB5)), (30, ReadHistoryDataText(1, 0xB6))] : [];
-            return new(forceId, kind, title, choices, Read, Advice);
+            return new(forceId, kind, title, choices, Read, Advice,
+                (role,target,second,page)=>ReadStrategicSelectorCurrent(rules,role,target,second,page));
 
             AreaAdministrationQuery<StrategicCommandAdvicePresentation> Advice(int executor, int target,
                 int? second, int military, int independence, CampaignAppRandomState random)

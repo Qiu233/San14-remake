@@ -36,7 +36,7 @@ public sealed record ArmyCautionGroupLabel(bool IsKnown, int? Label)
 /// <summary>Caution relations and group labels. Registry and member ordering
 /// belong to WorldIndexesState. Omitted rows have the normal inactive default;
 /// unknown and nondefault inactive rows are stored explicitly.</summary>
-public sealed record ArmyCautionsState
+public sealed partial record ArmyCautionsState
 {
     public Dictionary<int, ArmyCautionRelation> Relations { get; init; } = [];
     public Dictionary<int, ArmyCautionGroupLabel> GroupLabels { get; init; } = [];

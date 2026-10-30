@@ -16,7 +16,7 @@ public partial class Main
         int usage = KeyboardPhysicalInput.Hid(key.PhysicalKeycode);
         if (!key.Pressed && gameplayKeyboardConsumedPresses.Remove(usage)) return true;
         if (!key.Pressed || key.Echo || usage == 0 || _preferences is null || _failed || _shuttingDown ||
-            _advancingPeriod || IsReturningToTitle || HasSelfRecommendation || HasCoalitionInvitation || HasRulerDecision || _diplomacyNegotiation is not null ||
+            IsReturningToTitle || HasSelfRecommendation || HasCoalitionInvitation || HasRulerDecision || HasNormalStoryResult || HasNormalStoryAudioExit || HasNormalStoryForceRank || _diplomacyNegotiation is not null ||
             _session is not { PlayerForceId: not null } || _world is null ||
             HasEnvironmentSettings || GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit) return false;
 
@@ -27,10 +27,18 @@ public partial class Main
             (key.CtrlPressed ? KeyboardBindingCatalog.ControlModifier : 0);
         if (!gameplayKeyboardActions.TryGetValue(encoded, out int command)) return false;
         bool consumed;
-        if (command == 13) consumed = RequestGameplayKeyboardCancel();
+        if(_advancingPeriod)
+        {
+            if(command==12)consumed=TryTogglePeriodPlayback();
+            else if(command is >=25 and <=29)consumed=TryFocusCommanderCard(command-25);
+            else if(command==13&&(HasManualTacticCommands||commanderCardRequests.Any(request=>!request.Automatic)))
+            {RunUiAction(RequestManualTacticBack, allowDuringPeriod: true);consumed=true;}
+            else consumed=false;
+        }
+        else if (command == 13) consumed = RequestGameplayKeyboardCancel();
         else if (command == 11 && HasMapSystemMenu && !HasCampaignSavePage && !HasScenarioSettings &&
             _mapSystemConfirmation is null)
-        { RunUiAction(CloseMapSystemMenu); consumed = true; }
+        { RunUiAction(RequestCloseMapSystemMenu); consumed = true; }
         else if (!GameplayMapKeyboardAdmitted()) consumed = false;
         else if (command == 11) { RunUiAction(OpenMapSystemMenu); consumed = true; }
         else if (command == 12 && _world.Phase == TurnPhase.Strategy)
@@ -59,16 +67,17 @@ public partial class Main
         }
     }
 
-    private bool GameplayMapKeyboardAdmitted() =>
+    private bool GameplayMapKeyboardAdmitted(bool allowCommanderTarget=false) =>
         _residentMap is { IsPlayableMapReady: true } map && map.IsVisibleInTree() &&
-        !HasMilitaryOrderPage && !HasAdministrationPage && !HasCampaignSavePage && !HasMapSystemMenu &&
-        !HasScenarioSettings && !HasCommandWorkspace && !HasActionReport && !HasPersonnelConfirmation &&
+        !TutorialOverlayOwnsInput &&
+        (!HasMilitaryOrderPage||allowCommanderTarget&&_manualTacticCommand is{View:null}) && !HasAdministrationPage && !HasCampaignSavePage && !HasMapSystemMenu &&
+        !HasScenarioSettings && !HasCommandWorkspace && !HasActionReport && !HasIncomeReport && !HasProposalsPage && !HasPersonnelConfirmation &&
         _detailsView is null && _commandDetailsView is null && _reportMapReturn is null && _periodReportView is null;
 
     private bool RequestGameplayKeyboardCancel()
     {
         // Back never silently dismisses a spoken page or accepts a question.
-        foreach (var speech in new[] { _transportNarration, _deploymentNarration, _administrationNarration,
+        foreach (var speech in new[] { _transportNarration, _deploymentNarration, _generalUnitTarget?.Narration, _administrationNarration,
             _cityDomesticNarration, _cityMerchantNarration, _governanceNarration })
             if (speech is not null && speech.IsVisibleInTree() && !speech.IsQueuedForDeletion()) return true;
         Action? back = null;
@@ -77,9 +86,10 @@ public partial class Main
         else if (_mapSystemConfirmation is { } system) back = system.RequestCancel;
         else if (_unitOrderConfirmation is { } unitQuestion) back = unitQuestion.RequestCancel;
         else if (_governanceRosterConfirmation is { } governanceQuestion) back = governanceQuestion.RequestCancel;
+        else if (HasCampaignEventCommandPage) back = RequestCampaignEventCommandBack;
         else if (HasCampaignSavePage) back = CloseCampaignSaves;
         else if (HasScenarioSettings) back = _scenarioSettingsView!.RequestBack;
-        else if (HasMapSystemMenu) back = CloseMapSystemMenu;
+        else if (HasMapSystemMenu) back = RequestCloseMapSystemMenu;
         else if (_commandDetailsView is { } detail) back = detail.RequestClose;
         else if (_reportMapReturn is { } reportMap) back = reportMap.RequestBack;
         else if (_falseReportTarget is not null) back = RequestFalseReportBack;
@@ -88,14 +98,22 @@ public partial class Main
         else if (HasPersonnelAdministrationPage) back = RequestPersonnelAdministrationBack;
         else if (HasOfficerOfficePage) back = RequestOfficerOfficesBack;
         else if (HasCampaignCommandPage) back = RequestCampaignCommandBack;
+        else if(HasGeneralUnitTargetPage)back=RequestGeneralUnitTargetBack;
+        else if(HasManualTacticCommands)back=RequestManualTacticBack;
+        else if(HasEnemyFootholdCommands)back=RequestEnemyFootholdCommandsBack;
         else if (HasCommanderSelectionPage) back = CloseCommanderSelectionPage;
-        else if (HasPersonnelItemPage) back = ClosePersonnelItems;
+        else if (HasPersonnelItemPage) back = RequestPersonnelItemBack;
         else if (HasTalentOrdersPage) back = RequestTalentOrdersBack;
         else if (HasTalentAutoSearchPage) back = RequestTalentAutoSearchBack;
         else if (HasDiplomacyOrdersPage) back = RequestDiplomacyOrdersBack;
+        else if (HasForeignTradePage) back = RequestForeignTradeOrdersBack;
+        else if (HasIntelligencePage) back = RequestIntelligenceBack;
+        else if (HasSceneryInvestmentPage) back = RequestSceneryInvestmentBack;
         else if (HasCityOfficerMovementPage) back = RequestCityOfficerMovementBack;
         else if (HasPersonnelGroupsPage) back = RequestPersonnelGroupsBack;
         else if (HasCityMerchantPage) back = RequestCityMerchantBack;
+        else if (HasProposalsPage) back = RequestProposalsBack;
+        else if (HasIncomeReport) back = RequestIncomeReportBack;
         else if (HasCommandWorkspace) back = CloseCommandWorkspace;
         else if (_cityDomesticPresenter is { } domestic)
             back = () => { if (_cityDomesticSelectors?.TryCancel() != true) domestic.RequestBack(); };
@@ -115,6 +133,7 @@ public partial class Main
             back = report.RequestAcknowledge;
         else if (_residentMap is { IsCityCommandMenuOpen: true } map)
             back = () => { ClearDeploymentCityDraft(); map.CloseCityCommandMenu(); };
+        else if (_residentMap?.UserDisplayMode==1) back=()=>TryCloseGeographicAdvantages();
         else if (_sceneView is null && _residentMap is not null && _world is { Phase: TurnPhase.Reporting })
             back = () => RunPlayAction(FinishPlayableReport);
         else if (_sceneView is null && _residentMap is not null && !_mapFocused)

@@ -180,10 +180,8 @@ internal sealed partial class TrapEffectApplication
         var policies = State.Forces.GetValueOrDefault(at)?.PolicyEffects ?? throw Missing("policy_Force_bitmaps");
         if (!Need(policies.ReadActivation(effect), "policy_active1CB")) return 0;
         if (Need(policies.ReadSuppression(effect), "policy_suppressed1D5")) return 0;
-        //22C250 consumes the enabled reform definition's current signed36,
-        //not41D690's personnel bank. That mutable value has no saved owner in
-        //the present profile; preserve the reached branch as specific Unknown.
-        throw Missing("active_unsuppressed_policy" + effect + "_signed36_owner");
+        var owner=State.Forces.GetValueOrDefault(at)??throw Missing("policy_Force_owner");
+        return Need(BattleRemakeCurrentForcePolicies.ReadForceEffect(State,owner,effect,Current),"policy_signed36");
     }
     private void RecordGross(ArmyUnitReference army, int amount)
     {
@@ -307,11 +305,12 @@ internal sealed partial class TrapEffectApplication
                 //filters. Empty and ineligible victim lists read neither key.
                 string ceiling = category == 4 ? RelationCeiling : FacilityObjectRelationCeiling;
                 string adjustment = category == 4 ? RelationAdjustment : FacilityObjectRelationAdjustment;
-                if (before > Read(State, ceiling))
+                int Parameter(string key)=>category==4?Read(State,key):OrdinaryFacilityRelationParameter(key);
+                if (before > Parameter(ceiling))
                     State = ForceRelationChangeCurrent.Apply(State, Current, own, other,
-                        () => unchecked(Read(State, ceiling) - before), key => Read(State, key));
+                        () => unchecked(Parameter(ceiling) - before), key => Read(State, key));
                 State = ForceRelationChangeCurrent.Apply(State, Current, own, other,
-                    () => Read(State, adjustment), key => Read(State, key));
+                    () => Parameter(adjustment), key => Read(State, key));
             }
         }
         finally { Current.ClearNearbyTemporary(copy, true); }

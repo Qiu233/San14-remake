@@ -103,11 +103,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         finally { current.ClearNearbyTemporary(objects, true); current.ClearNearbyTemporary(hexes, true); }
     }
 
-    // 28AF70 first visits registered Objects in this same Area. Only when no
-    // such target is found does it visit the registered Areas across the map.
+    //28AF70 visits same-Area Objects, then all registered Areas using one
+    //strict-distance minimum. Equal distances retain the earlier candidate.
     private static int? ReadIncitementTargetHexCurrent(SourceWorldContext current, int spawn)
     {
-        int area = StrategyNeed(current.ReadHexAreaSlot(new(spawn)), "incitement_target_spawn_Area");
+        int rawArea = StrategyNeed(current.ReadHexAreaSlot(new(spawn)), "incitement_target_spawn_Area");
+        var areaReference = current.ReadAreaTableReference(rawArea <= 500 ? rawArea : 0)
+            ?? throw StrategyMissing("incitement_target_spawn_Area_pointer");
+        int area = StrategyNeed(current.ReadAreaPhysicalSlot(areaReference), "incitement_target_spawn_Area_physical");
         int? selected = null; int distance = int.MaxValue;
         foreach (var entry in ReadIncitementRegistry(current, RegistryKind.Object))
         {
@@ -144,7 +147,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (StrategyNeed(current.ReadHexAreaSlot(pointer), "incitement_target_Hex12") != area) continue;
             Keep(StrategyNeed(pointer.PhysicalSlot, "incitement_target_Hex_physical"));
         }
-        if (selected is not null) return selected;
         foreach (var entry in ReadIncitementRegistry(current, RegistryKind.Area))
         {
             var region = new AreaReference(StrategyNeed(entry.PhysicalSlot, "incitement_fallback_Area"));

@@ -12,7 +12,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var cards = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario,
             Seed.Language, _baseCapacityInputs, _repository);
         var queryState = appRandom is null ? state : state with { CampaignAppRandom32 = appRandom };
-        return new(new DiplomacyUiSource(this, queryState, current, _scenario, forceId, districtId, kind, Card));
+        return new(new DiplomacyUiSource(this, queryState, current, _scenario, forceId, districtId, kind, Card, state));
 
         AreaAdministrationQuery<AreaAdministrationOfficerCard> Card(int id)
         {
@@ -23,10 +23,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //701220/701C20/7024F0/7032F0 mount context10. Their fresh
                 //89BCC0 owner leaves the trait observer1C0 null; the supplied
                 //8A3130 callback is the person's name, not that observer.
-                var card = Seed.Language == "TC" ? cards.ReadCity(0, physical, valid, 10)
-                    : cards.ReadTransport(0, physical, valid);
-                if (Seed.Language != "TC" && valid) card = card with
-                { Traits = AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>.Unknown("diplomacy.ui.SC_trait_context10") };
+                var card = cards.ReadCity(0, physical, valid, 10);
                 return AreaAdministrationQuery<AreaAdministrationOfficerCard>.Known(card);
             }
             catch (InvalidDataException missing)

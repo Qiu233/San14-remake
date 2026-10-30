@@ -12,7 +12,8 @@ internal sealed record HistoryMessageOperands(ArmyUnitReference? Army0 = null, A
     int? Person2 = null, int? Person3 = null, int? Force1 = null, int? Person4 = null, int? District0 = null,
     int? Force2 = null, int? Force3 = null, int? Force4 = null,
     int? ObjectDefinition0 = null, int? ObjectDefinition1 = null,
-    ushort? Base1 = null, ushort? Base2 = null, ushort? Base3 = null, ushort? Base4 = null, string? String3 = null);
+    ushort? Base1 = null, ushort? Base2 = null, ushort? Base3 = null, ushort? Base4 = null, string? String3 = null,
+    int? Area1 = null, int? Area2 = null, int? Area3 = null, int? Area4 = null);
 internal sealed record HistoryTextResult(GameState State, string Text)
 {
     public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
@@ -21,7 +22,7 @@ internal sealed record HistoryTextResult(GameState State, string Text)
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment, MonthlyMaintenance, ArmyMapSpeech, DoctrineResearch, NormalTurn, StrategicCommands }
+    private enum ReportMessageOrigin { SavedHistory, AreaWarning, ArmyTargetWarning, BaseNearbyWarning, AllianceExpiryWarning, ForceObjectiveWarning, ArmySupplyWarning, AttackRequestExpiryWarning, GarrisonFoodShortage, Governance, Duel, CaptiveRelease, Talent, Diplomacy, PersonnelAdministration, PersonnelDevelopment, MonthlyMaintenance, ArmyMapSpeech, DoctrineResearch, NormalTurn, StrategicCommands, Proposal, IntelligenceCommands, Occupation, DuelPresentation, DuelCapture, PersonnelItemTransfer, StoryStateControl }
     internal string ReadHistoryDataText(int section, int id)
     {
         var data = _repository.LoadMessages(Seed.Language, MessageKind.Data).Messages;
@@ -36,29 +37,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         ? ReadHistoryDataText(0, 0x118 + choice) : CampaignHistoryWriter.Supplemental(state)
             ?? throw new InvalidDataException("campaign-history.current_empty_text");
 
-    internal string ReadHistoryArmyName(GameState state, SourceWorldContext current, ArmyUnitReference army)
-    {
-        if (!HistoryKnown(current.ReadArmyUnitNativeValidity(army), "Army_name_validity"))
-            return CampaignHistoryWriter.Supplemental(state) ?? throw HistoryMissing("current_empty_text");
-        ushort commander = HistoryKnown(current.ReadArmyUnitCommanderId(army), "Army_name_Commander12");
-        var person = (commander <= 6000 ? current.ReadPersonLookupReference(commander) : current.ReadTransferPersonTableReference(0))
-            ?? throw HistoryMissing("Army_name_Person_lookup");
-        if (person.PhysicalSlot is not int physical) return CampaignHistoryWriter.Supplemental(state)
-            ?? throw HistoryMissing("current_empty_text");
-        if (!HistoryKnown(current.ReadPersonNativeValidity(physical), "Army_name_Person_validity"))
-            return CampaignHistoryWriter.Supplemental(state) ?? throw HistoryMissing("current_empty_text");
-        int id = HistoryKnown(current.ReadPersonIdentity(physical), "Army_name_Person_identity");
-        if (current.ResolveOfficerSource(id) != physical || !state.Officers.TryGetValue(id, out var owner))
-            throw HistoryMissing("Army_name_current_Person");
-        string name = owner.Name ?? throw HistoryMissing("Army_name_current_Name");
-        //22ECB0 calls309450(name,0): complete current full name then
-        //Data1/0352; the outer Army n2 field adds its own ^02/^00.
-        return HeadHistory(name) + HeadHistory(ReadHistoryDataText(1, 0x352));
-    }
+    internal string ReadHistoryArmyName(GameState state, SourceWorldContext current, ArmyUnitReference army) =>
+        CurrentPersonListSource.ReadArmyName(state, current, army, ReadHistoryDataText);
 
     internal HistoryTextResult FormatHistoryReport(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands)
         => FormatReportMessage(state,current,root,operands,ReportMessageOrigin.SavedHistory,null);
+
+    private HistoryTextResult FormatOccupationReport(GameState state, SourceWorldContext current,
+        int root, HistoryMessageOperands operands) =>
+        FormatReportMessage(state, current, root, operands, ReportMessageOrigin.Occupation, null);
 
     private HistoryTextResult FormatDuelHistoryReport(GameState state, SourceWorldContext current,
         int root, HistoryMessageOperands operands)
@@ -154,7 +142,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             personArgument2: operands.Person2, personArgument3: operands.Person3, forceArgument1: operands.Force1,
             personArgument4: operands.Person4, voiceRequests: voices);
         var context = new ReportCurrent(this, () => latest, current, people, operands,
-            origin is ReportMessageOrigin.MonthlyMaintenance or ReportMessageOrigin.NormalTurn);
+            origin is ReportMessageOrigin.MonthlyMaintenance or ReportMessageOrigin.NormalTurn or ReportMessageOrigin.Occupation);
         int Draw(int bound)
         {
             if (bound < 2) return 0;
@@ -178,9 +166,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReportMessageOrigin.GarrisonFoodShortage=>vm.ResolveGarrisonFoodShortageReport(context,Draw,root),
             ReportMessageOrigin.Governance=>vm.ResolveGovernanceNarration(context,Draw,root),
             ReportMessageOrigin.Duel=>vm.ResolveDuelHistoryReport(context,Draw,root),
+            ReportMessageOrigin.DuelPresentation=>vm.ResolveDuelPresentation(context,Draw,root),
+            ReportMessageOrigin.DuelCapture=>vm.ResolveDuelCapture(context,Draw,root),
             ReportMessageOrigin.CaptiveRelease=>vm.ResolveCaptiveReleaseReport(context,Draw,root),
             ReportMessageOrigin.Talent=>vm.ResolveTalentReport(context,Draw,root),
             ReportMessageOrigin.PersonnelAdministration=>vm.ResolvePersonnelAdministrationReport(context,Draw,root),
+            ReportMessageOrigin.PersonnelItemTransfer=>vm.ResolvePersonnelItemTransfer(context,Draw,root),
+            ReportMessageOrigin.StoryStateControl=>vm.ResolveStoryStateControl(context,Draw,root),
             ReportMessageOrigin.PersonnelDevelopment=>vm.ResolvePersonnelDevelopmentReport(context,Draw,root),
             ReportMessageOrigin.MonthlyMaintenance=>vm.ResolveMonthlyMaintenance(context,Draw,root),
             ReportMessageOrigin.NormalTurn=>vm.ResolveNormalTurnReport(context,Draw,root),
@@ -188,6 +180,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             ReportMessageOrigin.DoctrineResearch=>vm.ResolveDoctrineResearch(context,Draw,root),
             ReportMessageOrigin.StrategicCommands=>vm.ResolveStrategicCommandReport(context,Draw,root),
             ReportMessageOrigin.Diplomacy=>vm.ResolveDiplomacyReport(context,Draw,root),
+            ReportMessageOrigin.Proposal=>vm.ResolveProposalReport(context,Draw,root),
+            ReportMessageOrigin.IntelligenceCommands=>vm.ResolveIntelligenceReport(context,Draw,root),
+            ReportMessageOrigin.Occupation=>vm.ResolveOccupationReport(context,Draw,root),
             _=>vm.ResolveHistoryReport(context,Draw,root)
         };
         return new(latest, text) { Voices = voices?.Pending ?? [], SpatialVoices = voices?.PendingSpatial ?? [] };
@@ -221,8 +216,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         public int Personality(int a, Func<int> key) => people.Personality(a, key);
         public string AreaText(int a, int f)
         {
-            if (a != 0 || f != '3') throw HistoryMissing("Area_field");
-            int raw = operands.Area0 ?? throw HistoryMissing("Area_argument");
+            if (f != '3') throw HistoryMissing("Area_field");
+            int raw = AreaArgument(a);
             if (raw is < 1 or > 500) return "";
             var selected = current.ReadAreaTableReference(raw) ?? throw HistoryMissing("Area_lookup");
             if (!HistoryKnown(current.ReadAreaNativeValidity(selected), "Area_validity")) return "";
@@ -230,6 +225,24 @@ public sealed partial class ArmyCampaignRuleAdapter
             var name = latest().Areas.GetValueOrDefault(physical)?.Name ?? throw HistoryMissing("Area_current_name");
             return CityDomesticMessageFormatting.FormatCityNameField(name);
         }
+        //310770 returns the unformatted saved argument before native
+        //validity for a bare selector. Field2 requires a valid Area; field3
+        //returns the same fully formatted UTF16 length as its text callback.
+        public int AreaValue(int argument, int field)
+        {
+            int raw = AreaArgument(argument);
+            if (field == 0) return raw;
+            if (field == '3') return AreaText(argument, field).Length;
+            if (field != '2') throw HistoryMissing("Area_numeric_field");
+            if (raw is < 1 or > 500) return 0;
+            var area = current.ReadAreaTableReference(raw) ?? throw HistoryMissing("Area_lookup");
+            return HistoryKnown(current.ReadAreaNativeValidity(area), "Area_validity") ? raw : 0;
+        }
+        private int AreaArgument(int argument) => (argument switch
+        {
+            0 => operands.Area0, 1 => operands.Area1, 2 => operands.Area2,
+            3 => operands.Area3, 4 => operands.Area4, _ => null
+        }) ?? throw HistoryMissing("Area_argument");
         //Bare City argument is read without the display-field range gate.
         public int CityValue(int a, int f)
         {
@@ -363,6 +376,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var arg = Army(a);
             if (f == 0) return HistoryKnown(arg.PhysicalSlot, "Army_argument_identity");
+            if(f is >= 'I' and <= 'L')
+            {
+                int lookup=HistoryKnown(arg.PhysicalSlot,"Army_argument_identity");
+                if(lookup is <1 or >500)return 0;
+                var army=current.ReadArmyUnitTableReference(lookup)??throw HistoryMissing("Army_argument_lookup");
+                if(!HistoryKnown(current.ReadArmyUnitNativeValidity(army),"Army_argument_validity"))return 0;
+                int id=ArmyDestructionQueue.ResolveUnitId(latest(),army.PhysicalSlot)??throw HistoryMissing("Army_construction_image");
+                var selection=latest().ReadArmyLifecycle()?.Receivers.FindUnit(id)?.FacilityConstruction
+                    ??throw HistoryMissing("Army_construction_selection46");
+                int definition=selection.DefinitionKey is null?0:MapObjectSourceDirectory.DefinitionSlot(selection.DefinitionKey);
+                //30E350 compares raw Army46. It does not dereference a
+                //potentially aliased definition table before this predicate.
+                return definition==(f switch {'I'=>8,'J'=>11,'K'=>12,'L'=>14,_=>0})?1:0;
+            }
             if (f != '2') throw HistoryMissing("Army_field_" + f.ToString("X"));
             int raw = HistoryKnown(arg.PhysicalSlot, "Army_argument_identity");
             if (raw is < 1 or > 500) return 0;

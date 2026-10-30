@@ -1,6 +1,6 @@
 namespace San14.Data;
 
-public enum DetailMiniMapIconKind { City, Gate, Area, Force, Person }
+public enum DetailMiniMapIconKind { City, Gate, Area, Force, Person, District }
 
 public sealed record DetailMiniMapMarker(DetailMiniMapIconKind Kind, int Identity,
     int HexId, int X, int Y, byte ColorIndex);
@@ -29,6 +29,10 @@ public static class DetailMiniMapProjection
         z += (float)CeHexWorldCoordinates.InitializedOriginZ;
         return Project(DetailMiniMapIconKind.Force, identity, hexId, colorIndex, new(hexId, x, z));
     }
+
+    /// <summary>District selection8 uses the same raw-ushort projection as Force7.</summary>
+    public static DetailMiniMapMarker ProjectDistrict(int identity, ushort hexId, byte colorIndex) =>
+        ProjectForce(identity, hexId, colorIndex) with { Kind = DetailMiniMapIconKind.District };
 
     private static DetailMiniMapMarker Project(DetailMiniMapIconKind kind, int identity, int hexId,
         byte colorIndex, ProjectedMapPoint point)

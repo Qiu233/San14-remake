@@ -12,9 +12,19 @@ internal static class DuelOpportunityParameters
     internal const string Trait61OrEffect29Chance = "duel-opportunity:trait61-or-effect29-chance";
     internal const string Trait62Chance = "duel-opportunity:trait62-chance";
 
+    // Independently qualified SC PE-loader initialization. The complete
+    // scalar-owner audit has no writes, address escapes or relocated pointers;
+    // SC2CADE3/2CADEB read these signed coefficients from its virtual tail.
+    private static readonly IReadOnlyDictionary<string, int> ScLoaderDefaults =
+        new Dictionary<string, int>
+        {
+            [Trait61OrEffect29Chance] = 0,
+            [Trait62Chance] = 0,
+        };
+
     // Offline paired image initial values. These are installed once for the
     // actual fresh profile; current queries consume only the saved bank.
-    internal static GameState InstallFresh(GameState state)
+    internal static GameState InstallFresh(GameState state, LoadedScenario source)
     {
         var simulation = state.NativeArmySimulation ?? throw Missing("parameter_owner");
         var bank = simulation.Parameters;
@@ -28,15 +38,22 @@ internal static class DuelOpportunityParameters
             throw Missing("fresh_parameter_owner");
         var values = new Dictionary<string, int>(bank.Int32Values)
         { [MaximumOpportunities] = 2, [MinimumEffectiveStrength] = 65, [BaseChance] = 15, [CountDecayPercent] = 100 };
-        AddConfirmedFreshChanceProfile(state, values);
+        AddConfirmedFreshChanceProfile(state, source, values);
         DuelActorWeightParameters.AddFresh(bank.Language, values, bank.Float32Values);
         DuelOpponentParameters.AddFresh(bank.Language, values, bank.Float32Values);
         DuelSelectionParameters.AddFresh(bank.Language, values, bank.Float32Values);
         return state with { NativeArmySimulation = simulation with { Parameters = bank with { Int32Values = values } } };
     }
 
-    private static void AddConfirmedFreshChanceProfile(GameState state, Dictionary<string, int> values)
+    private static void AddConfirmedFreshChanceProfile(GameState state, LoadedScenario source, Dictionary<string, int> values)
     {
+        if (state.NativeArmySimulation?.Parameters is { Language: "SC" } sc)
+        {
+            if (sc.RuleVersion != SimulationRuleIdentity.ForLocale("SC"))
+                throw Missing("fresh_sc_rule_profile");
+            foreach (var (key, value) in ScLoaderDefaults) values.Add(key, value);
+            return;
+        }
         //One authorized eight-byte observation at the user's confirmed TC
         //Yellow Turbans/intermediate new-map checkpoint (2026-10-24).
         //These are measured zeroes, not virtual-data defaults. Normal source
@@ -46,7 +63,11 @@ internal static class DuelOpportunityParameters
             state.ScenarioKey != "san14://file/0010_TC/scedaexce01.s14" ||
             state.ContentHashes.GetValueOrDefault(state.ScenarioKey) !=
                 "28B8ECFF3FD42E770425247AE5CD07864EEA7FB6F3A6C3AC3199563A2858BF49" ||
-            state.CampaignEventWorld is not { ScenarioId: 1, ScenarioMode: 1 } ||
+            // This fresh constructor precedes female reset. Its identity is
+            // the same actual loaded header later used by the event owner.
+            source.ScenarioSource.ResourceUri != state.ScenarioKey ||
+            source.ScenarioSource.Sha256 != state.ContentHashes.GetValueOrDefault(state.ScenarioKey) ||
+            source.Snapshot.WorldParameters is not { RawField48: 1, RawModeValue: 1 } ||
             state.DifficultyId != "intermediate" || state.NewGameOptions?.DifficultyId != "intermediate" ||
             BattleRemakeCurrentSettings.ReadSelectorE58(state) != 1 ||
             BattleRemakeCurrentSettings.ReadInt32(state, 0x28) != 1 ||
@@ -57,9 +78,16 @@ internal static class DuelOpportunityParameters
         values.Add(Trait62Chance, 0);
     }
 
-    internal static int Read(GameState state, string key) =>
-        state.NativeArmySimulation?.Parameters is { Language: "TC" or "SC" } parameters &&
-        !parameters.Float32Values.ContainsKey(key) && parameters.Int32Values.TryGetValue(key, out int value)
-            ? value : throw Missing("parameter_" + key);
+    internal static int Read(GameState state, string key)
+    {
+        if (state.NativeArmySimulation?.Parameters is not { Language: "TC" or "SC" } parameters ||
+            parameters.Float32Values.ContainsKey(key)) throw Missing("parameter_" + key);
+        if (parameters.Int32Values.TryGetValue(key, out int value)) return value;
+        // Missing older SC keys use only this independently proved immutable
+        // rule profile. Saved integers win; reads never reinstall a bank.
+        if (parameters.Language == "SC" && parameters.RuleVersion == SimulationRuleIdentity.ForLocale("SC") &&
+            ScLoaderDefaults.TryGetValue(key, out value)) return value;
+        throw Missing("parameter_" + key);
+    }
     internal static InvalidDataException Missing(string field) => new("current.DuelOpportunity_" + field);
 }

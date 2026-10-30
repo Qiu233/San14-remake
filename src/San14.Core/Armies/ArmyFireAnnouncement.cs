@@ -6,11 +6,15 @@ namespace San14.Core;
 public sealed record ArmyFireAnnouncement(int UnitId, int OfficerId, int? PersonalityId)
 {
     public bool FromFireCommand { get; init; }
+    public ArmyFireAnnouncementSnapshot? SourceSnapshot { get; init; }
 }
 
 /// <summary>Unplayed fire-casting effect. The renderer decides whether the
 /// actor has a visible model; simulation does not fabricate a graphics object.</summary>
-public sealed record ArmyFireCastPresentation(int UnitId, int OfficerId, int HexId);
+public sealed record ArmyFireCastPresentation(int UnitId, int OfficerId, int HexId)
+{
+    public ArmyFireCastSnapshot? SourceSnapshot { get; init; }
+}
 
 public sealed partial record GameState
 {

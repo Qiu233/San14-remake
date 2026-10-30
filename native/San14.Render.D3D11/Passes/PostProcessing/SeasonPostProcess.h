@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Seasonal post-processing selection and current settings. Imported packet
 // layout belongs to SeasonFrame; retained optics, history and GPU resources
 // remain with their ordinary post-processing owners.
@@ -22,7 +23,7 @@ struct SourceLight {uint32_t object{},groupMask{};SelectedLightMode mode{};};
 struct SeasonCallerSource {uint32_t season{},transitionGroups{};float fade{},luminance{};std::vector<SourceLight> lights;};
 struct CallerSources {uint32_t auxiliarySelector{};bool automaticExposure{};float lockedAdaptation{};std::vector<SeasonCallerSource> seasons;};
 inline CallerSources readCallerSources(const std::filesystem::path& path) {
-    CallerSources out;std::ifstream input(path,std::ios::binary);uint32_t count{};
+    CallerSources out;NativePreparedInputFile input(path,std::ios::binary);uint32_t count{};
     auto word=[&](){uint32_t value{};input.read(reinterpret_cast<char*>(&value),4);if(!input)throw std::runtime_error("Current post caller source truncated");return value;};
     auto scalar=[&](){const auto bits=word();float value;std::memcpy(&value,&bits,4);return value;};
     count=word();out.auxiliarySelector=word();out.automaticExposure=(word()&(1u<<25))!=0;out.lockedAdaptation=scalar();

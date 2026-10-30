@@ -64,10 +64,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         throw CityMerchantSource.Missing(operation + "_City_owner_kind_" + receiver.Kind + "_physical_" + id + "_link_" + link);
     }
 
-    //Extracted TC initial-image parameter; provenance is retained offline in
-    //economy-scalars01.json. Other profiles do not inherit this value.
-    private static int? ReadCityMerchantAppearanceProbabilityBase(string language) => language == "TC" ? 10 : null;
-
     private GameState RefreshCityMerchantAppearance(GameState state, SourceWorldContext current,
         BaseReference receiver, bool fresh)
     {
@@ -77,12 +73,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (user != -1) return state;
         var mode = current.ArmyReturnTransferMode ?? throw CityMerchantSource.Missing("appearance_570850");
         if (mode.Present && CityMerchantSource.K(mode.Value, "appearance_570850_value") != 0) return state;
-        if (Seed.Language != "TC") throw CityMerchantSource.Missing("appearance_SC_rule_profile");
         int id = CityMerchantSource.K(receiver.PhysicalSlot, "appearance_City_pointer");
         byte size = CityMerchantSource.K(current.ReadCitySizeB8(receiver), "appearance_SizeB8");
-        int basis = ReadCityMerchantAppearanceProbabilityBase(Seed.Language)
-            ?? throw CityMerchantSource.Missing("appearance_probability_4AFF0_i32");
-        int chance = Math.Clamp(unchecked(size * 20 + basis), 0, 100);
+        var parameters = new CityMerchantRuleParameters(state, Seed.Language);
+        int basis = parameters.Read("appearance-base");
+        int chance = Math.Clamp(unchecked(size * parameters.Read("appearance-size-scale") + basis), 0, 100);
         var date = state.NativeMapSeason?.ThirdDate ?? throw CityMerchantSource.Missing("appearance_ThirdDate");
         int gold = CityMerchantSource.K(current.ReadBaseResource(receiver, BaseResourceKind.Gold), "appearance_Gold");
         int food = CityMerchantSource.K(current.ReadBaseResource(receiver, BaseResourceKind.Supplies), "appearance_Food");
@@ -148,30 +143,36 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     //302F20 consumes all twelve draws before selecting the current month.
-    //The TC profile is from the already extracted parameter table. SC stays
-    //unknown rather than receiving a TC quotation during an unrelated Turn.
+    //Both editions use their independently extracted immutable parameters;
+    //missing historical city quotes remain untouched by the caller above.
     private GameState RefreshCityMerchantPrice(GameState state, SourceWorldContext current, BaseReference receiver)
     {
         int location = CityMerchantSource.K(current.ReadBaseObjectLink(receiver), "price_Base4E");
-        if (location >= 52 || Seed.Language != "TC") return state;
+        if (location >= 52) return state;
         if (state.CampaignEventWorld?.CurrentUserIndex is not sbyte user) throw CityMerchantSource.Missing("price_App_current_user");
         if (user != -1) return state;
         int id = CityMerchantSource.K(receiver.PhysicalSlot, "price_City_pointer");
         var city = ReadCityMerchantDomainOwner(state, receiver, location, id, "price");
         int month = state.NativeMapSeason?.ThirdDate.Month ?? throw CityMerchantSource.Missing("price_ThirdDate");
         var random = new SharedSourceRandom32(state.CampaignAppRandom32?.State ?? throw CityMerchantSource.Missing("price_App32"));
-        int[] basis = [40, 40, 40, 30, 30, 20, 60, 60, 60, 50, 50, 50];
-        int[] bounds = [3, 2, 2, 3, 3, 3, 3, 2, 2, 3, 2, 2];
+        var parameters = new CityMerchantRuleParameters(state, Seed.Language);
+        int winter = parameters.Read("price-winter-base"), spring = parameters.Read("price-spring-base"),
+            june = parameters.Read("price-june-base"), summer = parameters.Read("price-summer-base"),
+            autumn = parameters.Read("price-autumn-base");
+        int wide = parameters.Read("price-wide-random-bound"), narrow = parameters.Read("price-narrow-random-bound"),
+            step = parameters.Read("price-random-step");
+        int[] basis = [winter, winter, winter, spring, spring, june, summer, summer, summer, autumn, autumn, autumn];
+        int[] bounds = [wide, narrow, narrow, wide, wide, wide, wide, narrow, narrow, wide, narrow, narrow];
         int[] monthly = new int[12];
-        for (int n = 0; n < monthly.Length; n++) monthly[n] = unchecked(basis[n] + random.Next(bounds[n]) * 10);
+        for (int n = 0; n < monthly.Length; n++) monthly[n] = unchecked(basis[n] + random.Next(bounds[n]) * step);
         int drought = 100, locust = 100;
         foreach (var area in current.ReadRegisteredAreaReferences() ?? throw CityMerchantSource.Missing("price_AreaB0"))
         {
             var entry = area ?? throw CityMerchantSource.Missing("price_Area_pointer");
             if (id is < 1 or > 51 || CityMerchantSource.K(current.ReadAreaCitySlot(entry), "price_Area35") != id) continue;
             byte flags = CityMerchantSource.K(current.ReadAreaFlags38(entry), "price_Area38");
-            if ((flags & 4) != 0) drought = 90;
-            if ((flags & 0x10) != 0) locust = 120;
+            if ((flags & 4) != 0) drought = parameters.Read("price-drought-percent");
+            if ((flags & 0x10) != 0) locust = parameters.Read("price-locust-percent");
         }
         int value = (int)((long)monthly[Math.Clamp(month - 1, 0, 11)] * drought * locust / 10000);
         //Fallback City0's C8 is only a local writer result: no playable city

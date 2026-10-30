@@ -25,6 +25,7 @@ public partial class Main
     private void RefreshPlayablePeriodReport()
     {
         if(HasForcePresentation||TryOpenPersonnelPresentation()){RetirePeriodReportView();return;}
+        if (HasIncomeReport) { RetirePeriodReportView(); return; }
         if (_failed || _repository is null || _sceneView is not null ||
             _world is not { Phase: TurnPhase.Reporting, RulesetId: PlayableSkeleton.RulesetId } world ||
             _playerForceId is not int player || !world.Forces.ContainsKey(player))
@@ -64,6 +65,7 @@ public partial class Main
     private void ClosePlayablePeriodReport()
     {
         CloseActionReport();
+        CloseIncomeReport();
         _reportPresentationWorld = null; _reportPresentationText = null; _reportPresentation = null;
         RetirePeriodReportView();
         SetMeta("play_report_overlay_visible", false);

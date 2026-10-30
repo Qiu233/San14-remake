@@ -63,7 +63,7 @@ internal static class NativeNormalTurnSaveFields
     private static bool Integer(JsonObject owner, string key, int min, int max) => Integer(owner[key], min, max);
     private static bool SupportedAction(JsonNode? node, int version) => node is JsonValue field &&
         field.TryGetValue<int>(out int action) &&
-        (action == 16 || version >= 175 && action is (3 or 7 or 8) || version >= 166 && action is (25 or 26) || version >= 167 && action is (48 or 49));
+        (action == 16 || version >= 211 && action == 12 || version >= 175 && action is (3 or 7 or 8) || version >= 166 && action is (25 or 26) || version >= 167 && action is (48 or 49));
     private static bool Integer(JsonNode? value, int min, int max) => value is JsonValue field &&
         field.TryGetValue<int>(out int result) && result >= min && result <= max;
 }

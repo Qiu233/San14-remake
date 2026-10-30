@@ -157,6 +157,17 @@ internal sealed class TrapFeedback
         CommitHistory(5, district, place, day, 5012, formatted.Text);
     }
     private int Day() => campaignDay();
+    internal void StatisticReport(ArmyUnitReference army,ObjectReference facility,int dimension,sbyte before,sbyte after)
+    {
+        string name=ReportObjectName(facility);
+        int textId=dimension switch{0=>0x22F,1=>0x22C,2=>0x22D,3=>0x22E,4=>0x230,
+            _=>throw Missing("statistics_dimension")};
+        var text=package.FormatHistoryReport(state(),current,0x322F,
+            new(Army0:army,String0:name,String1:package.ReadHistoryDataText(1,textId),
+                String2:package.ReadHistoryDataText(1,after<=before?0x24F:0x24E)));
+        replace(text.State);
+        CommitHistory(5,District(army),Need(current.ReadArmyUnitRawHex2A(army),"statistics_report_Hex2A"),Day(),5012,text.Text);
+    }
     private string TraitName(int trait) => current.ReadPersonalityName(new(trait));
     internal void CounterReport(ObjectReference facility, int definition, ArmyUnitReference army, int trait, HexReference context)
     {
@@ -313,11 +324,25 @@ internal sealed class TrapFeedback
         int definitionId, int hex, float? range = null) => Requests.Add(new(null, null)
         { FacilityTrapPresentation = new(operation, Receiver(facility), definitionId, hex, range) });
     internal void ArmyVisual(ArmyTrapPresentationOperation operation, ArmyUnitReference army,
-        ObjectReference facility, int definitionId, int hex) => Requests.Add(new(null, null)
-        { ArmyTrapPresentation = new(operation, ArmyId(army), hex, Receiver(facility), definitionId) });
+        ObjectReference facility, int definitionId, int hex)
+    {
+        var arena=state().ReadArmyLifecycle()??throw Missing("visual_Army_lifecycle");
+        var target=arena.Slots[Need(army.PhysicalSlot,"visual_Army_pointer")].ReceiverId;
+        Requests.Add(new(null,null){ArmyTrapPresentation=new(operation,ArmyId(army),hex,Receiver(facility),definitionId)
+        {
+            TargetReceiverId=target,
+            SourceView=operation is ArmyTrapPresentationOperation.AbnormalConfusionStarted or ArmyTrapPresentationOperation.AbnormalImmobilizationStarted
+                ?package.CaptureFacilityPeriodicArmyViewCurrent(state(),current,army):null
+        }});
+    }
     internal void Damage(ArmyFacilityDamagePresentationOperation operation, ArmyUnitReference army,
-        int hex, int gross, sbyte? modifier = null) => Requests.Add(new(null, null)
-        { ArmyFacilityDamagePresentation = new(operation, ArmyId(army), hex, gross, modifier) });
+        int hex, int gross, sbyte? modifier = null)
+    {
+        var arena=state().ReadArmyLifecycle()??throw Missing("damage_Army_lifecycle");
+        var target=arena.Slots[Need(army.PhysicalSlot,"damage_Army_pointer")].ReceiverId;
+        Requests.Add(new(null,null){ArmyFacilityDamagePresentation=new(operation,ArmyId(army),hex,gross,modifier)
+            {TargetReceiverId=target}});
+    }
 
     internal GameState PublishCurrentState(GameState value)
     {

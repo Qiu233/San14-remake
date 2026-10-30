@@ -172,8 +172,7 @@ public partial class Main
             CampaignDeploymentUnavailable(preparation.UnresolvedInput??"campaign.narration.portrait");return;
         }
         var sprites=new LocalizedUiSpriteSource(_repository!);
-        var layers=new[]{route.SpriteB,route.SpriteA,route.SpriteC}
-            .Select(name=>sprites.LoadTexturePackSprite(route.ResourceName,name)).ToArray();
+        var layers=route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration=new DeploymentNarrationView {KeyboardInput=HandleGameplayNarrationKeyboard};
         _campaignDeploymentNarration=narration;AddChild(narration);
         try

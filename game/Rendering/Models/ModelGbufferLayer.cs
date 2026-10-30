@@ -22,7 +22,7 @@ public sealed record ModelGbufferInstancePacket(string InstanceKey, LoadedModelG
 /// exact texture mip uploads and native samplers. Frame-dependent pipelines
 /// are replaced when the supplied terrain framebuffer changes. Every camera,
 /// matrix, material, stage role, variant and raster value remains explicit.</summary>
-public sealed class ModelGbufferLayer : IAsyncDisposable
+public sealed partial class ModelGbufferLayer : IAsyncDisposable
 {
     private sealed record GeometryKey(ModelResourceVersion Source,ModelGeometryInputLayout Inputs);
     private sealed record DrawValue(ModelShaderProgram Program,ModelGeometryDevice Geometry,
@@ -32,7 +32,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         ModelStageInputs Pixel,bool Reused);
     private readonly Vkd3dShaderCompiler _compiler;
     private readonly bool _ownsCompiler;
-    private readonly Dictionary<ModelProgramCacheKey,ModelShaderProgram> _programs=[];
+    private readonly Dictionary<(ModelProgramCacheKey Key,bool ReflectionCapture),ModelShaderProgram> _programs=[];
     private readonly Dictionary<GeometryKey,ModelGeometryDevice> _geometry=[];
     private readonly Dictionary<(ModelResourceVersion Model,string Vertex,int Draw,ArmySkinVertexProfile? Profile),ModelGeometryDevice> _geometryViews=[];
     private readonly Dictionary<ModelTextureCacheKey,ModelTextureDevice> _textures=[];
@@ -53,7 +53,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     public int GeometryCount=>_geometry.Count;
     public int TextureCount=>_textures.Count;
     public int SamplerCount=>_samplers.Count;
-    public int DrawCount=>_draws.Count;
+    public int DrawCount=>_draws.Count+_captureDraws.Count;
     public long DrawCreationCount { get; private set; }
     public ModelConstantUpdateStatistics LastConstantUpdates { get; private set; }
     public long ConstantBufferUpdateCount { get; private set; }
@@ -246,18 +246,15 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         finally{_gate.Release();CompleteOperation();}
     }
 
-    private async Task<ModelShaderProgram> ProgramAsync(ModelGbufferInstancePacket instance)
+    private async Task<ModelShaderProgram> ProgramAsync(ModelGbufferInstancePacket instance, bool reflectionCapture = false)
     {
         var key=new ModelProgramCacheKey(ModelResourceVersion.From(instance.Shader.Source),instance.ExplicitCombinationIndex,instance.ArmySkinProfile);
-        if(_programs.TryGetValue(key,out var found))return found;
-        var value=await ModelShaderProgram.BuildAsync(instance.Shader,instance.ExplicitCombinationIndex,_compiler,instance.ArmySkinProfile);
+        if(_programs.TryGetValue((key,reflectionCapture),out var found))return found;
+        var value=await ModelShaderProgram.BuildAsync(instance.Shader,instance.ExplicitCombinationIndex,_compiler,instance.ArmySkinProfile,reflectionCapture);
         try
         {
-            if(!value.ColorOutputLocations.SequenceEqual(new uint[]{0,1,2,3,4}) ||
-                value.PixelBindings.Interface.StageVariables.Where(v=>v.StorageClass==3).Any(v=>
-                    v.Type is not {Kind:"vector",ComponentCount:4,ComponentType:{Kind:"float",Bits:32}}))
-                throw new InvalidDataException("Original model layer source program differs from the five float4 G-buffer contract.");
-            _programs.Add(key,value);return value;
+            RequireColorProgram(value, reflectionCapture);
+            _programs.Add((key,reflectionCapture),value);return value;
         }
         catch (Exception failure)
         {
@@ -356,7 +353,9 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
     private async Task RetireCachedDrawsAsync()
     {
         _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
-        _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Model-layer-cached-draws",_draws.Values.Reverse().Select(p=>p.Draw));
+        _drawRetirement=NativeMapBorrowerRetirementPackage.CreatePending("Model-layer-cached-draws",
+            _draws.Values.Reverse().Select(p=>p.Draw).Concat(_captureDraws.Values.Reverse().Select(p=>p.Draw)));
+        _captureDraws.Clear();
         _draws.Clear();_queueDrawKeys.Clear();_queueCacheTarget=null;
         _drawRetirement=await NativeMapBorrowerRetirementPackage.DrainPendingAsync(_drawRetirement);
     }
@@ -367,6 +366,7 @@ public sealed class ModelGbufferLayer : IAsyncDisposable
         borrowers.AddRange(_geometry.Values.Reverse());
         borrowers.AddRange(_programs.Values.Reverse());
         borrowers.AddRange(_textures.Values.Reverse());
+        if (_knownNullReflectionAmbientResources is not null) borrowers.Add(_knownNullReflectionAmbientResources);
         borrowers.AddRange(_samplers.Values.Reverse().Select(rid=>new NativeMapOwnedSamplerRetirement(rid)));
         return new("Model-layer-shared/"+Guid.NewGuid().ToString("N"),borrowers.ToArray());
     }

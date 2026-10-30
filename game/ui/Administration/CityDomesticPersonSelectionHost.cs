@@ -14,7 +14,7 @@ internal sealed class CityDomesticPersonSelectionHost(Node parent, GameResourceR
     private sealed record Page(long Revision, IReadOnlyList<CityDomesticPersonEntry> Entries,
         AreaAdministrationQuery<int?> Preselection);
 
-    internal Action Open(CityDomesticPersonSelection selection, Action<CityDomesticCandidate?> complete)
+    internal Action Open(CityDomesticPersonSelection selection, UiSourceCommonBlur commonBackdrop, Action<CityDomesticCandidate?> complete)
     {
         if (disposed || !current() || active is not null)
             throw new InvalidOperationException("City person selector is outside its current page lifecycle.");
@@ -66,7 +66,7 @@ internal sealed class CityDomesticPersonSelectionHost(Node parent, GameResourceR
                     return next.Available && next.Value!.Revision == page.Revision
                         ? new(next.Value.Entries, null)
                         : new(null, next.UnresolvedInput ?? "city-domestic.person.selector_stale");
-                },currentScrollSpeed);
+                },currentScrollSpeed,commonBackdrop,Current);
             return Close;
         }
         catch { Close(); throw; }

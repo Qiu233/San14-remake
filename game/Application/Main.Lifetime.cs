@@ -15,14 +15,23 @@ public partial class Main
         GetTree().AutoAcceptQuit = false;
         _lifetimeWindow = GetWindow();
         _lifetimeWindow.CloseRequested += WindowCloseRequested;
+        _lifetimeWindow.FocusEntered += WindowAudioFocusEntered;
+        _lifetimeWindow.FocusExited += WindowAudioFocusExited;
     }
 
     private void DisconnectWindowLifetime()
     {
         if (_lifetimeWindow is { } window && GodotObject.IsInstanceValid(window))
+        {
             window.CloseRequested -= WindowCloseRequested;
+            window.FocusEntered -= WindowAudioFocusEntered;
+            window.FocusExited -= WindowAudioFocusExited;
+        }
         _lifetimeWindow = null;
     }
+
+    private void WindowAudioFocusEntered() => _uiAudioFeedback?.SetWindowFocused(true);
+    private void WindowAudioFocusExited() => _uiAudioFeedback?.SetWindowFocused(false);
 
     private void RetireMapView(MapSceneView view)
     {

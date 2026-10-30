@@ -1,3 +1,4 @@
+#include "../../Runtime/PreparedFileInput.h"
 // Original node68 NoSubShadow program applied to this experiment's native depth.
 // CPU writers and the chosen bounded input scope are exported beside the DXBC.
 static bool drawRs68(ID3D11Device* device,ID3D11DeviceContext* context,
@@ -5,7 +6,7 @@ static bool drawRs68(ID3D11Device* device,ID3D11DeviceContext* context,
     ID3D11DepthStencilView* geometryDsv,DXGI_FORMAT rsViewFormat,
     DXGI_FORMAT depthShaderFormat,UINT width,UINT height) {
     fs::path source=input/"rs68";
-    if(!fs::exists(source/"ps-b0.bin"))return false;
+    if(!fs::exists(nativePreparedFilePath(source/"ps-b0.bin")))return false;
     auto vsCode=load(source/"nosub-vs.dxbc"),psCode=load(source/"nosub-ps.dxbc");
     ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11PixelShader> ps;
     check(device->CreateVertexShader(vsCode.data(),vsCode.size(),nullptr,&vs),"original68 VS");
@@ -16,7 +17,7 @@ static bool drawRs68(ID3D11Device* device,ID3D11DeviceContext* context,
     context->CopyResource(depthCopy.Get(),geometryDepth);
     D3D11_SHADER_RESOURCE_VIEW_DESC view{};view.Format=depthShaderFormat;view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;view.Texture2D.MipLevels=1;
     ComPtr<ID3D11ShaderResourceView> depthSrv;check(device->CreateShaderResourceView(depthCopy.Get(),&view,&depthSrv),"native68 depth SRV");
-    std::string litChoice;std::ifstream(source/"lit.txt")>>litChoice;
+    std::string litChoice;NativePreparedInputFile(source/"lit.txt")>>litChoice;
     ComPtr<ID3D11Texture2D> shadow;ComPtr<ID3D11ShaderResourceView> litSrv;
     if(litChoice=="empty-shadow"){
         // The bounded terrain-only experiment has no Model caster. Execute the
@@ -37,7 +38,7 @@ static bool drawRs68(ID3D11Device* device,ID3D11DeviceContext* context,
     ComPtr<ID3D11RenderTargetView> target;check(device->CreateRenderTargetView(rs,&rtvDesc,&target),"RS3 RTV");
     D3D11_SAMPLER_DESC sampler{};sampler.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;sampler.MaxAnisotropy=1;sampler.ComparisonFunc=D3D11_COMPARISON_LESS_EQUAL;sampler.MaxLOD=0;
     std::string samplerStage;UINT samplerSlot,filter=0,u=3,v=3,w=3,aniso=1,comparison=4;float bias=0,minLod=0,maxLod=0;
-    std::ifstream samplerFile(source/"ea-source-loader-sampler.txt");
+    NativePreparedInputFile samplerFile(source/"ea-source-loader-sampler.txt");
     if(litChoice=="null"){
         auto sourceDescriptor=load(source/"null-backend-sampler.bin");
         if(sourceDescriptor.size()!=sizeof(sampler))throw std::runtime_error("Original null backend sampler must be 52 bytes");
@@ -50,7 +51,7 @@ static bool drawRs68(ID3D11Device* device,ID3D11DeviceContext* context,
         sampler.Filter=D3D11_FILTER(filter);sampler.AddressU=D3D11_TEXTURE_ADDRESS_MODE(u);sampler.AddressV=D3D11_TEXTURE_ADDRESS_MODE(v);sampler.AddressW=D3D11_TEXTURE_ADDRESS_MODE(w);sampler.MipLODBias=bias;sampler.MaxAnisotropy=aniso;sampler.ComparisonFunc=D3D11_COMPARISON_FUNC(comparison);sampler.MinLOD=minLod;sampler.MaxLOD=maxLod;}
     ComPtr<ID3D11SamplerState> samplerState;check(device->CreateSamplerState(&sampler,&samplerState),"native68 point/clamp sampler");
     D3D11_DEPTH_STENCIL_DESC depthState{};depthState.DepthEnable=FALSE;depthState.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ZERO;depthState.DepthFunc=D3D11_COMPARISON_ALWAYS;
-    UINT compare=3,reference=0,readMask=255;std::ifstream(source/"raster.txt")>>compare>>reference>>readMask;
+    UINT compare=3,reference=0,readMask=255;NativePreparedInputFile(source/"raster.txt")>>compare>>reference>>readMask;
     depthState.StencilEnable=TRUE;depthState.StencilReadMask=uint8_t(readMask);depthState.StencilWriteMask=0;
     depthState.FrontFace.StencilFunc=depthState.BackFace.StencilFunc=D3D11_COMPARISON_FUNC(compare);
     depthState.FrontFace.StencilFailOp=depthState.FrontFace.StencilDepthFailOp=depthState.FrontFace.StencilPassOp=D3D11_STENCIL_OP_KEEP;depthState.BackFace=depthState.FrontFace;
@@ -89,7 +90,7 @@ struct NativeRs69Fallback {
 static NativeRs69Fallback prepareRs69Fallback(ID3D11Device* device,const fs::path& input,
     ID3D11Texture2D* rs,DXGI_FORMAT viewFormat,UINT width,UINT height) {
     NativeRs69Fallback result;result.width=width;result.height=height;
-    std::ifstream recipe(input/"rs69"/"fallback.txt");if(!recipe)return result;
+    NativePreparedInputFile recipe(input/"rs69"/"fallback.txt");if(!recipe)return result;
     UINT enabled;recipe>>enabled>>result.mask>>result.color[0]>>result.color[1]>>result.color[2]>>result.color[3];
     if(!recipe)throw std::runtime_error("Source69 fallback recipe is incomplete");
     if(!enabled)return result;

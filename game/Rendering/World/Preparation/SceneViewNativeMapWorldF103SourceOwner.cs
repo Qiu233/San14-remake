@@ -125,6 +125,8 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         providers=actualProviders;
         var repo=loaded.Repository;string locale=loaded.InitialFrame.MainCamera.Camera.ExecutableLocale;
         graphicsQuality=MapGameLightQualityOwner.CreateFreshPrimary(repo,locale,generation+"/Configs");
+        if (loaded.InitialFrame.CgQuality is { } quality)
+            graphicsQuality.SetOwnedCurrentQuality((int)quality,"application-current-CG-quality");
         mainPostSelection=MapMainCameraPostSelectionOwner.CreateFresh(repo,mainMode);
         factory=new(plan,MapSourceCreatedF103ColorScope.FreshSourceNamedModulesWithoutHeaderEdits);
         associationSource=DeferredF103WorldPassAssociations.ReadNode166(plan.Graph);
@@ -238,9 +240,8 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         if(!MapSeasonWorldLightRegistration.Append(environment,declarations,worldLists,number,
             sources.Select(s=>new MapSeasonWorldLightDataBinding(s.Construction.SourceObjectId,data[s.Construction.SourceObjectId])).ToArray()))
             throw new InvalidDataException("Actual Environment world-light append failed.");
-        var registered=worldLists.Snapshot(number,EnvironmentWorldLightPublicationSource.WorldLightOutputObjectId);
-        if(!registered.Entries.Select(e=>e?.DataIdentity).SequenceEqual(sources.Select(s=>(long?)data[s.Construction.SourceObjectId].Identity)))
-            throw new InvalidDataException("Actual Environment registered a different ordered root list.");
+        // Append owns this registry mutation. Full source-order equivalence
+        // belongs to offline checks, not a second snapshot on every frame.
         var counted=MapSourceCreatedWorldKind1Publication.PrepareSourceRetainedQueue(number,Binding,generation+"/World-queue/"+number,
             declarations,metadata.Select((m,i)=>new MapWorldKind1CurrentRecordInput(number,Binding.ViewIdentity,m,i,Record(i),
                 m.DeclaredGroupMask,m.MaxPrimitiveNum,packets[i].LocalLightData.Span[0xF20],true,true,true,
@@ -261,10 +262,9 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
             throw new InvalidDataException("World static and Army visibility use different current geometry Cameras.");
         var armyPublication=armyCpu.PrepareLogicalCurrent(actors,armyCamera,counted,common,armyView,
             generation+"/actual-complete-Army-current-World/"+number);
-        if (actualArmy is not null && (armyPublication.Primitives.Count!=actualArmy.CpuPrimitivePopulation!.CompleteSourcePrimitiveCount ||
-            !armyPublication.Actors.Select(a=>(a.Family,a.ActorIdentity,a.Source.Identity)).ToHashSet().SetEquals(
-                actualArmy.CpuPrimitivePopulation.Actors.Select(a=>(a.Family,a.Actor,a.Source.Identity)))))
-            throw new InvalidDataException("World Army publication differs from its actual BeforeFrame canonical source inventory.");
+        // CaptureActualLogicalInventory and PrepareLogicalCurrent consume the
+        // accepted Army frame. Do not rebuild a full actor set just to prove
+        // this publication equivalent to its own input on every render frame.
         Mark("current-army-visibility-and-record-counts");
         var tail=MapSourceCreatedViewFields.ReadFreshRetainedCameraFields(capture.MainCamera.Camera);
         if(tail.ViewSignedA00 is <1 or >32||common.ViewGroupSelector is not byte sky||sky is <1 or >32)

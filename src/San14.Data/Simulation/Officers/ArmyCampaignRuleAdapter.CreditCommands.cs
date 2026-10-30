@@ -329,6 +329,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             return unchecked(currentDate - PersonReturnCommands.CalendarOrdinal(talent.StartDate));
         if (owner.Diplomacies?.TryGetValue(id, out var diplomacy) == true)
             return unchecked(currentDate - PersonReturnCommands.CalendarOrdinal(diplomacy.StartDate));
+        if (owner.Caravans?.TryGetValue(id, out var caravan) == true)
+            return unchecked(currentDate - PersonReturnCommands.CalendarOrdinal(caravan.StartDate));
+        if (owner.Intelligences?.TryGetValue(id, out var intelligence) == true)
+            return unchecked(currentDate - PersonReturnCommands.CalendarOrdinal(intelligence.StartDate));
         if (owner.Disappearances?.TryGetValue(id, out var disappear) == true)
             return unchecked(currentDate - PersonReturnCommands.CalendarOrdinal(disappear.StartedOn));
         throw CreditMissing("associated_virtualB0");

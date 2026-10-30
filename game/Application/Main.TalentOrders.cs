@@ -6,7 +6,7 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private TalentOrdersView? _talentOrdersView;
-    private TalentPersonSelectionView? _talentPersons;
+    private Control? _talentPersons;
     private TalentDestinationSelectionView? _talentDestinations;
     private DeploymentTargetConfirmation? _talentQuestion;
     private TalentUiDraft? _talentUiDraft;
@@ -15,10 +15,49 @@ public partial class Main
     private MapSceneView? _talentUiMap;
     private TalentOrderKind _talentUiKind;
     private AreaAdministrationOfficerContent? _talentCardContent;
+    private int? TalentSearchCurrentPage => !IsTalentOrdersCurrent || _talentUiKind != TalentOrderKind.Search ? null
+        : _talentDestinations?.IsVisibleInTree() == true ? 51
+        : _talentPersons?.IsVisibleInTree() == true ? 52
+        : _talentOrdersView?.IsVisibleInTree() == true ? 50 : null;
+    private int? TalentSearchSelectedCityId => TalentSearchCurrentPage == 51
+        ? _talentDestinations!.SelectedCityId : _talentUiDraft?.CurrentDestinationCityId;
+    private IReadOnlyList<int> TalentSearchSelectedPersonIds => TalentSearchCurrentPage == 52
+        ? _talentPersons switch
+        {
+            TalentSearchPersonSelectionView search => search.SelectedOfficerIds,
+            TalentRecruitExecutorSelectionView recruit => recruit.SelectedOfficerIds,
+            _ => []
+        } : _talentUiDraft?.SelectedExecutorOfficerIds ?? [];
+    private Func<int, bool>? TalentSearchCityAdmission { get; set; }
+    private Func<int, bool>? TalentSearchPersonAdmission { get; set; }
+    private bool TalentSearchCityReturnAllowed { get; set; } = true;
+    private bool TalentSearchPersonReturnAllowed { get; set; } = true;
+    private long TalentSearchCityAcceptedSequence { get; set; }
+    private long TalentSearchPersonAcceptedSequence { get; set; }
+    private long TalentSearchAcceptedSequence { get; set; }
+    private int? TalentSearchLastAcceptedCityId { get; set; }
+    private IReadOnlyList<int> TalentSearchLastAcceptedPersonIds { get; set; } = [];
+    private void BindTalentSearchSelectionAdmission()
+    {
+        if (_talentUiKind != TalentOrderKind.Search) return;
+        _talentDestinations?.ApplySelectionAdmission(TalentSearchCityAdmission, TalentSearchCityReturnAllowed);
+        if (_talentPersons is TalentSearchPersonSelectionView search)
+            search.ApplySelectionAdmission(TalentSearchPersonAdmission, TalentSearchPersonReturnAllowed);
+    }
     private bool HasTalentOrdersPage => _talentOrdersView is not null;
     private bool IsTalentOrdersCurrent => !_failed && !_shuttingDown && _talentOrdersView is not null &&
         _talentUiDraft is not null && ReferenceEquals(_session, _talentUiSession) && ReferenceEquals(_world, _talentUiWorld) &&
         _residentMap == _talentUiMap && _talentUiMap is not null;
+    private void AdoptTalentOrdersSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The common speech entry admits the committed successor. Keep the
+        // captured draft, current selectors and pending confirmation intact.
+        if (_talentOrdersView is null || _talentUiDraft is null || _talentUiSession != session ||
+            _talentUiMap is null || _talentUiMap != _residentMap || !ReferenceEquals(_talentUiWorld, previous) ||
+            !_talentUiDraft.TryAdoptPresentationWorld(previous, replacement, new(_presentationRandom.State))) return;
+        _talentUiWorld = replacement;
+    }
+
     private bool CanEditTalentOrders => IsTalentOrdersCurrent && _talentPersons is null && _talentDestinations is null && _talentQuestion is null;
 
     private void OpenTalentOrders(TalentOrderKind kind)
@@ -52,6 +91,8 @@ public partial class Main
                 mode=>RunUiAction(()=>{if(CanEditTalentOrders)ChangeTalentDraft(()=>_talentUiDraft!.SetRecruitMode(mode));}),
                 ()=>RunUiAction(()=>{if(CanEditTalentOrders&&_talentUiKind==TalentOrderKind.Search){CloseTalentOrders();OpenTalentAutoSearch();}}));
             RefreshTalentOrders();
+            if (kind == TalentOrderKind.Search) ObserveTutorialInformation(19);
+            BindCurrentTutorialTalentSearch();
         }
         catch { CloseTalentOrders(); throw; }
     }
@@ -71,7 +112,7 @@ public partial class Main
             : draft.Destinations.FirstOrDefault(value => value.CityId == draft.CurrentDestinationCityId)?.Name ?? _ui.Get("talent_choose_destination");
         bool ready = draft.CanSubmit;
         _talentOrdersView!.Apply(new(destination, target, executor, draft.SelectedExecutorOfficerIds.Count, draft.AvailableBooks,
-            draft.RequiredBooks, draft.TravelDays, ready, draft.ExecutorOfficerIds.Count > 0 && draft.MaximumExecutors > 0,
+            draft.RequiredBooks, draft.TravelDays, ready, recruitment ? draft.CanPrepareRecruitExecutorSelection : draft.CanPrepareExecutorSelection,
             draft.RecruitMode, draft.CanChooseRecruitMode,
             draft.UnresolvedInput is not null ? _ui.Get("talent_rule_unavailable") : draft.AdviceText,
             draft.AdvisorOfficerId is int advisor ? TalentOfficerCard(advisor,"").Portrait : null));
@@ -94,8 +135,7 @@ public partial class Main
         var draft = _talentUiDraft!;
         if (_talentUiKind == TalentOrderKind.Recruit)
         {
-            OpenTalentPersonSelection(draft.TargetOfficerIds, draft.TargetOfficerId is int target ? [target] : [],
-                1, true, chosen => { if (chosen.Count == 1) draft.SelectRecruitTarget(chosen[0]); });
+            OpenTalentRecruitTargetSelection();
             return;
         }
         var selector = new TalentDestinationSelectionView(); _talentDestinations = selector; AddChild(selector);
@@ -107,9 +147,18 @@ public partial class Main
                 {
                     if (!IsTalentOrdersCurrent || _talentDestinations != selector || _talentUiDraft != draft) return;
                     _talentDestinations = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
-                    if (chosen is int city) ChangeTalentDraft(() => draft.SelectDestination(city));
+                    if (chosen is int city)
+                    {
+                        if (ChangeTalentDraft(() => draft.SelectDestination(city)))
+                        {
+                            TalentSearchLastAcceptedCityId = city;
+                            TalentSearchCityAcceptedSequence++;
+                        }
+                    }
                     else RefreshTalentOrders();
                 }), CurrentListScrollSpeed);
+            BindCurrentTutorialTalentSearch();
+            BindTalentSearchSelectionAdmission();
         }
         catch
         { _talentDestinations = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }
@@ -119,53 +168,112 @@ public partial class Main
     {
         if (!CanEditTalentOrders) return;
         var draft = _talentUiDraft!;
-        OpenTalentPersonSelection(draft.ExecutorOfficerIds, draft.SelectedExecutorOfficerIds,
-            draft.MaximumExecutors, false, chosen => draft.SelectExecutors(chosen));
+        if (_talentUiKind == TalentOrderKind.Search) { OpenTalentSearchPersonSelection(); return; }
+        OpenTalentRecruitExecutorSelection();
     }
 
-    private void OpenTalentPersonSelection(IReadOnlyList<int> ids, IReadOnlyList<int> initial, int maximum, bool single,
-        Action<IReadOnlyList<int>> selected)
+    private void OpenTalentRecruitTargetSelection()
     {
-        if (!CanEditTalentOrders || _repository is null) return;
-        var world = _talentUiWorld!;
-        var choices = ids.Select(id =>
-        {
-            var person = world.Officers[id];
-            var card = _talentUiDraft!.QueryOfficerCard(id);
-            int? Ability(int dimension) => card.Available
-                ? card.Value!.Abilities.FirstOrDefault(value => value.Dimension == dimension)?.Effective.Value : null;
-            string location = person.LocationId is int city
-                ? world.Cities.GetValueOrDefault(city)?.Name ?? world.Gates.GetValueOrDefault(city)?.Name ?? _ui.Get("detail_unknown")
-                : _ui.Get("detail_unknown");
-            return new TalentPersonChoice(id, person.Name, location,
-                person.ForceId is int force && world.Forces.TryGetValue(force, out var faction) ? faction.Name : _ui.Get("detail_unknown"),
-                Ability(2), Ability(3), Ability(4));
-        }).ToArray();
-        var selector = new TalentPersonSelectionView(); _talentPersons = selector; AddChild(selector);
+        if (!CanEditTalentOrders || _repository is null || _talentUiKind != TalentOrderKind.Recruit) return;
+        var draft = _talentUiDraft!;
+        TalentRecruitPersonSelection model;
+        try { model = _campaignComposition!.PrepareArmyQueries(_talentUiWorld!).PrepareTalentRecruitTargetSelection(draft); }
+        catch (InvalidDataException error)
+        { GD.PushWarning(error.ToString()); _talentOrdersView!.ApplyNotice(_ui.Get("talent_rule_unavailable")); return; }
+        var selector = new TalentRecruitTargetSelectionView(); _talentPersons = selector; AddChild(selector);
         _talentOrdersView!.SetBusy(true); _talentOrdersView.Hide();
         try
         {
-            selector.Configure(_repository, _ui, choices, initial, maximum, single,
+            selector.Configure(_repository, _ui, model,
                 () => IsTalentOrdersCurrent && _talentPersons == selector, chosen => RunUiAction(() =>
                 {
-                    if (!IsTalentOrdersCurrent || _talentPersons != selector) return;
+                    if (!IsTalentOrdersCurrent || _talentPersons != selector || _talentUiDraft != draft) return;
                     _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
-                    if (chosen is not null) ChangeTalentDraft(() => selected(chosen)); else RefreshTalentOrders();
+                    if (chosen is int target) ChangeTalentDraft(() => draft.SelectRecruitTarget(target));
+                    else RefreshTalentOrders();
                 }), CurrentListScrollSpeed);
         }
         catch
         { _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }
     }
 
-    private void ChangeTalentDraft(Action action)
+    private void OpenTalentRecruitExecutorSelection()
     {
+        if (!CanEditTalentOrders || _repository is null || _talentUiKind != TalentOrderKind.Recruit || _talentUiDraft?.CanPrepareRecruitExecutorSelection != true) return;
+        var draft = _talentUiDraft!;
+        try { if (!draft.PrepareRecruitExecutorSelection()) return; }
+        catch (InvalidDataException error)
+        { GD.PushWarning(error.ToString()); RefreshTalentOrders(); _talentOrdersView!.ApplyNotice(_ui.Get("talent_rule_unavailable")); return; }
+        finally
+        { if (draft.AppRandomState is { } random) _presentationRandom.InstallCommittedState(random.State); }
+        TalentRecruitPersonSelection model;
+        try { model = _campaignComposition!.PrepareArmyQueries(_talentUiWorld!).PrepareTalentRecruitExecutorSelection(draft); }
+        catch (InvalidDataException error)
+        { GD.PushWarning(error.ToString()); _talentOrdersView!.ApplyNotice(_ui.Get("talent_rule_unavailable")); return; }
+        var selector = new TalentRecruitExecutorSelectionView(); _talentPersons = selector; AddChild(selector);
+        _talentOrdersView!.SetBusy(true); _talentOrdersView.Hide();
+        try
+        {
+            selector.Configure(_repository, _ui, model,
+                () => IsTalentOrdersCurrent && _talentPersons == selector, chosen => RunUiAction(() =>
+                {
+                    if (!IsTalentOrdersCurrent || _talentPersons != selector || _talentUiDraft != draft) return;
+                    _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
+                    if (chosen is not null) ChangeTalentDraft(() => draft.ApplyRecruitExecutorSelection(chosen));
+                    else RefreshTalentOrders();
+                }), CurrentListScrollSpeed);
+        }
+        catch
+        { _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }
+    }
+
+    private void OpenTalentSearchPersonSelection()
+    {
+        if (!CanEditTalentOrders || _repository is null || _talentUiKind != TalentOrderKind.Search || _talentUiDraft?.CanPrepareExecutorSelection != true) return;
+        var draft = _talentUiDraft!;
+        try { if (!draft.PrepareExecutorSelection()) return; }
+        catch (InvalidDataException error)
+        { GD.PushWarning(error.ToString()); _talentOrdersView!.ApplyNotice(_ui.Get("talent_rule_unavailable")); return; }
+        finally
+        { if (draft.AppRandomState is { } random) _presentationRandom.InstallCommittedState(random.State); }
+        TalentSearchPersonSelection model;
+        try { model = _campaignComposition!.PrepareArmyQueries(_talentUiWorld!).PrepareTalentSearchPersonSelection(draft); }
+        catch (InvalidDataException error)
+        { GD.PushWarning(error.ToString()); _talentOrdersView!.ApplyNotice(_ui.Get("talent_rule_unavailable")); return; }
+        var selector = new TalentSearchPersonSelectionView(); _talentPersons = selector; AddChild(selector);
+        _talentOrdersView!.SetBusy(true); _talentOrdersView.Hide();
+        try
+        {
+            selector.Configure(_repository, _ui, model,
+                () => IsTalentOrdersCurrent && _talentPersons == selector, chosen => RunUiAction(() =>
+                {
+                    if (!IsTalentOrdersCurrent || _talentPersons != selector || _talentUiDraft != draft) return;
+                    _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
+                    if (chosen is not null)
+                    {
+                        if (ChangeTalentDraft(() => draft.SelectExecutors(chosen)))
+                        { TalentSearchLastAcceptedPersonIds = chosen.ToArray(); TalentSearchPersonAcceptedSequence++; }
+                    }
+                    else RefreshTalentOrders();
+                }), CurrentListScrollSpeed);
+            BindCurrentTutorialTalentSearch(); BindTalentSearchSelectionAdmission();
+        }
+        catch
+        { _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }
+    }
+
+    private bool ChangeTalentDraft(Action action)
+    {
+        bool applied = false;
         try
         {
             action();
+            applied = true;
             if (_talentUiDraft?.AppRandomState is { } random) _presentationRandom.InstallCommittedState(random.State);
         }
         catch (InvalidDataException error) { GD.PushWarning(error.ToString()); }
         RefreshTalentOrders();
+        return applied;
     }
 
     private void ConfirmTalentOrders(bool keepOpen=false)
@@ -179,7 +287,11 @@ public partial class Main
         {
             if (!ApplyPlayableOrder(order, CloseTalentOrders))
             { RefreshTalentOrders(); view.ApplyNotice(_playMessage.Text); }
-            else if(keepOpen&&ReferenceEquals(_session,session)) OpenTalentOrders(kind);
+            else
+            {
+                if (kind == TalentOrderKind.Search) TalentSearchAcceptedSequence++;
+                if (keepOpen && ReferenceEquals(_session, session)) OpenTalentOrders(kind);
+            }
         }
         catch { if (IsTalentOrdersCurrent) RefreshTalentOrders(); throw; }
     }
@@ -188,7 +300,9 @@ public partial class Main
     {
         if (!IsTalentOrdersCurrent) return;
         if (_talentQuestion is { } question) { question.RequestCancel(); return; }
-        if (_talentPersons is { } persons) { persons.RequestCancel(); return; }
+        if (_talentPersons is TalentSearchPersonSelectionView search) { search.RequestCancel(); return; }
+        if (_talentPersons is TalentRecruitTargetSelectionView target) { target.RequestCancel(); return; }
+        if (_talentPersons is TalentRecruitExecutorSelectionView persons) { persons.RequestCancel(); return; }
         if (_talentDestinations is { } destinations) { destinations.RequestCancel(); return; }
         if (_talentUiDraft!.SelectedExecutorOfficerIds.Count == 0) { CloseTalentOrders(); return; }
         var view = _talentOrdersView!;
@@ -214,7 +328,10 @@ public partial class Main
         var destinations = _talentDestinations; _talentDestinations = null;
         var question = _talentQuestion; _talentQuestion = null;
         var view = _talentOrdersView; _talentOrdersView = null;
-        persons?.Abandon(); persons?.QueueFree(); destinations?.Abandon(); destinations?.QueueFree();
+        if (persons is TalentSearchPersonSelectionView search) search.Abandon();
+        else if (persons is TalentRecruitTargetSelectionView target) target.Abandon();
+        else if (persons is TalentRecruitExecutorSelectionView recruit) recruit.Abandon();
+        persons?.QueueFree(); destinations?.Abandon(); destinations?.QueueFree();
         question?.Abandon(); question?.QueueFree(); view?.Abandon(); view?.QueueFree();
         if (map is not null && GodotObject.IsInstanceValid(map) && _residentMap == map) map.SetDetailsOpen(false);
         if (!_failed && !_shuttingDown && _residentMap is not null) SetMapFocus(_mapFocused);

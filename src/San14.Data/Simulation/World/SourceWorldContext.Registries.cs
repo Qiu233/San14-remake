@@ -1,9 +1,12 @@
 using System.Collections;
+using System.Collections.Frozen;
 
 namespace San14.Data;
 
 public sealed partial class SourceWorldContext : IObjectRegistrationState
 {
+    private static readonly FrozenSet<RegistryKind> RegisteredTableKinds = ObjectRegistration.Ranges
+        .Select(range => range.Kind).ToFrozenSet();
     private readonly Dictionary<RegistryKind, RegistryListHandle?> _registryDescriptors = [];
     public bool? RegistryHeadTablePresent { get; set; }
     public bool? RegistryLockEnabled { get; set; }
@@ -95,7 +98,7 @@ public sealed partial class SourceWorldContext : IObjectRegistrationState
     }
     private static void CheckRegistryKind(RegistryKind kind)
     {
-        if (!ObjectRegistration.Ranges.Any(range=>range.Kind==kind))
+        if (!RegisteredTableKinds.Contains(kind))
             throw new InvalidDataException("No native registration table exists for the requested kind.");
     }
     public IReadOnlyList<RegistryObjectReference?>? ReadRegistryReferences(RegistryKind kind)

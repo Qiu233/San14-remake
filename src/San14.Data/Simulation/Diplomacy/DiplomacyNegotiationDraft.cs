@@ -9,7 +9,7 @@ public sealed record DiplomacyNegotiationAmountSelection(bool Allowed, int Minim
 
 /// <summary>The real Spy condition editor. One page owns its current inputs;
 /// selectors change only this proposal, and confirmation submits the real order.</summary>
-public sealed class DiplomacyNegotiationDraft
+public sealed partial class DiplomacyNegotiationDraft
 {
     private readonly DiplomacyNegotiationSource source;
     private readonly DiplomacyOffer entryProposal;
@@ -49,7 +49,8 @@ public sealed class DiplomacyNegotiationDraft
 
     internal DiplomacyNegotiationDraft(DiplomacyNegotiationSource source, DiplomacyOffer proposal)
     {
-        this.source = source; Offer = proposal; entryProposal = proposal;
+        this.source = source; Offer = proposal;
+        entryProposal = Kind==DiplomaticMissionKind.Exchange?Request.InitialOffer:proposal;
         Page = source.ReadPage(proposal);
         if (CanEditConditions)
         {
@@ -64,9 +65,11 @@ public sealed class DiplomacyNegotiationDraft
             GoldSelection = AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Known(new(false, 1000, 1000, Array.Empty<int>()));
             SuppliesSelection = AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Known(new(false, 10000, 10000, Array.Empty<int>()));
         }
-        if (Stage == DiplomaticNegotiationStage.RecipientDecision)
+        if (Stage == DiplomaticNegotiationStage.RecipientDecision ||
+            Kind is DiplomaticMissionKind.Exchange or DiplomaticMissionKind.DemandSurrender)
         {
-            Probability = Request.Negotiation?.Probability;
+            Probability = Kind is DiplomaticMissionKind.Exchange or DiplomaticMissionKind.DemandSurrender
+                ? null : Request.Negotiation?.Probability;
             CanChooseMilitaryIntelligence = false;
             return;
         }
@@ -127,6 +130,11 @@ public sealed class DiplomacyNegotiationDraft
     private void RefreshProbability(bool recomputeBase = false)
     {
         Probability = null; ProbabilityUnresolvedInput = null; RequiredMilitaryIntelligence = null;
+        if(Kind is DiplomaticMissionKind.Exchange or DiplomaticMissionKind.DemandSurrender)
+        {
+            CanChooseMilitaryIntelligence=false;
+            return;
+        }
         try
         {
             if (recomputeBase) probabilityBeforeExpense = source.Probability(Offer, null);
@@ -172,6 +180,8 @@ public sealed class DiplomacyNegotiationDraft
 internal sealed class DiplomacyNegotiationSource(ArmyCampaignRuleAdapter adapter, GameState state,
     SourceWorldContext current, DiplomacyNegotiationRequest request, PersonnelDiplomacyTask task, int playerForceId)
 {
+    internal DiplomacyTargetSelectionPage TargetSelection(DiplomacyTargetSelectionKind kind,IReadOnlyList<int> ids)=>
+        adapter.ReadDiplomacyTargetSelectionCurrent(state,current,playerForceId,kind,ids);
     internal GameState State => state;
     internal DiplomacyNegotiationRequest Request => request;
     internal int PlayerForceId => playerForceId;

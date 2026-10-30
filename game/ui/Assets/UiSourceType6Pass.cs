@@ -12,6 +12,7 @@ internal sealed class UiSourceType6Pass : IDisposable
     private readonly List<Shader> shaders = [];
     private readonly List<ShaderMaterial> materials = [];
     private bool disposed;
+    private readonly ShaderMaterial horizontalKernel, verticalKernel;
 
     internal UiSourceType6Pass(SubViewport successor, SubViewport predecessor,
         Control originalCanvas, UiSourceType6Parameters parameters, Vector2[] screenQuad,
@@ -48,8 +49,9 @@ internal sealed class UiSourceType6Pass : IDisposable
         }
         Vector4 region = UiSourceType6Parameters.BlurRegion(sourceRegion, contextSize, quarter);
         Vector2 perPixel = parameters.PerPixel(contextSize);
-        float[] weights = parameters.Weights();
+        float[] weights = KernelWeights(parameters);
         var h = Material(KernelCode + HorizontalCode, "Type6HorizontalRgb");
+        horizontalKernel = h;
         ConfigureKernel(h, Capture.GetTexture(), perPixel.X);
         var hQuad = new UiSourceType6Quad { Name = "HorizontalLocalQuad", Material = h,
             Positions = screenQuad.Select(p => p / (Vector2)contextSize * (Vector2)quarter).ToArray(),
@@ -57,7 +59,9 @@ internal sealed class UiSourceType6Pass : IDisposable
         Horizontal.AddChild(hQuad);
 
         var v = Material(KernelCode + VerticalCode, "Type6VerticalFinalBlend");
+        verticalKernel = v;
         ConfigureKernel(v, Horizontal.GetTexture(), perPixel.Y);
+        v.SetShaderParameter("draw_enabled", parameters.DrawEnabled);
         v.SetShaderParameter("destination_image", predecessor.GetTexture());
         v.SetShaderParameter("blend_kind", (int)parameters.Blend);
         Vertical = new UiSourceType6Quad { Name = "VerticalLocalQuad", Material = v,
@@ -74,6 +78,23 @@ internal sealed class UiSourceType6Pass : IDisposable
             material.SetShaderParameter("weights", weights);
             material.SetShaderParameter("blur_region", region);
         }
+    }
+
+    internal void SetWeight(UiSourceType6Parameters parameters)
+    {
+        if (disposed) return;
+        float[] weights = KernelWeights(parameters);
+        horizontalKernel.SetShaderParameter("weights", weights);
+        verticalKernel.SetShaderParameter("weights", weights);
+        verticalKernel.SetShaderParameter("draw_enabled", parameters.DrawEnabled);
+    }
+
+    private static float[] KernelWeights(UiSourceType6Parameters parameters)
+    {
+        if (parameters.DrawEnabled) return parameters.Weights();
+        // The structural prefix still exists while native Type6 emits no draw.
+        // Its final shader copies the exact predecessor; no zero-variance exp.
+        var identity = new float[10]; identity[0] = 1; return identity;
     }
 
     private static SubViewport Viewport(string name, Vector2I size) => new()
@@ -159,7 +180,12 @@ internal sealed class UiSourceType6Pass : IDisposable
     private const string VerticalCode = """
         uniform sampler2D destination_image : filter_nearest, repeat_disable;
         uniform int blend_kind;
+        uniform bool draw_enabled;
         void fragment() {
+            if (!draw_enabled) {
+                ivec2 extent = textureSize(destination_image, 0);
+                COLOR = texelFetch(destination_image, clamp(ivec2(SCREEN_UV * vec2(extent)), ivec2(0), extent - ivec2(1)), 0);
+            } else {
             vec3 src = filter_rgb(UV, false);
             ivec2 extent = textureSize(destination_image, 0);
             vec4 dst = linear_texel(destination_image, ivec2(SCREEN_UV * vec2(extent)), extent);
@@ -171,6 +197,7 @@ internal sealed class UiSourceType6Pass : IDisposable
             else if (blend_kind == 3) { rgb = src * dst.a + dst.rgb * (1.0 - dst.a); alpha = a * a + dst.a * (1.0 - a); }
             else if (blend_kind == 4) { rgb = src * a + dst.rgb * (1.0 - a); alpha = a * a + dst.a * (1.0 - a); }
             COLOR = vec4(encode_srgb(rgb), alpha);
+            }
         }
         """;
 

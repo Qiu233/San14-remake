@@ -1,4 +1,5 @@
 using Godot;
+using San14.Core;
 
 public partial class MapSceneView
 {
@@ -24,7 +25,20 @@ public partial class MapSceneView
     private void ApplyKeyboardMapInformation()
     {
         if (_d3d11Markers is null || _mapPresentation is null) return;
-        _d3d11Markers.SetInformationVisibility((_mapPresentation.Policy.Category16 & 4) != 0,
+        if(diplomacyTargetMapOwner is not null)
+        {
+            // MapSelect keeps City/Gate independently of the ordinary base
+            // category byte, which also controls Scenery in the normal HUD.
+            _d3d11Markers.SetInformationVisibility(_mapPresentation.Policy.Mode==9,false,_mapPresentation.Policy.Mode);return;
+        }
+        if(strategicTargetMapOwner is not null && strategicTargetMapQuery is {} strategic)
+        {
+            // The strategic selector owns Area/City/Gate categories separately
+            // from the ordinary HUD's base-information byte.
+            _d3d11Markers.SetInformationVisibility(strategic.Kind!=StrategicCommandTargetKind.Force,
+                false,strategic.MarkerMode);return;
+        }
+        _d3d11Markers.SetInformationVisibility(InformationCategoryVisible(_mapPresentation.Policy.Category16),
             _keyboardArmyInformationVisible, _mapPresentation.Policy.Mode);
     }
 }

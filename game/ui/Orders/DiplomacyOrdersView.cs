@@ -8,7 +8,17 @@ internal sealed record DiplomacyOrdersPage(string ForceName, string CityName, st
     int? TravelDays, int AvailableBooks, int RequiredBooks, string GiftDescription, int SelectedGiftKind,
     string MonthsDescription, string ExistingAllianceDescription, bool CanSubmit, bool CanChooseExecutor,
     bool CanChooseCity, bool CanEditGold, bool CanEditSupplies, bool CanEditItem, bool CanEditArea,
-    string? Notice, LoadedSprite? AdvisorPortrait);
+    string? Notice, LoadedSprite? AdvisorPortrait)
+{
+    internal IReadOnlyList<DiplomacyPersonVisual> CaptivePeople {get;init;}=[];
+    internal string? CaptivePeopleUnresolvedInput {get;init;}
+    internal int? CaptiveRansomGold {get;init;}
+    internal bool CanChooseCaptives {get;init;}
+    internal int? AvailableGold {get;init;}
+    internal string RequestedDescription {get;init;}="";
+    internal int RequestedKind {get;init;}=-1;
+    internal IReadOnlyList<bool> CanChooseRequested {get;init;}=[false,false,false,false];
+}
 
 /// <summary>The four authored diplomacy preparation layouts share a draft owner,
 /// while keeping their distinct original mounts and controls.</summary>
@@ -28,11 +38,18 @@ internal partial class DiplomacyOrdersView : Control
     private bool abandoned, busy;
     private DiplomacyOrdersPage? page;
     internal Rect2 MonthsRectangle { get; private set; }
+    internal AdministrationPageChrome.Resources SharedResources => new(chrome.Assets, chrome.Font, chrome.SpriteShader);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, DiplomaticMissionKind kind,
         Func<bool> admitted, Action returned, Action accepted, Action chooseForce, Action chooseCity,
-        Action chooseExecutor, Action chooseMonths, Action<int> chooseGift, Action resetGift)
+        Action chooseExecutor, Action chooseMonths, Action<int> chooseGift, Action resetGift,
+        Action? chooseCaptives=null,Action<int>? chooseRequested=null,Action? resetRequested=null)
     {
+        if(kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
+        {
+            ConfigureAdditional(repository,text,kind,admitted,returned,accepted,chooseForce,chooseExecutor,
+                chooseGift,resetGift,chooseCaptives,chooseRequested,resetRequested);return;
+        }
         this.text = text; this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         bool alliance = kind == DiplomaticMissionKind.Alliance, cancel = kind == DiplomaticMissionKind.CancelAlliance;
         bool request = kind == DiplomaticMissionKind.RequestAttack;
@@ -46,6 +63,7 @@ internal partial class DiplomacyOrdersView : Control
         };
         Name = "Diplomacy" + kind; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, title, RequestBack, () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); });
         var source = new UiSourceLayout(repository, file);
@@ -151,6 +169,7 @@ internal partial class DiplomacyOrdersView : Control
         }
         if (amount is not null) amount.Disabled=busy;
         advice.Apply(value.AdvisorPortrait,value.Notice??""); RefreshAdmission();
+        ApplyAdditional(value);
     }
     private string Number(int? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture)??text.Get("detail_unknown");
     private bool ReadAdmission() => !abandoned&&!busy&&IsVisibleInTree()&&CanProcess()&&(admitted?.Invoke()??false);

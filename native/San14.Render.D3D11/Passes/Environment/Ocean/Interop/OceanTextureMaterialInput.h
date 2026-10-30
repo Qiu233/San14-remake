@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanTextureMaterialSettings.h"
 #include <cstdint>
 #include <cstring>
@@ -25,7 +26,7 @@ inline OceanTextureMaterialSettings decodeOceanTextureMaterialSettings(std::span
     return result;
 }
 inline OceanTextureMaterialSettings readOceanTextureMaterialSettings(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     std::array<std::uint8_t,OceanTextureMaterialInputBytes> bytes;
     input.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!input||input.peek()!=std::char_traits<char>::eof())

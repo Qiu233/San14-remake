@@ -25,12 +25,26 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// claim native allocation, or acknowledge an unimplemented host.</summary>
     public AreaAdministrationQuery<OrdinaryTacticPresentationPublication> QueryOrdinaryTacticPresentation(
         GameState state, TacticPresentationRequest request)
+        => QueryTacticActorsCurrent(state, request, TacticPresentationKind.OrdinaryEffects);
+
+    /// <summary>172910 uses the same captured actor blocks and beam math in
+    /// the final Direction group, without constructing an ordinary node.</summary>
+    public AreaAdministrationQuery<OrdinaryTacticBeamPublication> QueryUniqueTacticBeams(
+        GameState state, TacticPresentationRequest request)
+    {
+        var actors = QueryTacticActorsCurrent(state, request, TacticPresentationKind.UniqueDirection);
+        return actors.Value is { } value
+            ? AreaAdministrationQuery<OrdinaryTacticBeamPublication>.Known(value.Beams)
+            : AreaAdministrationQuery<OrdinaryTacticBeamPublication>.Unknown(actors.UnresolvedInput!);
+    }
+
+    private AreaAdministrationQuery<OrdinaryTacticPresentationPublication> QueryTacticActorsCurrent(
+        GameState state, TacticPresentationRequest request, TacticPresentationKind expectedKind)
     {
         ArgumentNullException.ThrowIfNull(request);
         try
         {
-            if (request.Kind != TacticPresentationKind.OrdinaryEffects)
-                throw new InvalidDataException("tactic.presentation.unique_direction_host");
+            if (request.Kind != expectedKind) throw new InvalidDataException("tactic.presentation.kind");
             if (request.Actors.Length is < 1 or > 11)
                 throw new InvalidDataException("tactic.presentation.linked_actor_count");
             var current = CaptureOwnedArmyReturnWorld(state).Context;

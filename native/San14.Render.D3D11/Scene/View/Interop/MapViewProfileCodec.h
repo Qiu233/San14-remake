@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../MapViewSettings.h"
 #include <filesystem>
 #include <fstream>
@@ -6,7 +7,7 @@
 
 namespace San14::Render::Interop {
 inline ImportedMapView readMapViewProfile(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     ImportedMapView result;
     std::uint32_t magic{}, count{}, commonPresent{};
     std::uint32_t modelSelector{}, queueFlags{}, secondaryFlags{}, queueState{};

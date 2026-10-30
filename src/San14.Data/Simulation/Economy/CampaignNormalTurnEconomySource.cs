@@ -7,9 +7,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState ApplyNormalTurnEconomyCurrent(GameState state, SourceWorldContext current,
         WorldIndexContext pool, int action, ArmyMapGroupingOwner groups)
     {
+        if (action is not (39 or 40)) throw EconomyMissing("action_dispatch");
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw EconomyMissing("parameters");
+        if (Seed.Language is not ("TC" or "SC") || parameters.Language != Seed.Language ||
+            parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
+            throw EconomyMissing("rule_owner");
+        //Both CE locale entries and the reached income, administration,
+        //training, growth, repair and merchant rules have independent sources.
         if (action == 40) return ApplyNormalTurnForceEconomyCurrent(state, current, pool);
-        if (action != 39) throw EconomyMissing("action_dispatch");
-        if (Seed.Language != "TC") throw EconomyMissing("SC_current_rules");
         //Food's established writers update the operation's dictionaries. Copy
         //these owned tables once here, never once for each Base or quote.
         state = state with { Cities = new(state.Cities), Gates = new(state.Gates), Units = new(state.Units) };

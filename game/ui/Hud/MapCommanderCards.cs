@@ -1,80 +1,75 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 
-internal sealed record MapCommanderCard(int Slot, int? OfficerId, string Name, string Shortcut,
-    bool? Unlocked, OfficerPortraitRoute? Portrait);
-
-/// <summary>The five current commander cards. Only this publication's actual
-/// persons are clickable; roster changes belong to the formal command owner.</summary>
+/// <summary>The five retained original cards, supplied by one current publication.</summary>
 internal partial class MapCommanderCards : Control
 {
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
-    private Control canvas = null!, cards = null!;
-    private GameResourceRepository repository = null!;
-    private PreviewText text = null!;
-    private Action<int>? focus;
-    private Action? select;
-    private readonly Dictionary<(string Pack, string Sprite), LoadedSprite> portraits = [];
+    private Control canvas=null!;
+    private UiSourceCommandButton choose=null!;
+    private readonly MapCommanderCardView[] cards=new MapCommanderCardView[5];
+    private Func<bool> admission=null!;
+    private PreviewText text=null!;
+    internal Action<int?>? HoveredOfficer {get;set;}
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, Action<int> focus, Action select)
+    internal void Configure(GameResourceRepository repository,PreviewText text,Func<bool> admission,
+        Action<int> focus,Action select,Action<int,int> tactic,Action<int> automatic,Action<int> remove)
     {
-        this.repository = repository; this.text = text; this.focus = focus; this.select = select;
-        Name = "CommanderCards"; MouseFilter = MouseFilterEnum.Ignore; ZIndex = 2;
+        this.text=text;this.admission=admission;
+        Name="CommanderCards";MouseFilter=MouseFilterEnum.Ignore;ZIndex=2;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
-        canvas = new() { Size = new(1920,1080), MouseFilter = MouseFilterEnum.Ignore }; AddChild(canvas);
-        cards = new() { MouseFilter = MouseFilterEnum.Ignore }; canvas.AddChild(cards);
-        var source = new UiSourceLayout(repository,0x1CDA8363);
-        Vector2 extent = source.Rectangle(0).Size;
-        Vector2 mount = new(1920-extent.X-20,1080-extent.Y-24);
-        var change = new UiSourceBottomButton { Name = "ChooseCommanders", Position = source.Rectangle(2,mount).Position };
-        canvas.AddChild(change);
-        change.Configure(repository, assets, shader, font, text.Get("play_commander_cards_select"), () => this.select?.Invoke());
-        Resized += Fit; Fit();
+        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        canvas=new(){Name="CommanderCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
+        var main=new UiSourceLayout(repository,0x036BB544,
+            new Dictionary<int,UiSourceNodeGeometry>{[83]=new(Origin:new Vector2(960,0))});
+        var jump=new UiSourceLayout(repository,0xA2D0A6F1,
+            new Dictionary<int,UiSourceNodeGeometry>{[6]=new(Origin:Vector2.Zero)});
+        Vector2 mount=main.Rectangle(85).Position+jump.Rectangle(9).Position;
+        var source=new UiSourceLayout(repository,0x1CDA8363);
+        Rect2 selection=source.Rectangle(2,mount);
+        choose=new UiSourceCommandButton {Name="ChooseCommanders",Position=selection.Position,Size=selection.Size,
+            InputAdmission=admission};canvas.AddChild(choose);
+        string caption=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records[0x32E].Text
+            ??throw new InvalidDataException("Commander selection caption is missing.");
+        choose.Configure(repository,assets,shader,font,caption,()=>{if(admission())select();});
+        var bar=MapMarkerLayout.LoadDefinition(repository,"cmn_bar");
+        int[] slots=[6,9,10,11,12];
+        for(int i=0;i<cards.Length;i++)
+        {
+            var card=new MapCommanderCardView {Name="CommanderCard"+i,Position=source.Rectangle(slots[i],mount).Position};
+            canvas.AddChild(card);card.Configure(repository,assets,shader,font,bar,admission,focus,tactic,automatic,remove);
+            card.HoveredOfficer=officer=>HoveredOfficer?.Invoke(officer);cards[i]=card;
+        }
+        Resized+=Fit;Fit();
+        SetMeta("source_layout",source.Source.Source.ResourceUri);
+        SetMeta("source_mount_layout",jump.Source.Source.ResourceUri);SetMeta("source_mount_node",9);
+        SetMeta("source_mount_position",mount);
     }
 
-    internal void Apply(IReadOnlyList<MapCommanderCard> publication, bool canSelect)
+    internal void Apply(CommanderHudPublication publication,IReadOnlyDictionary<int,OfficerPortraitRoute> portraits,
+        IReadOnlyList<string> shortcuts,bool strategy,bool canSelect,int? selectedUnit,int? selectedSlot)
     {
-        foreach (Node child in cards.GetChildren()) { cards.RemoveChild(child); child.QueueFree(); }
-        canvas.GetNode<UiSourceBottomButton>("ChooseCommanders").Disabled = !canSelect;
-        var source = new UiSourceLayout(repository, 0x1CDA8363);
-        int[] slots = [6,9,10,11,12]; //883950's five actual child mounts.
-        Vector2 extent = source.Rectangle(0).Size;
-        Vector2 mount = new(1920 - extent.X - 20, 1080 - extent.Y - 24);
-        for (int ordinal = 0; ordinal < 5; ordinal++)
+        choose.Visible=strategy&&publication.Capacity is >0;choose.Disabled=!canSelect||!admission();
+        for(int i=0;i<cards.Length;i++)
         {
-            MapCommanderCard card = publication[ordinal];
-            Rect2 place = source.Rectangle(slots[ordinal], mount);
-            var button = new UiSourceBottomButton { Name = "CommanderCard" + ordinal, Position = place.Position };
-            cards.AddChild(button);
-            string caption = card.OfficerId.HasValue ? card.Name : card.Unlocked is null ? text.Get("detail_unknown") :
-                text.Get(card.Unlocked.Value ? "play_commander_cards_empty" : "play_commander_cards_locked");
-            button.Configure(repository, assets!, shader!, font!, caption, () => focus?.Invoke(card.Slot));
-            button.Disabled = !card.OfficerId.HasValue;
-            button.TooltipText = card.Shortcut;
-            button.SetMeta("commander_slot", card.Slot);
-            button.SetMeta("officer_id", card.OfficerId ?? -1);
-            if (card.Portrait is { Kind: OfficerPortraitRouteKind.StockNamed } route)
-            {
-                var key = (route.ResourceName!, route.SpriteName!);
-                if (!portraits.TryGetValue(key, out var sprite))
-                { sprite = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(key.Item1,key.Item2); portraits.Add(key,sprite); }
-                var portrait = new UiSourcePortrait { Name = "CommanderPortrait", Position = new(-44, 2) };
-                button.AddChild(portrait); portrait.ConfigureMapHeader(repository, assets!, shader!, sprite);
-                float scale = Math.Min(42 / portrait.Size.X, 50 / portrait.Size.Y);
-                portrait.Scale = Vector2.One * scale;
-            }
+            var card=publication.Cards.FirstOrDefault(row=>row.Slot==i)
+                ??new CommanderHudCard(i,null,text.Get("detail_unknown"),null);
+            cards[i].Apply(card,card.OfficerId is int person?portraits.GetValueOrDefault(person):null,
+                shortcuts[i],text.Get("detail_unknown"),canSelect,selectedUnit,selectedSlot);
         }
-        SetMeta("source_layout", source.Source.Source.ResourceUri);
+        SetMeta("source_publication_issue",publication.UnresolvedInput??"");
     }
 
     private void Fit()
     {
-        float scale = Math.Min(Size.X / 1920, Size.Y / 1080);
-        canvas.Scale = Vector2.One * scale; canvas.Position = (Size - new Vector2(1920,1080) * scale) / 2;
+        float scale=Math.Min(Size.X/1920,Size.Y/1080);
+        canvas.Scale=Vector2.One*scale;canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
+    internal void ApplySelection(int? unit,int? slot)
+    {foreach(var card in cards)card.ApplySelection(unit,slot);}
     public override void _ExitTree()
-    { focus = null; select = null; portraits.Clear(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    {HoveredOfficer?.Invoke(null);HoveredOfficer=null;font?.Dispose();assets?.Dispose();shader?.Dispose();}
 }

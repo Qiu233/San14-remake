@@ -2,11 +2,14 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record ArmyMobilityCurrentReceipt(float Value, int FormationPhysicalSlot,
-    int FormationCoefficient, int ForceFormationPercent, byte ArmyStatus10, int TraitContribution, float TraitFactor,
-    float ModifierFactor, float BaselineTerrainFactor, float FormationTerrainFactor,
-    float ForceTerrainFactor, float EnvironmentFactor, int? AppliedPolicyIndex, int AppliedPolicyValue,
-    bool AdvancedScalingApplied, string SourceProvenance);
+public sealed record ArmyMobilityCurrentReceipt(float Value, int? FormationPhysicalSlot,
+    int? FormationCoefficient, int? ForceFormationPercent, byte ArmyStatus10, int? TraitContribution, float? TraitFactor,
+    float? ModifierFactor, float? BaselineTerrainFactor, float? FormationTerrainFactor,
+    float? ForceTerrainFactor, float? EnvironmentFactor, int? AppliedPolicyIndex, int? AppliedPolicyValue,
+    bool? AdvancedScalingApplied, string SourceProvenance)
+{
+    public bool TutorialOverride { get; init; }
+}
 public sealed record ArmyMobilityCurrentResolution(ArmyMobilityCurrentReceipt? Receipt, string? UnresolvedOwner)
 { public bool Complete => Receipt is not null; }
 
@@ -14,8 +17,9 @@ public sealed record ArmyMobilityCurrentResolution(ArmyMobilityCurrentReceipt? R
 ///2695D0(flags1,0,null). Uses current owned formations, Person traits, Force
 ///bank/bitmaps, Tutorial header, Settings and captured Terrain definitions.
 /// Status1 consumes the current saved-command control for trait116; Status2
-/// uses trait94. Other types, active tutorial overrides and command-age effects
-/// remain explicit unclosed branches; no displayed mobility fills them.</summary>
+/// uses trait94. The tutorial's positive override returns before the ordinary
+/// formation/effect reads. Other types remain explicit unclosed branches;
+/// no displayed mobility fills missing current inputs.</summary>
 public sealed class ArmyMobilityCurrentProducer
 {
     public const string Revision = "san14:ce-ordinary-current-army-mobility-producer-20261003";
@@ -54,21 +58,33 @@ public sealed class ArmyMobilityCurrentProducer
     public ArmyMobilityCurrentResolution Resolve(GameState state, UnitState army, SourceWorldContext current)
         => ResolveCurrent(state, army, current);
 
-    internal ArmyMobilityCurrentResolution ResolveCurrent(GameState state, UnitState army, SourceWorldContext definitions)
+    internal ArmyMobilityCurrentResolution ResolveCurrent(GameState state, UnitState army, SourceWorldContext definitions,
+        int? explicitFormation = null)
     {
         var context = new TacticRemakeCurrentContext(definitions, catalog, map, terrain,
             new(package.Seed.Language, SimulationRuleIdentity.ForLocale(package.Seed.Language)), package.Revision);
         if (context.ArmyValid(state, army) != true) return Missing("current.Army_validity");
-        if (army.NativeTacticRuntime is not { Status10: 1 or 2, StatModifiers4A.Length: 6 } runtime)
-            return Missing("Status10_ordinary_Army1_or2_branch");
         var parameters = state.NativeArmySimulation!.Parameters;
         if (parameters.Language != source.Language || parameters.RuleVersion != source.Source.RuleVersion)
             return Missing("current.native_parameter_generation");
-        if (!parameters.Int32Values.TryGetValue(TacticRemakeCurrentBattleControl.VersionKey, out int tutorialVersion) || tutorialVersion != 1 ||
-            !parameters.Int32Values.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorialHeader))
-            return Missing("current.CTutorial_header0");
-        if (tutorialHeader != 0) return Missing("active_tutorial.4C6ED0_override");
-        if (context.EffectiveFormation(state, army) is not int formation || formation is < 1 or > 20 ||
+        var tutorial = TutorialArmyMobilitySource.Read(package.ReadTutorialControlState(state), parameters,
+            () => army.NativeArmyOrigin?.NativeSlotIndex is int slot
+                ? definitions.ReadArmyUnitCommanderId(new(slot)) : null,
+            () => ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army));
+        if (tutorial.Missing is { } tutorialMissing) return Missing(tutorialMissing);
+        if (tutorial.Value is > 0)
+        {
+            byte status = army.NativeTacticRuntime?.Status10
+                ?? throw new InvalidDataException("tutorial.mobility.Army_status10");
+            return new(new(tutorial.Value.Value, null, null, null, status, null, null, null, null,
+                null, null, null, null, null, null,
+                $"{Revision};tutorial-designated-commander-formation;{parameters.Revision}")
+                { TutorialOverride = true }, null);
+        }
+        if (army.NativeTacticRuntime is not { Status10: 1 or 2, StatModifiers4A.Length: 6 } runtime)
+            return Missing("Status10_ordinary_Army1_or2_branch");
+        int? effectiveFormation = context.EffectiveFormation(state, army);
+        if ((explicitFormation ?? effectiveFormation) is not int formation || formation is < 1 or > 20 ||
             TacticRemakeCurrentFormations.ReadVectorByteCount(state, formation) is not int vectorBytes ||
             TacticRemakeCurrentFormations.ReadParameter(state, formation, 0x7F) is not byte rawCoefficient ||
             TacticRemakeCurrentFormations.ReadParameter(state, formation, 0xA6) is not byte flagsA6)
@@ -81,7 +97,9 @@ public sealed class ArmyMobilityCurrentProducer
             if (Parameter(SimulationParameterKeys.ArmyMobility.FormationFiveMobilityBonus) is not int bonus) return Missing("current.mobility_formation5_bonus1A4AB98");
             coefficient = unchecked(coefficient + bonus);
         }
-        int? percent = ForceFormationPercent(formation);
+        // With a null Hex override,41D5D0 reads the actual current formation,
+        // independently of the explicit coefficient/terrain formation argument.
+        int? percent = effectiveFormation is int actual ? ForceFormationPercent(actual) : null;
         if (percent is null) return Missing("current.Force_formation_effect41D5D0");
         if (!state.Officers.ContainsKey(army.OfficerId) ||
             definitions.ResolveOfficerSource(army.OfficerId) is not int commanderPhysical ||
@@ -103,9 +121,8 @@ public sealed class ArmyMobilityCurrentProducer
                     return Missing("current.Army_byte140_for_trait116");
                 if (control != 0) trait = unchecked(trait + traits[116]);
             }
-            // Every reached2A63B0 return is zero for both source effects31/97
-            // zero. This does not invent an age, World mode or flag140 value.
-            if (traits[31] != 0 || traits[97] != 0) return Missing("current.command_age229FC0_and_effect2A63B0");
+            try { trait = unchecked(trait + ArmyCommandAgeEffectSource.ReadCurrent(state, definitions, army, traits)); }
+            catch (InvalidDataException error) { return Missing(error.Message); }
         }
         else trait = traits[94];
         int lower = unchecked(-limit);
@@ -163,7 +180,13 @@ public sealed class ArmyMobilityCurrentProducer
             if (active)
             {
                 if (effects.ReadSuppression(requested) is not bool suppressed) return Missing("current.Force_suppressed_policy_bitmap1D5");
-                if (!suppressed) return Missing($"active_unsuppressed_policy{requested}.22C250_contribution");
+                if (!suppressed)
+                {
+                    var forceReference = definitions.ReadForceTableReference(army.ForceId);
+                    if (forceReference is null || definitions.BaseForceModifierReader?.Invoke(forceReference, requested) is not int contribution)
+                        return Missing($"current.policy{requested}.panel_modifier");
+                    policyValue = contribution;
+                }
             }
             result *= (float)policyValue / source.Percent + source.One;
         }

@@ -30,6 +30,7 @@ internal static class RulerDecisionSaveFields
             }
             return;
         }
+        MigrateArmyDefeatHome(state, version);
         Nullable(state, "ArmyDefeatContinuation", Defeat);
         Nullable(state, "PersonDeathContinuation", Death);
         if (state["NativeNormalTurnContinuation"] is JsonObject turn)
@@ -51,6 +52,23 @@ internal static class RulerDecisionSaveFields
         }
     }
 
+    //The previous216 producer captured only an ordinary Force and City Home.
+    //No post-callback Person is consulted when migrating that captured owner.
+    internal static void MigrateArmyDefeatHome(JsonObject state, int version)
+    {
+        if (version >= 217 || state["ArmyDefeatContinuation"] is not JsonObject savedDefeat) return;
+        if (!Integer(savedDefeat["HomeCityId"], 1, 51) || !Integer(savedDefeat["VictimForceId"], 1, 45) ||
+            !Integer(savedDefeat["ResumePoint"], 0, 1) || savedDefeat.ContainsKey("VictimHome") ||
+            savedDefeat.ContainsKey("SpecialCommanderReclaim") || savedDefeat.ContainsKey("ReclaimDefeatedCommander"))
+            Invalid();
+        savedDefeat["VictimHome"] = new JsonObject
+            { ["Kind"] = (int)SettlementBaseKind.City, ["Id"] = savedDefeat["HomeCityId"]!.DeepClone() };
+        savedDefeat["SpecialCommanderReclaim"] = false;
+        savedDefeat["ReclaimDefeatedCommander"] = Integer(savedDefeat["ResumePoint"],
+            (int)ArmyDefeatResumePoint.AfterPersonDeath, (int)ArmyDefeatResumePoint.AfterPersonDeath)
+            ? null : JsonValue.Create(false);
+    }
+
     private static bool Defeat(JsonNode node)
     {
         if (node is not JsonObject value ||
@@ -62,10 +80,30 @@ internal static class RulerDecisionSaveFields
             !NullableShape(value, "WinnerBase", Base) || !NullableInt(value, "WinnerForceId") ||
             !NullableInt(value, "SampleDay") || !NullableInt(value, "SampleSalt") ||
             !Integer(value["ResumePoint"], 0, 1) || !Bool(value, "DeathReturnedEarly") ||
+            !Bool(value, "SpecialCommanderReclaim") || !DefeatHomeContext(value) ||
+            !NullableShape(value, "ReclaimDefeatedCommander", node => node is JsonValue b && b.TryGetValue<bool>(out _)) ||
+            (Integer(value["ResumePoint"], (int)ArmyDefeatResumePoint.AfterPersonDeath, (int)ArmyDefeatResumePoint.AfterPersonDeath)
+                ? value["ReclaimDefeatedCommander"] is not null : value["ReclaimDefeatedCommander"] is null) ||
+            IsTrue(value["ReclaimDefeatedCommander"]) &&
+                (!IsTrue(value["SpecialCommanderReclaim"]) || Integer(defeat["Cause"], (int)UnitDefeatCause.DuelDeath, (int)UnitDefeatCause.DuelDeath)) ||
+            IsTrue(value["SpecialCommanderReclaim"]) && !Integer(value["VictimForceId"], 46, 51) ||
+            Integer(value["VictimForceId"], 51, 51) && !IsTrue(value["SpecialCommanderReclaim"]) ||
             !NullableShape(value, "ChosenDisposition", node => Integer(node, 0, 1)) ||
             !NullableShape(value, "PendingCapturedRulerTreatment", Captive)) return false;
         return true;
     }
+
+    private static bool DefeatHomeContext(JsonObject value) => value.ContainsKey("VictimHome") &&
+        (value["VictimHome"] is null ? IsTrue(value["SpecialCommanderReclaim"]) && Integer(value["HomeCityId"], 0, 0) :
+            DefeatHome(value["VictimHome"]) && Integer(value["HomeCityId"], 1, 51) &&
+            (!Integer(value["VictimHome"]?["Kind"], (int)SettlementBaseKind.City, (int)SettlementBaseKind.City) ||
+                value["VictimHome"]?["Id"]?.GetValue<int>() == value["HomeCityId"]?.GetValue<int>()));
+    private static bool IsTrue(JsonNode? node) => node is JsonValue value && value.TryGetValue<bool>(out bool result) && result;
+    private static bool DefeatHome(JsonNode? node) => node is JsonObject value &&
+        (Integer(value["Kind"], (int)SettlementBaseKind.City, (int)SettlementBaseKind.City) &&
+            Integer(value["Id"], 1, 51) ||
+         Integer(value["Kind"], (int)SettlementBaseKind.Gate, (int)SettlementBaseKind.Gate) &&
+            Integer(value["Id"], 52, 61));
 
     private static bool Captive(JsonNode node) => node is JsonObject value &&
         Ints(value, "OfficerId", "CapturingForceId", "CapturingRulerId") &&

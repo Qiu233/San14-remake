@@ -11,6 +11,9 @@ internal partial class IncomeReportNumericView : Control
     private IncomeReportDistrictNumbersView districts = null!;
     private ActionReportStrategistView strategist = null!;
     private UiSourceReportFooter footer = null!;
+    private UiSourceRoundButton graphReturn = null!;
+    private IncomeReportGraphView? graph;
+    private bool graphMode;
     private readonly List<UiSourceCommandButton> commands = [];
     private readonly List<Control> districtGuides = [];
     private Func<DistrictReference, string>? readAdvice;
@@ -26,12 +29,11 @@ internal partial class IncomeReportNumericView : Control
         string locale, SourceWorldContext current, ForceReference force,
         Func<DistrictReference, IncomeReportNumbers> readNumbers, Func<DistrictReference, string> readAdvice,
         IReadOnlyList<LoadedSprite>? standingLayers, bool inputGuidesVisible,
-        Action<DistrictReference> showDetails, Action<DistrictReference> showGraph,
-        Func<bool> inputAdmitted, Action closed, Action<Exception> failed, UiSourceHeaderStack headers)
+        Action<DistrictReference>? showDetails, Action<DistrictReference>? showGraph,
+        Func<bool> inputAdmitted, Action closed, Action<Exception> failed, UiSourceHeaderStack headers,
+        IncomeReportGraphPublication? graphPublication = null)
     {
         ArgumentNullException.ThrowIfNull(readAdvice);
-        ArgumentNullException.ThrowIfNull(showDetails);
-        ArgumentNullException.ThrowIfNull(showGraph);
         ArgumentNullException.ThrowIfNull(inputAdmitted);
         ArgumentNullException.ThrowIfNull(closed);
         ArgumentNullException.ThrowIfNull(failed);
@@ -51,8 +53,20 @@ internal partial class IncomeReportNumericView : Control
         districts = new IncomeReportDistrictNumbersView { Name = "IncomeDistricts" };
         canvas.AddChild(districts);
         districts.Configure(repository, assets, shader, font, locale, current, force, readNumbers,
-            district => strategist.ApplyPage(this.readAdvice!(district)
-                ?? throw new InvalidDataException("Income report advice is unknown.")), ReadAdmission, Fail);
+            district =>
+            {
+                strategist.ApplyPage(this.readAdvice!(district) ?? throw new InvalidDataException("Income report advice is unknown."));
+                if (graph is not null && districts.SelectedNumber is byte number) graph.Apply(number);
+            }, ReadAdmission, Fail);
+        if (graphPublication is not null)
+        {
+            graph = new() { Name = "IncomeGraph", Position = side.Rectangle(14).Position };
+            canvas.AddChild(graph);
+            graph.Configure(repository, assets, shader, font, locale, graphPublication, ReadAdmission);
+            graph.AddSeriesCommands(repository, canvas, side, locale);
+            if (districts.SelectedNumber is byte number) graph.Apply(number);
+            graph.Hide(); graph.SetCommandsVisible(false);
+        }
         var messages = repository.LoadMessages(locale, MessageKind.Data).Messages.Sections[1].Records;
         foreach (var (node, message, id) in new[] { (1, 0x5F4, 9), (3, 0x443, 10) })
         {
@@ -69,6 +83,8 @@ internal partial class IncomeReportNumericView : Control
             }));
             button.InputAdmission = ReadAdmission;
             button.SetMeta("source_control_id", id);
+            if (command == 9 && showDetails is null || command == 10 && showGraph is null)
+                button.SetMeta("unresolved_owner", command == 9 ? "income-report.detail-window" : "income-report.graph-window");
         }
         var pad = new UiSourceLayout(repository, 0x95761708);
         int pitch = (int)source.Nodes[2].HeaderValues[0] - (int)source.Nodes[4].HeaderValues[0];
@@ -88,6 +104,13 @@ internal partial class IncomeReportNumericView : Control
         footer = new UiSourceReportFooter { Name = "IncomeFooter" };
         canvas.AddChild(footer);
         footer.Configure(repository, assets, shader, locale, inputGuidesVisible, RequestClose, ReadAdmission);
+        var returnLayout = new UiSourceLayout(repository, 0xD8913AB2);
+        graphReturn = new UiSourceRoundButton { Name = "IncomeGraphReturn",
+            Position = returnLayout.Rectangle(1, new(0, 904)).Position, InputAdmission = ReadAdmission };
+        canvas.AddChild(graphReturn);
+        graphReturn.Configure(repository, assets, shader, locale, "000_cmn_txt_decision_modoru",
+            () => Run(ToggleGraph), UiAudioCue.Cancel);
+        graphReturn.Hide();
         SetInputGuidesVisible(inputGuidesVisible);
         var title = new UiSourceHeader { Name = "IncomeTitle" };
         canvas.AddChild(title);
@@ -107,12 +130,21 @@ internal partial class IncomeReportNumericView : Control
         footer.SetInputGuidesVisible(visible);
     }
     internal void ApplyStrategistPortrait(IReadOnlyList<LoadedSprite>? standingLayers) => strategist.ApplyPortrait(standingLayers);
+    internal void ToggleGraph()
+    {
+        if (graph is null) throw new InvalidOperationException("Income history graph has no publication.");
+        graphMode = !graphMode;
+        graph.Visible = graphMode; graph.SetCommandsVisible(graphMode);
+        districts.SetNumericVisible(!graphMode);
+        foreach (var command in commands) command.Visible = !graphMode;
+        footer.Visible = !graphMode; graphReturn.Visible = graphMode;
+    }
 
     // Cancel has already passed the application's real shortcut/modal gates.
     // Income has no Action-style click-anywhere advice-page advance path.
     internal void ProcessSourceInput(bool cancelRequested) => Run(() =>
     {
-        if (cancelRequested && ReadAdmission()) footer.RequestConfirmation();
+        if (cancelRequested && ReadAdmission()) { if (graphMode) ToggleGraph(); else footer.RequestConfirmation(); }
     });
 
     private bool ReadAdmission()
@@ -121,7 +153,8 @@ internal partial class IncomeReportNumericView : Control
         try
         {
             bool allowed = IsInsideTree() && IsVisibleInTree() && CanProcess() && inputAdmitted!();
-            foreach (var button in commands) button.Disabled = !allowed || SelectedDistrict is null;
+            for (int i = 0; i < commands.Count; i++)
+                commands[i].Disabled = !allowed || SelectedDistrict is null || (i == 0 ? showDetails : showGraph) is null;
             if (footer is not null) footer.ConfirmEnabled = allowed;
             return allowed;
         }

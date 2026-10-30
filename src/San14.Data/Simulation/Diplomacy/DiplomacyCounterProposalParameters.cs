@@ -4,7 +4,8 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //TC805970: file-backed immutable i32 rules, with no write references or
+    //TC805970 and independently paired SC806120 use these same file-backed
+    //immutable i32 rules, with no write references or
     //address escape in the cached original references. Saved overrides win.
     //The catalog is project data; gameplay never reads the original program.
     private static readonly IReadOnlyDictionary<string, int> DiplomacyCounterStaticParameters =
@@ -26,8 +27,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         string suffix = "counter-" + name;
         string key = "diplomacy:" + suffix;
         var bank = state.NativeArmySimulation?.Parameters;
-        if (bank is null || bank.Language != "TC" ||
-            bank.RuleVersion != SimulationRuleIdentity.ForLocale("TC"))
+        if (bank is null || !HasDiplomacyParameterProfile(bank.Language, bank.RuleVersion))
             throw DiplomacyNumericMissing("counter_parameter_bank");
         if (bank.Float32Values.ContainsKey(key) || bank.Int32Values.ContainsKey(key))
             return DParameter(state, suffix);
@@ -37,9 +37,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal GameState InstallFreshDiplomacyCounterParameters(GameState state)
     {
-        if (Seed.Language != "TC") return state;
+        if (Seed.Language is not ("TC" or "SC")) return state;
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.Units.Count != 0 || state.NativeArmySimulation is not { } native)
+            state.Units.Count != 0 || state.NativeArmySimulation is not { } native ||
+            native.Parameters.Language != Seed.Language ||
+            !HasDiplomacyParameterProfile(native.Parameters.Language,native.Parameters.RuleVersion))
             throw DiplomacyNumericMissing("counter_fresh_parameter_lifecycle");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var (key, value) in DiplomacyCounterStaticParameters)

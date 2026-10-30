@@ -13,6 +13,17 @@ public partial class Main
     private ProcessModeEnum _personnelConfirmationBrowserMode;
     private bool HasPersonnelConfirmation => _personnelConfirmation is not null || HasSelfRecommendation || HasCoalitionInvitation || HasRulerDecision;
 
+    private bool TryAdoptPersonnelItemConfirmationSpeechWorld(PersonnelItemPage page, GameplaySession session,
+        GameState previous, GameState replacement)
+    {
+        if (_personnelConfirmation is null) return true;
+        if (_personnelConfirmationItemParent != page || _personnelConfirmationSession != session ||
+            _personnelConfirmationMap != _personnelItemMap ||
+            !ReferenceEquals(_personnelConfirmationWorld, previous)) return false;
+        _personnelConfirmationWorld = replacement;
+        return true;
+    }
+
     private void RequestPersonnelOrder(GameOrder order, PersonnelItemPage? itemPage = null)
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasPersonnelConfirmation ||
@@ -49,6 +60,14 @@ public partial class Main
             _playMessage.Text = _ui.CommandError(evaluation.MissingRuleKey ?? "personnel.ineligible");
             return;
         }
+        // The ordinary item page decides once. Its original person narration
+        // is prepared first; the real transfer follows its return, then the page exits.
+        if (itemPage is not null)
+        {
+            if (!IsPersonnelItemPageCurrent(itemPage)) return;
+            BeginPersonnelItemTransfer(order, itemPage);
+            return;
+        }
         prompt += "\n" + _ui.Format("play_personnel_confirm_cost", quote.CommandBooks, quote.Gold);
         if (world.Officers[officer].Loyalty is int loyalty)
             prompt += "\n" + _ui.Format("play_personnel_confirm_loyalty", loyalty,
@@ -68,8 +87,11 @@ public partial class Main
             view.ConfigureWrappedMessage(_repository, _ui, prompt, accepted => RunPlayAction(() =>
             {
                 if (_personnelConfirmation != view) return;
-                bool current = ReferenceEquals(_session, session) && ReferenceEquals(_world, world) &&
-                    _residentMap == _personnelConfirmationMap;
+                bool current = ReferenceEquals(_session, session) && _personnelConfirmationSession == session &&
+                    ReferenceEquals(_world, _personnelConfirmationWorld) &&
+                    ReferenceEquals(session.World, _personnelConfirmationWorld) && _residentMap == _personnelConfirmationMap &&
+                    (itemPage is null ? _commandWorkspace == _personnelConfirmationParent :
+                        _personnelConfirmationItemParent == itemPage && IsPersonnelItemPageCurrent(itemPage));
                 ClosePersonnelConfirmation();
                 if (accepted && current)
                 {

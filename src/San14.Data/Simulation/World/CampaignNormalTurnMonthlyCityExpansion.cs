@@ -93,6 +93,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = state.NativeArmySimulation?.Parameters ?? throw CityExpansionMissing("parameters");
             if (bank.Float32Values.ContainsKey(key)) throw CityExpansionMissing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
+            if (Seed.Language == "SC")
+            {
+                //SC279CD0 and2A0DF0 independently read these six Int32 values.
+                //The level and popularity data are1A4BBAC/BBB8/BBC0 and1A4A838/A844/A850.
+                return name switch { "middle-levels" => 6, "large-levels" => 9, "giant-levels" => 12,
+                    "middle-popularity" => 3, "large-popularity" => 10, "giant-popularity" => 20, _ => throw CityExpansionMissing("parameter_" + name) };
+            }
             if (Seed.Language != "TC") throw CityExpansionMissing("locale_parameter_" + name);
             //TC immutable rule data1A4AB7C/88/90 and1A49808/14/20.
             return name switch { "middle-levels" => 6, "large-levels" => 9, "giant-levels" => 12,

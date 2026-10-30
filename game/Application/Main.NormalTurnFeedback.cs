@@ -78,6 +78,14 @@ public partial class Main
             ShowMonthlyScene(session, map, publication.Value?.Illustration ?? throw new InvalidDataException(publication.UnresolvedInput));
             return;
         }
+        if (active.Family == MonthlySceneFamily.Personnel)
+        {
+            var personnel = new MonthlyMaintenanceRequest(MonthlyMaintenanceOperation.PersonnelSceneEnter,
+                active.EventKind, null, null);
+            var publication = _campaignComposition!.PrepareArmyQueries(owner).QueryProposalScene(owner, personnel);
+            ShowMonthlyScene(session, map, publication.Value ?? throw new InvalidDataException(publication.UnresolvedInput));
+            return;
+        }
         var request = new MonthlyMaintenanceRequest(MonthlyMaintenanceOperation.FinalOrderSceneEnter,
             active.EventKind, null, null);
         var query = _campaignComposition!.PrepareArmyQueries(owner).QueryNormalTurnFinalOrderScene(owner, request);

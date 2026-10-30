@@ -1,0 +1,42 @@
+namespace San14.Data;
+
+internal sealed partial class NarrationResourceMessages
+{
+    //6CF0F0 binds Person0 to the recipient for586A, or the old holder for
+    //5876, and Person1 to that speaker's current ruler.1F0AD0 then opens
+    //the real EventNarration state. Voice34/36 remains a live Function4.
+    internal string ResolvePersonnelItemTransfer(INarrationCurrentContext context,
+        Func<int, int> draw, int root)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(draw);
+        if (root is not (0x586A or 0x5876)) throw Failure("personnel_item_transfer_root");
+        _prefix = "personnel.item-transfer.text";
+        bool previous = _report; _report = true;
+        try
+        {
+            return ExecuteMessage(context, draw, root, Get(root), _ => false, true, null,
+                PersonnelItemTransferMessages.Contains).Text;
+        }
+        finally { _report = previous; }
+    }
+
+    //Complete installed TC/SC static J/C closure of the two roots. The
+    //shared forms below are referenced person names, never adjacent guesses.
+    //Neither locale uses an opaque escape in this finite message family.
+    private static readonly HashSet<int> PersonnelItemTransferMessages =
+    [
+        0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0,
+        0x00A1, 0x00A2, 0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7,
+        0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF, 0x00C0, 0x00C1,
+        0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9, 0x00CA, 0x00CB,
+        0x00CC, 0x00CD, 0x00CE, 0x00CF, 0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5,
+        0x00D7, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF, 0x00E0,
+        0x00E1, 0x00E2, 0x00E3, 0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA,
+        0x00EB, 0x00EC, 0x00ED, 0x00EE, 0x00EF, 0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4,
+        0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE,
+        0x00FF, 0x0100, 0x0101, 0x0119,
+        0x586A, 0x586B, 0x586C, 0x586D, 0x586E, 0x586F, 0x5870, 0x5871, 0x5872, 0x5873,
+        0x5876, 0x5877, 0x5878, 0x5879, 0x587A, 0x587B, 0x587C, 0x587D, 0x587E, 0x587F,
+    ];
+}

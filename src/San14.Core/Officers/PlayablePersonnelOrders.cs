@@ -9,11 +9,15 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
             return PersonnelDevelopmentOrders.Apply(state, force, order, context, policy);
         if (order is RewardOfficersOrder or GrantOfficerMeritOrder or PromoteOfficerCreditOrder or BanishOfficersOrder)
             return PersonnelAdministrationOrders.Apply(state, force, order, context, policy);
+        if (order is ToggleCommanderAutomaticTacticsOrder automatic)
+            return policy is ICommanderAutomaticTacticsCommandRules automaticRules
+                ? CommanderAutomaticTacticsCommandApplication.ApplyValidated(state, force, automatic, context, automaticRules)
+                : CommandResult.RuleUnavailable("commander-automatic.rules", "Current commander automatic tactics are unavailable.");
         if (order is SetCommanderSelectionOrder commanders)
             return CommanderSelectionOrders.Apply(state, force, commanders, context, policy);
         if (order is SetOfficerOfficeOrder or SetOfficerOfficesOrder)
             return OfficerOfficeOrders.Apply(state, force, order, context, policy);
-        if (order is not GrantItemOrder and not RevokeItemOrder)
+        if (order is not GrantItemOrder and not RevokeItemOrder and not PreparePersonnelItemTransferOrder)
             return next.Apply(state, force, order, context);
         if (context.DelegatedDistrictId is not null)
             return CommandResult.Reject("Personnel administration requires direct control of the force.", "personnel.scope");
@@ -21,7 +25,8 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
         ItemState? item = null;
         int officerId;
         {
-            int itemId = order is GrantItemOrder grant ? grant.ItemId : ((RevokeItemOrder)order).ItemId;
+            int itemId = order switch { GrantItemOrder grant => grant.ItemId, RevokeItemOrder revoke => revoke.ItemId,
+                PreparePersonnelItemTransferOrder prepare => prepare.ItemId, _ => throw new InvalidDataException("Unexpected item order.") };
             if (state.Items is null)
                 return CommandResult.RuleUnavailable("personnel.inventory", "Current item inventory is unresolved.");
             if (!state.Items.TryGetValue(itemId, out item) || !state.ItemDefinitions.ContainsKey(item.DefinitionId))
@@ -36,12 +41,16 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
                 return CommandResult.RuleUnavailable("personnel.item_force", "An unheld item does not establish a force treasury owner.");
             if (!Owned(state, force.Id, holderId))
                 return CommandResult.Reject("Item holder belongs to another force.", "personnel.item_control");
-            if (order is GrantItemOrder give)
+            if (order is GrantItemOrder or PreparePersonnelItemTransferOrder)
             {
-                officerId = give.RecipientOfficerId;
-                if (holderId != rulerId)
-                    return CommandResult.Reject("Revoke the subordinate's item before granting it again.", "personnel.item_revoke_first");
-                change = new(PersonnelActionKind.GrantItem, officerId, itemId, holderId, officerId);
+                int recipient = order is GrantItemOrder give ? give.RecipientOfficerId : ((PreparePersonnelItemTransferOrder)order).RecipientOfficerId;
+                officerId = recipient;
+                if (holderId == officerId)
+                    return CommandResult.Reject("The recipient already holds this item.", "personnel.item_same_holder");
+                bool revokePreparation = order is PreparePersonnelItemTransferOrder && recipient == rulerId;
+                change = revokePreparation ? new(PersonnelActionKind.RevokeItem, holderId, itemId, holderId, rulerId)
+                    : new(PersonnelActionKind.GrantItem, officerId, itemId, holderId, officerId);
+                if (revokePreparation) officerId = holderId;
             }
             else
             {
@@ -55,12 +64,6 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
         if (!Owned(state, force.Id, officerId))
             return CommandResult.Reject("Target officer does not belong to this force.", "personnel.officer_control");
         OfficerState target = state.Officers[officerId];
-        if (target.Presence != OfficerPresence.Present || target.Deployed || PlayableOfficerAvailability.IsSourceBusy(state, target) ||
-            PlayableDiplomacy.IsOfficerOnMission(state, target.Id) ||
-            state.PreparedOfficerMoves?.ContainsKey(target.Id) == true ||
-            state.PreparedTalentOrders?.ContainsKey(target.Id) == true ||
-            state.PreparedDeployments.Values.Any(plan => plan.OfficerId == target.Id))
-            return CommandResult.Reject("Officer is currently unavailable.", "personnel.officer_busy");
         PersonnelEvaluation evaluation = policy.Evaluate(state, force, change, context)
             ?? throw new InvalidDataException("Personnel policy returned no evaluation.");
         if (evaluation.Allowed is null)
@@ -68,6 +71,12 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
                 evaluation.Reason ?? "Personnel rule is unresolved.");
         if (evaluation.Allowed != true)
             return CommandResult.Reject(evaluation.Reason ?? "Personnel policy denied this change.", "personnel.ineligible");
+        if (evaluation.ItemTransferPreview is null && (target.Presence != OfficerPresence.Present || target.Deployed || PlayableOfficerAvailability.IsSourceBusy(state, target) ||
+            PlayableDiplomacy.IsOfficerOnMission(state, target.Id) ||
+            state.PreparedOfficerMoves?.ContainsKey(target.Id) == true ||
+            state.PreparedTalentOrders?.ContainsKey(target.Id) == true ||
+            state.PreparedDeployments.Values.Any(plan => plan.OfficerId == target.Id)))
+            return CommandResult.Reject("Officer is currently unavailable.", "personnel.officer_busy");
         if (evaluation.Quote is not { } quote)
             throw new InvalidDataException("Allowed personnel policy omitted its accounting.");
         DistrictState? district = quote.DistrictId is int districtId &&
@@ -90,6 +99,10 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
             return CommandResult.Reject("City lacks personnel funds.", "personnel.insufficient_gold");
         if (quote.LoyaltyDelta != 0 && target.Loyalty is null)
             return CommandResult.RuleUnavailable("personnel.loyalty", "Current loyalty is unresolved; effects cannot consume it as zero.");
+        if (order is PreparePersonnelItemTransferOrder)
+            return evaluation.ItemTransferPreview is { } preparing && policy is IPersonnelItemTransferCommandRules preparingRules
+                ? preparingRules.PrepareItemTransfer(state, force, change, preparing, context)
+                : CommandResult.RuleUnavailable("personnel.item_narration", "The current item announcement is unavailable.");
         OfficerState changed = target;
         int actualLoyalty = quote.LoyaltyDelta == 0 ? 0 :
             Math.Clamp(checked(target.Loyalty!.Value + quote.LoyaltyDelta), 0, 100) - target.Loyalty.Value;
@@ -114,13 +127,40 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
         {
             OrdersRemaining = district.OrdersRemaining is int currentBooks ? currentBooks - quote.CommandBooks : null
         };
-        return CommandResult.Accept(state with
+        var officers = new Dictionary<int, OfficerState>(state.Officers) { [target.Id] = changed };
+        if (evaluation.ItemTransferPreview is { } transfer)
+        {
+            if (transfer.ItemId != change.ItemId || transfer.PreviousHolder.OfficerId != change.PreviousHolderId ||
+                transfer.NextHolder.OfficerId != change.NextHolderId ||
+                transfer.PreviousHolder.OfficerId == transfer.NextHolder.OfficerId ||
+                transfer.DistrictId != quote.DistrictId || transfer.CommandBooksCost != quote.CommandBooks ||
+                transfer.DistrictBooksBefore != district?.OrdersRemaining ||
+                transfer.DistrictBooksAfter != Math.Clamp(unchecked(transfer.DistrictBooksBefore - quote.CommandBooks), 0, 200))
+                throw new InvalidDataException("Personnel transfer preview does not match the evaluated command.");
+            // Both source loyalty writes happen before the one holder change.
+            // Effective abilities remain derived from the resulting inventory.
+            foreach (var effect in new[] { transfer.PreviousHolder, transfer.NextHolder })
+            {
+                if (!state.Officers.TryGetValue(effect.OfficerId, out var current) ||
+                    current.Loyalty != effect.LoyaltyBefore || effect.LoyaltyAfter is < 0 or > 100 ||
+                    (effect.LoyaltyBefore is null) != (effect.LoyaltyAfter is null))
+                    throw new InvalidDataException("Personnel transfer loyalty result has no matching current owner.");
+                officers[effect.OfficerId] = current with { Loyalty = effect.LoyaltyAfter };
+            }
+        }
+        if (evaluation.ItemTransferPreview is { } accounted)
+            districts[accounted.DistrictId] = districts[accounted.DistrictId] with
+                { OrdersRemaining = accounted.DistrictBooksAfter };
+        GameState result = state with
         {
             Items = items,
-            Officers = new(state.Officers) { [target.Id] = changed },
+            Officers = officers,
             Cities = cities, Districts = districts,
             PersonnelReports = (state.PersonnelReports ?? []).Append(report).ToArray()
-        });
+        };
+        return evaluation.ItemTransferPreview is { } completed && policy is IPersonnelItemTransferCommandRules sourceRules
+            ? sourceRules.CompleteItemTransfer(result, force, change, completed, context)
+            : CommandResult.Accept(result);
     }
 
     private static bool Owned(GameState state, int forceId, int officerId) =>

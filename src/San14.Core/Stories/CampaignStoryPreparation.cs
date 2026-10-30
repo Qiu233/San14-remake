@@ -1,10 +1,15 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace San14.Core;
 
 public sealed record CampaignStoryPreparedText(string SpeakerName, string Text,
     ImmutableArray<string> Pages, TalentOfficerPresentationContext? Speaker,
-    ImmutableArray<TalentNarrationVoiceRequest> Voices);
+    ImmutableArray<TalentNarrationVoiceRequest> Voices)
+{
+    public bool SpeechOnly { get; init; }
+    [JsonRequired] public bool FormatOnly { get; init; }
+}
 public sealed record CampaignStoryPreparedStep(int Step, CampaignStoryPreparedText? Text);
 public sealed record CampaignStoryPreparationResult(CampaignStoryPreparedStep? Prepared,
     CampaignAppRandomState? AppRandomState, string? UnresolvedOwner);
@@ -23,6 +28,7 @@ internal static class CampaignStoryPreparationValidation
     {
         if (text is null) return;
         if (text.SpeakerName is null || text.Text is null || text.Pages.IsDefault || text.Pages.Any(page => page is null) ||
+            text.FormatOnly && (text.SpeechOnly || text.Speaker is not null || text.SpeakerName.Length != 0 || text.Pages.Length != 0) ||
             text.Speaker is { } speaker && !Speaker(speaker) || text.Voices.IsDefault ||
             text.Voices.Any(voice => voice is null || voice.SpeakerId is < 0 or > 6000 || voice.VoiceId < 0 ||
                 voice.VariantIndex < 0 || !Enum.IsDefined(voice.Language)))

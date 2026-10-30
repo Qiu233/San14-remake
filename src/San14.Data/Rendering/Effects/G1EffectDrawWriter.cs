@@ -87,24 +87,25 @@ public static partial class G1EffectDrawWriter
         var packets = new List<G1EffectDrawPacket>(queue.Count);
         using var stream = new MemoryStream();
         foreach (var entry in queue)
+        foreach (var payload in ExpandSpecialFrameBlend(entry.Payload))
         {
             if (packets.Count >= rowCapacity) { capacityRejected++; continue; }
             try
             {
-                byte[] data = WriteParticle(entry.Payload, camera, out int stride, out int count,
+                byte[] data = WriteParticle(payload, camera, out int stride, out int count,
                     out int renderType, out uint header, out uint flags, out byte alpha);
                 if (data.Length / 32 > dynamicCapacity32 - stream.Length / 32)
                 { capacityRejected++; continue; }
                 int offset = checked((int)stream.Length);
-                int configuration = H(entry.Payload, 0) == 6 ? H(entry.Payload, 8) & 7 : H(entry.Payload, 8);
-                int texture = H(entry.Payload, 0xC);
+                int configuration = H(payload, 0) == 6 ? H(payload, 8) & 7 : H(payload, 8);
+                int texture = H(payload, 0xC);
                 if (!entry.Source.Resources.TextureSlots.ContainsKey(texture))
                     throw new InvalidDataException($"Effect texture slot {texture} is not declared.");
                 stream.Write(data);
                 packets.Add(new(entry.Source.Resources, entry.Source.Declaration.Record.FileOffset,
                     entry.Source.Declaration.Record.Type!.Value, configuration, renderType,
                     header, flags, texture, alpha, offset, stride, count, entry.Subdraw,
-                    entry.Bucket, entry.Ordinal, entry.Payload));
+                    entry.Bucket, entry.Ordinal, payload) { Source = entry.Source });
             }
             catch (NotSupportedException error) { Missing(entry.Source, error.Message); }
         }

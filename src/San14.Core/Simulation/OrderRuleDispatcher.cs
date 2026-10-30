@@ -11,8 +11,11 @@ public sealed class OrderRuleDispatcher(AreaAdministrationRules administration, 
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context) => order switch
     {
         SaveDeploymentDefaultsOrder defaults => DeploymentDefaultsCommand.Apply(state, defaults, context),
-        SetAreaAdministrationOrder => _administration.Apply(state, force, order, context),
+        SetAreaAdministrationOrder or ApplyAreaAdministrationOrder => _administration.Apply(state, force, order, context),
         PrepareDeploymentOrder or CancelPreparedDeploymentOrder => _deployment.Apply(state, force, order, context),
+        ExpandGovernanceDepartmentOrder expansion => governanceRoster is IGovernanceExpansionRules expansionRules
+            ? expansionRules.ApplyGovernanceExpansion(state, force, expansion, context)
+            : CommandResult.RuleUnavailable("rules.governance_expansion", "Department expansion rules are unavailable."),
         SetGovernanceRosterOrder roster => governanceRoster?.ApplyGovernanceRoster(state, force, roster, context) ??
             CommandResult.RuleUnavailable("rules.governance_roster", "Ordered governance rules are unavailable."),
         CompleteGovernanceNarrationOrder narration => governanceRoster?.CompleteGovernanceNarration(state, force, narration, context) ??

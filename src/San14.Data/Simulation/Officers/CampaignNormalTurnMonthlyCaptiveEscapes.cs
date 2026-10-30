@@ -8,7 +8,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool)
         => new MonthlyCaptiveEscapeSource(this, state, current, pool).Run();
 
-    /// <summary>29FA40, reached by the normal Turn's month-start action14.
+    /// <summary>The normal Turn's month-start action14 in both CE Chinese editions.
     /// All three city groups and their Person lists are operation-local.</summary>
     private sealed class MonthlyCaptiveEscapeSource(ArmyCampaignRuleAdapter package,
         GameState state, SourceWorldContext current, WorldIndexContext pool)
@@ -20,7 +20,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         internal GameState Run()
         {
-            if (package.Seed.Language != "TC") throw Missing("SC_29FA40_owner");
+            var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("parameters");
+            if (package.Seed.Language is not ("TC" or "SC") ||
+                parameters.Language != package.Seed.Language ||
+                parameters.RuleVersion != SimulationRuleIdentity.ForLocale(package.Seed.Language))
+                throw Missing("rule_owner");
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Missing("shared_pool");
             var candidates = Temporary();
@@ -256,14 +260,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             var result = package.FormatNormalTurnReport(state, current, root, operands);
             state = result.State; return result.Text;
         }
-        private int Parameter(string name, int knownTc)
+        private int Parameter(string name, int knownRule)
         {
-            //TC immutable data:1A4A4B4 divisor5,1A4A4B8 minimum5,
-            //1A4A4BC maximum50,1A4A4C0 resentment2 (typed/data.tsv254874..7).
+            //Independent TC/SC file-backed rule data agrees for all four
+            //values. Saved integer overrides remain authoritative; current
+            //captivity, loyalty and resentment still come from saved owners.
             string key = "simulation.captive-escape." + name;
             var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("parameters");
             if (parameters.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
-            return parameters.Int32Values.TryGetValue(key, out int value) ? value : knownTc;
+            return parameters.Int32Values.TryGetValue(key, out int value) ? value : knownRule;
         }
         private TacticSourceSamplerWorld Sampler() => package.ReadArmyDestructionSampler(state, current)
             ?? throw Missing("World450_45C");

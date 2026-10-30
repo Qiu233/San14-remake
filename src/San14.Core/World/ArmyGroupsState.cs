@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace San14.Core;
 
 public enum ArmyGroupOfficerKind
@@ -30,14 +32,43 @@ public sealed record ArmyGroupsState
     public Dictionary<int, ArmyGroupAssignment> UnitAssignments { get; init; } = [];
     public Dictionary<int, ArmyGroupLeader> Leaders { get; init; } = [];
     public Dictionary<int, ArmyGroupCautionTarget>? CautionTargets { get; init; } = [];
+    // Unknown owner or absent row stays unknown. Only an actual creation,
+    // reset or purpose/relay writer installs these immutable planning facts.
+    public ImmutableDictionary<int, ArmyGroupObjectiveState>? Objectives { get; init; }
+    /// <summary>Actual original-policy group contexts. Null retains unknown
+    /// legacy state; only the policy manager's construction/registration creates
+    /// known contexts. A reset releases the previous context for that group.</summary>
+    public ImmutableDictionary<int, OriginalAiPolicyActorState>? OriginalAiContexts { get; init; }
+    public OriginalAiMilitaryGroupPrototype? OriginalAiContextPrototype { get; init; }
     public ArmyGroupOfficerReference ResetLeader { get; init; } = ArmyGroupOfficerReference.None;
 
     // An unused group has the normal initial leader. Unknown imported leaders
     // are represented explicitly, rather than by omission.
     public ArmyGroupLeader GetLeader(int groupId) => Leaders.GetValueOrDefault(groupId)
         ?? new(true, ResetLeader);
-    public ArmyGroupCautionTarget GetCautionTarget(int groupId) => CautionTargets is null
-        ? new(false, null) : CautionTargets.GetValueOrDefault(groupId) ?? new(true, null);
+    public ArmyGroupCautionTarget GetCautionTarget(int groupId)
+    {
+        if (Objectives?.TryGetValue(groupId, out var objective) == true && objective.Purpose is { } purpose)
+            return new(true, purpose.Kind == ArmyGroupPurposeKind.InterceptCautionGroup ? purpose.Target.Id : null);
+        return CautionTargets is null ? new(false, null) : CautionTargets.GetValueOrDefault(groupId) ?? new(true, null);
+    }
+
+    public ArmyGroupsState ResetObjective(int groupId) => this with
+    {
+        Objectives = (Objectives ?? ImmutableDictionary<int, ArmyGroupObjectiveState>.Empty)
+            .SetItem(groupId, ArmyGroupObjectiveState.Reset),
+        OriginalAiContexts = OriginalAiContexts?.Remove(groupId)
+    };
+
+    /// <summary>The actual creation/register tail reuses an existing context;
+    /// it never reconstructs one from a query or an unknown legacy owner.</summary>
+    public ArmyGroupsState RegisterOriginalAiContext(int groupId)
+    {
+        if (OriginalAiContexts is null || OriginalAiContextPrototype is null || OriginalAiContexts.ContainsKey(groupId)) return this;
+        return this with { OriginalAiContexts = OriginalAiContexts.Add(groupId,
+            new(new(OriginalAiPolicyActorKind.MilitaryGroup, groupId), OriginalAiContextPrototype.BundleKey,
+                [], OriginalAiContextPrototype.InitialBlackboard)) };
+    }
 
     public ArmyGroupsState Copy() => this with
     {

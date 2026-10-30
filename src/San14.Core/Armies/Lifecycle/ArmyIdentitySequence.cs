@@ -87,6 +87,10 @@ public static class ArmyIdentityAllocation
                 if (request.Speech is { SpeakerKind: CombatParticipantKind.Army } speech) yield return speech.SpeakerId;
                 if (request.Speech is { TargetKind: CombatParticipantKind.Army, TargetId: int target }) yield return target;
                 if (request.Report is { TargetKind: CombatParticipantKind.Army } report) yield return report.TargetId;
+                if (request.ArmyFireCast is { } fireCast) yield return fireCast.UnitId;
+                if (request.ArmyFireAnnouncement is { } fireAnnouncement) yield return fireAnnouncement.UnitId;
+                if (request.FireDamagePresentation?.ArmyId is int fireTarget) yield return fireTarget;
+                if (request.TerrainDamagePresentation is { } terrainTarget) yield return terrainTarget.ArmyId;
             }
         foreach (int id in state.PendingCombatSettlements?.ReferencedUnitIds() ?? []) yield return id;
         foreach (int id in state.ArmyLifecycle?.Indexes.ReferencedUnitIds() ?? []) yield return id;

@@ -12,7 +12,8 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
     private readonly PreviewText text;
     private GameState world;
     private readonly ArmyCampaignRuleAdapter rules;
-    private readonly int source,force;
+    private readonly int? source;
+    private readonly int force;
     private readonly Func<int,Vector2?> project;
     private readonly Action<IReadOnlyList<DeploymentDraftRow>> accepted;
     private readonly Action back;
@@ -31,7 +32,30 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
     private int? previewHex;
     private bool disposed;
     private UnitTargetMenuMessages? sourceMessages;
+    private int? menuHexId;
+    private DeploymentTargetConfirmationKind? confirmationKind;
+    private Func<IReadOnlyList<DeploymentDraftRow>,bool>? decisionAdmission;
+    private Action<GameState,GameState>? adoptFalseReportWorld;
     internal DeploymentTargetDraft Draft {get;}
+    internal IReadOnlyList<DeploymentDraftRow> Rows=>Draft.Rows;
+    internal IReadOnlyList<int> SelectedOfficerIds=>Draft.SelectedOfficers;
+    internal bool IsTargetMenuOpen=>!disposed&&menu?.IsVisibleInTree()==true;
+    internal int? CurrentMenuHexId=>menu is null?null:menuHexId;
+    internal bool IsConfirmationOpen=>!disposed&&confirmation?.IsVisibleInTree()==true;
+    internal DeploymentTargetConfirmationKind? CurrentConfirmationKind=>confirmation is null?null:confirmationKind;
+    internal long TargetActionAcceptedSequence {get;private set;}
+    internal DeploymentAction? LastAcceptedTargetAction {get;private set;}
+    internal int? LastAcceptedTargetHexId {get;private set;}
+    internal IReadOnlyList<int> LastTargetActionOfficerIds {get;private set;}=[];
+    // A successful target-page Yes hands local rows to its caller. The real
+    // PrepareDeploymentOrder result remains the caller's separate event.
+    internal long TargetDecisionAcceptedSequence {get;private set;}
+    internal IReadOnlyList<DeploymentDraftRow> LastAcceptedRows {get;private set;}=[];
+    internal Func<IReadOnlyList<DeploymentDraftRow>,bool>? DecisionAdmission
+    {
+        get=>decisionAdmission;
+        set {decisionAdmission=value;RefreshDecisionAdmission();}
+    }
 
     internal DeploymentTargetPresenter(DeploymentTargetView view,GameResourceRepository repository,PreviewText text,
         GameState world,ArmyCampaignRuleAdapter rules,int source,int force,IReadOnlyList<DeploymentDraftRow> rows,
@@ -40,30 +64,50 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
         Func<DeploymentBehavior,Action<GameState>,bool>? saveDefaults=null,IEnumerable<int>? editedPolicyOfficers=null,
         Func<int>? scrollSpeed=null,bool? tutorialRestrictsFacilities=null,
         Action<DeploymentAction,int,Action<DeploymentAction>>? chooseFalseReportDestination=null,
-        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged=null)
+        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged=null,
+        GeneralUnitTargetPreparation? generalPreparation=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.rules=rules;
-        this.source=source;this.force=force;this.project=project;this.accepted=accepted;this.back=back;
+        this.source=generalPreparation is null ? source : null;this.force=force;
+        this.generalPreparation=generalPreparation;this.project=project;this.accepted=accepted;this.back=back;
         this.unavailable=unavailable;this.modalChanged=modalChanged;
         this.saveDefaults=saveDefaults;
         this.chooseFalseReportDestination=chooseFalseReportDestination;
         this.routePreviewChanged=routePreviewChanged;
         this.tutorialRestrictsFacilities=tutorialRestrictsFacilities;
+        facilityScrollSpeed=scrollSpeed??(()=>0);
         var cards=rules.QueryDeploymentTargetCards(world,rows);
-        Draft=new(world,rules,rows,cards,editedPolicyOfficers);
+        Draft=new(world,rules,rows,cards,editedPolicyOfficers,
+            generalPreparation?.Armies.ToDictionary(army=>army.Row.Request.OfficerId,army=>army.InitialGoalHexId));
         targetMenuQuery=rules.CreateDeploymentTargetMenuQuery(world,force);
         var portraits=rules.QueryOfficerPortraitRoutes(world,rows.Select(row=>row.Request.OfficerId).ToArray());
         var contents=rows.Select((row,index)=>DeploymentTargetContent.Create(repository,text,world,row,cards[index],
             portraits[row.Request.OfficerId],0,false)).ToArray();
-        var city=world.Cities[source];
-        var resources=rules.QueryDeploymentDraftResources(world,source,rows);
-        view.Configure(repository,text,city,resources.Troops?.CurrentTroops
-            ??throw new InvalidDataException("Deployment troop availability is unknown."),
-            resources.DecisionCommandBooks,[new(source,city.Name,contents)],Draft.SelectedOfficers,scrollSpeed?.Invoke()??0,
-            officers=>{if(disposed)return;CloseMenu();previewHex=null;Draft.SelectOfficers(officers);Refresh();},
-            OpenFacilities,RequestBack,currentScrollSpeed:scrollSpeed);
+        if (generalPreparation is null)
+        {
+            var city=world.Cities[source];
+            var resources=rules.QueryDeploymentDraftResources(world,source,rows);
+            view.Configure(repository,text,city,resources.Troops?.CurrentTroops
+                ??throw new InvalidDataException("Deployment troop availability is unknown."),
+                resources.DecisionCommandBooks,[new(source,city.Name,contents)],Draft.SelectedOfficers,scrollSpeed?.Invoke()??0,
+                SelectionChanged,OpenFacilities,RequestBack,currentScrollSpeed:scrollSpeed);
+            view.ApplyDraftResources(resources);
+        }
+        else ConfigureGeneralTargetView(generalPreparation, contents, scrollSpeed);
         view.ConfigureSourceRoute(repository,projectMarker);
-        view.ApplyDraftResources(resources);Refresh();
+        Refresh();
+
+        void SelectionChanged(IReadOnlyList<int> officers)
+        {if(disposed)return;CloseMenu();previewHex=null;Draft.SelectOfficers(officers);Refresh();}
+    }
+
+    internal void AdoptSpeechWorld(GameState expected,GameState replacement)
+    {
+        if(disposed||!ReferenceEquals(world,expected))return;
+        Draft.AdoptSpeechWorld(expected,replacement);
+        adoptFalseReportWorld?.Invoke(expected,replacement);
+        if(ReferenceEquals(policyWorld,expected))policyWorld=replacement;
+        world=replacement;
     }
 
     internal bool AllowPointer(int hex)
@@ -122,20 +166,24 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
             if(accepted.Action is {ActionKey:"capture",Target.Kind:DeploymentTargetKind.Unit} action)
             {
                 var ownerWorld=world;
+                adoptFalseReportWorld=(previous,replacement)=>
+                {if(ReferenceEquals(ownerWorld,previous))ownerWorld=replacement;};
                 chooseFalseReportDestination?.Invoke(action,target,chosen=>
                 {
                     if(disposed||!ReferenceEquals(world,ownerWorld)||chosen.FalseReportDestinationHexId is not int destination||
                         chosen!=(action with{FalseReportDestinationHexId=destination}))return;
-                    Draft.AssignAction(chosen,target);view.ApplySelection(Draft.SelectedOfficers);Refresh();
+                    adoptFalseReportWorld=null;
+                    AssignTargetAction(chosen,target);view.ApplySelection(Draft.SelectedOfficers);Refresh();
                 });
                 return;
             }
-            Draft.AssignAction(accepted.Action,accepted.GoalHexId??target);view.ApplySelection(Draft.SelectedOfficers);Refresh();
+            AssignTargetAction(accepted.Action,accepted.GoalHexId??target);view.ApplySelection(Draft.SelectedOfficers);Refresh();
         },option.WaypointOrdinal)).ToArray();
         if(entries.Length==0)return;
         popup=new ArmyCommandMenu();
         menu=popup;view.AddMapMenu(popup);
         popup.Configure(repository,text,entries,value=>{if(!disposed&&menu==popup)view.ApplyHint(value);});
+        menuHexId=target;
         popup.Name="DeploymentTargetMenu";
         var panel=new DeploymentPolicyView();policies=panel;view.AddPolicyPanel(panel);
         panel.Configure(repository,text,(setting,first)=>
@@ -148,6 +196,17 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
             panel.Visible=position.HasValue;
             if(position is Vector2 point)panel.Position=point;
         },view.MenuFooterTop);
+    }
+
+    private void AssignTargetAction(DeploymentAction action,int goalHex)
+    {
+        // AssignAction clears the draft selection. Retain the actually
+        // affected ordered identities before the successful writer returns.
+        var officers=Draft.SelectedOfficers;
+        Draft.AssignAction(action,goalHex);
+        LastAcceptedTargetAction=action;LastAcceptedTargetHexId=goalHex;
+        LastTargetActionOfficerIds=Array.AsReadOnly(officers.ToArray());
+        TargetActionAcceptedSequence++;
     }
 
     private string? Hint(UnitTargetMenuOption option)
@@ -199,10 +258,16 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
     private void Refresh()
     {
         view.ApplyProgress(Draft.Progress);
-        view.ApplyDecision(Draft.CanDecide,RequestDecision);
-        view.ApplyDraftResources(rules.QueryDeploymentDraftResources(world,source,Draft.Rows));
+        RefreshDecisionAdmission();
+        if (generalPreparation is not null) RefreshGeneralTargetHeader();
+        else view.ApplyDraftResources(rules.QueryDeploymentDraftResources(world,source!.Value,Draft.Rows));
         RefreshPolicies();RefreshPoints();
     }
+
+    internal void RefreshDecisionAdmission()=>view.ApplyDecision(CanAcceptDecision(),RequestDecision);
+
+    private bool CanAcceptDecision()=>!disposed&&Draft.CanDecide&&
+        (decisionAdmission?.Invoke(Draft.Rows)??true);
 
     private DeploymentPolicyOptions ReadPolicyOptions()
     {
@@ -272,13 +337,19 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
 
     private void RequestDecision()
     {
-        if(disposed||facilityQuery is not null||!Draft.CanDecide||confirmation is not null)return;
+        if(disposed||facilityQuery is not null||!CanAcceptDecision()||confirmation is not null)return;
         var result=rules.QueryDeploymentDraftConfirmation(world,Draft.Rows);
         if(result.Kind==DeploymentDraftConfirmationKind.Unknown)
         {unavailable(result.UnresolvedInput??"deployment.confirmation.unavailable");return;}
         Confirm(result.Kind==DeploymentDraftConfirmationKind.LowMoraleWarning?
             DeploymentTargetConfirmationKind.LowMorale:DeploymentTargetConfirmationKind.Orders,
-            ()=>accepted(Draft.Rows));
+            ()=>
+            {
+                if(!CanAcceptDecision()){RefreshDecisionAdmission();return;}
+                var rows=Draft.Rows;
+                accepted(rows);
+                LastAcceptedRows=rows;TargetDecisionAcceptedSequence++;
+            });
     }
 
     private void RequestBack()
@@ -291,12 +362,12 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
 
     private void Confirm(DeploymentTargetConfirmationKind kind,Action yes)
     {
-        CloseMenu();var dialog=new DeploymentTargetConfirmation();confirmation=dialog;view.AddChild(dialog);
+        CloseMenu();var dialog=new DeploymentTargetConfirmation();confirmation=dialog;confirmationKind=kind;view.AddChild(dialog);
         modalChanged(true);
         dialog.Configure(repository,text,kind,value=>
         {
             if(disposed||confirmation!=dialog)return;
-            confirmation=null;dialog.Hide();dialog.QueueFree();modalChanged(false);
+            confirmation=null;confirmationKind=null;dialog.Hide();dialog.QueueFree();modalChanged(false);
             if(value)yes();
         });
     }
@@ -312,15 +383,15 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
     }
     private void CloseMenu()
     {
-        var old=menu;var panel=policies;menu=null;policies=null;
+        var old=menu;var panel=policies;menu=null;menuHexId=null;policies=null;
         if(old is not null){old.Abandon();old.QueueFree();}
         if(panel is not null){panel.Abandon();panel.QueueFree();}
         view.ApplyHint(null);
     }
     public void Dispose()
     {
-        if(disposed)return;disposed=true;CloseMenu();CloseFacilities();
+        if(disposed)return;disposed=true;adoptFalseReportWorld=null;CloseMenu();CloseFacilities();
         routePreviewChanged?.Invoke(Array.Empty<MapRoutePreviewPath>());
-        if(confirmation is { } dialog){confirmation=null;dialog.Abandon();dialog.QueueFree();modalChanged(false);}
+        if(confirmation is { } dialog){confirmation=null;confirmationKind=null;dialog.Abandon();dialog.QueueFree();modalChanged(false);}
     }
 }

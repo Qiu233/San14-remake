@@ -118,16 +118,40 @@ public sealed partial class ArmyCampaignRuleAdapter
         Func<GameState, UnitState, int, (GameState State, ArmyMoraleAdjustmentReceipt Receipt)>? objectMorale = null,
         Func<TacticSourceSamplerWorld>? objectSampler = null,
         SourceWorldContext? ordinaryCurrent = null,
-        BaseReference? baseOrigin = null)
+        BaseReference? baseOrigin = null,
+        UnitState? borrowedAttacker = null, ArmyUnitReference? retiredArmyOrigin = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         GameState working = fieldObjectCurrent is null && ordinaryCurrent is null ? GameStateCopy.Copy(input) : input;
         UnitState? attacker = null;
         if (attackerId is int actor)
         {
-            if (!working.Units.TryGetValue(actor, out attacker) || !working.Units.ContainsKey(targetId) ||
+            if (borrowedAttacker is not null)
+            {
+                //An entered automatic instruction may retain its real source
+                //in pending70 after Full. This is an explicit current receiver
+                //borrow, never a temporary insertion into the active Units map.
+                if (ordinaryCurrent is null || borrowedAttacker.Id != actor ||
+                    RequireLatestAutomaticActorImageCurrent(working, ordinaryCurrent, actor) != borrowedAttacker)
+                    return Unknown("borrowed-attacker-current-image");
+                attacker = borrowedAttacker;
+            }
+            else working.Units.TryGetValue(actor, out attacker);
+            if (attacker is null || !working.Units.ContainsKey(targetId) ||
                 captureCurrent(working) is not { } current || current.ArmyValid(working, attacker) != true)
                 return Unknown("attacker");
+        }
+        else if (retiredArmyOrigin is not null)
+        {
+            //178EC0 keeps its target writes when the entered Army source
+            //has become invalid. This is still ordinary wounded mathematics;
+            //there is no environmental source or synthetic Unit.
+            if (ordinaryCurrent is null || retiredArmyOrigin.PhysicalSlot is not int physical ||
+                fieldObjectCurrent is not null || baseOrigin is not null)
+                return Unknown("retired-Army-source-current");
+            RequireRetiredAutomaticActorCurrent(working, ordinaryCurrent, physical);
+            if (!working.Units.ContainsKey(targetId) || captureCurrent(working) is null)
+                return Unknown("retired-Army-source-target");
         }
         else if (baseOrigin is not null)
         {
@@ -173,16 +197,17 @@ public sealed partial class ArmyCampaignRuleAdapter
         TransportArmyNormalCargoReceipt? transportCargo = null;
         if (transport)
         {
-            //1790F2 gives cargo to the real source Base. The Army-loot and
-            //known-null environment paths cannot represent that transfer.
-            if (baseOrigin is not null) return Unknown("Base-origin-transport-cargo-owner");
             var cargoCurrent = fieldObjectCurrent ?? ordinaryCurrent ?? CaptureCurrentDefinitions(working);
             if (cargoCurrent is null) return Unknown("transport-cargo-current");
-            var cargo = fieldObjectCurrent is not null
+            var cargo = baseOrigin is not null
+                ? TransportArmyNormalCargoSource.ApplyBaseOrigin(working, cargoCurrent, baseOrigin, target, debit.AppliedLoss)
+                : retiredArmyOrigin is not null
+                ? TransportArmyNormalCargoSource.ApplyWithoutValidSource(working, cargoCurrent, target, debit.AppliedLoss)
+                : fieldObjectCurrent is not null
                 ? TransportArmyNormalCargoSource.ApplyFieldObject(working, cargoCurrent, target, debit.AppliedLoss)
                 : ordinaryCurrent is not null
-                    ? TransportArmyNormalCargoSource.ApplyBorrowed(working, cargoCurrent, working.Units[attackerId!.Value], target, debit.AppliedLoss)
-                    : TransportArmyNormalCargoSource.Apply(working, cargoCurrent, working.Units[attackerId!.Value], target, debit.AppliedLoss);
+                    ? TransportArmyNormalCargoSource.ApplyBorrowed(working, cargoCurrent, CurrentAttacker()!, target, debit.AppliedLoss)
+                    : TransportArmyNormalCargoSource.Apply(working, cargoCurrent, CurrentAttacker()!, target, debit.AppliedLoss);
             if (cargo.State is not { } cargoState || cargo.Receipt is not { } cargoReceipt)
                 return Unknown($"transport-cargo:{cargo.UnresolvedOwner}");
             working = cargoState; target = working.Units[targetId]; transportCargo = cargoReceipt;
@@ -220,7 +245,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 difficulty = currentDifficulty;
             }
             if (captureCurrent(working) is not { } woundedCurrent ||
-                woundedCurrent.ResolveNormalWoundedRatioInput(working, attacker is null ? null : working.Units[attacker.Id], target,
+                woundedCurrent.ResolveNormalWoundedRatioInput(working, CurrentAttacker(), target,
                     selector, difficulty) is not { } resolved)
                 return Unknown("wounded-ratio");
             if (baseOrigin is not null)
@@ -343,6 +368,9 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         NormalArmyApplicationBodyResult Unknown(string phase) =>
             new(NormalArmyApplicationPrefixOutcome.CurrentInputsUnresolved, input, null, phase);
+        UnitState? CurrentAttacker() => attacker is null ? null : borrowedAttacker is not null
+            ? RequireLatestAutomaticActorImageCurrent(working, ordinaryCurrent!, attacker.Id)
+            : working.Units.GetValueOrDefault(attacker.Id);
         NormalArmyApplicationBodyResult TargetSkip() => new(
             NormalArmyApplicationPrefixOutcome.NativeTargetSkipped, working,
             new(requestedLoss, reward, null, null, null, null, null, null, null, null, Revision), null);

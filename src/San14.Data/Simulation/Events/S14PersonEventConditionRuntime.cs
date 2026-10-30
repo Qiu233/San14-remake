@@ -276,7 +276,7 @@ public sealed class S14PersonEventConditionRuntime : IS14EventConditionRuntime
 
     private S14EventConditionPersonReference? RawPersonPointer(int raw)
     {
-        if (raw is >= -8 and <= -5)
+        if (raw is >= -14 and <= -10 or >= -8 and <= -5)
             return (_targetPersonResolver ?? throw new InvalidDataException("Event target-person context is unavailable."))(raw);
         if (raw == -4) return (_queries.ReadConditionCurrentPlayerPerson()
             ?? throw new InvalidDataException("Current player ruler pointer is unknown.")).Value;

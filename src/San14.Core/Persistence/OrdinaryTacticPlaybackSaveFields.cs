@@ -22,7 +22,6 @@ internal static class OrdinaryTacticPlaybackSaveFields
         if (version < 181) { manager[key] = new JsonArray(); return; }
         if (manager[key] is not JsonArray playbacks || manager["Effects"] is not JsonArray effects ||
             playbacks.Count > effects.Count) throw Invalid();
-        bool busy = manager["EffectBusy"] is JsonValue busyValue && busyValue.TryGetValue<bool>(out bool active) && active;
         for (int index = 0; index < playbacks.Count; index++)
             if (playbacks[index] is not JsonObject playback || playback.Count != 2 ||
                 !Integer(playback["Sequence"], 1, long.MaxValue) ||
@@ -30,7 +29,6 @@ internal static class OrdinaryTacticPlaybackSaveFields
                 !JsonNode.DeepEquals(playback["Sequence"], effects[index]?["Sequence"]) ||
                 !Integer(effects[index]?["Kind"], (int)TacticPresentationKind.OrdinaryEffects,
                     (int)TacticPresentationKind.OrdinaryEffects)) throw Invalid();
-        if (Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 6, 6) && !busy) throw Invalid();
     }
 
     private static bool Integer(JsonNode? node, long minimum, long maximum) => node is JsonValue value &&

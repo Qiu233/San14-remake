@@ -6,6 +6,13 @@ internal static class AutomaticTacticExecutionSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 181 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"]?["TargetBase"] is not null)
+            throw new InvalidDataException("Legacy automatic tactic contains a future Base target.");
+        if (version < 181 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"] is JsonObject automatic &&
+            (automatic["EntrySource"] is not null ||
+             automatic["MoralePrefix"]?["SourceHexIsNull"] is JsonNode nullHex &&
+                (nullHex is not JsonValue flag || !flag.TryGetValue<bool>(out bool isNull) || isNull)))
+            throw new InvalidDataException("Legacy automatic tactic contains a future actor source or null Hex.");
         if (version < 181 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"]?["LinkedExecution"] is not null)
             throw new InvalidDataException("Legacy automatic tactic contains a future linked execution.");
         if (version < 177 && state["NormalCombatImmediateContinuation"]?["AutomaticExecution"] is not null)
@@ -18,23 +25,33 @@ internal static class AutomaticTacticExecutionSaveFields
         if (version < 177) { immediate[key] = null; return; }
         if (!immediate.ContainsKey(key)) throw Invalid();
         if (immediate[key] is not JsonNode saved) return;
-        if (saved is not JsonObject value ||
-            !I(value, "CasterUnitId", 1) || !I(value, "TacticId", 0, 200) ||
+        if (saved is not JsonObject value) throw Invalid();
+        ValidateSaved(value, version);
+    }
+
+    internal static void ValidateSaved(JsonObject value, int version)
+    {
+        if (version < 181)
+        {
+            value["EntrySource"] = null;
+            if (value["MoralePrefix"] is JsonObject morale) morale["SourceHexIsNull"] = false;
+        }
+        if (!I(value, "CasterUnitId", 1) || !I(value, "TacticId", 0, 200) ||
             value["Instructions"] is not JsonArray instructions || instructions.Count != 2 ||
             !Instruction(instructions[0], 0) || !Instruction(instructions[1], 1) ||
             !I(value, "InstructionIndex", 0, 1) || !I(value, "TargetIndex", 0) ||
-            !I(value, "TargetUnitId", 1) || !I(value, "TargetArmyPhysicalSlot", 0) ||
-            !Receiver(value["TargetReceiverId"]) || !I(value, "TargetHexId", 0, 48400) ||
+            !Target(value, version) || !I(value, "TargetHexId", 0, 48400) ||
             !I(value, "RequestedLoss") || !I(value, "ChainWaitingContribution") ||
             value["ChainRandomState"] is not JsonValue random || !random.TryGetValue<ulong>(out _) ||
             !Array(value, "DamageContributions", Damage) || !Array(value, "Details", Detail) ||
             !Array(value, "FirstInstructionResults", Result) || !Array(value, "SecondInstructionResults", Result) ||
             !Array(value, "ArmyPresentationEffects", Effect) ||
-            !Nullable(value, "TroopPrefix", Troop) || !Nullable(value, "MoralePrefix", Morale)) throw Invalid();
+            !Nullable(value, "TroopPrefix", Troop) || !Nullable(value, "MoralePrefix", Morale) ||
+            !Nullable(value, "EntrySource", ActorSource)) throw Invalid();
         int index = value["InstructionIndex"]!.GetValue<int>();
         var instruction = (JsonObject)instructions[index]!;
         int opcode = instruction["Opcode"]!.GetValue<int>();
-        if (opcode is not (1 or 16) ||
+        if (opcode is not (1 or 16) || value["TargetBase"] is not null && opcode != 1 ||
             value["TargetIndex"]!.GetValue<int>() >= ((JsonArray)instruction["OrderedHexIds"]!).Count ||
             (opcode == 1) != (value["TroopPrefix"] is not null) ||
             (opcode == 16) != (value["MoralePrefix"] is not null)) throw Invalid();
@@ -57,7 +74,24 @@ internal static class AutomaticTacticExecutionSaveFields
 
     private static bool Morale(JsonNode? node) => node is JsonObject value &&
         I(value, "SourceArmyPhysicalSlot", 0) && I(value, "SourceHexId", 0, 48400) &&
-        Float(value, "StageFactor") && Float(value, "WaitingFactor");
+        Float(value, "StageFactor") && Float(value, "WaitingFactor") &&
+        value["SourceHexIsNull"] is JsonValue flag && flag.TryGetValue<bool>(out _);
+
+    private static bool ActorSource(JsonNode? node) => node is JsonObject value && value.Count == 3 &&
+        I(value, "ForceId", 0, 51) && I(value, "CommanderOfficerId", 0, 6000) &&
+        Nullable(value, "CommanderPersonPhysical", physical => Integer(physical, 0, 6000));
+
+    internal static bool Target(JsonObject value, int version)
+    {
+        if (version < 181) value["TargetBase"] = null;
+        if (!value.ContainsKey("TargetBase") || !value.ContainsKey("TargetUnitId") ||
+            !value.ContainsKey("TargetArmyPhysicalSlot") || !value.ContainsKey("TargetReceiverId")) return false;
+        return value["TargetBase"] is null
+            ? I(value, "TargetUnitId", 1) && I(value, "TargetArmyPhysicalSlot", 0) && Receiver(value["TargetReceiverId"])
+            : value["TargetUnitId"] is null && value["TargetArmyPhysicalSlot"] is null && value["TargetReceiverId"] is null &&
+              value["TargetBase"] is JsonObject target && I(target, "Kind", 0, 1) &&
+              (I(target, "Kind", 0, 0) ? I(target, "Id", 1, 51) : I(target, "Id", 52, 61));
+    }
 
     internal static bool Detail(JsonNode? node) => node is JsonObject value && Text(value, "Kind") &&
         I(value, "Period") && I(value, "ForceId") && I(value, "UnitId") && I(value, "OfficerId") &&
@@ -89,7 +123,7 @@ internal static class AutomaticTacticExecutionSaveFields
         Nullable(value, "Kind", EnumValue<ArmyOverrideTargetKind>) &&
         Nullable(value, "Destination", node => node is JsonObject destination &&
             EnumValue<ArmyOverrideDestinationKind>(destination["Kind"]) && NI(destination, "EntityId") &&
-            Nullable(destination, "ReceiverId", Receiver));
+            Nullable(destination, "ReceiverId", Receiver) && Nullable(destination, "MapObjectReceiverId", Receiver));
 
     private static bool Array(JsonObject value, string key, Func<JsonNode?, bool> valid) =>
         value[key] is JsonArray items && items.All(valid);

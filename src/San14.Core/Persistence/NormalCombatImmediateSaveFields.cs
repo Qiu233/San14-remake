@@ -8,6 +8,9 @@ internal static class NormalCombatImmediateSaveFields
 
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 181 && state[Key]?["PendingAutomaticFatalFeedback"] is JsonNode feedback &&
+            (feedback is not JsonValue flag || !flag.TryGetValue<bool>(out bool pending) || pending))
+            throw new InvalidDataException("Legacy combat continuation contains future fatal feedback.");
         BaseAutomaticTacticExecutionSaveFields.RejectLegacyFields(state, version);
         AutomaticTacticExecutionSaveFields.RejectLegacyFields(state, version);
         //Earlier snapshots already retained Base descriptors elsewhere in the
@@ -34,10 +37,15 @@ internal static class NormalCombatImmediateSaveFields
             if (Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
                 Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1) &&
                 !(version >= 178 && state["DuelAftermathContinuation"] is JsonObject &&
-                  Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5))) Invalid();
+                  Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5)) &&
+                !(version >= 181 && state["ManualTacticExecutionContinuation"] is JsonObject &&
+                  (state["NativePeriodContinuation"]?["Cursor"] is null ||
+                   Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 6, 6)))) Invalid();
             return;
         }
-        if (node is not JsonObject value ||
+        if (node is not JsonObject value) { Invalid(); return; }
+        if (version < 181) value["PendingAutomaticFatalFeedback"] = false;
+        if (value["PendingAutomaticFatalFeedback"] is not JsonValue feedback || !feedback.TryGetValue<bool>(out _) ||
             value["Actors"] is not JsonArray actors || !actors.All(Participant) ||
             value["OrderedPairs"] is not JsonArray pairs || pairs.Count == 0 || !pairs.All(Pair) ||
             value["ArmyDescriptors"] is not JsonObject armies ||
@@ -47,7 +55,8 @@ internal static class NormalCombatImmediateSaveFields
             !Integer(value["SampleDay"], int.MinValue, int.MaxValue) ||
             !Integer(value["SampleSalt"], int.MinValue, int.MaxValue) ||
             !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
-            !Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1)) Invalid();
+            !(Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1) ||
+              version >= 181 && Integer(state["BaseCaptureContinuation"]?["SettlementIndex"], -1, -1))) Invalid();
         AutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
         BaseAutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
     }

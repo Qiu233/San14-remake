@@ -180,7 +180,7 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             current != army.HexId || current >= ArmyMarchSourceAdapter.SourceHexCount ||
             ArmyMarchSourceAdapter.EncodeCredit(march) is not ushort formerCredit ||
             ArmyMarchSourceAdapter.EncodeDestination(march.NextStep) is not ushort next ||
-            army.OverrideTarget?.Kind is not (ArmyOverrideTargetKind.None or ArmyOverrideTargetKind.ArmyReceiver) ||
+            !OrdinaryArmyRouteSource.HasSupportedMovementOverride(army) ||
             next > ArmyMarchSourceAdapter.SourceHexCount)
             return MissingCurrent(state, army, moment, "runtime.entry_fields");
         var working = state;
@@ -201,7 +201,9 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         //2D99C0 consumes a current first waypoint before resolving the goal.
         //Occupation14 (like Fire16) can then have its main goal here. Keep
         //its actual301DD0/2695D0/3014C0 no-step path, not a target rejection.
-        if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current && action is not (14 or 16)) return Missing("runtime.target_scope");
+        if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current && action is not (14 or 16) &&
+            !OrdinaryArmyRouteSource.UsesObjectCommandMovement(working, army) &&
+            OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(working, army) is not { Kind: 6 }) return Missing("runtime.target_scope");
         if (next == ArmyMarchSourceAdapter.SourceHexCount)
         {
             // Unknown Next was rejected above. Only the actual encoded None
@@ -238,6 +240,44 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
                 retainedSpeed = noStepSpeed;
             }
         }
+        bool objectTarget = OrdinaryArmyRouteSource.UsesObjectCommandMovement(working, army) ||
+            crossings?.ReadGateStepCandidate(working, next) == true;
+        bool collision = next == current || working.ArmyMapOccupancy?.HasArmyMarker(next) == true;
+        if ((objectTarget || collision) && !minimumRerouteCompleted)
+        {
+            //3014C0's Object gate precedes BDDD0. Read only preparation here;
+            //an invalid Object can return0 without demanding destination cost.
+            var preparation = retainedPreparation ?? queries.ReadOrdinaryPreparationInputs(working, army, moment);
+            if (preparation is not { ArmyValid: true, CurrentTerrainPointerAvailable: true,
+                    CachedMinimumTerrainCost1A24010: > 0 and < int.MaxValue } ||
+                string.IsNullOrWhiteSpace(preparation.SourceProvenance) ||
+                ArmyMarchSourceMath.ResolveCycleSpeed(preparation.Mobility2B0660,
+                    preparation.SpeedScale2695D0, preparation.Penalty2B5C10) is not int objectSpeed)
+                return Missing("runtime.Object_preparation_or_speed");
+            working = preparation.PreparedState ?? working;
+            retainedPreparation = preparation; retainedSpeed = objectSpeed;
+            if (unchecked(formerCredit + objectSpeed) >= preparation.CachedMinimumTerrainCost1A24010)
+            {
+                var objectStep = crossings?.ReadObjectStep(working, next);
+                if (objectStep is null) return Missing("runtime.Object_step_inputs");
+                if (objectStep == ArmyMarchObjectStepKind.Invalid) return new(formerCredit, working);
+                if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool objectOccupied)
+                    return Missing("runtime.Object_step_occupancy");
+                if (next == current || objectOccupied || objectStep == ArmyMarchObjectStepKind.GenericBlocked)
+                {
+                    var cleared = army with { March = army.March! with { NextStep = ArmyMarchDestination.None } };
+                    var draft = working with { Units = new(working.Units) { [army.Id] = cleared } };
+                    var prepared = queries.PrepareOrdinaryNextStep(draft, cleared, moment);
+                    if (prepared is null || !prepared.Units.TryGetValue(army.Id, out var routed) ||
+                        ArmyMarchSourceAdapter.EncodeDestination(routed.March?.NextStep) is not ushort rewritten ||
+                        rewritten > ArmyMarchSourceAdapter.SourceHexCount) return Missing("runtime.Object_retry_route_output");
+                    working = prepared; army = routed; next = rewritten;
+                    if (next == ArmyMarchSourceAdapter.SourceHexCount) return new(formerCredit, working);
+                    //The source tests only the rewritten Next, then returns1.
+                    minimumRerouteCompleted = true;
+                }
+            }
+        }
         var input = retainedPreparation is null ? queries.ReadOrdinaryCurrentInputs(working, army, moment)
             : queries.ReadOrdinaryDestinationInputs(working, army, moment, retainedPreparation);
         if (!UsableInputs(input)) return Missing("runtime.destination_inputs");
@@ -248,14 +288,14 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool occupied) return Missing("runtime.next_occupancy");
         if (!minimumRerouteCompleted && (next == current || reachedMinimum && occupied))
         {
-            if (army.NativeTacticRuntime?.Status10 is not (1 or 2) || input.DestinationHexObjectWord1A != 0) return Missing("runtime.occupied_or_current_object_scope");
+            if (army.NativeTacticRuntime?.Status10 is not (1 or 2)) return Missing("runtime.occupied_type_scope");
             if (next == current && !reachedMinimum)
             {
                 ushort accumulated = ArmyMarchSourceMath.AccumulateCredit(formerCredit, reachedSpeed, input.DestinationTerrainCostBDDD0);
             //3014C0's early return preserves Next=current.2D99C0 then
                 //takes the self-occupied branch, whose mandatory29DB90 tail
                 //must complete even though no spatial step is taken.
-                return crossings?.TryAccumulateAtCurrentHex(working, working.Units[army.Id], accumulated,
+                return crossings?.TryWaitForOccupiedArmy(working, working.Units[army.Id], accumulated,
                     input.DestinationTerrainCostBDDD0, moment, diagnosticTarget) ?? Missing("runtime.current_accumulation_owner");
             }
             var clearedArmy = working.Units[army.Id] with
@@ -270,7 +310,6 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             //That is a completed source branch: keep its clear/cache/pool
             //writes, but do not add credit or execute the blocked-step tail.
             if (next == ArmyMarchSourceAdapter.SourceHexCount) return new(formerCredit, working);
-            if (next == current) return Missing("runtime.occupied_retry_still_current");
             minimumRerouteCompleted = true;
             input = queries.ReadOrdinaryCurrentInputs(working, army, moment);
             if (!UsableInputs(input)) return Missing("runtime.occupied_retry_destination_inputs");
@@ -280,8 +319,12 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
             //occupied-Army branch below consumes the source waiting tail.
             //Keep the original2695D0 speed across this route replacement.
         }
+        //3014C0 keeps only the rewritten Next test. A newly selected Gate
+        //or Object must reach2D99C0's actual post-credit occupant classifier.
+        objectTarget = objectTarget || crossings?.ReadGateStepCandidate(working, next) == true ||
+            minimumRerouteCompleted && input.DestinationHexObjectWord1A != 0;
         if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool finalOccupied ||
-            input.DestinationHexObjectWord1A != 0 && crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
+            !finalOccupied && !objectTarget && input.DestinationHexObjectWord1A != 0 && crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
             return Missing("runtime.final_occupancy_or_object_entry");
         //3014C0 has a real success branch beyond the minimum-cost early return:
         //an ordinary status1 actor with a distinct, unoccupied, object-free next
@@ -311,8 +354,10 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
                     input = queries.ReadOrdinaryDestinationInputs(working, army, moment, preparation);
                     if (!UsableInputs(input)) return Missing("hostile_retry_destination");
                     working = input.PreparedState ?? working;
+                    objectTarget = objectTarget || input.DestinationHexObjectWord1A != 0;
                     if (working.ArmyMapOccupancy?.HasArmyMarker(next) is not bool occupiedAfterRetry ||
-                        input.DestinationHexObjectWord1A != 0 && crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
+                        !occupiedAfterRetry && !objectTarget && input.DestinationHexObjectWord1A != 0 &&
+                            crossings?.ReadDirectBaseEntryStep(working, army, next) != true)
                         return Missing("hostile_retry_2D99C0_destination");
                     finalOccupied = occupiedAfterRetry;
                 }
@@ -322,6 +367,10 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         if (finalOccupied)
             return crossings?.TryWaitForOccupiedArmy(working, working.Units[army.Id], credit, input.DestinationTerrainCostBDDD0, moment, diagnosticTarget)
                 ?? Missing("runtime.occupied_wait_owner");
+        if (objectTarget && input.DestinationHexObjectWord1A != 0)
+            return crossings?.TryResolveObjectDestination(working, working.Units[army.Id], credit,
+                input.DestinationTerrainCostBDDD0, moment, diagnosticTarget)
+                ?? Missing("runtime.Object_destination_owner");
         if (credit >= input.DestinationTerrainCostBDDD0)
             return crossings?.TryCross(working, working.Units[army.Id], credit, input.DestinationTerrainCostBDDD0, moment, diagnosticTarget)
                 ?? Missing("runtime.crossing_owner");

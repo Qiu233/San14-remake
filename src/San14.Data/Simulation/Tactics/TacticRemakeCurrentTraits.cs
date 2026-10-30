@@ -150,11 +150,11 @@ public static class TacticRemakeCurrentTraits
     /// commanderOnly0, evaluateConditions0. Cached Army36 is consumed before
     /// the nine commander entries. The complete127 i32 results retain wrapping.</summary>
     public static int[]? ArmyContributions(SourceWorldContext current,
-        int personPhysical, IReadOnlyList<ushort>? armyTraits64)
+        int personPhysical, IReadOnlyList<ushort>? armyTraits64, bool commanderPermanentOnly = false)
     {
-        if (armyTraits64 is not { Count: 36 }) return null;
+        if (!commanderPermanentOnly && armyTraits64 is not { Count: 36 }) return null;
         var result = new int[127];
-        foreach (ushort requested in armyTraits64)
+        foreach (ushort requested in commanderPermanentOnly ? Array.Empty<ushort>() : armyTraits64!)
         {
             PersonalityReference? reference = current.ReadPersonalityTableReference(requested <= 355 ? requested : 0);
             if (reference is null || !Accumulate(reference)) return null;
@@ -168,6 +168,7 @@ public static class TacticRemakeCurrentTraits
             if (condition is null) return null;
             if (condition != ushort.MaxValue)
             {
+                if (commanderPermanentOnly) continue;
                 ushort? active = current.ReadPersonTraitMask1BC(personPhysical);
                 if (active is null) return null;
                 if ((active & (1 << index)) == 0) continue;

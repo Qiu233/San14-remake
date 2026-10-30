@@ -8,6 +8,9 @@ internal static class BaseCaptureContinuationSaveFields
     {
         if (version < 179 && state["BaseCaptureContinuation"] is not null)
             throw new InvalidDataException("Legacy world contains a future Base capture continuation.");
+        if (version < 181 && state["BaseCaptureContinuation"]?["SettlementIndex"] is JsonValue index &&
+            index.TryGetValue<int>(out int at) && at == -1)
+            throw new InvalidDataException("Legacy world contains a future immediate Base capture continuation.");
     }
 
     internal static void Migrate(JsonObject state, int version)
@@ -16,13 +19,21 @@ internal static class BaseCaptureContinuationSaveFields
         if (version < 179) { state[key] = null; return; }
         if (!state.ContainsKey(key)) throw Invalid();
         if (state[key] is not JsonNode saved) return;
-        if (saved is not JsonObject value || !I(value, "SettlementIndex", 0) ||
+        if (saved is not JsonObject value || !I(value, "SettlementIndex", -1) ||
             value["Operation"] is not JsonObject operation || !Operation(operation) ||
             value["People"] is not JsonObject people || !People(people) ||
             !Nullable(value, "PendingCapturedRulerTreatment", Captive) ||
             !Nullable(value, "ChosenDisposition", node => Integer(node, 0, 1)) ||
-            !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 25, 25) ||
-            state["ArmyDefeatContinuation"] is not null ||
+            state["ArmyDefeatContinuation"] is not null) throw Invalid();
+        if (value["SettlementIndex"]!.GetValue<int>() == -1)
+        {
+            if (version < 181 ||
+                !(Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) && state["NormalCombatImmediateContinuation"] is JsonObject ||
+                  state["ManualTacticExecutionContinuation"] is JsonObject && (state["NativePeriodContinuation"]?["Cursor"] is null ||
+                    Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 6, 6)))) throw Invalid();
+            return;
+        }
+        if (!Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 25, 25) ||
             state["PendingCombatSettlements"]?["Requests"] is not JsonArray queue ||
             value["SettlementIndex"]!.GetValue<int>() >= queue.Count) throw Invalid();
         //The exact retained request must still occupy this queue slot. The
@@ -31,6 +42,7 @@ internal static class BaseCaptureContinuationSaveFields
         var request = (JsonObject)operation["Request"]!;
         if (queued is null || !JsonNode.DeepEquals(queued["Target"], request["Target"]) ||
             !JsonNode.DeepEquals(queued["WinnerUnitId"], request["WinnerUnitId"]) ||
+            !JsonNode.DeepEquals(queued["HasNoWinner"], request["HasNoWinner"]) ||
             !JsonNode.DeepEquals(queued["WinnerDistrictId"], request["WinnerDistrictId"])) throw Invalid();
     }
 

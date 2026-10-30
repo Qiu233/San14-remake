@@ -90,6 +90,48 @@ internal static class ArmyMapSpeechSaveFields
                     : !Integer(entry, "ArmyId", 1, int.MaxValue))
                     throw new InvalidDataException("Saved map speech speaker identity is contradictory.");
             }
+            if (version < 183)
+            {
+                if (entry["ContextFacilityReceiverId"] is not null || entry["ContextFacilityArmySlot"] is not null)
+                    throw new InvalidDataException("Legacy map speech contains future facility context.");
+                entry["ContextFacilityReceiverId"] = null;
+                entry["ContextFacilityArmySlot"] = null;
+            }
+            else if (!entry.ContainsKey("ContextFacilityReceiverId") || !entry.ContainsKey("ContextFacilityArmySlot") ||
+                (entry["ContextFacilityReceiverId"] is null
+                    ? entry["ContextFacilityArmySlot"] is not null
+                    : entry["ContextFacilityReceiverId"] is not JsonObject receiver || receiver.Count != 1 ||
+                      !Integer(receiver, "Value", 1, int.MaxValue) || !Integer(entry, "ContextFacilityArmySlot", 0, 500) ||
+                      !Integer(entry, "ActionCode", 44, 45)))
+                throw new InvalidDataException("Saved map speech facility context is incomplete or invalid.");
+            if (version < 184)
+            {
+                if (entry["ContextFacilityDefinitionId"] is not null)
+                    throw new InvalidDataException("Legacy map speech contains a future facility definition operand.");
+                entry["ContextFacilityDefinitionId"] = null;
+            }
+            else if (!entry.ContainsKey("ContextFacilityDefinitionId") ||
+                entry["ContextFacilityDefinitionId"] is not null &&
+                (!Integer(entry, "ContextFacilityDefinitionId", 0, 30) ||
+                 !(Integer(entry, "ActionCode", 32, 33) ||
+                   Integer(entry, "ActionCode", 41, 41) &&
+                   (Integer(entry, "ContextFacilityDefinitionId", 5, 6) || Integer(entry, "ContextFacilityDefinitionId", 15, 15)))))
+                throw new InvalidDataException("Saved map speech facility definition operand is missing or invalid.");
+            if (Integer(entry, "ActionCode", 33, 33) && !Integer(entry, "ContextFacilityDefinitionId", 0, 30))
+                throw new InvalidDataException("Saved Object damage speech lacks its definition operand.");
+            foreach (var field in new[] { (Name: "ContextDuelOpponentOfficerId", Minimum: 0, Maximum: 6000),
+                (Name: "ContextDuelAftermath", Minimum: -1, Maximum: 2) })
+            {
+                if (version < 213)
+                {
+                    if (entry[field.Name] is not null)
+                        throw new InvalidDataException("Legacy Army speech contains future duel context.");
+                    entry[field.Name] = null;
+                }
+                else if (!entry.ContainsKey(field.Name) || entry[field.Name] is not null &&
+                    !Integer(entry, field.Name, field.Minimum, field.Maximum))
+                    throw new InvalidDataException("Saved Army speech duel context is missing or invalid.");
+            }
             previous = sequence;
         }
     }

@@ -7,7 +7,7 @@ public partial class Main
     private CommandWorkspaceView? _commandDetailsParent;
     private ActionReportView? _commandDetailsReportParent;
     private UnitOrderTargetView? _commandDetailsUnitParent;
-    private ArmyDetailsListView? _commandDetailsArmyListParent;
+    private readonly Stack<DetailsView> _commandDetailsNestedParents = new();
     private GameplaySession? _commandDetailsSession;
     private San14.Core.GameState? _commandDetailsWorld;
     private MapSceneView? _commandDetailsMap;
@@ -25,19 +25,14 @@ public partial class Main
     {
         if (_repository is null || _world is not { } world || _selectedSnapshot is null || !world.Forces.ContainsKey(force)) return;
         var view = new ForceDetailsView();
-        OpenCommandDetails(view, close => view.Configure(_repository,
-            CampaignDetailViews.Force(world, _selectedSnapshot, force, _ui,
-                _campaignComposition?.ForceDetailNameplate(world, force),
-                _campaignComposition?.PrepareArmyQueries(world).ReadForceDetailMiniMap(world, force)), _ui, close));
+        OpenCommandDetails(view, close => ConfigureCurrentForceDetail(view, world, force, close));
     }
 
     private void OpenCommandCityDetails(int city)
     {
         if (_repository is null || _world is not { } world || _selectedSnapshot is null || !world.Cities.ContainsKey(city)) return;
         var view = new CityDetailsView();
-        OpenCommandDetails(view, close => view.Configure(_repository,
-            CampaignDetailViews.City(world, _selectedSnapshot, city, _ui, CurrentCityCapacity(city),
-                CurrentCityGeography(city), CurrentCityForce(city), CurrentCityMiniMap(city)), _ui, close));
+        OpenCommandDetails(view, close => ConfigureCurrentCityDetail(view, world, city, close));
     }
 
     private void OpenCommandDetails(DetailsView view, Action<Action> configure, UnitOrderTargetView? unitParent = null)
@@ -49,6 +44,7 @@ public partial class Main
             _session is not { PlayerForceId: not null } session)
         { view.Free(); return; }
         _commandDetailsView = view; _detailsView = view;
+        _commandDetailsAdoptSpeechWorld = null;
         _commandDetailsParent = _commandWorkspace; _commandDetailsSession = session; _commandDetailsWorld = session.World;
         _commandDetailsReportParent = _actionReportView;
         _commandDetailsUnitParent = unitParent;
@@ -73,13 +69,16 @@ public partial class Main
     }
 
     private void OpenArmyListMemberDetails(ArmyDetailsListView parent, ArmyDetailsView view, Action<Action> configure)
+        => OpenNestedCommandDetails(parent, view, configure);
+
+    private void OpenNestedCommandDetails(DetailsView parent, DetailsView view, Action<Action> configure)
     {
-        if (_failed || _shuttingDown || IsReturningToTitle || _commandDetailsView != parent ||
-            _commandDetailsArmyListParent is not null || _commandDetailsUnitParent != _unitOrderTarget ||
+        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || _commandDetailsView != parent ||
+            (_commandDetailsUnitParent is not null && _commandDetailsUnitParent != _unitOrderTarget) ||
             !ReferenceEquals(_session, _commandDetailsSession) || !ReferenceEquals(_world, _commandDetailsWorld) ||
             _residentMap != _commandDetailsMap)
         { view.Free(); return; }
-        _commandDetailsArmyListParent = parent;
+        _commandDetailsNestedParents.Push(parent);
         _commandDetailsView = view; _detailsView = view;
         parent.Hide(); parent.ProcessMode = ProcessModeEnum.Disabled;
         AddChild(view);
@@ -94,17 +93,16 @@ public partial class Main
     private void CloseCommandDetails(bool resumeParent = true)
     {
         if (_commandDetailsView is not { } view) return;
-        if (_commandDetailsArmyListParent is { } list)
+        while (_commandDetailsNestedParents.TryPop(out var retained))
         {
-            _commandDetailsArmyListParent = null;
             view.Hide(); view.GetParent()?.RemoveChild(view); view.QueueFree();
-            _commandDetailsView = list; _detailsView = list;
+            _commandDetailsView = retained; _detailsView = retained;
             bool stillCurrent = ReferenceEquals(_session, _commandDetailsSession) &&
                 ReferenceEquals(_world, _commandDetailsWorld) && _residentMap == _commandDetailsMap &&
-                _commandDetailsUnitParent == _unitOrderTarget;
+                (_commandDetailsUnitParent is null || _commandDetailsUnitParent == _unitOrderTarget);
             if (resumeParent && !_failed && !_shuttingDown && stillCurrent)
-            { list.ProcessMode = ProcessModeEnum.Inherit; list.Show(); return; }
-            view = list;
+            { retained.ProcessMode = ProcessModeEnum.Inherit; retained.Show(); return; }
+            view = retained;
         }
         var parent = _commandDetailsParent; var session = _commandDetailsSession;
         var report = _commandDetailsReportParent;
@@ -112,6 +110,7 @@ public partial class Main
         var world = _commandDetailsWorld; var map = _commandDetailsMap;
         _commandDetailsView = null; _commandDetailsParent = null; _commandDetailsSession = null;
         _commandDetailsWorld = null; _commandDetailsMap = null;
+        _commandDetailsAdoptSpeechWorld = null;
         _commandDetailsReportParent = null;
         _commandDetailsUnitParent = null;
         if (_detailsView == view) _detailsView = null;

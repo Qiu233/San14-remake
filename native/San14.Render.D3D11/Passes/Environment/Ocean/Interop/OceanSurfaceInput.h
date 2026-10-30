@@ -1,11 +1,12 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanSurfaceSettings.h"
 #include <filesystem>
 #include <fstream>
 
 namespace San14::Render::Interop {
 inline OceanSurfaceSettings readOceanSurfaceSettings(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);std::uint32_t magic{};OceanSurfaceSettings result;
+    NativePreparedInputFile input(path,std::ios::binary);std::uint32_t magic{};OceanSurfaceSettings result;
     auto read=[&](auto& value){input.read(reinterpret_cast<char*>(&value),sizeof(value));};
     read(magic);read(result.waterHeight);read(result.cutoffDistance);read(result.directionX);
     read(result.directionZ);read(result.displacement);read(result.normalSpeed);read(result.bubbleMode);

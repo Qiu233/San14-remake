@@ -182,6 +182,7 @@ public sealed partial class ForceUnregisterSource
     private static GameState ResetForce(GameState state, SourceWorldContext current, int victim,
         Dictionary<int, byte?[]> resetImages)
     {
+        state = OriginalAiStrategyMemoryLifecycle.ResetForce(state, victim);
         var module = state.NativeForceUnregisterCurrent!; var native = state.NativeArmySimulation!;
         var forces = new Dictionary<int, NativeArmyForceState>(native.Forces);
         var relation13 = forces.ToDictionary(x => x.Key, x => x.Value.NormalAftermath?.Relations13?.ToArray() ?? throw Missing("Force13"));

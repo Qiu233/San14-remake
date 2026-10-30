@@ -15,12 +15,16 @@ public sealed record CampaignEventEligibilityState(bool[] Blocked)
     // The independent current script-service recording gate. Fresh resource
     // loading sets it false; a restored missing field is not the fresh state.
     public bool? HistoryRecordingSuppressed { get; init; }
+    //Current manager result of the actual scan, never a per-frame rescan or legacy false default.
+    public bool? HasAvailableResult { get; init; }
 }
 
 /// <summary>Current campaign facts used by events. The elapsed-period offset is
 /// added to the existing calendar owner's period increments; it is not a second clock.</summary>
 public sealed record CampaignEventWorldState(int ScenarioId, int ScenarioMode, int ElapsedPeriodOffset)
 {
+    // The current archive-owned signed control; old saves retain unknown rather than a guessed setting.
+    public int? HistoricalEventControl { get; init; }
     public sbyte? CurrentUserIndex { get; init; }
     // Search encounters await their event scripts; these are not permanent history flags.
     public byte? SpecialPersonEncounterFlags { get; init; }

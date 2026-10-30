@@ -296,14 +296,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return id != 0 && id == Known(current.ReadForcePhysicalSlot(force), "compared_force_identity");
         }
         private ushort Relation(int physical, int field) => Known(OwnedPersonRelationInputs.ReadCurrentRelationIdentity(latest, physical, field), "relation_word");
-        private int Age(int physical)
-        {
-            int mode = latest.CampaignEventWorld?.ScenarioMode ?? throw Missing("age_world_mode");
-            if (mode is 2 or 3) throw Missing("age_special_mode");
-            int birth = Owner(physical).BirthYear ?? throw Missing("age_birth_AC");
-            int year = latest.NativeMapSeason?.ThirdDate.Year ?? throw Missing("age_ThirdDate_year");
-            return Math.Max(0, unchecked((short)year - birth + 1));
-        }
+        private int Age(int physical) => PersonCurrentAgeSource.Read(latest, current, physical);
         private OfficerState Owner(int physical)
         {
             int id = Identity(physical);

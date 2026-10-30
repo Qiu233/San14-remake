@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -12,7 +13,7 @@ struct NativeRefractionCopySource {
 };
 inline NativeRefractionCopySource readNativeRefractionCopySource(const std::filesystem::path& directory) {
     NativeRefractionCopySource result;
-    std::ifstream input(directory / "source.txt");
+    NativePreparedInputFile input(directory / "source.txt");
     input >> std::hex >> result.sourceObjectId >> std::dec >> result.resourceFormat >> result.shaderFormat >> result.width >> result.height;
     if (!input || result.width == 0 || result.height == 0)
         throw std::runtime_error("Refraction copy source declaration is invalid");

@@ -36,12 +36,25 @@ internal sealed class CampaignServiceProfileOperation(TransferServiceState profi
             copy.SetPrimaryFlag(write.Id, true);
             var d = write.Date; copy.SetDate(write.Id, new(d.Year, d.Month, d.Day, d.Hour, d.Reserved));
         }
+        //A reached source writer may establish true from unknown scenario
+        //knowledge. Other bits remain unknown; an old campaign cannot clear them.
+        foreach (int id in changes.CompletedScenarios) copy.SetScenarioCompleted(id, true);
+        foreach (int id in changes.UnlockedBonusOfficerIndices) copy.SetBonusOfficerUnlocked(id, true);
+        foreach (int id in changes.CompletedTutorialLessons) copy.SetTutorialCompleted(id, true);
+        foreach (int id in changes.CompletedEndingTracks)
+        {
+            uint old = copy.ReadEndingTrack(id)
+                ?? throw new InvalidDataException("Current Ending completion track is unknown.");
+            if (old == 0) copy.SetEndingTrack(id, 1);
+        }
         if (changes.Dirty) copy.WriteDirtyFlag(1);
         return copy;
     }
     internal CampaignServiceChanges Capture(TransferServiceState candidate)
     {
         var events = new List<int>(); var achievements = new List<CampaignAchievementWrite>();
+        var scenarios = new List<int>(); var tracks = new List<int>(); var bonusOfficers = new List<int>();
+        var tutorialLessons = new List<int>();
         for (int i = 0; i < 1024; i++)
             if (_profile.ReadEventFlag(i) != candidate.ReadEventFlag(i))
             {
@@ -59,7 +72,37 @@ internal sealed class CampaignServiceProfileOperation(TransferServiceState profi
                     throw new InvalidDataException("New achievement date is unknown.");
                 achievements.Add(new(i, new(d.Year.Value, d.Month.Value, d.Day.Value, d.Hour.Value, d.RawByte5.Value)));
             }
-        return PreserveClockReads(new(events.ToArray(), achievements.ToArray(), candidate.DirtyFlag == 1));
+        for (int i = 0; i < 200; i++)
+            if (_profile.ReadScenarioCompleted(i) != candidate.ReadScenarioCompleted(i))
+            {
+                if (candidate.ReadScenarioCompleted(i) != true || _profile.ReadScenarioCompleted(i) == true)
+                    throw new InvalidDataException("Ending service returned a non-monotone scenario change.");
+                scenarios.Add(i);
+            }
+        for (int i = 0; i < 3; i++)
+            if (_profile.ReadEndingTrack(i) != candidate.ReadEndingTrack(i))
+            {
+                if (_profile.ReadEndingTrack(i) != 0 || candidate.ReadEndingTrack(i) != 1)
+                    throw new InvalidDataException("Ending service returned a non-monotone completion track.");
+                tracks.Add(i);
+            }
+        for (int i = 0; i < 61; i++)
+            if (_profile.ReadBonusOfficerUnlocked(i) != candidate.ReadBonusOfficerUnlocked(i))
+            {
+                if (candidate.ReadBonusOfficerUnlocked(i) != true || _profile.ReadBonusOfficerUnlocked(i) == true)
+                    throw new InvalidDataException("Ending service returned a non-monotone bonus officer change.");
+                bonusOfficers.Add(i);
+            }
+        for (int i = 0; i < 20; i++)
+            if (_profile.ReadTutorialCompleted(i) != candidate.ReadTutorialCompleted(i))
+            {
+                if (i >= 8 || candidate.ReadTutorialCompleted(i) != true || _profile.ReadTutorialCompleted(i) == true)
+                    throw new InvalidDataException("Tutorial service returned a non-monotone course completion change.");
+                tutorialLessons.Add(i);
+            }
+        return PreserveClockReads(new(events.ToArray(), achievements.ToArray(), candidate.DirtyFlag == 1)
+            { CompletedScenarios = scenarios.ToArray(), CompletedEndingTracks = tracks.ToArray(), UnlockedBonusOfficerIndices = bonusOfficers.ToArray(),
+                CompletedTutorialLessons = tutorialLessons.ToArray() });
     }
     internal void Publish(TransferServiceState validated)
     {

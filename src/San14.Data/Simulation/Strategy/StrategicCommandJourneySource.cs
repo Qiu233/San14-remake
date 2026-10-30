@@ -7,6 +7,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelStrategicExecuti
     PersonnelStrategicAdvanceResult IPersonnelStrategicExecution.AdvanceStrategicCurrent(GameState state,
         SourceWorldContext current, PersonnelStrategicTask task, NativeMapSeasonDate date)
     {
+        if (state.StrategicPoisonEmperorContinuation is { } pending)
+        {
+            if (pending.TaskId != task.Id) throw StrategyMissing("poison_resume_task_identity");
+            var resumed = ResumeStrategicPoisonEmperorCurrent(state, current,
+                current.ReadOwnedCurrentListPool() ?? throw StrategyMissing("poison_resume_pool"));
+            return new(resumed.State, resumed.Completed);
+        }
         if (date.Hour != 8) return new(state, false);
         task = task with { Started = true };
         var manager = current.ReadOwnedPersonCommandManager() ?? throw StrategyMissing("journey_manager");
@@ -26,6 +33,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelStrategicExecuti
             return new(StartStrategicIndependenceWaitCurrent(state, current, task, date), true);
         var result = ResolveStrategicCommandCurrent(state, current, task);
         state = result.State;
+        if (state.StrategicPoisonEmperorContinuation is { } emperor)
+        {
+            //Keep the real manager moment, including its hour8. Do not
+            //replace it with the map season's hour-zero date on resume.
+            state = state with { StrategicPoisonEmperorContinuation = emperor with { CompletionDate = date } };
+            return new(state, false);
+        }
         int executor = current.ResolveOfficerSource(task.MemberIds[0]) ?? throw StrategyMissing("journey_reward_executor");
         state = ApplyStrategicCommandRewardsCurrent(state, current, executor, task.Kind,
             result.ResultCode == 0 ? 2 : result.ResultCode == 2 ? 6 : 1);

@@ -7,7 +7,8 @@ namespace San14.Data;
 /// <summary>Known application state is supplied by its owner; null stays unknown.</summary>
 public sealed record ActionReportApplicationInputs(Func<bool?>? TutorialBlocksAreaReports = null,
     Func<bool?>? SpecialModeSuppressesSceneryReport = null,
-    Func<bool?>? SpecialModeSuppressesAssociationReport = null);
+    Func<bool?>? SpecialModeSuppressesAssociationReport = null,
+    Func<bool?>? TutorialBlocksAssociationReports = null);
 
 /// <summary>One stable selected history pointer, with its physical ring identity.
 /// Bucket membership is independent of CampaignHistoryRecord.Category.</summary>

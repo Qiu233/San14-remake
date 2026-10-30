@@ -79,7 +79,7 @@ public sealed class LoadedMapEffectResources
     }
 }
 
-/// <summary>Resolve territory, foothold and ordinary tactic effects through their installed
+/// <summary>Resolve territory, foothold and tactic world/UI effects through their installed
 /// CE1, Displayset, texture group, slot table and Effect2 declarations. Resource
 /// identifiers here select original format objects; they are not captured draws.</summary>
 public static class MapEffectResources
@@ -91,28 +91,7 @@ public static class MapEffectResources
         RenderResourceContext? context = null, LoadedMapEffectInfo? info = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
-        string name = kind switch
-        {
-            4 => "map_unit_effect_007", 5 => "map_unit_effect_008",
-            7 => "map_unit_effect_010", 8 => "map_unit_effect_011",
-            9 => "map_unit_effect_013",
-            // The manager constructor declares names by kind. The complete
-            // name table is sparse; these are its ordinary result entries.
-            16 => "map_unit_effect_043", 17 => "map_unit_effect_044",
-            18 => "map_unit_effect_045", 19 => "map_unit_effect_046",
-            20 => "map_unit_effect_047", 21 => "map_unit_effect_048",
-            22 => "map_unit_effect_049", 23 => "map_unit_effect_050",
-            24 => "map_unit_effect_051", 25 => "map_unit_effect_052",
-            26 => "map_unit_effect_053", 27 => "map_unit_effect_054",
-            28 => "map_unit_effect_055", 29 => "map_unit_effect_056",
-            30 => "map_unit_effect_057", 31 => "map_unit_effect_058",
-            32 => "map_unit_effect_059", 33 => "map_unit_effect_060",
-            34 => "map_unit_effect_061", 35 => "map_unit_effect_062",
-            36 => "map_unit_effect_063", 37 => "map_unit_effect_064",
-            65 => "map_unit_effect_099", 66 => "map_unit_effect_100",
-            67 => "map_unit_effect_106",
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported map effect kind.")
-        };
+        string name = MapEffectNames.Read(kind);
         // A map owner may share this table across its effect kinds. Overrides
         // select the namespace through the actual row, rather than a frozen flag.
         info ??= repository.LoadEffectInfo();
@@ -166,14 +145,15 @@ public static class MapEffectResources
         {
             LoadedObjects source;
             DokObject obj;
-            if (context is not null)
+            if (context is not null && context.Lookup(objectId) is { } descriptor)
             {
-                var descriptor = context.Lookup(objectId) ??
-                    throw new InvalidDataException($"Current render resources have no effect object {objectId:X8}.");
                 source = descriptor.Source; obj = descriptor.Object;
             }
             else
             {
+                // The effect manager resolves its named declarations through
+                // explicit library handles. Keep those providers in this map's
+                // resource generation without registering a global overlay.
                 source = LoadDefinitions(library);
                 obj = Unique(source, objectId);
             }
@@ -194,7 +174,7 @@ public static class MapEffectResources
         {
             if (!definitions.TryGetValue(id, out var loaded))
             {
-                loaded = id switch
+                loaded = context is not null ? context.LoadDatabase(id) : id switch
                 {
                     0x97485E9B or 0x5ECE222A or 0xD14D76EF => repository.LoadObjects("KIDSSystemResource", id),
                     0x718CCB8B => repository.LoadObjects("system", id),

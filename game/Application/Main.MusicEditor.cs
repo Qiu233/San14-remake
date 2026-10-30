@@ -21,8 +21,12 @@ public partial class Main
         try
         {
             view.Configure(_repository, _ui,
-                () => !_failed && !_shuttingDown && _titleEditMenu == view && _musicEditor is null,
-                () => RunUiAction(() => CloseTitleEditMenu()), () => RunUiAction(OpenMusicEditor));
+                () => !_failed && !_shuttingDown && _titleEditMenu == view && _musicEditor is null &&
+                    !HasRegisteredOfficers && !HasHistoricalOfficers && !HasItemEditors && !HasPersonalityEditors && !HasEventEditors,
+                () => RunUiAction(() => CloseTitleEditMenu()), () => RunUiAction(OpenMusicEditor),
+                () => RunUiAction(OpenRegisteredOfficers), () => RunUiAction(OpenHistoricalOfficers),
+                () => RunUiAction(OpenHistoricalItemsEditor), () => RunUiAction(OpenNewItemsEditor),
+                () => RunUiAction(OpenPersonalityEditors), () => RunUiAction(OpenEventEditors));
         }
         catch { CloseTitleEditMenu(); throw; }
     }
@@ -119,7 +123,12 @@ public partial class Main
 
     private void RequestTitleEditBack()
     {
-        if (_musicQuestion is { } question) question.RequestCancel();
+        if (HasRegisteredOfficers) RequestRegisteredOfficersBack();
+        else if (HasHistoricalOfficers) RequestHistoricalOfficersBack();
+        else if (HasItemEditors) RequestItemEditorsBack();
+        else if (HasPersonalityEditors) RequestPersonalityEditorsBack();
+        else if (HasEventEditors) RequestEventEditorsBack();
+        else if (_musicQuestion is { } question) question.RequestCancel();
         else if (_musicSelection is { } selection) selection.RequestBack();
         else if (_musicEditor is not null) RequestMusicEditorReturn();
         else _titleEditMenu?.RequestBack();
@@ -139,6 +148,11 @@ public partial class Main
 
     private void CloseTitleEditMenu(bool resumeTitle = true)
     {
+        CloseRegisteredOfficers(resumeParent: false);
+        CloseHistoricalOfficers(resumeParent: false);
+        CloseItemEditors(resumeParent: false);
+        ClosePersonalityEditors(resumeParent: false);
+        CloseEventEditors(resumeParent: false);
         CloseMusicEditor();
         var view = _titleEditMenu; _titleEditMenu = null;
         if (view is not null) { view.Abandon(); view.QueueFree(); }

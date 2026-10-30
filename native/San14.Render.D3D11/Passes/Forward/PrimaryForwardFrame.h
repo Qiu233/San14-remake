@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // CPU-only adapter after city-model-population-native.h. Import/static recipe
 // stays owned; each request uses the real current catalog and ordinary plan.
 // Shader sources: state0 2F9960EF/8F6C9FB9, matrix0, combo14 VS0/PS11.
@@ -38,14 +39,14 @@ struct NativePrimaryForwardDraw {
 };
 struct NativePrimaryForwardFrame {std::vector<NativePrimaryForwardDraw> draws;};
 inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::filesystem::path& directory) {
-    NativePrimaryForwardSource p;unsigned n;std::ifstream count(directory/"template-count.txt");count>>n;
+    NativePrimaryForwardSource p;unsigned n;NativePreparedInputFile count(directory/"template-count.txt");count>>n;
     if(!count)throw std::runtime_error("Forward state0 template count absent");p.templates.resize(n);
-    std::ifstream rows(directory/"templates.txt");unsigned index,eligible;std::string name;
+    NativePreparedInputFile rows(directory/"templates.txt");unsigned index,eligible;std::string name;
     while(rows>>index>>eligible>>name){auto& t=p.templates.at(index);t.eligible=eligible!=0;if(!t.eligible)continue;
-        std::ifstream v(directory/name/"vs-b0.bin",std::ios::binary),b(directory/name/"ps-b0.bin",std::ios::binary);
+        NativePreparedInputFile v(directory/name/"vs-b0.bin",std::ios::binary),b(directory/name/"ps-b0.bin",std::ios::binary);
         v.read(t.vertex.data(),t.vertex.size());b.read(t.pixel.data(),t.pixel.size());
         if(!v||!b)throw std::runtime_error("Original forward complete source CB template absent");}
-    std::ifstream writes(directory/"forward-lighting-writes.txt");
+    NativePreparedInputFile writes(directory/"forward-lighting-writes.txt");
     NativePrimaryForwardLightingWrite write;
     while(writes>>write.field>>write.destination>>write.source>>write.bytes) {
         const auto width = write.field < San14::Render::HdrLightingFieldBytes.size()
@@ -55,7 +56,7 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
             throw std::runtime_error("Forward named lighting layout range");
         p.lightingWrites.push_back(write);
     }
-    std::ifstream patternWrites(directory/"forward-pattern-writes.txt");
+    NativePreparedInputFile patternWrites(directory/"forward-pattern-writes.txt");
     while(patternWrites>>write.field>>write.destination>>write.source>>write.bytes) {
         constexpr std::array<unsigned,3> widths{64,4,32};
         if(write.field>=widths.size()||!write.bytes||
@@ -64,7 +65,7 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardSource(const std::f
             throw std::runtime_error("Forward named Pattern layout range");
         p.patternWrites.push_back(write);
     }
-    std::ifstream group(directory/"forward-light-group.txt"); group>>p.lightGroup;
+    NativePreparedInputFile group(directory/"forward-light-group.txt"); group>>p.lightGroup;
     if(!rows.eof()||!writes.eof()||!patternWrites.eof()||!group||p.lightingWrites.empty()||p.patternWrites.empty())
         throw std::runtime_error("Forward lighting source is incomplete");
     return p;

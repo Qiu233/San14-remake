@@ -31,6 +31,7 @@ internal static class DiplomacySaveFields
                             throw new InvalidDataException("Saved diplomacy task date is incomplete.");
                     if (fields["InitialOffer"] is not JsonObject offer || new[] { "Gold", "Supplies", "ItemId", "AreaId" }.Any(key => !offer.ContainsKey(key)))
                         throw new InvalidDataException("Saved diplomacy offer is incomplete.");
+                    MigrateCommandPayload(fields, version);
                     MigrateNegotiation(fields,version);
                 }
             }
@@ -64,6 +65,60 @@ internal static class DiplomacySaveFields
                     (flag is not JsonValue value || !value.TryGetValue<ushort>(out _)))
                     throw new InvalidDataException("Saved diplomacy Force flags are invalid.");
             }
+    }
+
+    private static void MigrateCommandPayload(JsonObject task, int version)
+    {
+        if (task["Kind"] is not JsonValue kindValue || !kindValue.TryGetValue<int>(out int kind) ||
+            task["NativeKind"] is not JsonValue nativeValue || !nativeValue.TryGetValue<int>(out int nativeKind))
+            throw new InvalidDataException("Saved diplomacy command kind is invalid.");
+        if (version < 197)
+        {
+            if (kind is < 0 or > 3 || task.ContainsKey("RequestedCaptiveOfficerIds") || task.ContainsKey("RequestedOffer") ||
+                task.ContainsKey("AdvisorOutcomeAtDispatch"))
+                throw new InvalidDataException("Legacy save contains future diplomacy command data.");
+            // The four historical commands never carried a captive request.
+            task["RequestedCaptiveOfficerIds"] = new JsonArray();
+            task["RequestedOffer"] = new JsonObject { ["Gold"] = 0, ["Supplies"] = 0, ["ItemId"] = null, ["AreaId"] = null };
+            task["AdvisorOutcomeAtDispatch"] = null;
+            return;
+        }
+        int expectedNativeKind = (DiplomaticMissionKind)kind switch
+        {
+            DiplomaticMissionKind.Goodwill => 4,
+            DiplomaticMissionKind.Alliance => 5,
+            DiplomaticMissionKind.CancelAlliance => 6,
+            DiplomaticMissionKind.RequestAttack => 9,
+            DiplomaticMissionKind.ReturnCaptives => 8,
+            DiplomaticMissionKind.DemandSurrender => 7,
+            DiplomaticMissionKind.Exchange => 19,
+            _ => -1
+        };
+        if (!task.ContainsKey("AdvisorOutcomeAtDispatch") ||
+            task["AdvisorOutcomeAtDispatch"] is JsonNode advisor &&
+            (advisor is not JsonValue prediction || !prediction.TryGetValue<int>(out int outcome) || outcome is < -1 or > 1))
+            throw new InvalidDataException("Saved diplomacy dispatch advisor outcome is missing or invalid.");
+        if (nativeKind != expectedNativeKind || expectedNativeKind < 0 ||
+            task["RequestedCaptiveOfficerIds"] is not JsonArray captives || captives.Count > 3 ||
+            kind != (int)DiplomaticMissionKind.ReturnCaptives && captives.Count != 0 ||
+            !task.ContainsKey("RequestedOffer"))
+            throw new InvalidDataException("Saved diplomacy command payload is invalid.");
+        if (task["RequestedOffer"] is not JsonObject offer ||
+            new[] { "Gold", "Supplies", "ItemId", "AreaId" }.Any(key => !offer.ContainsKey(key)) ||
+            offer["Gold"] is not JsonValue gold || !gold.TryGetValue<int>(out int goldValue) || goldValue < 0 ||
+            offer["Supplies"] is not JsonValue food || !food.TryGetValue<int>(out int foodValue) || foodValue < 0)
+            throw new InvalidDataException("Saved diplomatic exchange request is invalid.");
+        if (kind != (int)DiplomaticMissionKind.Exchange &&
+            (goldValue != 0 || foodValue != 0 || offer["ItemId"] is not null || offer["AreaId"] is not null))
+            throw new InvalidDataException("Saved diplomatic command contains an unexpected exchange request.");
+        foreach (JsonNode? node in captives)
+            if (node is not JsonValue number || !number.TryGetValue<int>(out int id) || id < 0)
+                throw new InvalidDataException("Saved diplomacy captive request is invalid.");
+        // Arrival can prune the actual list to empty and cancel the journey.
+        // No missing captive identity is reconstructed from the current world.
+        if (kind == (int)DiplomaticMissionKind.ReturnCaptives && captives.Count == 0 &&
+            task["Cancelled"]?.GetValue<bool>() == false && task["IsRetiring"]?.GetValue<bool>() == false)
+            throw new InvalidDataException("Active captive-return mission has no requested captives.");
     }
 
     private static void MigrateNegotiation(JsonObject task,int version)

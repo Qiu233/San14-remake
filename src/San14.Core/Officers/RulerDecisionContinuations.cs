@@ -20,6 +20,11 @@ public sealed record ArmyDefeatContinuation(int SettlementIndex, UnitDefeatReque
     public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment { get; init; }
     public CapturedRulerDisposition? ChosenDisposition { get; init; }
     public bool DeathReturnedEarly { get; init; }
+    /// <summary>The actual captured Base, including a Gate's location identity.
+    /// HomeCityId remains only the report's current City context.</summary>
+    public SettlementBase? VictimHome { get; init; }
+    public bool SpecialCommanderReclaim { get; init; }
+    public bool? ReclaimDefeatedCommander { get; init; }
 }
 
 public sealed record RulerSuccessionRequest(int ForceId, int DeceasedOfficerId,
@@ -86,17 +91,27 @@ internal static class RulerDecisionContinuationValidation
         NormalCombatImmediateContinuationValidation.Validate(state);
         DuelAftermathContinuationValidation.Validate(state);
         BaseCaptureContinuationValidation.Validate(state);
+        ManualTacticExecutionContinuationValidation.Validate(state);
         if (state.ArmyDefeatContinuation is { } defeat)
         {
             bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } &&
                 state.NormalCombatImmediateContinuation is not null ||
-                state.NativePeriodContinuation?.Cursor is { StageIndex: 5 } && state.DuelAftermathContinuation is not null;
+                state.NativePeriodContinuation?.Cursor is { StageIndex: 5 } && state.DuelAftermathContinuation is not null ||
+                state.ManualTacticExecutionContinuation is not null;
             if ((immediate ? defeat.SettlementIndex != -1 : defeat.SettlementIndex < 0) ||
                 defeat.Defeat is null || defeat.Defeat.VictimUnitId <= 0 ||
                 defeat.Defeat.WinnerUnitId is <= 0 || !Enum.IsDefined(defeat.Defeat.Cause) ||
                 !Settlement(defeat.Defeat.WinnerBase) || !Settlement(defeat.WinnerBase) || defeat.ArmyPhysicalSlot < 0 ||
                 defeat.ReceiverId.Value <= 0 || defeat.VictimForceId is < 0 or > 51 ||
-                defeat.CommanderOfficerId is < 0 or > 6000 || defeat.HomeCityId is < 0 or > 61 ||
+                defeat.CommanderOfficerId is < 0 or > 6000 ||
+                (defeat.VictimHome is null ? !defeat.SpecialCommanderReclaim || defeat.HomeCityId != 0 :
+                    !ValidDefeatHome(defeat.VictimHome) || defeat.HomeCityId is < 1 or > 51) ||
+                (defeat.ResumePoint == ArmyDefeatResumePoint.AfterPersonDeath
+                    ? defeat.ReclaimDefeatedCommander is not null : defeat.ReclaimDefeatedCommander is null) ||
+                defeat.ReclaimDefeatedCommander == true && (!defeat.SpecialCommanderReclaim || defeat.Defeat.Cause == UnitDefeatCause.DuelDeath) ||
+                defeat.SpecialCommanderReclaim && defeat.VictimForceId is < 46 or > 51 ||
+                defeat.VictimForceId == 51 && !defeat.SpecialCommanderReclaim ||
+                defeat.VictimHome is { Kind: SettlementBaseKind.City } cityHome && cityHome.Id != defeat.HomeCityId ||
                 defeat.HexId is < 0 or > 48400 || defeat.WinnerArmyPhysicalSlot is < 0 ||
                 defeat.WinnerOfficerId is < 0 or > 6000 || defeat.WinnerForceId is < 0 or > 51 ||
                 (defeat.SampleDay is null) != (defeat.SampleSalt is null) || !Enum.IsDefined(defeat.ResumePoint) ||
@@ -119,6 +134,10 @@ internal static class RulerDecisionContinuationValidation
             succession.PromptAtSource is null || succession.EmptyChoiceWarningAtSource is null)
             throw new InvalidDataException("Invalid saved ruler succession continuation.");
     }
+
+    private static bool ValidDefeatHome(SettlementBase? value) => value is
+        { Kind: SettlementBaseKind.City, Id: >= 1 and <= 51 } or
+        { Kind: SettlementBaseKind.Gate, Id: >= 52 and <= 61 };
 
     private static bool Base(PersonDeathBaseContext? value) => value is null ||
         Enum.IsDefined(value.Kind) && (value.PhysicalSlot is null or >= 0);

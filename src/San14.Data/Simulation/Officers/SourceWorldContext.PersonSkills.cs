@@ -9,6 +9,17 @@ public sealed partial class SourceWorldContext : IPersonSkillPostLoadState
     private readonly Dictionary<int, byte?> _tacticFlags44 = [], _gemTacticCodes52 = [], _gemValidityCodes53 = [];
     private readonly Dictionary<int, IReadOnlyList<int>?> _tacticEncodedValues70 = [];
     internal Func<int, byte?>? CurrentTacticQualificationFlagsReader { get; set; }
+    private PersonSkillInitialValues? _initialPersonFormations, _initialPersonTraits, _initialPersonActivation, _initialPersonTactics;
+
+    internal void BindInitialPersonSkills(PersonSkillInitialValues values)
+        => _initialPersonFormations = _initialPersonTraits = _initialPersonActivation = _initialPersonTactics = values;
+
+    private static void StorePersonSkillOverride<TKey,TValue>(Dictionary<TKey,TValue?> fields,TKey key,TValue? value,
+        bool initialKnown,TValue? initial) where TKey:notnull where TValue:struct
+    {
+        if (initialKnown && EqualityComparer<TValue?>.Default.Equals(value,initial)) fields.Remove(key);
+        else fields[key]=value;
+    }
 
     /// <summary>Load the CE static windows without resetting omitted runtime
     /// mask1BC/extra1BE fields or reconstructing raw slots from UI projections.</summary>
@@ -23,21 +34,21 @@ public sealed partial class SourceWorldContext : IPersonSkillPostLoadState
         for (int index = 0; index < 10; index++) SetPersonTacticSlot168(person.Slot, index, source?.RawTacticSlots168[index]);
     }
 
-    public uint? ReadPersonFormationMask164(int receiver) { PersonSkillIndex(receiver, 0, 1); return _personFormationMasks164.GetValueOrDefault(receiver); }
+    public uint? ReadPersonFormationMask164(int receiver) { PersonSkillIndex(receiver, 0, 1); return _personFormationMasks164.TryGetValue(receiver,out var value) ? value : _initialPersonFormations?.Formation(receiver); }
     public void WritePersonFormationMask164(int receiver, uint value) => SetPersonFormationMask164(receiver, value);
-    public void SetPersonFormationMask164(int receiver, uint? value) { PersonSkillIndex(receiver, 0, 1); _personFormationMasks164[receiver] = value; }
-    public ushort? ReadPersonTraitSlot150(int receiver, int index) { PersonSkillIndex(receiver, index, 9); return _personTraitSlots150.GetValueOrDefault((receiver, index)); }
+    public void SetPersonFormationMask164(int receiver, uint? value) { PersonSkillIndex(receiver, 0, 1); StorePersonSkillOverride(_personFormationMasks164,receiver,value,_initialPersonFormations is not null,_initialPersonFormations?.Formation(receiver)); }
+    public ushort? ReadPersonTraitSlot150(int receiver, int index) { PersonSkillIndex(receiver, index, 9); return _personTraitSlots150.TryGetValue((receiver,index),out var value) ? value : _initialPersonTraits?.Trait(receiver,index); }
     public void WritePersonTraitSlot150(int receiver, int index, ushort value) => SetPersonTraitSlot150(receiver, index, value);
-    public void SetPersonTraitSlot150(int receiver, int index, ushort? value) { PersonSkillIndex(receiver, index, 9); _personTraitSlots150[(receiver, index)] = value; }
-    public ushort? ReadPersonTraitMask1BC(int receiver) { PersonSkillIndex(receiver, 0, 1); return _personTraitMasks1BC.GetValueOrDefault(receiver); }
+    public void SetPersonTraitSlot150(int receiver, int index, ushort? value) { PersonSkillIndex(receiver, index, 9); StorePersonSkillOverride(_personTraitSlots150,(receiver,index),value,_initialPersonTraits is not null,_initialPersonTraits?.Trait(receiver,index)); }
+    public ushort? ReadPersonTraitMask1BC(int receiver) { PersonSkillIndex(receiver, 0, 1); return _personTraitMasks1BC.TryGetValue(receiver,out var value) ? value : _initialPersonActivation?.Mask(receiver); }
     public void WritePersonTraitMask1BC(int receiver, ushort value) => SetPersonTraitMask1BC(receiver, value);
-    public void SetPersonTraitMask1BC(int receiver, ushort? value) { PersonSkillIndex(receiver, 0, 1); _personTraitMasks1BC[receiver] = value; }
-    public ushort? ReadPersonTraitExtra1BE(int receiver, int index) { PersonSkillIndex(receiver, index, 9); return _personTraitExtras1BE.GetValueOrDefault((receiver, index)); }
+    public void SetPersonTraitMask1BC(int receiver, ushort? value) { PersonSkillIndex(receiver, 0, 1); StorePersonSkillOverride(_personTraitMasks1BC,receiver,value,_initialPersonActivation is not null,_initialPersonActivation?.Mask(receiver)); }
+    public ushort? ReadPersonTraitExtra1BE(int receiver, int index) { PersonSkillIndex(receiver, index, 9); return _personTraitExtras1BE.TryGetValue((receiver,index),out var value) ? value : _initialPersonActivation?.Extra(receiver,index); }
     public void WritePersonTraitExtra1BE(int receiver, int index, ushort value) => SetPersonTraitExtra1BE(receiver, index, value);
-    public void SetPersonTraitExtra1BE(int receiver, int index, ushort? value) { PersonSkillIndex(receiver, index, 9); _personTraitExtras1BE[(receiver, index)] = value; }
-    public byte? ReadPersonTacticSlot168(int receiver, int index) { PersonSkillIndex(receiver, index, 10); return _personTacticSlots168.GetValueOrDefault((receiver, index)); }
+    public void SetPersonTraitExtra1BE(int receiver, int index, ushort? value) { PersonSkillIndex(receiver, index, 9); StorePersonSkillOverride(_personTraitExtras1BE,(receiver,index),value,_initialPersonActivation is not null,_initialPersonActivation?.Extra(receiver,index)); }
+    public byte? ReadPersonTacticSlot168(int receiver, int index) { PersonSkillIndex(receiver, index, 10); return _personTacticSlots168.TryGetValue((receiver,index),out var value) ? value : _initialPersonTactics?.Tactic(receiver,index); }
     public void WritePersonTacticSlot168(int receiver, int index, byte value) => SetPersonTacticSlot168(receiver, index, value);
-    public void SetPersonTacticSlot168(int receiver, int index, byte? value) { PersonSkillIndex(receiver, index, 10); _personTacticSlots168[(receiver, index)] = value; }
+    public void SetPersonTacticSlot168(int receiver, int index, byte? value) { PersonSkillIndex(receiver, index, 10); StorePersonSkillOverride(_personTacticSlots168,(receiver,index),value,_initialPersonTactics is not null,_initialPersonTactics?.Tactic(receiver,index)); }
 
     /// <summary>Only226AA0's proved trait150/mask1BC/extra1BE zero windows.
     /// Static loading does not reset these omitted auxiliary fields.</summary>

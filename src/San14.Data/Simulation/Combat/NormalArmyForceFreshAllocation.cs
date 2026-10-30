@@ -27,6 +27,8 @@ public static class NormalArmyForceFreshAllocation
             simulation.Parameters.RuleVersion != source.Source.RuleVersion ||
             simulation.Parameters.Int32Values.ContainsKey(VersionKey) ||
             simulation.Parameters.Float32Values.ContainsKey(VersionKey) ||
+            state.PlaceholderForceAdministrationFlags is not null ||
+            state.UnassignedForcePolicyEffects is not null ||
             !simulation.Forces.Keys.Order().SequenceEqual(state.Forces.Keys.Order()) ||
             state.Forces.Values.Any(force => force.CombatObjective is not null))
             throw new InvalidDataException("Force result constructor fields require the fresh unmodified owned static allocation.");
@@ -36,7 +38,14 @@ public static class NormalArmyForceFreshAllocation
         var forces = state.Forces.ToDictionary(pair => pair.Key, pair => pair.Value with {
             CombatObjective = ForceCombatObjective.Inactive });
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
-        return state with { Forces = forces, NativeArmySimulation = simulation with {
+        //227070 resets word193 to0 for all52 source receivers. Static237CC0
+        //skips byte193 in8C!=0 mode; table-zero keeps its own saved byte.
+        //227070 also clears both ten-byte doctrine activation/suppression
+        //sets. They are runtime-only in237CC0, so the static load preserves
+        //this known empty receiver; later restoration never invokes this hook.
+        return state with { Forces = forces, PlaceholderForceAdministrationFlags = 0,
+            UnassignedForcePolicyEffects = ForcePolicyEffects.Empty,
+            NativeArmySimulation = simulation with {
             Parameters = simulation.Parameters with { Int32Values = integers } } };
     }
 

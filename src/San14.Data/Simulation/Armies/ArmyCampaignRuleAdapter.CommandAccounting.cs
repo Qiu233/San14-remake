@@ -59,19 +59,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     ///Call with the real linkedCount before waiting. For the manual-only
     ///post-waiting tail, call again with linkedCount0 and manual=true.</summary>
     private GameState ApplyLinkedTacticAccountingCurrent(GameState state, SourceWorldContext current,
-        int mainUnitId, int linkedCount, bool manual = false)
+        int physical, int linkedCount, bool manual = false)
     {
         if (linkedCount is < 0 or > 10) throw TacticAccountingMissing("linked_count");
         if (linkedCount == 0 && !manual) return state;
         uint flags = current.ReadWorldTransferServiceFlags() ?? throw TacticAccountingMissing("World_flags");
         if ((flags & 0x100) != 0 || !HasCommandAccountingUser(state)) return state;
-        //The caller's captured main receiver can be pending after a real
-        //earlier destruction. Read its latest owned image/current Commander;
-        //never resurrect the pre-effect Unit to decide the District gate.
-        var main = state.Units.GetValueOrDefault(mainUnitId)
-            ?? state.ReadArmyLifecycle()?.Receivers.FindUnit(mainUnitId)?.PendingImage
-            ?? throw TacticAccountingMissing("main_Army_receiver");
-        int physical = main.NativeArmyOrigin?.NativeSlotIndex ?? throw TacticAccountingMissing("main_Army_physical");
+        //The source passes the captured receiver pointer.22BC70 reads its
+        //current Commander even after Full has released the Unit image.
         var army = current.ReadArmyUnitTableReference(physical) ?? throw TacticAccountingMissing("main_Army_pointer");
         byte rawDistrict = ReadFacilityHistoryDistrict(current, army);
         var district = current.ReadDistrictTableReference(rawDistrict <= 51 ? rawDistrict : 0)

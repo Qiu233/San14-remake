@@ -182,7 +182,7 @@ public sealed class SceneViewNativeMapSkySourceOwner : IAsyncDisposable
             BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(12,4)));
         var lights = SkySceneSelectedViewLightSource.PrepareSourceZeroMoonLights(selected,
             packagePosition, actualSkyRecord.RecordOwnerIdentity + "/D3A850-package10-row0", moon);
-        return new(lighting, season.Season.Calendar.State.ThirdDate.Month, season.SourceProvenance,
+        return new(lighting, season.Season.Calendar.ThirdDate.Month, season.SourceProvenance,
             currentAtmosphere.Atmosphere, new(season.Selection, present.CurrentSkyCamera, lights));
     }
 

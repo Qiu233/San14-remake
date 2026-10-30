@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../HdrLightingState.h"
 #include "../../Environment/WeatherFogRecordReader.h"
 #include <filesystem>
@@ -52,7 +53,7 @@ inline HdrLightState decodeHdrLight(std::span<const std::uint8_t> input, HdrLigh
     return result;
 }
 inline HdrLightingLayout readHdrLightingLayout(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    NativePreparedInputFile input(path, std::ios::binary);
     auto word = [&]() {
         std::uint32_t value{}; input.read(reinterpret_cast<char*>(&value), 4);
         if (!input) throw std::runtime_error("HDR lighting layout is truncated"); return value;

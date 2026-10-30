@@ -25,7 +25,8 @@ public static class CommonRenderEncoding
             BinaryPrimitives.ReadInt32LittleEndian(bytes[0x3F4..]), Word(bytes, 0x380),
             new(Word(bytes, 0xC8), Word(bytes, 0xCC), Word(bytes, 0xD0), Word(bytes, 0xD4)),
             SuppressOceanDrawing: (Word(bytes, 0x10) & 1u) != 0,
-            SkyAlphaBlend: DecodeSkyAlphaBlend(Word(bytes, 0x3BC)));
+            SkyAlphaBlend: DecodeSkyAlphaBlend(Word(bytes, 0x3BC)))
+            { Flags14 = Word(bytes, 0x14), ClipPlanes = CommonClipPlaneSource.ReadCoordinates(bytes.Slice(0x384, 24)) };
     }
 
     public static AmbientMapSelection ReadAmbient(ReadOnlySpan<byte> bytes)

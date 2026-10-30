@@ -4,10 +4,10 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //185D00's ordinary center branch. The later encirclement transaction and
-    //commander balloon admission are saved requests, not silently completed.
-    private static GameState PrepareRegionCenterTransfer(GameState state, SourceWorldContext current,
-        HexReference hex, int force, int selectedCity, bool enqueueEncirclement)
+    //185D00's ordinary center branch. The commander balloon runs its real
+    //admission now; encirclement remains a separate saved transaction.
+    private GameState PrepareRegionCenterTransfer(GameState state, SourceWorldContext current,
+        HexReference hex, int force, int selectedCity, bool enqueueEncirclement, NativeMapSeasonDate? sourceDate = null)
     {
         if (selectedCity is < 1 or > 51) throw OccupationMissing("center_target_City_scope");
         var pending = state.RegionOccupationFollowups ?? throw OccupationMissing("center_followup_owner");
@@ -24,7 +24,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (OccupationKnown(current.ReadBaseForceSlot(owner), "center_current_City_force") != force)
             assignment = current.AssignAreaCity(area, selectedCity);
 
-        var notices = new List<RegionOccupationAnnouncement>();
+        state = ConsumeLegacyRegionAnnouncementsCurrent(state, current);
         var city = current.ReadCityTableReference(selectedCity) ?? throw OccupationMissing("center_target_City");
         if (OccupationKnown(current.ReadBaseNativeValidity(city), "center_target_City_validity"))
         {
@@ -42,7 +42,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (actualHome != home || !OccupationKnown(current.ReadArmyUnitNativeValidity(receiver), "center_Army_validity") ||
                     OccupationKnown(current.ReadArmyUnitRawHex2A(receiver), "center_Army_Hex") != hex.PhysicalSlot) continue;
                 int unitId = OccupationKnown(state.ReadArmyLifecycle()!.ReceiverSlots()[physical].ActiveUnitId, "center_Army_owner");
-                notices.Add(new(unitId, personId, areaId, hex.PhysicalSlot!.Value));
+                state = QueueRegionOccupationSpeechCurrent(state, current, unitId, personId, areaId, sourceDate);
             }
         }
 
@@ -60,7 +60,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             Officers = assignment?.PersonPhysicalSlotsWritten.Count > 0 ? officers : state.Officers,
             RegionOccupationFollowups = new(encirclement ? [.. pending.EncirclementSeeds, new(force, areaId)] : pending.EncirclementSeeds,
-                [.. pending.Announcements, .. notices], pending.EncirclementPresentations)
+                [], pending.EncirclementPresentations)
         };
     }
 
@@ -78,10 +78,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             int force = OccupationKnown(current.ReadAreaCurrentForceSlot(new(id)), "published_Area_force");
             if (city is int receivingCity && !state.Cities.ContainsKey(receivingCity)) throw OccupationMissing("published_City_owner");
             areas[id] = before with { CityId = city, ForceId = force == 0 ? null : force };
-            //2FFC30's player log (5365, optional local-district title5F6B).
-            //Store semantic references; localization is a presentation concern.
-            logs.Add(new("area_occupied", army.ForceId, city, army.OfficerId, 0, hex, hex)
-                { AreaId = id, RuleId = "army.progress.region-center-occupation" });
+            //Source-time occupation history is written separately after all
+            //transfers and commander rewards, using its actual caller gates.
         }
         var cities = new Dictionary<int, CityState>(state.Cities);
         foreach (var city in cities.Values.ToArray())

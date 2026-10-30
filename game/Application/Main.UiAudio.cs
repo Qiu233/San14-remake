@@ -12,7 +12,9 @@ public partial class Main
         feedback.Changed += UiAudioFeedbackChanged;
         feedback.ServiceReady += AttachSceneAudioSession;
         _uiAudioFeedback = feedback;
+        feedback.SetWindowFocused(_lifetimeWindow?.HasFocus() == true);
         feedback.SetVolumes(_preferences.Audio);
+        if (_preferences.SpeakerLayout is { } layout) feedback.SetInitialSpeakerLayout(layout);
         feedback.Start();
     }
 
@@ -58,9 +60,11 @@ public partial class Main
     public override void _ExitTree()
     {
         _shuttingDown = true;
+        CancelNewGamePreparation(restoreParent: false);
         _periodAdvanceCancellation?.Cancel();
         CloseCommandWorkspace();
         CloseEnvironmentSettings(resumeParent:false);
+        _displaySettingsHost?.Dispose(); _displaySettingsHost = null;
         CloseTitleMenu();
         CloseNewGameSetup();
         CloseScenarioSelection();

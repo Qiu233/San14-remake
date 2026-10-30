@@ -15,8 +15,22 @@ public sealed partial class TacticRemakeCurrentContext
     internal AutomaticArmyTroopDamageAmount ResolveAutomaticArmyTroopDamage(GameState state,
         UnitState caster, UnitState target, TacticSourceRow source,
         S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
+        => ResolveAutomaticArmyTroopDamageCore(state, caster, target, source, instruction, prefix);
+
+    internal AutomaticArmyTroopDamageAmount ResolveRetiredEnteredAutomaticArmyTroopDamageCurrent(GameState state,
+        SourceWorldContext current, UnitState target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
     {
-        if (instruction.Opcode != 1 || prefix.CasterId != caster.Id)
+        if (!ReferenceEquals(current, _definitions)) throw ArmyTroopDamageMissing("retired_current");
+        ArmyCampaignRuleAdapter.RequireRetiredAutomaticActorCurrent(state, current, prefix.SourceArmyPhysicalSlot);
+        return ResolveAutomaticArmyTroopDamageCore(state, null, target, source, instruction, prefix);
+    }
+
+    private AutomaticArmyTroopDamageAmount ResolveAutomaticArmyTroopDamageCore(GameState state,
+        UnitState? caster, UnitState target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
+    {
+        if (instruction.Opcode != 1 || caster is not null && prefix.CasterId != caster.Id)
             throw ArmyTroopDamageMissing("instruction_or_prefix_owner");
         int targetSlot = K(target.NativeArmyOrigin?.NativeSlotIndex, "target_Army_physical");
         var targetArmy = _definitions.ReadArmyUnitTableReference(targetSlot)
@@ -25,12 +39,13 @@ public sealed partial class TacticRemakeCurrentContext
             return new(false, null, "invalid_Army");
         if (state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
             throw ArmyTroopDamageMissing("numeric_source_not_qualified");
-        int casterSlot = K(caster.NativeArmyOrigin?.NativeSlotIndex, "caster_Army_physical");
+        int casterSlot = prefix.SourceArmyPhysicalSlot;
         var casterArmy = _definitions.ReadArmyUnitTableReference(casterSlot)
             ?? throw ArmyTroopDamageMissing("caster_Army_pointer");
         int targetNativePhysical = K(targetArmy.PhysicalSlot, "target_native_physical");
-        var runtime = caster.NativeTacticRuntime ?? throw ArmyTroopDamageMissing("caster_runtime");
-        float waiting = runtime.Waiting21 != 0 ? 1f : (float)P(runtime.Waiting22 == 0
+        bool sourceValid = K(_definitions.ReadArmyUnitNativeValidity(casterArmy), "caster_Army_validity");
+        var runtime = sourceValid ? caster?.NativeTacticRuntime ?? throw ArmyTroopDamageMissing("caster_runtime") : null;
+        float waiting = runtime is null || runtime.Waiting21 != 0 ? 1f : (float)P(runtime.Waiting22 == 0
             ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent
             : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent) / 100f;
         int ability = SourceAbility();
@@ -68,8 +83,8 @@ public sealed partial class TacticRemakeCurrentContext
             }
         }
         float casterModifier = 1f;
-        if (runtime.StatDurations50 is not { Length: 6 }) throw ArmyTroopDamageMissing("caster_duration53");
-        if (runtime.StatDurations50[3] != 0)
+        if (runtime is not null && runtime.StatDurations50 is not { Length: 6 }) throw ArmyTroopDamageMissing("caster_duration53");
+        if (runtime is not null && runtime.StatDurations50![3] != 0)
         {
             if (runtime.StatModifiers4A is not { Length: 6 }) throw ArmyTroopDamageMissing("caster_signed_modifier4D");
             casterModifier = 1f - ((float)runtime.StatModifiers4A[3] *
@@ -91,7 +106,7 @@ public sealed partial class TacticRemakeCurrentContext
         int forcePercent = (forceFlags & 16) != 0 ? P(AutomaticTacticDamageCurrentParameters.SpecialForcePercent) : 100;
         int amount = TacticArmyBaseTroopDamageMath.BeforeSettings(new(instruction.EffectValue,
             ability, baseline, prefix.StageProduct, prefix.SourceTroops, divisor, rootOffset,
-            factor, casterModifier, waiting, forcePercent, panel), provocation);
+            factor, casterModifier, waiting, forcePercent, panel), provocation, sourceValid ? 1f : 0f);
         //176C10 queries trait56 even for a nonpositive truncated amount;
         //ordinary16A260's separate positive-only gate does not belong here.
         if (K(_definitions.ReadArmyUnitNativeValidity(targetArmy), "half_target_Army_validity"))

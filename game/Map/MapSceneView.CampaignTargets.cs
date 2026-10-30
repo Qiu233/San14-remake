@@ -68,6 +68,12 @@ public partial class MapSceneView
             _commandMapDisplay=D3D11CommandMapPublication.ForCampaignFocus(focus,revision,revision,
                 checked(++_commandMapProviderGeneration));
         }
+        SetMapSummaryMode(stage switch
+        {
+            CampaignTargetMapStage.TargetProvince => MapSummarySelectionMode.Province,
+            CampaignTargetMapStage.Foothold => MapSummarySelectionMode.Foothold,
+            _ => MapSummarySelectionMode.Normal
+        });
         ApplyCampaignTargetMapPick(selectedIds);
         SetCommandTargetPicker(PickCampaignTarget,CampaignPointerAllowed,HoverCampaignTarget);
         ScheduleD3D11MapFrame();
@@ -116,6 +122,7 @@ public partial class MapSceneView
     {
         if(campaignTargetPage is null)return;
         SetCommandTargetPicker(null);
+        SetMapSummaryMode(MapSummarySelectionMode.Normal);
         if(campaignFocus is not null&&ReferenceEquals(_commandMapDisplay?.Data,campaignFocus))
             _commandMapDisplay=D3D11CommandMapPublication.ForCampaignFocus(null,checked(++_commandMapRevision),0,
                 checked(++_commandMapProviderGeneration));

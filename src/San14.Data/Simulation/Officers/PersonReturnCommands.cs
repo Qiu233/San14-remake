@@ -70,6 +70,18 @@ public static partial class PersonReturnCommands
                 "independence member identity")).ToArray());
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
+        foreach (var task in owner.Caravans?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
+        foreach (var task in owner.Intelligences?.Values.AsEnumerable() ?? [])
+        {
+            current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
+            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
+        }
         current.BindOwnedPersonCommandTree(owner.DispatchOrder().ToDictionary(task => task.Slot, task => task.Id));
     }
 
@@ -217,6 +229,11 @@ public static partial class PersonReturnCommands
             if (owner.Independences?.GetValueOrDefault(identity) is { } independence)
                 return TalentTravelSource.ResolvePosition(state, current, independence.StartHexId, independence.EndHexId,
                     independence.SourceDistrictId, independence.StartDate, independence.DueDate, date ?? readDate!());
+            if (owner.Caravans?.GetValueOrDefault(identity) is { } caravan)
+                return current.ReadHexTableReference(caravan.EndHexId) ?? throw Missing("caravan_country_port_Hex");
+            if (owner.Intelligences?.GetValueOrDefault(identity) is { } intelligence)
+                return TalentTravelSource.ResolvePosition(state, current, intelligence.StartHexId, intelligence.EndHexId,
+                    intelligence.SourceDistrictId, intelligence.StartDate, intelligence.DueDate, date ?? readDate!());
             return ResolveJourneyPosition(state, current, identity, date ?? readDate!());
         }
         ushort second = Get(current.ReadPersonSecondLocation(personPhysical), "PersonE4");

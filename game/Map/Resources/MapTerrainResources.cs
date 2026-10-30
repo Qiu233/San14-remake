@@ -29,11 +29,11 @@ internal sealed class MapTerrainResources : IDisposable
         ActivePatches = meshes.Patches;
     }
 
-    public static async Task<MapTerrainResources> PrepareAsync(GameResourceRepository repository,
-        LoadedSceneResources scene, int depth, bool nativeMap)
+    public static async Task<MapTerrainResources> PrepareAsync(MapTerrainSourcePreparation prepared,
+        int depth, bool nativeMap)
     {
-        LoadedTerrainSceneResources source = TerrainSceneResources.Load(repository, scene);
-        G2ShaderTextureBases textureBases = G2ShaderTextureBaseReader.Read(source.Material.Shader.Shader.Source.Bytes);
+        LoadedTerrainSceneResources source = prepared.Terrain;
+        G2ShaderTextureBases textureBases = prepared.TextureBases;
         // Playable scenes start with a root prototype, then use the camera's mixed-node plan.
         TerrainMeshResult meshes = TerrainMesh.Build(source.Terrain, source.Height, depth);
         TerrainGbiMapMaterial? gbi = null;

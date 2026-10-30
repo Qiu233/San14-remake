@@ -20,14 +20,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (!OCKnown(current.ReadObjectDefinitionValidity(reference), "initial_facility_definition_validity"))
             return CommandResult.Reject("The selected facility definition is unavailable.", "deployment.target");
         var definition = Read(current, reference);
-        if (!IsSupported(physical) || definition.Category == 3)
+        if (!IsSupported(physical))
             throw OCMissing("initial_facility_definition_consumer");
-        if (definition.Category is not (2 or 4))
+        if (definition.Category is not (2 or 3 or 4))
             return CommandResult.Reject("The selected definition is not a construction facility.", "deployment.target");
-        //The implemented normal definitions have requiredTrait0. Do not
-        //substitute a per-commander intrinsic trait check for the original
-        //selected group's2307D0 collector on other reached definitions.
-        if (definition.RequiredTrait != 0) throw OCMissing("initial_facility_required_trait_collector");
         string? rejected = null;
         var site = new HexReference(action.Target.Id); //actual physical map input
         if (!FacilityConstructionLegality.CheckCommander(state, current, commanderPhysical,
@@ -38,12 +34,23 @@ public sealed partial class ArmyCampaignRuleAdapter
         return null;
     }
 
-    private static CommandResult? OCValidateInitialFacilitySelection(FacilityConstructionIntent? selection)
+    private static CommandResult? OCValidateInitialFacilitySelection(GameState state,SourceWorldContext current,
+        int commanderPhysical,FacilityConstructionIntent? selection,bool validateConstruction)
     {
         if (selection is null) return null;
         if (selection.DefinitionKey is not null && !FacilityConstructionIntent.IsDefinitionKey(selection.DefinitionKey) ||
             !ValidSite(selection.InitialSite) || !ValidSite(selection.ContinuationSite))
             return CommandResult.Reject("The retained construction selection is invalid.", "deployment.construction_selection");
+        if(validateConstruction&&selection.DefinitionKey is not null &&
+            selection.InitialSite is{Kind:ArmyMarchDestinationKind.Hex,HexId:int first} &&
+            selection.ContinuationSite is{Kind:ArmyMarchDestinationKind.Hex,HexId:int last})
+        {
+            var reference=current.ReadObjectDefinitionReference(MapObjectSourceDirectory.DefinitionSlot(selection.DefinitionKey))
+                ??throw OCMissing("initial_continuous_definition");
+            if(!ContinuousConstructionAllows(state,current,first,last,reference,
+                site=>FacilityConstructionLegality.CheckCommander(state,current,commanderPhysical,site,reference)))
+                return CommandResult.Reject("The continuous construction route contains an unavailable site.","deployment.construction_selection");
+        }
         return null;
         static bool ValidSite(ArmyMarchDestination? site) => site is null ||
             site is { Kind: ArmyMarchDestinationKind.None, HexId: null } ||
@@ -55,7 +62,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         var action = request.Actions[0];
         var intent = action.ActionKey == "build"
             ? new FacilityConstructionIntent(action.StructureKindId,
-                ArmyMarchDestination.AtHex(action.Target.Id), ArmyMarchDestination.None)
+                ArmyMarchDestination.AtHex(action.Target.Id),
+                request.ConstructionSelection?.ContinuationSite ??
+                    (MapObjectSourceDirectory.DefinitionSlot(action.StructureKindId!) is 9 or 10 or 16
+                        ? ArmyMarchDestination.AtHex(action.Target.Id) : ArmyMarchDestination.None))
             : request.ConstructionSelection;
         if (intent is null) return state;
         //Only the real newly admitted receiver owns the selected definition

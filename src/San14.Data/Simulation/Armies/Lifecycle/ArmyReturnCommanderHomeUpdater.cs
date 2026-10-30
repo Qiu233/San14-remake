@@ -376,9 +376,11 @@ public static class ArmyReturnCommanderHomeUpdater
         => ArmyReturnGovernorUpdater.ApplyCurrentWrites(state, update);
 
     internal static IReadOnlyList<ArmyReturnGovernorPacket> ApplyPrimaryOwned(DistrictReference district,
-        SourceWorldContext state, IArmyReturnGovernorCurrentQueries queries)
+        SourceWorldContext state, IArmyReturnGovernorCurrentQueries queries, bool allowLeaderless = false,
+        bool useCaptureForceRetirement = true)
     {
-        var applied = ArmyReturnPrimaryDistrictUpdater.ApplyCurrent(district, state, queries);
+        var applied = ArmyReturnPrimaryDistrictUpdater.ApplyCurrent(district, state, queries,
+            allowLeaderless, useCaptureForceRetirement);
         return applied.Packet?.GovernorUpdates
             ?? throw new InvalidDataException(applied.UnresolvedOwner ?? "current.PrimaryDistrict_unknown");
     }

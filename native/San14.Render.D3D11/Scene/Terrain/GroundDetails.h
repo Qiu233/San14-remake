@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Include after RenderCore's check/load/u32/buffer helpers. This reuses its
 // original model importer; source packets and device objects load only once.
 #include "../Models/ModelRenderer.h"
@@ -50,6 +51,13 @@ class GroundDetails {
     std::array<ComPtr<ID3D11DepthStencilState>,2> depth,depthWithoutStencil;
     std::array<TypedBuffer,2> interactionVector,interactionHeight,phase;
     std::array<TypedBuffer,3> windObjects;
+    // The Common frame pool retains one typed sphere resource for each
+    // prepared View. Aux/shader references borrow it; node retirement does
+    // not destroy the pool. A new resource generation gets a new component.
+    std::array<TypedBuffer,32> viewInteractionSpheres;
+    uint32_t viewInteractionCapacity{};
+    D3D11_BUFFER_DESC viewInteractionBuffer{};
+    D3D11_SHADER_RESOURCE_VIEW_DESC viewInteractionView{};
     std::array<uint32_t,3> windCounts{}; // D02BF0 source owner initialization
     std::array<Volume,2> volumes;
     ComPtr<ID3D11SamplerState> windSampler;
@@ -97,6 +105,38 @@ class GroundDetails {
     }
     static std::span<uint8_t> bytes(std::vector<char>& data) {return {reinterpret_cast<uint8_t*>(data.data()),data.size()};}
 
+    void readViewInteractionDeclaration(const fs::path& path) {
+        uint32_t version,bytes,usage,cpu,bind,format,elements,initialData;
+        NativePreparedInputFile input(path);
+        input>>version>>viewInteractionCapacity>>bytes>>usage>>cpu>>bind>>format>>elements>>initialData;
+        if(!input||version!=1||viewInteractionCapacity>UINT32_MAX/20u||bytes!=viewInteractionCapacity*20u||
+            usage!=D3D11_USAGE_DYNAMIC||cpu!=D3D11_CPU_ACCESS_WRITE||bind!=D3D11_BIND_SHADER_RESOURCE||
+            format!=DXGI_FORMAT_R32_FLOAT||elements!=bytes/4u||initialData!=0)
+            throw std::runtime_error("Tree2 current View sphere allocation declaration differs");
+        std::string trailing;if(input>>trailing)throw std::runtime_error("Tree2 View sphere declaration has trailing data");
+        viewInteractionBuffer.ByteWidth=bytes;viewInteractionBuffer.Usage=D3D11_USAGE(usage);
+        viewInteractionBuffer.CPUAccessFlags=cpu;viewInteractionBuffer.BindFlags=bind;
+        viewInteractionView.Format=DXGI_FORMAT(format);viewInteractionView.ViewDimension=D3D11_SRV_DIMENSION_BUFFER;
+        viewInteractionView.Buffer.FirstElement=0;viewInteractionView.Buffer.NumElements=elements;
+    }
+    void prepareCurrentViewInteraction(ID3D11DeviceContext* context) {
+        if(!viewPresent||!viewInteractionCapacity)return;
+        auto& owner=viewInteractionSpheres.at(currentViewIndex);
+        if(owner.srv)return; // Reuse the actual owned pool resource, not its contents.
+        ComPtr<ID3D11Device> device;context->GetDevice(&device);
+        TypedBuffer created;
+        // D0A110/119BC70/94B250: no initial subresource data is supplied.
+        // Initial GPU contents are unspecified; never synthesize zero bytes.
+        check(device->CreateBuffer(&viewInteractionBuffer,nullptr,&created.buffer),"Tree2 selected View sphere buffer");
+        check(device->CreateShaderResourceView(created.buffer.Get(),&viewInteractionView,&created.srv),"Tree2 selected View sphere typed SRV");
+        owner=std::move(created);
+    }
+    ID3D11ShaderResourceView* currentViewInteractionResource() const {
+        if(!uploaded||!viewPresent)throw std::runtime_error("Tree2 sphere resource needs the current prepared View");
+        const auto& owner=viewInteractionSpheres.at(currentViewIndex);
+        if(viewInteractionCapacity&&!owner.srv)throw std::runtime_error("Tree2 selected View sphere pool resource is absent");
+        return owner.srv.Get(); // Capacity zero is source-known absence.
+    }
 public:
     GroundDetails()=default;
     GroundDetails(const GroundDetails&)=delete;
@@ -104,7 +144,7 @@ public:
 
     void prepareResources(ID3D11Device* device,const fs::path& resourceDirectory,const fs::path& seasonRoot={}) {
         loadOnce(device,resourceDirectory,seasonRoot);
-        std::ifstream settings(resourceDirectory/"common-source.txt");
+        NativePreparedInputFile settings(resourceDirectory/"common-source.txt");
         settings>>visibilityPolicy.placementFlags>>visibilityPolicy.frustumKind>>visibilityPolicy.cullingMode>>visibilityPolicy.scanningOrder>>std::hex>>visibilityPolicy.baseAppFlags;
         if(!settings)throw std::runtime_error("Ground detail saved Common/App import absent");
     }
@@ -120,7 +160,7 @@ private:
         worlds=ground_detail_source::readTemplateWorld(packet,(source/"template-world.bin").wstring());
         models=loadNativeModels(device,source);
         struct Meta {uint32_t ti,draw,queue,group;};std::unordered_map<std::string,Meta> metadata;
-        std::ifstream file(source/"draw-producers.txt");std::string path;Meta m;
+        NativePreparedInputFile file(source/"draw-producers.txt");std::string path;Meta m;
         while(file>>path>>m.ti>>m.draw>>m.queue>>std::hex>>m.group>>std::dec)metadata.emplace(path,m);
         if(!file.eof())throw std::runtime_error("Ground details draw producer directory incomplete");
         for(size_t i=0;i<models.draws.size();++i){auto& model=models.draws[i];const auto info=metadata.at(model.identity);
@@ -150,6 +190,7 @@ private:
             check(device->CreateDepthStencilState(&d,&target),"Ground details normal54/55 source depth/stencil");
         }
         const auto wind=resourceDirectory/"wind";
+        readViewInteractionDeclaration(wind/"tree2-view-interaction.txt");
         auto vector=::load(wind/"interaction-vector-r8uint.bin"),height=::load(wind/"interaction-height-r16float.bin"),phases=::load(wind/"wind-phase-r32float.bin"),volumeBytes=::load(wind/"wind-and-ripple-rgba16float.bin");
         if(vector.size()!=1048576||height.size()!=524288||phases.size()!=2097152||volumeBytes.size()!=2097152)
             throw std::runtime_error("Ground details source wind initializer sizes differ");
@@ -236,6 +277,7 @@ public:
     // Call before any normal draw and before publishing the current wind side.
     void update(ID3D11DeviceContext* context) {
         if(!prepared||uploaded)throw std::runtime_error("Ground details requires one update after current prepare");
+        prepareCurrentViewInteraction(context);
         tree2_source::WindAdmissionInputs a{currentViewIndex,commonSettingsFlags,viewPresent,currentCommon.present,ordinaryCamera,bool(windShader),
             bool(windObjects[0].srv),bool(windObjects[1].srv),bool(windObjects[2].srv),bool(volumes[0].uav)&&bool(volumes[1].uav),bool(phase[0].uav)&&bool(phase[1].uav),currentEnvironment.windExtent};
         auto next=graphics;
@@ -261,6 +303,39 @@ public:
             context->UpdateSubresource(model.vsConstants.Get(),0,nullptr,d.vertex.data(),0,0);context->UpdateSubresource(model.psConstants.Get(),0,nullptr,d.pixel.data(),0,0);
         }
         uploaded=true;
+    }
+private:
+    uint32_t currentTree2Selector(uint32_t groupFlags) const {
+        if(!uploaded)throw std::runtime_error("Root Tree2 requires this frame's uploaded shared wind");
+        const uint32_t selector=(groupFlags>>1)&15u;
+        if(selector!=0)throw std::runtime_error("Root Tree2 wind selector has no shared phase resource owner");
+        return selector;
+    }
+public:
+    // Ordinary Root Tree2 borrows the same published environment/history as
+    // the ground population. This neither advances wind nor finishes a node.
+    void writeCurrentTree2Vs(std::span<uint8_t> cb,uint32_t groupFlags) const {
+        currentTree2Selector(groupFlags);
+        if(cb.size()<272)throw std::runtime_error("Root Tree2 VS material packet is incomplete");
+        (void)currentViewInteractionResource();
+        tree2_source::writeVsFrame(cb,currentEnvironment,currentWind,graphics,groupFlags);
+    }
+    void attachCurrentTree2Resources(NativeModelDraw& draw,uint32_t groupFlags) const {
+        const uint32_t selector=currentTree2Selector(groupFlags);
+        const auto& vector=interactionVector[graphics.interactionSide].srv;
+        const auto& height=interactionHeight[graphics.interactionSide].srv;
+        const auto& currentPhase=phase[graphics.phaseSide[selector]].srv;
+        if(!vector||!height||!currentPhase||!volumes[0].srv||!volumes[1].srv||!windSampler)
+            throw std::runtime_error("Root Tree2 shared wind resources are absent");
+        // Copy ComPtr references to the existing live owners; no texture,
+        // buffer, sampler or separate resource registry is created here.
+        (void)currentViewInteractionResource();
+        draw.vertexTextures[0]=vector;draw.vertexTextures[1]=height;
+        draw.vertexTextures[2]=viewInteractionSpheres.at(currentViewIndex).srv;
+        draw.vertexTextures[3]=currentPhase;
+        draw.vertexTextures[8]=volumes[0].srv;draw.vertexTextures[9]=volumes[1].srv;
+        draw.vertexSamplers[8]=draw.vertexSamplers[9]=windSampler;
+        draw.vertexResourcesPresent=true;
     }
     // BF8610 belongs after the original render-node work, not prepare/update.
     void finishRenderNode() {if(windOccurrence)tree2_source::finishRenderNode(graphics,currentWind);}
@@ -288,6 +363,7 @@ public:
                     if(d.tree) {
                         views[0]=interactionVector[graphics.interactionSide].srv.Get();
                         views[1]=interactionHeight[graphics.interactionSide].srv.Get();
+                        views[2]=currentViewInteractionResource();
                         views[3]=phase[graphics.phaseSide[0]].srv.Get();
                         views[8]=volumes[0].srv.Get();views[9]=volumes[1].srv.Get();
                         samplers[8]=samplers[9]=windSampler.Get();
@@ -325,6 +401,7 @@ public:
             context->PSSetShaderResources(0,16,ps.data());context->PSSetSamplers(0,16,samplers.data());
             std::array<ID3D11ShaderResourceView*,10> vs{};std::array<ID3D11SamplerState*,10> vsSamplers{};
             if(d.tree){vs[0]=interactionVector[graphics.interactionSide].srv.Get();vs[1]=interactionHeight[graphics.interactionSide].srv.Get();
+                vs[2]=currentViewInteractionResource();
                 vs[3]=phase[graphics.phaseSide[0]].srv.Get();vs[8]=volumes[0].srv.Get();vs[9]=volumes[1].srv.Get();vsSamplers[8]=vsSamplers[9]=windSampler.Get();}
             context->VSSetShaderResources(0,10,vs.data());context->VSSetSamplers(0,10,vsSamplers.data());
             context->RSSetState(model.raster.Get());context->OMSetDepthStencilState(record.dispatcherStencil.enabled?depth[reverse].Get():depthWithoutStencil[reverse].Get(),reference);

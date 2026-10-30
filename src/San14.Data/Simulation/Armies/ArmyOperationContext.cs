@@ -15,6 +15,9 @@ public sealed partial class ArmyOperationContext
     private readonly LoadedPersonalities _personalities;
     private readonly LoadedObjectDefinitions? _objectDefinitions;
     private readonly MapTopology _mapTopology;
+    private InitialPersonSkillNormalization? _initialSkillNormalization;
+    private readonly Lazy<InitialPersonalityImage> _initialPersonalities;
+    private readonly InitialPersonAttributeValues _initialPersonAttributes;
 
     public ArmyOperationContext(LoadedScenario source, LoadedMap map,
         LoadedTerrainTypes terrain, LoadedSkillDefinitions skills, LoadedPersonalities personalities,
@@ -37,13 +40,26 @@ public sealed partial class ArmyOperationContext
         _ = ScenarioTerritory.Build(map.Map, source.Snapshot);
         _mapTopology = new(map.Map.Width, map.Map.Height,
             map.Map.Cells.Select(cell => new MapTileDefinition(cell.Id, cell.AreaSlot, cell.SurfaceCode)));
+        _initialPersonalities = new(() => SourceWorldContext.PrepareInitialPersonalities(_source, _personalities),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        _initialPersonAttributes = new(source);
     }
 
     //330155's reserved lookup survives even while the receiver's embedded ID
     //is0. This resolves storage, not native validity or a domain allocation.
     internal int? ResolveOfficerSource(int officerId) =>
-        PostRegistrationLookups.HirePersonPhysicalSlot(officerId) ?? _officerSources.ResolveOfficer(officerId);
-    internal int? ReadOfficerSourceIdentity(int record) => _officerSources.IdentityAt(record);
+        PostRegistrationLookups.HirePersonPhysicalSlot(officerId) ??
+        PostRegistrationLookups.RegisteredPersonPhysicalSlot(officerId) ?? _officerSources.ResolveOfficer(officerId);
+
+    /// <summary>The normal immutable Hex-table allocation, without capturing
+    /// personnel, map ownership or the complete source prefix. Explicit table
+    /// overrides on the receiving context retain priority over this owner.</summary>
+    internal void BindMapIdentityCurrent(SourceWorldContext current) => current.BindMapIdentityDefinitions(_mapTopology);
+    internal int? ReadOfficerSourceIdentity(int record)
+    {
+        int? id = _officerSources.IdentityAt(record);
+        return id is > 0 ? id : PostRegistrationLookups.RegisteredPersonIdAtPhysical(record) ?? id;
+    }
 
     //Only the fresh return-field installer consumes the original byte. A
     //current capture's nullable Domain DistrictId cannot recover known zero.
@@ -58,6 +74,7 @@ public sealed partial class ArmyOperationContext
         if (state.MapWidth != 220 || state.MapHeight != 220 || state.MapSha256 != _map.Source.Sha256 ||
             !Matches(state, _source.ScenarioSource) || !Matches(state, _source.FixedDataSource)) return null;
         SourceWorldContext native = CaptureSourcePrefix();
+        PersonalityEditorRuntime.Apply(state.CreatedPersonalities, native);
         AreaFlagsSourceAdapter.BindCurrent(state, native);
         // Overlay every receiver so an old or absent owner cannot retain the
         // scenario's initial kingdom name. The default receiver has its own owner.
@@ -86,6 +103,11 @@ public sealed partial class ArmyOperationContext
             //identity. Empty reserved receivers remain outside Officers.
             if (PostRegistrationLookups.HirePersonPhysicalSlot(officer.Id) is int reserved)
                 native.SetPersonIdentity(reserved, checked((ushort)officer.Id));
+            if (PostRegistrationLookups.RegisteredPersonPhysicalSlot(officer.Id) is int registered)
+            {
+                native.SetPersonIdentity(registered, checked((ushort)officer.Id));
+                native.SetPersonTablePointer(officer.Id, registered);
+            }
             if (native.ResolveOfficerSource(officer.Id) is not int physical) return null;
             if (officer.LocationId is < 0 or > ushort.MaxValue || officer.DistrictId is < 0 or > 51) return null;
             native.SetPersonFirstLocation(physical, OwnedArmyLifecycleDetachedInputs.ReadPersonFirstLocation(state, officer, physical));
@@ -107,14 +129,13 @@ public sealed partial class ArmyOperationContext
                 native.ReadAreaNativeValidity(new(id)) != true || native.ReadAreaHexIndex(new(id)) != area.HexId)
                 return null;
             native.SetAreaCitySlot(id, AreaCityProjection.ToNative(area.CityId));
+            native.SetAreaOccupationClaimForceSlot(id, area.OccupationClaimForceSlot);
         }
-        foreach ((int id, TerritoryState cell) in state.Territory)
-        {
-            if (id != cell.Id || cell.Id is < 0 or >= 48400 || cell.ForceId is < 0 or > 51 ||
-                (cell.AreaId ?? 0) != _mapTopology.Tile(cell.Id).AreaId) return null;
-            native.SetHexForceSlot(cell.Id, (byte)(cell.ForceId ?? 0));
-        }
-        if (state.Territory.Count != 48400) return null;
+        // The input world owns this immutable map projection. Each current
+        // reads that owner and keeps only its own changed Hex ownership fields.
+        // Index/identity checks occur when a real consumer accesses a Hex;
+        // do not scan and copy all 48400 cells on every current capture.
+        if (!native.BindCurrentTerritoryOwnership(state.Territory)) return null;
         native.SetCityDistrictSlot(0, CityDistrictSourceAdapter.ReadDefault(state));
         foreach (CityState city in state.Cities.Values)
         {
@@ -148,9 +169,11 @@ public sealed partial class ArmyOperationContext
         //Fresh CHex ctor221660/2213B0 qword+16 zeroes Hex1A. This
         //explicit allocation precedes source/map-overlay writes.
         native.BindMapDefinitions(_mapTopology);
-        for (int physical = 0; physical < 1851; physical++) native.ResetPersonTraitFields(physical);
-        native.InitializePersonalityStorage();
-        native.MaterializeStaticSource(_source);
+        var normalization = Volatile.Read(ref _initialSkillNormalization);
+        if (normalization is null)
+            for (int physical = 0; physical < 1851; physical++) native.ResetPersonTraitFields(physical);
+        native.MaterializeStaticSource(_source, normalization?.Values, materializePersonalities: false,
+            initialAttributes: _initialPersonAttributes);
         //The scenario projection provides only Area scenario auxiliaries.
         //Fixed34/3A are the separately proved fixed-map fields, already bound
         //to this map by the constructor's ScenarioTerritory validation.
@@ -171,7 +194,9 @@ public sealed partial class ArmyOperationContext
         for (int slot = 0; slot < 11; slot++) native.WriteBaseObjectLink(new(BaseKind.Gate, slot), 0);
         native.MaterializeFixedTerrainTypes(_terrain);
         native.InitializeSkillDefinitionStorage(); native.MaterializeFixedSkillDefinitions(_skills);
-        native.MaterializeFixedPersonalities(_personalities);
+        //This definition owner has already composed construction, scenario,
+        //fixed and initial-editor writes. Each current keeps private overrides.
+        native.BindInitialPersonalities(_initialPersonalities.Value);
         native.TacticParameterDecoderTable = TacticCeParameterDecoderTable.Instance;
         native.ResetPersonIdLookup(); PostRegistrationLookups.RebuildPersonIds(native);
         PostRegistrationLookups.BindHirePersonLookups(native);
@@ -199,11 +224,20 @@ public sealed partial class ArmyOperationContext
         for (int city = 0; city < 52; city++)
             _ = ObjectRegistration.Register(native.ReadRegistryTableReference(RegistryKind.City, city), native);
         MapOverlayInitialization.ApplyObjects(1, native);
-        foreach (var person in _source.Snapshot.Characters)
+        if (normalization is not null) normalization.Apply(native);
+        else
         {
-            if (person.SkillSource is null) continue;
-            HexListHandle temporary = PersonSkillPostLoad.Apply(person.Slot, native);
-            native.ClearTemporaryHexList(temporary); native.ReleaseTemporaryHexList(temporary);
+            foreach (var person in _source.Snapshot.Characters)
+            {
+                if (person.SkillSource is null) continue;
+                HexListHandle temporary = PersonSkillPostLoad.Apply(person.Slot, native);
+                native.ClearTemporaryHexList(temporary); native.ReleaseTemporaryHexList(temporary);
+            }
+            // This owner retains the loaded definitions and initial editor
+            // transformation. Cache only their sparse normalization writes;
+            // later current fields still overlay this independent context.
+            var prepared = InitialPersonSkillNormalization.Capture(_source, native);
+            Interlocked.CompareExchange(ref _initialSkillNormalization, prepared, null);
         }
         return native;
     }

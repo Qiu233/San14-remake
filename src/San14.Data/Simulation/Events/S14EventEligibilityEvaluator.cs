@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data.Formats;
 
@@ -71,10 +70,10 @@ public sealed record S14EventEligibilityScanResult(IReadOnlyList<S14EventEligibi
 /// Manager IDs are supported only within the proved 124-byte bitmap (0..991).
 /// Mutations follow native order and are not silently rolled back on failure.
 /// </summary>
-public static class S14EventEligibilityEvaluator
+public static partial class S14EventEligibilityEvaluator
 {
-    // Same exact 48-byte loader signature as S14EventReader; a self-consistent
-    // hash alone cannot establish the profile of a publicly constructed document.
+    // Resource bytes and the complete directory are admitted by S14EventReader.
+    // An invocation retains only the bounds and reached-row/stream checks.
     private static readonly byte[] SourceSignature = Convert.FromHexString(
         "030000000500000009000000040000000E000000000000000000000006000000" +
         "01000000000000000000000000000000");
@@ -101,7 +100,7 @@ public static class S14EventEligibilityEvaluator
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(runtimeFactory);
-        if (conditionResource is not null) ValidateDocument(conditionResource);
+        if (conditionResource is not null) ValidateDirectoryBounds(conditionResource);
         foreach (S14EventRecord record in candidates)
         {
             if (record is null) throw new InvalidDataException("Event eligibility candidate pointer is unknown.");
@@ -150,7 +149,7 @@ public static class S14EventEligibilityEvaluator
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(runtimeFactory);
-        if (conditionResource is not null) ValidateDocument(conditionResource);
+        if (conditionResource is not null) ValidateDirectoryBounds(conditionResource);
         ValidateRecord(record, conditionResource);
         return EvaluateValidated(record, conditionResource, state, runtimeFactory, record.Index, null);
     }
@@ -224,7 +223,7 @@ public static class S14EventEligibilityEvaluator
         catch (InvalidDataException error) { throw Failure(record, error.Message, error); }
     }
 
-    private static void ValidateDocument(S14EventDocument document)
+    private static void ValidateDirectoryBounds(S14EventDocument document)
     {
         if (document.Events is null || document.Events.Count == 0 || document.RawBytes is null ||
             document.RawBytes.Length < S14EventReader.HeaderBytes || document.Events[0] is null ||
@@ -233,16 +232,8 @@ public static class S14EventEligibilityEvaluator
             (long)document.RecordOffset < S14EventReader.HeaderBytes + (2L * document.Events.Count + 1) * 4 ||
             (long)document.RecordOffset + (long)document.Events.Count * S14EventReader.EventRecordBytes > document.RawBytes.Length ||
             I32(document.RawBytes, 0x30) != document.Events.Count || I32(document.RawBytes, 0x40) != document.RecordOffset ||
-            document.NativeBaseId != document.Events[0].Id ||
-            Convert.ToHexString(SHA256.HashData(document.RawBytes)) != document.SourceSha256)
-            throw new InvalidDataException("Event eligibility resource has invalid source bounds, base ID or source SHA256.");
-        for (int ordinal = 0; ordinal < document.Events.Count; ordinal++)
-        {
-            S14EventRecord? record = document.Events[ordinal];
-            if (record is null || record.Index != ordinal)
-                throw new InvalidDataException($"Event eligibility record ordinal {ordinal} is invalid.");
-            ValidateRecord(record, document);
-        }
+            document.NativeBaseId != document.Events[0].Id || string.IsNullOrWhiteSpace(document.SourceSha256))
+            throw new InvalidDataException("Event eligibility resource has invalid source bounds, base ID or source identity.");
     }
 
     private static void ValidateRecord(S14EventRecord record, S14EventDocument? resource)

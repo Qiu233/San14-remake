@@ -44,7 +44,7 @@ public sealed class ShadowReceiverResources
         ArgumentNullException.ThrowIfNull(declarations);
         ArgumentNullException.ThrowIfNull(loadShader);
         var shaders = new Dictionary<uint, LoadedShaderContainer>();
-        var nodes = new[] { ReadNode(68), ReadNode(119) };
+        var nodes = new[] { ReadNode(68), ReadNode(119), ReadNode(163) };
         return new(nodes, shaders);
 
         ShadowReceiverNodeResources ReadNode(int index)
@@ -61,7 +61,7 @@ public sealed class ShadowReceiverResources
             }
             var process = node.Call.Arguments.Single(value => value.NameHash == 0xCF60AA7C);
             if (process.DescriptorWord != 0x01000001 || process.RawValue.Length != 1 ||
-                process.RawValue[0] is not (0 or 0x50))
+                process.RawValue[0] is not (0 or 0x50 or 0x60))
                 throw new NotSupportedException("Receiver process mode needs its own current operation.");
             uint primary = Word(0x7046CA70), noSub = Word(0x3C2655F2);
             Add(primary); Add(noSub);

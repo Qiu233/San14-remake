@@ -15,12 +15,18 @@ public static class CityFoodIncomeSource
 
     internal static GameState InstallFreshParameters(GameState state)
     {
-        if (state.NativeArmySimulation is not { } native || native.Parameters.Language != "TC") return state;
-        // TC initial-image value, extracted in economy-scalars01.json.
-        var values = new Dictionary<string, int>(native.Parameters.Int32Values);
-        if (native.Parameters.Float32Values.ContainsKey(LandmarkOfficerEffectScaleKey) ||
-            !values.TryAdd(LandmarkOfficerEffectScaleKey, 2))
-            throw new InvalidDataException("Landmark income parameter already has an owner.");
+        if (state.NativeArmySimulation is not { } native ||
+            native.Parameters.Language is not ("SC" or "TC")) return state;
+        if (native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(native.Parameters.Language) ||
+            state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 })
+            throw new InvalidDataException("Landmark income parameters require a fresh CE campaign.");
+        if (native.Parameters.Float32Values.ContainsKey(LandmarkOfficerEffectScaleKey))
+            throw new InvalidDataException("Landmark income parameter has a different numeric owner.");
+        if (native.Parameters.Int32Values.ContainsKey(LandmarkOfficerEffectScaleKey)) return state;
+        // Independent SC and TC initial images both establish this value.
+        // Install only at campaign creation; reads and old saves never fill it.
+        var values = new Dictionary<string, int>(native.Parameters.Int32Values)
+            { [LandmarkOfficerEffectScaleKey] = 2 };
         return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
     }
 
@@ -111,13 +117,12 @@ public static class CityFoodIncomeSource
 
     private static int TaskPercent(SourceWorldContext current, int person)
     {
-        if (K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "Person_trait126") > 0) return 100;
-        int count = (current.ReadAssignmentPersonAreaVector(person) ?? throw Missing("Person_task_vector")).ActiveCount1E8;
-        //For zero/one assignment both branches of3348E0 yield100. For a
-        //multi-assignment officer its not-yet-owned full-effort global can
-        //change the result; do not silently assume the UI-preview false branch.
-        if (count is 0 or 1) return 100;
-        throw Missing("Person_multiple_tasks_full_effort_current");
+        int effect = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "Person_trait126");
+        int? count = effect > 0 ? null : (current.ReadAssignmentPersonAreaVector(person)
+            ?? throw Missing("Person_task_vector")).ActiveCount1E8;
+        // Ordinary simulation is outside the temporary full-effort display scope.
+        return CeEconomyRuntimeContext.ReadPersonTaskPercent(false, effect, count, null)
+            ?? throw Missing("Person_task_count_fallback");
     }
 
     private static int ReadLandmarkPercent(GameState state, SourceWorldContext current,

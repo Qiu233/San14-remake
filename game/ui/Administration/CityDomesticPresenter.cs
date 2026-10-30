@@ -24,14 +24,18 @@ internal sealed class CityDomesticPresenter : IDisposable
     private readonly Action<CityDomesticTerminal> completionRequested;
     private readonly Action<string> unavailable;
     private readonly Func<CityDomesticDuty, bool> selectorReady;
-    private readonly Func<CityDomesticPersonSelection, Action<CityDomesticCandidate?>, Action> openSelector;
+    private readonly Func<CityDomesticPersonSelection, UiSourceCommonBlur, Action<CityDomesticCandidate?>, Action> openSelector;
     private Selection? selection;
     private bool disposed, busy, sourceCanConfirm;
+    internal bool OfficerSelectionOpen => selection is { Opening: false };
+    internal CityDomesticDuty? ActiveSelectionDuty => selection?.Publication.Duty;
+    internal long OfficerSelectionAcceptedSequence { get; private set; }
+    internal CityDomesticDuty? OfficerSelectionAcceptedDuty { get; private set; }
 
     internal CityDomesticPresenter(CityDomesticView view, GameResourceRepository repository, PreviewText text,
         CityDomesticDraft draft, Func<bool> current, Action<Action> dispatch,
         Action<CityDomesticTerminal> completionRequested, Action<string> unavailable, Func<CityDomesticDuty, bool> selectorReady,
-        Func<CityDomesticPersonSelection, Action<CityDomesticCandidate?>, Action> openSelector)
+        Func<CityDomesticPersonSelection, UiSourceCommonBlur, Action<CityDomesticCandidate?>, Action> openSelector)
     {
         this.view = view; this.draft = draft; this.text = text; this.current = current;
         this.dispatch = dispatch; this.completionRequested = completionRequested;
@@ -128,7 +132,7 @@ internal sealed class CityDomesticPresenter : IDisposable
         view.ApplyDecision(false);
         try
         {
-            Action close = openSelector(request.Publication, chosen => dispatch(() =>
+            Action close = openSelector(request.Publication, view.CommonBackdrop, chosen => dispatch(() =>
             {
                 if (request.Opening)
                 {
@@ -154,7 +158,11 @@ internal sealed class CityDomesticPresenter : IDisposable
         if (chosen is not null)
         {
             if (!request.Publication.Candidates.Contains(chosen)) throw new InvalidDataException("City officer choice is outside its current publication.");
-            Accept(draft.StageDuty(request.Publication.Duty, chosen));
+            if (Accept(draft.StageDuty(request.Publication.Duty, chosen)))
+            {
+                OfficerSelectionAcceptedDuty = request.Publication.Duty;
+                OfficerSelectionAcceptedSequence++;
+            }
         }
         Refresh();
     }

@@ -12,7 +12,11 @@ public sealed record LcskSpriteNodeGroup(int Index, ushort EntryIndex,
 
 public sealed record LcskSpriteNode(int NodeIndex, ushort NodeType,
     IReadOnlyList<LcskSpriteNodeGroup> Groups, IReadOnlyList<float> SourceMargins,
-    byte[] RawTintBytes, byte[] RawBytes);
+    byte[] RawTintBytes, byte[] RawBytes)
+{
+    // The authored type3 mode uses the full-height middle row, not nine cells.
+    public bool HorizontalSlicesOnly { get; init; }
+}
 
 /// <summary>
 /// Reads verified type-1 sprite and type-3 nine-part references. Pool-4 components
@@ -95,7 +99,10 @@ public static class LcskSpriteNodeReader
             }
         }
         return new LcskSpriteNode(node.Index, node.Type, groups, margins,
-            node.RawBytes.AsSpan(64, 16).ToArray(), node.RawBytes.ToArray());
+            node.RawBytes.AsSpan(64, 16).ToArray(), node.RawBytes.ToArray())
+        {
+            HorizontalSlicesOnly = node.Type == 3 && node.RawBytes[696] != 0
+        };
     }
 
     private static LcskSpriteNodeGroup CreateGroup(LcskNodeRecord node, int index,

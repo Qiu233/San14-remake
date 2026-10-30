@@ -1,4 +1,4 @@
-using San14.Data;
+﻿using San14.Data;
 
 public enum D3D11CommandMapDisplayKind : uint
 {
@@ -6,7 +6,11 @@ public enum D3D11CommandMapDisplayKind : uint
     AreaAdministration = 1,
     FixedCandidateGray = 2,
     CampaignProvinceFocus = 3,
-    CampaignDistrictFocus = 4
+    CampaignDistrictFocus = 4,
+    SummaryCityFocus = 5,
+    SummaryAreaFocus = 6,
+    DiplomacyForceFocus = 7,
+    DiplomacyFootholdFocus = 8
 }
 
 /// <summary>The parent draft's fixed display inputs, captured once. Camera
@@ -19,9 +23,86 @@ public sealed class D3D11CommandMapData
     public ReadOnlyMemory<byte> PredicateResults => Membership;
     public ReadOnlyMemory<ushort> AreaSlots => RawAreas;
     public const int CellCount = 48400;
-    internal bool HasMembership => Kind is D3D11CommandMapDisplayKind.AreaAdministration or D3D11CommandMapDisplayKind.FixedCandidateGray;
+    internal bool HasMembership => Kind is D3D11CommandMapDisplayKind.AreaAdministration or D3D11CommandMapDisplayKind.FixedCandidateGray or
+        D3D11CommandMapDisplayKind.DiplomacyForceFocus or D3D11CommandMapDisplayKind.DiplomacyFootholdFocus;
     internal bool HasFocusGroups => Kind is D3D11CommandMapDisplayKind.AreaAdministration or
-        D3D11CommandMapDisplayKind.CampaignProvinceFocus or D3D11CommandMapDisplayKind.CampaignDistrictFocus;
+        D3D11CommandMapDisplayKind.CampaignProvinceFocus or D3D11CommandMapDisplayKind.CampaignDistrictFocus or
+        D3D11CommandMapDisplayKind.SummaryCityFocus or D3D11CommandMapDisplayKind.SummaryAreaFocus or
+        D3D11CommandMapDisplayKind.DiplomacyForceFocus or D3D11CommandMapDisplayKind.DiplomacyFootholdFocus;
+
+    // 17F300/181050 use each Hex12's CURRENT Area35 City. Build on world
+    // adoption, once; pointer/camera requests only index this retained array.
+    internal static (D3D11CommandMapData City,D3D11CommandMapData Area) CaptureSummaryFocus(SourceWorldContext current)
+    {
+        var cities=new ushort?[501];
+        var groups=new ushort[CellCount];
+        var rawAreas=new ushort[CellCount];
+        for(int hex=0;hex<groups.Length;hex++)
+        {
+            var reference=current.ReadHexTableReference(hex)??throw new InvalidDataException("summary-focus.Hex_pointer");
+            ushort raw=current.ReadHexAreaSlot(reference)??throw new InvalidDataException("summary-focus.Hex12");
+            rawAreas[hex]=raw;
+            int area=raw<501?raw:0;
+            if(cities[area] is not ushort city)
+            {
+                var pointer=current.ReadAreaTableReference(area)??throw new InvalidDataException("summary-focus.Area_pointer");
+                city=current.ReadAreaCitySlot(pointer)??throw new InvalidDataException("summary-focus.Area35:"+area);
+                cities[area]=city;
+            }
+            groups[hex]=city;
+        }
+        return (new([],groups,D3D11CommandMapDisplayKind.SummaryCityFocus),new([],rawAreas,D3D11CommandMapDisplayKind.SummaryAreaFocus));
+    }
+
+    // V2's byte/word channels have explicit kind-specific meanings. This is
+    // an interop encoding, not candidate membership: Force uses raw Hex14 and
+    // Force49; Foothold uses City/Gate4E and the priority hover target4E.
+    internal static D3D11CommandMapData CaptureDiplomacyFocus(DiplomacyTargetMapQuery query)
+    {
+        if(query.Presentation==MapTargetPresentation.IntelligenceInspectCity)
+        {
+            var cities=new ushort[CellCount];
+            for(int hex=0;hex<CellCount;hex++)cities[hex]=query.ReadTerritoryCell(hex).CityLink;
+            // Original selector5 is exactly the existing181050 City footprint:
+            // raw Area35, no Gate priority or membership/candidate masking.
+            return new([],cities,D3D11CommandMapDisplayKind.SummaryCityFocus);
+        }
+        var bytes=new byte[CellCount];var words=new ushort[CellCount];
+        bool force=query.Kind==DiplomacyTargetSelectionKind.Force;
+        for(int hex=0;hex<CellCount;hex++)
+        {
+            var cell=query.ReadTerritoryCell(hex);
+            if(force){words[hex]=cell.ForceSlot;bytes[hex]=cell.ForceColor;}
+            else
+            {
+                if(cell.CityLink>255||cell.GateLink>255||cell.HoverLink>255)
+                    throw new InvalidDataException("diplomacy.overlay.foothold_link_range");
+                words[hex]=(ushort)(cell.CityLink|(cell.GateLink<<8));bytes[hex]=(byte)cell.HoverLink;
+            }
+        }
+        return new(bytes,words,force?D3D11CommandMapDisplayKind.DiplomacyForceFocus:
+            D3D11CommandMapDisplayKind.DiplomacyFootholdFocus);
+    }
+    internal ushort DiplomacyFocusAt(int hex)=>Kind is D3D11CommandMapDisplayKind.DiplomacyForceFocus or D3D11CommandMapDisplayKind.SummaryCityFocus?RawAreas[hex]:Membership[hex];
+
+    // Strategic map types10/5/7 have distinct input and marker policies,
+    // but their original territory selectors4/5/1 use the existing native
+    // Area/City/Force channels. Membership never masks these focus groups.
+    internal static D3D11CommandMapData CaptureStrategicFocus(StrategicTargetMapQuery query)
+    {
+        var words=new ushort[CellCount];
+        bool force=query.Kind==San14.Core.StrategicCommandTargetKind.Force;
+        byte[] colours=force?new byte[CellCount]:[];
+        for(int hex=0;hex<CellCount;hex++)
+        {
+            var cell=query.ReadTerritoryCell(hex);words[hex]=cell.Group;
+            if(force)colours[hex]=cell.ForceColour;
+        }
+        return new(colours,words,force?D3D11CommandMapDisplayKind.DiplomacyForceFocus:
+            query.Kind==San14.Core.StrategicCommandTargetKind.City?D3D11CommandMapDisplayKind.SummaryCityFocus:
+                D3D11CommandMapDisplayKind.SummaryAreaFocus);
+    }
+    internal ushort StrategicFocusAt(int hex)=>RawAreas[hex];
 
     private D3D11CommandMapData(byte[] membership, ushort[] areas, D3D11CommandMapDisplayKind kind)
         => (Membership, RawAreas, Kind) = (membership, areas, kind);
@@ -101,7 +182,9 @@ public sealed record D3D11CommandMapPublication
     {
         if (data is not null && (candidateProtocol
                 ? data.Kind is not (D3D11CommandMapDisplayKind.FixedCandidateGray or
-                    D3D11CommandMapDisplayKind.CampaignProvinceFocus or D3D11CommandMapDisplayKind.CampaignDistrictFocus)
+                    D3D11CommandMapDisplayKind.CampaignProvinceFocus or D3D11CommandMapDisplayKind.CampaignDistrictFocus or
+                    D3D11CommandMapDisplayKind.SummaryCityFocus or D3D11CommandMapDisplayKind.SummaryAreaFocus or
+                    D3D11CommandMapDisplayKind.DiplomacyForceFocus or D3D11CommandMapDisplayKind.DiplomacyFootholdFocus)
                 : data.Kind != D3D11CommandMapDisplayKind.AreaAdministration))
             throw new ArgumentException("Command map data belongs to a different display owner.", nameof(data));
         if (revision == 0 || data is not null && dataRevision == 0 || hoverHex > D3D11CommandMapData.CellCount)

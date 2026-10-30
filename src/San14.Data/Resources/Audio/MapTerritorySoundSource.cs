@@ -48,7 +48,7 @@ public static class MapTerritorySoundSource
         if (U(group) != 0x562FC4B9 || U(group + 12) != 0 || U(group + 16) != 1)
             throw new NotSupportedException("Spatial occupation group declaration changed.");
         int leafTable = Pointer(group, 20), leaf = checked(group + (int)U(leafTable));
-        if (U(leaf) != 0xA5170472 || U(leaf + 12) != 0x10000 || U(leaf + 16) != 0 ||
+        if (U(leaf) != 0xA5170472 || (U(leaf + 12) & ~0x7000u) != 0x10000 || U(leaf + 16) != 0 ||
             U(leaf + 60) != 0 || F(group + 44) != 0 || F(group + 48) != 0 ||
             F(leaf + 28) != 0 || F(leaf + 44) != 0)
             throw new NotSupportedException("Spatial occupation cue requires an unsupported scheduling branch.");
@@ -75,7 +75,26 @@ public static class MapTerritorySoundSource
             }
         }
         uint sound = U(leaf + 20);
-        return new(SelectInternal(bank, sound), gain, rate, curve.AsReadOnly());
+        return new(SelectInternal(bank, sound), gain, rate, curve.AsReadOnly())
+            { SourceCenterGain = Math.Clamp(F(leaf + 56), 0f, 1f),
+                SourceChannelMask = ReadSpatialChannelMask(bank, sound, U(leaf + 24)),
+                SourceSpatialModeFlags = U(leaf + 12) & 0x7000u };
+    }
+
+    internal static uint ReadSpatialChannelMask(AudioSelectionBank bank, uint soundId, uint declared)
+    {
+        uint mask = declared & 0xffu;
+        if (mask != 0) return mask;
+        var matches = bank.Samples.Where(sample => sample.SampleId == soundId &&
+            (sample.Flags & 0x10000) == 0).Take(2).ToArray();
+        if (matches.Length != 1 || matches[0].Headers.Count != 1)
+            throw new InvalidDataException("Spatial sound channel mask has no unique source header.");
+        // These are exactly the admitted internal headers whose native mask is
+        // read by the original sample preparation path.
+        var header = matches[0].Headers[0];
+        if (header.TypeId is not (0xE96FD86A or 0x2EB6CA6F))
+            throw new NotSupportedException("spatial.sound.channel_mask_header");
+        return header.NativeChannelMask & 0xffu;
     }
 
     /// <summary>Keep the original sound subheader and encoded channels in a
@@ -115,6 +134,14 @@ public static class MapTerritorySoundSource
 public sealed record MapTerritorySoundPlayback(AudioDecodeInput Input, float LinearGain,
     float PlaybackRate, IReadOnlyList<Vector2> CameraDistanceGain)
 {
+    /// <summary>The actual sample center coefficient after its source clamp.
+    /// Null preserves an unknown origin rather than inventing a center value.</summary>
+    public float? SourceCenterGain { get; init; }
+    /// <summary>Actual declared or decoded-header speaker mask, before any voice override.</summary>
+    public uint? SourceChannelMask { get; init; }
+    /// <summary>The actual sample spatial-mode bits, before the ordinary voice override.</summary>
+    public uint? SourceSpatialModeFlags { get; init; }
+
     public float GainAt(float cameraDistance)
     {
         if (!float.IsFinite(cameraDistance)) throw new InvalidDataException("Spatial audio camera distance is nonfinite.");

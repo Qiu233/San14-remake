@@ -6,48 +6,71 @@ using San14.Data;
 internal partial class MapInformationCanvas : Control
 {
     private static readonly Vector2 CanonicalSize = new(1920,1080);
+    private static readonly int[] DiplomacyDisplayLevels=[0,0,0,0,1,2,2];
     private readonly Node2D root = new() { Name="InformationCards" };
     private readonly List<(Vector3[] Points,Color Color)> links=[];
-    private readonly List<(Control Card,Vector3 Position)> cards=[];
+    private readonly List<(MapDiplomacyCardView Card,BaseReference? Base,bool Own,int Force)> cards=[];
+    private D3D11MapMarkers bucket=null!;
     private readonly List<(Vector2[] Points,Color Color)> screenLinks=[];
     private GameResourceRepository repository=null!;
-    private PreviewText text=null!;
     private UiAssets assets=null!;
     private MapFont font=null!;
-    private MapFontProfile profile=null!;
     private Shader shader=null!;
-    private LocalizedUiSpriteSource sprites=null!;
+    private MapDiplomacyLayouts diplomacyLayouts=null!;
     private Func<int,Vector3>? worldPosition;
     private Func<bool>? admitted;
     private CeForceMapPalette? palette;
     private MapInformationLayerSnapshot? captured;
-    private int? playerForce;
     private bool retired;
+    private Func<int,bool>? selectionAllowed;
+    private Action<int>? selectionPicked;
+    private IReadOnlyDictionary<int,AreaAdministrationQuery<IReadOnlyList<MapDiplomacyMarker>>>? intelligenceMarkers;
+    private bool intelligenceSpyTags;
+    internal void SetIntelligenceForceMarkers(IReadOnlyDictionary<int,AreaAdministrationQuery<IReadOnlyList<MapDiplomacyMarker>>>? markers,bool spy)
+    {
+        if(ReferenceEquals(intelligenceMarkers,markers)&&intelligenceSpyTags==spy)return;
+        intelligenceMarkers=markers;intelligenceSpyTags=spy;
+        foreach(var entry in cards)ApplyIntelligenceMarkers(entry.Card,entry.Force);
+    }
+    private void ApplyIntelligenceMarkers(MapDiplomacyCardView card,int force)
+    {
+        AreaAdministrationQuery<IReadOnlyList<MapDiplomacyMarker>>? source=intelligenceMarkers?.GetValueOrDefault(force);
+        card.SetIntelligenceForceMarkers(intelligenceSpyTags,source?.Value,source?.UnresolvedInput??
+            (intelligenceSpyTags&&source is null?"intelligence.selection.spy_markers.owner":null));
+    }
+    internal void SetDiplomacyTargetSelection(Func<int,bool>? allowed,Action<int>? picked)
+    {
+        selectionAllowed=allowed;selectionPicked=picked;
+        foreach(var entry in cards)ApplySelection(entry.Card,entry.Force);
+    }
+    private void ApplySelection(MapDiplomacyCardView card,int force)
+        =>card.SetSelectionAction(selectionAllowed?.Invoke(force),selectionPicked is {} picked?()=>picked(force):null);
 
-    internal void Configure(GameResourceRepository repository,PreviewText text,int? playerForce,
+    internal void Configure(GameResourceRepository repository,PreviewText text,D3D11MapMarkers bucket,
         Func<int,Vector3> worldPosition,CeForceMapPalette? palette,Func<bool> admitted)
     {
-        this.repository=repository;this.text=text;this.playerForce=playerForce;
+        this.repository=repository;this.bucket=bucket;
         this.worldPosition=worldPosition;this.palette=palette;this.admitted=admitted;
         MouseFilter=MouseFilterEnum.Ignore;ClipContents=true;
         assets=new(repository);font=new(repository,text.SourceLocale);
-        shader=UiSourceSprite.CreateShader();sprites=new(repository);
-        var source=ArmyMapMarkerSources.Load(repository);
-        profile=MapFontProfile.FromNode(source.Normal.Nodes[0x32],source.Normal.Source.ResourceUri)
-            .WithPreset(MapTextPresets.Create()[0]);
+        shader=UiSourceSprite.CreateShader();diplomacyLayouts=new(repository);
         AddChild(root);
         Resized+=ResizeCards;
         ResizeCards();
-        SetMeta("information_layer_scope","Actual neighbor control Hexes and capital anchors; native occlusion and original card layout remain to be calibrated.");
+        SetMeta("information_layer_scope","Actual neighbor control Hexes and capital anchors, with source diplomacy layouts and current data; native occlusion remains separate.");
     }
 
     public override void _Process(double delta)
     {
-        if(!retired)Visible=admitted?.Invoke()==true;
+        if(!retired)
+        {
+            Visible=admitted?.Invoke()==true;
+            foreach(var entry in cards){entry.Card.SetSourceAdmitted(Visible);entry.Card.SetSelectionAdmission(selectionAllowed?.Invoke(entry.Force));}
+        }
     }
 
     internal void Present(MapInformationLayerSnapshot? publication,MainMapCameraFrame frame,
-        bool neighbors,bool diplomacy)
+        bool neighbors,bool diplomacy,SceneryMapCapture? projection)
     {
         if(retired)return;
         if(!ReferenceEquals(captured,publication))Capture(publication);
@@ -72,19 +95,40 @@ internal partial class MapInformationCanvas : Control
                 }
             }
         }
+        bucket.SetInformationPlayer(publication?.CurrentPlayerPhysical);
+        var policy=projection?.Presentation.Policy;
+        int level=MapLabelPresentation.PrimaryCameraLevel(frame.ZoomSelection);
+        int diplomacyDisplay=diplomacy&&policy?.Mode is 0 or 7 or 11?DiplomacyDisplayLevels[level]:-1;
         foreach(var entry in cards)
         {
-            bool projected=D3D11MapMarkers.TryProject(entry.Position,frame.Camera.Matrices.WorldToProjection100,out var screen);
-            entry.Card.Visible=diplomacy&&projected&&screen.X>=-200&&screen.X<=2120&&screen.Y>=-120&&screen.Y<=1200;
-            if(projected)entry.Card.Position=screen-new Vector2(60,88);
+            bool positionKnown=bucket.TryReadBaseUnitPosition(entry.Base,frame,out var unit);
+            MapControlScreenPoint? projected=null;
+            if(positionKnown&&projection is not null&&ReferenceEquals(projection.Camera,frame))
+            {
+                bool? bypass=projection.Presentation.ProjectionClipBypass;
+                projected=MapControlProjection.Project(unit,new(0,CityGateMapMarkerSources.WorldHeightOffset,0),
+                    frame.Camera.SourceWorldToProjection,projection.Viewport,bypass==true,projection.Surface);
+                // An admitted strict point is identical on both bypass branches.
+                if(projected is null&&bypass is null)entry.Card.SetMeta("unresolved_projection","map-diplomacy.clip-owner");
+            }
+            float fade=positionKnown?MapLabelPresentation.DistanceFade(new(unit.X,unit.Y,unit.Z),
+                frame.Camera.CurrentPose.Position80,frame.ControllerState.Distance90):float.PositiveInfinity;
+            bool visible=projected is not null&&!(level<4&&fade>1f);
+            entry.Card.SetSourceAdmitted(admitted?.Invoke()==true);
+            entry.Card.SetDisplay(visible?diplomacyDisplay:-1);
+            if(projected is {} screen)entry.Card.Position=new Vector2(screen.X,screen.Y)+entry.Card.ProjectionOffset;
+            if(positionKnown)bucket.SetDiplomacyOrder(entry.Card,MapLabelPresentation.ControlSortKey(frame,
+                new(unit.X,unit.Y,unit.Z),2,entry.Own,false,false));
+            else entry.Card.SetMeta("unresolved_projection","map-diplomacy.accepted-Base-unit");
         }
         Visible=admitted?.Invoke()==true;
+        bucket.RefreshInformationOrder();
         QueueRedraw();
     }
 
     private void Capture(MapInformationLayerSnapshot? publication)
     {
-        foreach(var entry in cards){root.RemoveChild(entry.Card);entry.Card.Free();}
+        foreach(var entry in cards)bucket.RemoveDiplomacyCard(entry.Card);
         cards.Clear();links.Clear();captured=publication;
         if(publication is null)return;
         foreach(var link in publication.Links)
@@ -99,37 +143,20 @@ internal partial class MapInformationCanvas : Control
         }
         foreach(var row in publication.Diplomacy)
         {
-            var card=new Control {Name=$"DiplomacyForce{row.ForceId}",Size=new(200,110),MouseFilter=MouseFilterEnum.Ignore};
-            root.AddChild(card);
-            if(row.Flag is {} flag)
+            var card=new MapDiplomacyCardView {Name=$"DiplomacyForce{row.ForceId}"};
+            bucket.AddDiplomacyCard(card);
+            try
             {
-                var control=new UiSourceForceFlag {Position=new(0,18)};
-                card.AddChild(control);control.Configure(repository,assets,shader,font,flag);
+                card.Configure(repository,assets,shader,font,diplomacyLayouts,row);
+                bucket.AddDiplomacyDrawingParts(card);
+                if(row.UnresolvedInput is {} missing)card.SetMeta("unresolved_input",missing);
             }
-            if(row.Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:{} pack,SpriteName:{} name})
+            catch
             {
-                var face=new UiSourcePortrait {Position=new(40,0),Size=new(64,64)};
-                card.AddChild(face);face.ConfigureFace2(repository,assets,shader,sprites.LoadTexturePackSprite(pack,name));
+                bucket.RemoveDiplomacyCard(card);
+                throw;
             }
-            Label(row.Name,new(0,65));
-            if(row.ForceId!=playerForce)
-            {
-                string relation=row.RelationLevel is int level&&level>=0&&level<6
-                    ? text.Get(new[]{"play_diplomacy_relation_hostile","play_diplomacy_relation_treacherous",
-                        "play_diplomacy_relation_discordant","play_diplomacy_relation_neutral",
-                        "play_diplomacy_relation_friendly","play_diplomacy_relation_close"}[level])
-                    : text.Get("detail_unknown");
-                if(row.AllianceMonths is >0)relation+="  "+text.Get("play_diplomacy_alliance");
-                Label(relation,new(0,88));
-            }
-            if(row.UnresolvedInput is {} missing)card.SetMeta("unresolved_input",missing);
-            cards.Add((card,worldPosition!(row.CapitalHex)));
-
-            void Label(string value,Vector2 position)
-            {
-                var label=new UiSourceText {Position=position,Size=new(200,24)};
-                card.AddChild(label);label.Configure(font,profile);label.Text=value;
-            }
+            cards.Add((card,row.CapitalBase,row.IsCurrentPlayerForce==true,row.ForceId));ApplySelection(card,row.ForceId);ApplyIntelligenceMarkers(card,row.ForceId);
         }
     }
 
@@ -147,7 +174,7 @@ internal partial class MapInformationCanvas : Control
         if(retired)return;
         retired=true;Visible=false;SetProcess(false);admitted=null;worldPosition=null;
         Resized-=ResizeCards;
-        foreach(var entry in cards){root.RemoveChild(entry.Card);entry.Card.Free();}
+        foreach(var entry in cards)bucket.RemoveDiplomacyCard(entry.Card);
         cards.Clear();links.Clear();screenLinks.Clear();captured=null;
         font?.Dispose();assets?.Dispose();shader?.Dispose();
     }

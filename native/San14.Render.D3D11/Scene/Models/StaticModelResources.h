@@ -5,6 +5,7 @@
 #include "ModelFrame.h"
 #include "Interop/ModelStencilCatalogCodec.h"
 #include <map>
+#include <span>
 
 namespace San14::Render {
 class StaticModelResources {
@@ -38,15 +39,23 @@ class StaticModelResources {
 
     // Upload each selected primitive's constants, then filter its ordinary54
     // stencil. This request never loads files or creates device objects.
+    template<class CurrentTree2Wind>
     const Submission &updateSubmission(ID3D11DeviceContext *context,
-                                       const MapViewFrame &currentView) {
-        submission_.models = updateSelectNativeModelContinuous(context, candidate_, geometry_);
-        submission_.plan = filterSubmission(stencil_, currentView, candidate_, submission_.models);
+                                       const MapViewFrame &currentView,const CurrentTree2Wind& wind) {
+        auto& current=candidate_;
+        for(auto& selected:current.draws)if(!selected.extendedVertex.empty())
+            wind.writeCurrentTree2Vs(std::span<std::uint8_t>(
+                reinterpret_cast<std::uint8_t*>(selected.extendedVertex.data()),selected.extendedVertex.size()),selected.groupFlags);
+        submission_.models = updateSelectNativeModelContinuous(context, current, geometry_);
+        for(size_t i=0;i<current.draws.size();++i)if(!current.draws[i].extendedVertex.empty())
+            wind.attachCurrentTree2Resources(submission_.models.draws[i],current.draws[i].groupFlags);
+        submission_.plan = filterSubmission(stencil_, currentView, current, submission_.models);
         return submission_;
     }
 
     const NativeModelContinuous &catalog() const { return catalog_; }
     const NativeModelInputs &geometry() const { return geometry_; }
+    const NativeModelContinuousPlan& currentCandidates() const { return candidate_; }
     bool hasGeometry() const { return !geometry_.draws.empty(); }
 
   private:
@@ -115,6 +124,7 @@ class StaticModelResources {
                                                       const NativeModelContinuousPlan &plan,
                                                       NativeModelInputs &selected) {
         NativeModelContinuousPlan submittedPlan;
+        submittedPlan.alphaSortFields = plan.alphaSortFields;
         submittedPlan.visibleInstances = plan.visibleInstances;
         submittedPlan.visibleUnsupportedInstances = plan.visibleUnsupportedInstances;
         submittedPlan.draws.reserve(plan.draws.size());

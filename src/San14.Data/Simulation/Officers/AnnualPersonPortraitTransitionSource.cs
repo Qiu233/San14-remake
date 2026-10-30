@@ -42,39 +42,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
 
         private bool Predicate(int physical)
-        {
-            if (!Valid(physical)) return false;
-            if (Mode() == 2) return false;
-            if (Mode() == 3 && (state.CampaignEventWorld?.ScenarioId
-                ?? throw Missing("current_scenario_id")) == 151) return false;
-            // The signed year is captured before the source's identity scan,
-            // including before the later event45/Intelligence branches.
-            short year = unchecked((short)(state.NativeMapSeason?.ThirdDate.Year
-                ?? throw Missing("current_third_year")));
-            ushort id = Need(current.ReadPersonIdentity(physical), "person_identity");
-            foreach (var rule in PersonPortraitTransitionCatalog.Rules)
-            {
-                if (rule.PersonId != id) continue;
-                if (id != 988) return rule.Direction == 0
-                    ? year >= rule.ThresholdYear : year < rule.ThresholdYear;
-                if (rule.Direction == 0) return false;
-                var occurred = state.CampaignEvents?.Occurred ?? throw Missing("current_event_occurrence");
-                if (occurred.Length <= 45) throw Missing("current_event_occurrence");
-                if (occurred[45]) return false;
-                if (year >= rule.ThresholdYear) return false;
-                int intelligence = Person(physical, id).BaseAbilities?.Intelligence
-                    ?? throw Missing("current_base_intelligence");
-                if (intelligence is < 0 or > byte.MaxValue) throw Missing("current_base_intelligence");
-                return intelligence < 70;
-            }
-            return false;
-        }
+            => PersonPortraitTransitionPredicate.Read(state, current, physical);
 
         private OfficerState Person(int physical, ushort id) =>
             current.ResolveOfficerSource(id) == physical && state.Officers.TryGetValue(id, out var person)
                 ? person : throw Missing("current_person_owner");
         private bool Valid(int physical) => Need(current.ReadPersonNativeValidity(physical), "current_person_validity");
-        private int Mode() => state.CampaignEventWorld?.ScenarioMode ?? throw Missing("current_world_mode");
         private void Observe(string point) { if (observe is not null) observe(point, GameStateCopy.Copy(state)); }
         private static T Need<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
         private static InvalidDataException Missing(string name) => new("annual-person-portrait-transition." + name);

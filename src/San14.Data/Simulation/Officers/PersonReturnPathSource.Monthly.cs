@@ -15,11 +15,11 @@ public static partial class PersonReturnPathSource
             if (!Known(current.ReadForceNativeValidity(force), "2C6550 Force validity")) return (false, null);
             if (TutorialActive() && Player() && special == 46 && TutorialActive())
             {
-                //570840 is an independent special-mode service. The saved
-                //battle-control bitmap is not evidence for that object's byte6.
+                //570840 and17A470 return the same reached controller bitmap.
+                //The attached tutorial projects its actual byte6.bit6 here.
                 var app = Known(application, "2C6550 application gameplay owner");
-                if (Known(app.SpecialModeServicePresent, "2C6550 special-mode service presence"))
-                    throw new MissingOwner("2C6550 active special-mode byte6 bit6 current owner");
+                if (Known(app.TutorialAllowsSpecialGoodwill, "2C6550 tutorial byte6 bit6"))
+                    return (true, null);
             }
             var temporary = Known(current.CreateTemporaryHexList(), "2C6550 State temporary descriptor");
             try

@@ -8,11 +8,68 @@ namespace San14.Client.Gameplay;
 /// and actual ordinary playback transitions, then returns that narrow state
 /// to the worker. No intermediate candidate becomes the visible saved world.</summary>
 internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
-    Action<GameState> publish, Action release, CancellationToken cancellation)
+    Action<GameState> publish, Action release, CancellationToken cancellation,
+    Action<GameState>? beginTutorial = null,
+    Func<GameState, (GameState State, bool Hold)>? updateTutorial = null,
+    Func<GameState, GameState>? endTutorial = null)
 {
     private int _paused;
     private int _speed = 1;
+    private Exception? _presentationFailure;
     internal GameState? Candidate { get; private set; }
+    internal bool ManualCommandSelectionOpen { get; set; }
+    internal bool OccupationPresentationOpen { get; set; }
+    internal bool DuelPresentationOpen { get; set; }
+    internal bool DuelCaptureAnnouncementOpen { get; set; }
+    internal bool TryCompleteDuelPresentation(GameState expectedOwner,long sequence,GameState preparedState)
+    {
+        if(!ReferenceEquals(Candidate,expectedOwner)||
+            !CampaignDuelPresentationPlaybackRules.TryComplete(expectedOwner,sequence,out var next,preparedState))return false;
+        Candidate=next;return true;
+    }
+    internal bool TryCompleteDuelCaptureAnnouncement(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex, DuelCaptureAnnouncementRequest expectedRequest)
+    {
+        if (Candidate is not { } owner || !ReferenceEquals(owner, expectedOwner) ||
+            !DuelCaptureAnnouncementPlaybackRules.TryComplete(owner, expectedSource,
+                batchSequence, requestIndex, expectedRequest, out var next)) return false;
+        Candidate = next; return true;
+    }
+    internal bool TryCompleteOccupationEffect(GameState expectedOwner,long sequence,int index,CampaignEffectRequest request)
+    {
+        if(!ReferenceEquals(Candidate,expectedOwner)||
+            !RegionEncirclementPlaybackRules.TryCompleteOccupationEffect(expectedOwner,sequence,index,request,out var next))return false;
+        Candidate=next;return true;
+    }
+    internal bool TryCompleteEncirclement(GameState expectedOwner,RegionEncirclementPresentation request)
+    {
+        if(!ReferenceEquals(Candidate,expectedOwner)||
+            !RegionEncirclementPlaybackRules.TryComplete(expectedOwner,request,out var next))return false;
+        Candidate=next;return true;
+    }
+    internal bool TryApplyManualTacticCommand(GameState expectedOwner,
+        Func<GameState, CommandResult> apply, out CommandResult? result)
+    {
+        result = null;
+        if (!ReferenceEquals(Candidate, expectedOwner)) return false;
+        result = apply(expectedOwner);
+        if (result.Accepted) Candidate = result.State!;
+        return true;
+    }
+    internal void FailPresentation(Exception failure) => _presentationFailure ??= failure;
+    internal bool TryCompleteUniqueDirection(GameState expectedOwner, ManualTacticInterventionState manager, long sequence)
+    {
+        if (Candidate is not { } owner || !ReferenceEquals(owner, expectedOwner) ||
+            !UniqueDirectionPlaybackRules.TryComplete(owner, manager, sequence, out var next)) return false;
+        Candidate = next; return true;
+    }
+    internal bool TryAdoptUniqueDirectionAudio(GameState expectedOwner, ManualTacticInterventionState manager,
+        long sequence, GameState preparedState)
+    {
+        if (Candidate is not { } owner || !ReferenceEquals(owner, expectedOwner) ||
+            !UniqueDirectionPlaybackRules.TryAdoptPreparedAudio(owner, manager, sequence, preparedState, out var next)) return false;
+        Candidate = next; return true;
+    }
     internal bool TryBeginOrdinaryTactic(GameState expectedOwner, ManualTacticInterventionState manager,
         long sequence, GameState? preparedState)
     {
@@ -57,6 +114,7 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
                 try
                 {
                     Candidate = candidate;
+                    beginTutorial?.Invoke(candidate);
                     publish(candidate);
                     // Host playback cadence, independent of simulation time. Each
                     // interval displays one actual six-hour native update. Source
@@ -66,15 +124,27 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
                     while (true)
                     {
                         cancellation.ThrowIfCancellationRequested();
+                        if (_presentationFailure is { } failure) throw failure;
                         double before = elapsed.Elapsed.TotalMilliseconds;
                         await Task.Delay(16, cancellation);
-                        if (!IsPaused) activeMilliseconds += elapsed.Elapsed.TotalMilliseconds - before;
+                        bool tutorialHold = false;
+                        if (updateTutorial is not null && !ManualCommandSelectionOpen && !DuelPresentationOpen && !DuelCaptureAnnouncementOpen)
+                        {
+                            var update = updateTutorial(Candidate!);
+                            Candidate = update.State; tutorialHold = update.Hold;
+                        }
+                        bool inputHold = ManualCommandSelectionOpen || OccupationPresentationOpen || DuelPresentationOpen || DuelCaptureAnnouncementOpen;
+                        if (!IsPaused && !tutorialHold && !inputHold) activeMilliseconds += elapsed.Elapsed.TotalMilliseconds - before;
                         double interval = Speed switch { 0 => 600, 1 => 300, _ => 150 };
-                        if (!IsPaused && activeMilliseconds >= interval) break;
+                        if (!IsPaused && !tutorialHold && !inputHold && activeMilliseconds >= interval &&
+                            Candidate?.ManualTacticIntervention?.Directions.Length is not > 0) break;
                     }
-                    presented = Candidate!;
                 }
-                finally { Candidate = null; release(); }
+                finally
+                {
+                    try { presented = endTutorial?.Invoke(Candidate!) ?? Candidate!; }
+                    finally { Candidate = null; ManualCommandSelectionOpen = false; OccupationPresentationOpen=false; DuelPresentationOpen=false; DuelCaptureAnnouncementOpen=false; release(); }
+                }
                 completed.TrySetResult(presented);
             }
             catch (OperationCanceledException) { completed.TrySetCanceled(cancellation); }

@@ -18,7 +18,8 @@ internal static class StructureDestructionForceResult
             return state;
         int physical = current.ReadForcePhysicalSlot(attacker) ?? throw Missing("attacker_physical");
         if (oldObjectForce is < 0 or > byte.MaxValue) throw Missing("old_Object_force_byte");
-        if (appliedLoss is < 0 or > ushort.MaxValue) throw Missing("applied_loss");
+        //257670 receives signed Int32 loss. Remote HP0 may produce -1;
+        //only its positive-loss objective branch consumes a loss multiplier.
 
         // Fatal calls pass loss0/destroyed1; nonfatal calls pass the actual
         // capped loss/destroyed0. Only a matched objective reads its applicable

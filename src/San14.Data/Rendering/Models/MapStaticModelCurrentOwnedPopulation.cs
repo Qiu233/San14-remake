@@ -20,6 +20,10 @@ public abstract record MapStaticModelOwnedFrameInputs(
     /// writer output; missing changed descriptors are never filled from an
     /// earlier source opening.</summary>
     public CityVisualDescriptorOwner? CurrentCityDescriptors { get; init; }
+    /// <summary>Complete current Object registry and real connection models,
+    /// published by the simulation presentation adapter. Legacy callers can
+    /// continue supplying explicit primary FacilityDefinitions instead.</summary>
+    public FacilitySceneModelFrame? CurrentFacilitySceneModels { get; init; }
 }
 public sealed record MapStaticModelCapturedOwnedInputs(MapStaticModelCapturedOwnedWorld CapturedOwnedWorld,
     MainMapCameraFrame MainCamera, int CurrentPlayerForceSlot, MapStaticModelGroundHeightSource CurrentGround,
@@ -50,6 +54,7 @@ public sealed record MapStaticModelCurrentOwnedFrame(MainMapCameraFrame MainCame
     public long FrameNumber => MainCamera.Camera.FrameNumber;
     public string CurrentOwnedWorldProvenance { get; init; } = "";
     public DeferredCameraInputs PreparedCamera => MainCamera.Camera.SceneInputs;
+    public FacilitySceneModelFrame? FacilitySceneModels { get; init; }
 }
 
 /// <summary>Stable source-created population factory. It owns asset/placement
@@ -73,18 +78,24 @@ public sealed class MapStaticModelCurrentOwnedPopulation
     private MapStaticModelCurrentOwnedFrame? _sourceCreatedCurrentFrame;
     private MapStaticModelOwnedFrameInputs? _sourceCreatedCurrentInputs;
     private IReadOnlyDictionary<string, MapStaticModelInstance>? _sourceCreatedCurrentInstances;
+    private FacilitySceneModelFrame? _facilityFrame;
+    private MapStaticModelInstanceSet? _facilityPopulation;
+    private Action<IReadOnlyList<MapStaticModelInstance>>? _retainFacilityNodes;
     public MapStaticModelAssetCatalog Assets { get; }
 
     public MapStaticModelCurrentOwnedPopulation(GameResourceRepository repository, LoadedSceneResources scene,
         CeCityVariantTable variants, UnitGeometry currentGeometry, string sourceRevision,
         Func<MapStaticModelOwnedVisibilityRequest, MapModelNativeVisibilityPublication> currentVisibility,
-        Func<MapStaticModelOwnedViewRequest, MapModelNativeViewPublication> currentView)
+        Func<MapStaticModelOwnedViewRequest, MapModelNativeViewPublication> currentView,
+        ScenePlacements? actualScenePlacements=null)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(scene); ArgumentNullException.ThrowIfNull(variants);
         ArgumentNullException.ThrowIfNull(currentGeometry); ArgumentException.ThrowIfNullOrWhiteSpace(sourceRevision);
         ArgumentNullException.ThrowIfNull(currentVisibility); ArgumentNullException.ThrowIfNull(currentView);
         _revision = sourceRevision; Assets = new(repository, scene); _cities = new(repository, scene, variants);
-        _placements = ScenePlacementReader.Read(scene); _variants = variants; _geometry = currentGeometry;
+        if(actualScenePlacements is not null&&!ReferenceEquals(actualScenePlacements.Scene,scene))
+            throw new InvalidDataException("Current Model placements belong to another loaded Scene owner.");
+        _placements = actualScenePlacements??ScenePlacementReader.Read(scene); _variants = variants; _geometry = currentGeometry;
         _visibility = new((instance, camera) => currentVisibility(new(_preparing ?? throw new InvalidOperationException("No owned model frame is being prepared."), instance, camera)),
             camera => currentView(new(_preparing ?? throw new InvalidOperationException("No owned model frame is being prepared."), camera)));
     }
@@ -98,7 +109,8 @@ public sealed class MapStaticModelCurrentOwnedPopulation
         string sourceRevision, LoadedObjects explicitlyPublishedCommonViewSource, uint commonViewObjectId,
         string currentViewIdentity, int currentViewIndex,
         Func<MapStaticModelOwnedVisibilityRequest, MapModelNativeVisibilityPublication?> explicitCurrentVisibilityOverride,
-        Func<MapStaticModelOwnedVisibilityRequest, IReadOnlyList<bool>?> completeCurrentAdditionalCullingRejects)
+        Func<MapStaticModelOwnedVisibilityRequest, IReadOnlyList<bool>?> completeCurrentAdditionalCullingRejects,
+        ScenePlacements? actualScenePlacements=null)
     {
         ArgumentNullException.ThrowIfNull(explicitCurrentVisibilityOverride); ArgumentNullException.ThrowIfNull(completeCurrentAdditionalCullingRejects);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentViewIdentity);
@@ -143,7 +155,7 @@ public sealed class MapStaticModelCurrentOwnedPopulation
             return new(request.Instance.CurrentSourceIdentity!, node.Words.IsDrawEligible(currentViewIndex), node.Prefix.ConstructorFlags44,
                 node.Prefix.ConstructorFrustumCullingType33C, node.BoundsPublication,
                 completeCurrentAdditionalCullingRejects(request));
-        }, _ => new(currentViewIdentity, common.Value));
+        }, _ => new(currentViewIdentity, common.Value),actualScenePlacements);
         owner._invalidateSourceCreated = () =>
         {
             nodes.Clear(); currentOverrides.Clear(); overrideFrame = null;
@@ -160,6 +172,14 @@ public sealed class MapStaticModelCurrentOwnedPopulation
             // reached GetOrCreateNode. Its actual registered fresh node runs
             // the same constructor here once and thereafter shares the cache.
             return GetOrCreateNode(request.Instance);
+        };
+        var facilityNodes = new HashSet<string>(StringComparer.Ordinal);
+        owner._retainFacilityNodes = instances =>
+        {
+            var retained = instances.Select(instance => instance.CurrentSourceIdentity!).ToHashSet(StringComparer.Ordinal);
+            foreach (string identity in facilityNodes)
+                if (!retained.Contains(identity)) nodes.Remove(identity);
+            facilityNodes = retained;
         };
         return owner;
     }
@@ -205,21 +225,17 @@ public sealed class MapStaticModelCurrentOwnedPopulation
         {
             if (_preparing is not null) throw new InvalidOperationException("Owned model preparation cannot reenter itself.");
             if (input.MainCamera.Camera.Source.Camera.ObjectId != MainMapCameraAdapter.MainCameraObjectId ||
-                input.MainCamera.Camera.FrameNumber <= 0 || input.CurrentPlayerForceSlot != input.MainCamera.InitialFocus.PlayerForcePhysicalSlot)
-                throw new InvalidDataException("Owned source population requires the current Main Camera frame and its explicitly selected player owner.");
+                input.MainCamera.Camera.FrameNumber <= 0)
+                throw new InvalidDataException("Owned source population requires a live Main Camera frame.");
             if (input.CurrentGround.Scene.Scene.Source.ResourceUri != Assets.Scene.Scene.Source.ResourceUri ||
                 input.CurrentGround.Scene.Scene.Source.DecodedSha256 != Assets.Scene.Scene.Source.DecodedSha256)
                 throw new InvalidDataException("Current source model ground and population belong to different scene revisions.");
             var structures = world.Structures;
-            if (!world.Forces.TryGetValue(input.CurrentPlayerForceSlot, out var player) || !player.IsActive ||
-                world.MapWidth != 220 || world.MapHeight != 220)
-                throw new InvalidDataException("Owned source model frame requires its active current player and native physical map grid.");
-            if (input.GateDefinitions.Select(d => d.PhysicalSlot).Distinct().Count() != input.GateDefinitions.Count ||
-                !input.GateDefinitions.Select(d => d.PhysicalSlot).Order().SequenceEqual(world.Gates.Keys.Order()) ||
-                input.FacilityDefinitions.Select(d => d.PhysicalSlot).Distinct().Count() != input.FacilityDefinitions.Count ||
-                !input.FacilityDefinitions.Select(d => d.PhysicalSlot).Order().SequenceEqual(structures.Keys.Order()))
-                throw new InvalidDataException("Owned source gate/facility definition bindings must cover every current physical slot exactly once.");
-
+            // Model placement does not consume a player or ruler. Collection
+            // legitimately owns Force0 and a fresh controller; initial camera
+            // focus is not an identity proof for the current world.
+            if (input.CurrentPlayerForceSlot is < 0 or > 51 || world.MapWidth != 220 || world.MapHeight != 220)
+                throw new InvalidDataException("Owned source model frame requires a native force index and physical map grid.");
             MapStaticModelPublication Publication(string key) => input.CurrentNodePublications.TryGetValue(key, out var current)
                 ? current : MapStaticModelPublication.FreshUnparented(_revision + "/owned-node/" + key);
             var scenePopulation = MapStaticModelInstanceFactory.FromNativeScenePlacements(Assets, _placements, p =>
@@ -243,16 +259,27 @@ public sealed class MapStaticModelCurrentOwnedPopulation
                 return new MapStaticModelFacilityInput(d.PhysicalSlot, structure.HexId, d.ObjectDefinitionSlot,
                     structure.Completed, Publication("facility:" + d.PhysicalSlot));
             }).ToArray();
+            if (input.CurrentFacilitySceneModels is { } facilityFrame)
+            {
+                if (facilities.Length != 0)
+                    throw new InvalidDataException("Current facility models cannot also be supplied as primary definition guesses.");
+                if (!ReferenceEquals(_facilityFrame, facilityFrame))
+                {
+                    _facilityPopulation = MapStaticModelInstanceFactory.FromCurrentFacilitySceneModels(Assets, facilityFrame);
+                    _retainFacilityNodes?.Invoke(_facilityPopulation.Instances);
+                    _facilityFrame = facilityFrame;
+                }
+            }
+            else if (_facilityFrame is not null)
+            {
+                _retainFacilityNodes?.Invoke(Array.Empty<MapStaticModelInstance>());
+                _facilityFrame = null; _facilityPopulation = null;
+            }
             var primary = MapStaticModelInstanceFactory.FromNativePrimaryPopulation(Assets, _cities,
                 cityInputs, gates, facilities, _geometry, input.CurrentGround);
             var population = MapStaticModelInstanceFactory.Combine(scenePopulation, primary,
+                _facilityPopulation ?? new(Array.Empty<MapStaticModelInstance>(), Array.Empty<MapStaticModelInstanceFailure>(), Array.Empty<int>()),
                 new(Array.Empty<MapStaticModelInstance>(), failures.AsReadOnly(), Array.Empty<int>()));
-            var knownKeys = _placements.Instances.Where(p => p.Model is not null).Select(p =>
-                $"scene:{Assets.Scene.Scene.Source.ResourceUri}/{p.Source.Index}/{p.Source.Object.ObjectId:X8}")
-                .Concat(world.Cities.Keys.Select(id => "city:" + id)).Concat(world.Gates.Keys.Select(id => "gate:" + id))
-                .Concat(structures.Keys.Select(id => "facility:" + id)).ToHashSet(StringComparer.Ordinal);
-            if (input.CurrentNodePublications.Keys.Any(key => !knownKeys.Contains(key)))
-                throw new InvalidDataException("Current owned Model edit names an absent or unsupported node identity.");
             if (!population.Complete)
                 throw new InvalidDataException("Owned source model population is unresolved: " + string.Join("; ", population.Unresolved.Select(f => f.InstanceKey + ": " + f.Reason)));
             var deferred = input.MainCamera.Camera.SceneInputs;
@@ -265,7 +292,7 @@ public sealed class MapStaticModelCurrentOwnedPopulation
             {
                 var current = new MapStaticModelCurrentOwnedFrame(input.MainCamera, population,
                     _visibility.Select(population, camera), _revision)
-                    {CurrentOwnedWorldProvenance=world.SourceProvenance};
+                    {CurrentOwnedWorldProvenance=world.SourceProvenance, FacilitySceneModels=input.CurrentFacilitySceneModels};
                 if (_borrowSourceCreatedNode is not null)
                 {
                     _sourceCreatedCurrentFrame = current; _sourceCreatedCurrentInputs = input;
@@ -284,6 +311,8 @@ public sealed class MapStaticModelCurrentOwnedPopulation
         lock (_gate)
         {
             _sourceCreatedCurrentFrame = null; _sourceCreatedCurrentInputs = null; _sourceCreatedCurrentInstances = null;
+            _facilityFrame = null; _facilityPopulation = null;
+            _retainFacilityNodes?.Invoke(Array.Empty<MapStaticModelInstance>());
             Assets.Invalidate(); _cities.Invalidate(); _invalidateSourceCreated?.Invoke();
         }
     }

@@ -26,7 +26,9 @@ public static class ArmyTargetSourceAdapter
             11 when mapObjects is not null => ArmyTargetKind.MapObjectReceiver, _ => ArmyTargetKind.Unresolved
         };
         ArmyTargetDestination? destination = fields.Identity3A is null ? null :
-            kind == ArmyTargetKind.City && fields.Identity3A is >= 1 and <= 51
+            kind is ArmyTargetKind.City or ArmyTargetKind.Gate && fields.Identity3A == 0
+                ? new(ArmyTargetDestinationKind.UnavailableBase, null, null)
+                : kind == ArmyTargetKind.City && fields.Identity3A is >= 1 and <= 51
                 ? new(ArmyTargetDestinationKind.City, fields.Identity3A.Value, null)
                 : kind == ArmyTargetKind.Gate && fields.Identity3A is >= 1 and <= 10
                     ? new(ArmyTargetDestinationKind.Gate, null, null) { GateId = fields.Identity3A.Value + 51 }
@@ -34,10 +36,14 @@ public static class ArmyTargetSourceAdapter
                     ? new(ArmyTargetDestinationKind.Hex, null, null) { HexId = fields.Identity3A.Value }
                 : kind == ArmyTargetKind.ArmyReceiver && receivers.TryResolveReceiverId(fields.Identity3A.Value, out var id)
                     ? new(ArmyTargetDestinationKind.ArmyReceiver, null, id)
-                : kind == ArmyTargetKind.MapObjectReceiver && mapObjects?.Lookup(fields.Identity3A.Value) is { } mapObject
-                    ? new(ArmyTargetDestinationKind.MapObjectReceiver, null, null) { MapObjectReceiverId = mapObject }
+                : kind == ArmyTargetKind.MapObjectReceiver && mapObjects is not null
+                    ? mapObjects.Lookup(fields.Identity3A.Value) is { } mapObject
+                        ? new(ArmyTargetDestinationKind.MapObjectReceiver, null, null) { MapObjectReceiverId = mapObject }
+                        : new(ArmyTargetDestinationKind.UnavailableObject, null, null)
                     : new(ArmyTargetDestinationKind.Unresolved, null, null);
-        ushort? alias = null;
+        //A null lookup still has a complete selected operand. Keep it even
+        //when0, because no entity/canonical receiver can recover that operand.
+        ushort? alias = destination?.Kind == ArmyTargetDestinationKind.UnavailableObject ? fields.Identity3A : null;
         if (destination?.MapObjectReceiverId is { } mapped && mapObjects is not null && fields.Identity3A is ushort raw)
         {
             int physical = mapObjects.PhysicalOf(mapped);
@@ -61,6 +67,9 @@ public static class ArmyTargetSourceAdapter
         ushort? identity = target.Destination switch
         {
             null => null,
+            { Kind: ArmyTargetDestinationKind.UnavailableBase } when target.Kind is ArmyTargetKind.City or ArmyTargetKind.Gate => 0,
+            { Kind: ArmyTargetDestinationKind.UnavailableObject } when target.Kind == ArmyTargetKind.MapObjectReceiver && mapObjects is not null
+                => residue?.MapObjectLookupAlias,
             { Kind: ArmyTargetDestinationKind.City, CityId: int id } when id is >= 1 and <= 51 => (ushort)id,
             { Kind: ArmyTargetDestinationKind.Gate, GateId: int gate } when gate is >= 52 and <= 61 => (ushort)(gate - 51),
             { Kind: ArmyTargetDestinationKind.Hex, HexId: int hex } when hex is >= 0 and <= ushort.MaxValue => (ushort)hex,

@@ -11,6 +11,12 @@ public sealed record CommandResult(GameState? State, string? Error)
 {
     public string? ErrorCode { get; init; }
     public string? MissingRuleKey { get; init; }
+    // Transient creation outcome. A cleared target can still accompany an
+    // accepted world containing the actual allocated/registered relation reset.
+    public ArmyCautionCreation? ArmyCautionCreation { get; init; }
+    public PersonnelHireExecution? PersonnelHireExecution { get; init; }
+    public PersonnelItemTransferAnnouncement? PersonnelItemTransferAnnouncement { get; init; }
+    public TransportFoodWarningResult? TransportFoodWarning { get; init; }
     public bool Accepted => State is not null;
     public static CommandResult Reject(string reason, string? code = null) => new(null, reason) { ErrorCode = code };
     public static CommandResult RuleUnavailable(string key, string reason) => new(null, reason)
@@ -66,6 +72,8 @@ public static class GameEngine
     private static CommandResult? CheckOrderPermissions(GameState state, GameOrder order,
         CommandContext context, IOrderAuthority authority, bool requireStrategyPhase)
     {
+        if (state.EditedEventPlayback is not null)
+            return CommandResult.Reject("The campaign is awaiting its manual edited event.", "command.pending_edited_event");
         if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
             return CommandResult.Reject("The campaign has ended.", "command.campaign_ended");
         if (requireStrategyPhase && state.Phase != TurnPhase.Strategy &&
@@ -78,6 +86,9 @@ public static class GameEngine
         if (string.IsNullOrWhiteSpace(context.ActorId) ||
             !authority.CanControl(context, order.ForceId))
             return CommandResult.Reject("Actor is not authorized to command this force and scope.", "command.unauthorized");
+        if (order is CurrentWorldEditOrder &&
+            (authority is not ICurrentWorldEditAuthority editor || !editor.CanEditCurrentWorld(context, order.ForceId)))
+            return CommandResult.Reject("The actor has no current-world editing capability.", "world_edit.unauthorized");
         if (context.DelegatedDistrictId is int districtId &&
             (!state.Districts.TryGetValue(districtId, out DistrictState? district) || district.ForceId != force.Id))
             return CommandResult.Reject("Delegated district does not belong to this force.", "command.district_missing");
@@ -104,6 +115,8 @@ public static class GameEngine
 
     internal static GameState AdvancePeriodOwned(GameState state, GameState working, IAdvancementRules rules)
     {
+        if (state.EditedEventPlayback is not null)
+            throw new InvalidOperationException("The campaign is awaiting its manual edited event.");
         if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
             throw new InvalidOperationException("The campaign has ended.");
         if (state.Phase != TurnPhase.Strategy)

@@ -41,17 +41,19 @@ internal static partial class ArmyRouteSearch
             AvoidHostile = army.NativeTacticRuntime?.Status10 switch { 1 => false, 2 => true, _ => throw Missing("ordinary_status1_or2") };
             LandFormation = K(ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army), "Army1B");
             NavalFormation = K(ArmyConfigurationSourceAdapter.ReadNaval(state, army), "Army1C");
-            var person = K(current.ReadPersonLookupReference(army.OfficerId), "Person_pointer");
+            var actor = new ArmyUnitReference(K(army.NativeArmyOrigin?.NativeSlotIndex, "Army_receiver"));
+            Force = current.ReadArmyUnitRawForceSlot(actor);
+            ushort commander = K(current.ReadArmyUnitCommanderId(actor), "Army12");
+            var person = K(current.ReadPersonLookupReference(commander <= 6000 ? commander : 0), "Person_pointer");
             int physical = person.PhysicalSlot ?? throw Missing("Person_receiver");
-            Force = K(current.ReadPersonOldForceSlot(physical), "Army_Force22CD80");
-            if (Force is < 1 or > 45) throw Missing("ordinary_Force_scope");
-            ushort location = K(current.ReadPersonFirstLocation(physical), "PersonE2");
-            var home = location <= 51 ? K(current.ReadCityTableReference(location), "Home_City_pointer") :
-                location <= 61 ? K(current.ReadGateTableReference(location - 51), "Home_Gate_pointer") :
-                K(current.ReadCityTableReference(0), "Home_placeholder_pointer");
-            ushort link = K(current.ReadBaseObjectLink(home), "Base4E");
-            var obj = K(current.ReadObjectTableReference(link <= 3000 ? link : 0), "Base_Object_pointer");
-            HomeHex = K(current.ReadObjectNativeValidity(obj), "Base_Object_validity") ? K(current.ReadObjectHexIndex(obj), "Object10") : Count;
+            //183C00 leaves homeStart false for a special Force without the
+            //232860 binding. Other actors use32C7D0's actual Base lookup.
+            HomeHex = Count;
+            if (Force is not (>= 46 and <= 51) || current.IsArmyUnitBoundToSpecialForce(actor))
+            {
+                ushort location = K(current.ReadPersonFirstLocation(physical), "PersonE2");
+                HomeHex = current.ReadBaseCurrentHexIndex(BaseLookup.Find(location, current));
+            }
             WallPermission = !K(TacticRemakeCurrentTraits.CommanderImmune(current, physical, 102), "Commander_trait102");
         }
 

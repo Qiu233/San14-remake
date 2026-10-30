@@ -18,6 +18,7 @@ public partial class MapSceneView
     private bool TrySelectCommandArmy(int id) => _unitSelectionClicked?.Invoke(id, sourceCameraControlHeld) == true;
     private bool SampleUnitSelectionPointer(MainMapCameraCanonicalPoint point, int leftState)
     {
+        if (InformationMapReadOnly) return false;
         // WindowInput observes levels even when a chrome control consumes the
         // event. Only a real map-surface press may arm this page's selector.
         if (_unitSelectionPointer is null) return false;

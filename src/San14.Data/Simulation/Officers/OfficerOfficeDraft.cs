@@ -38,6 +38,7 @@ public sealed class OfficerOfficeDraft
     private readonly Func<IReadOnlyDictionary<int, int>, (bool Promote, bool Assign)>? _availability;
     private readonly HashSet<int> _removable;
     private readonly Func<int, int?, OfficeAppointmentPreview>? _preview;
+    private readonly Func<int, IReadOnlyDictionary<int, int>, AreaAdministrationQuery<OfficerOfficePeopleSelection>>? _peopleSelection;
     private readonly Dictionary<(int Office, int? Person), OfficeAppointmentPreview> _previews = [];
     private bool _availabilityCurrent;
     private (bool Promote, bool Assign) _available;
@@ -49,12 +50,13 @@ public sealed class OfficerOfficeDraft
         Func<int, IReadOnlyDictionary<int, int>, IReadOnlyList<OfficeAppointmentCandidate>> candidates,
         Func<IReadOnlyDictionary<int, int>, bool, Dictionary<int, int>> automatic,
         Func<IReadOnlyDictionary<int, int>, (bool Promote, bool Assign)> availability,
-        IEnumerable<int> removable, Func<int, int?, OfficeAppointmentPreview> preview)
+        IEnumerable<int> removable, Func<int, int?, OfficeAppointmentPreview> preview,
+        Func<int, IReadOnlyDictionary<int, int>, AreaAdministrationQuery<OfficerOfficePeopleSelection>> peopleSelection)
     {
         _forceId = forceId; _rows = rows; _original = original; _assigned = new(original);
         _people = people; _grades = grades; _candidates = candidates; _automatic = automatic;
         _availability = availability; _removable = new(removable);
-        _preview = preview;
+        _preview = preview; _peopleSelection = peopleSelection;
     }
 
     internal OfficerOfficeDraft(int forceId, string unresolved)
@@ -87,6 +89,16 @@ public sealed class OfficerOfficeDraft
         if (_candidates is null || !_rows.Any(row => row.OfficeId == officeId)) return [];
         try { return _candidates(officeId, _assigned); }
         catch (InvalidDataException error) { Status = error.Message; return []; }
+    }
+
+    /// <summary>Captures the actual draft appointments for the source single-person
+    /// selector. Reading the page does not hypothetically assign any candidate.</summary>
+    public AreaAdministrationQuery<OfficerOfficePeopleSelection> ReadPeopleSelection(int officeId)
+    {
+        if (_peopleSelection is null || !_rows.Any(row => row.OfficeId == officeId))
+            return AreaAdministrationQuery<OfficerOfficePeopleSelection>.Unknown(
+                _unresolved ?? "officer-office.people.target_slot");
+        return _peopleSelection(officeId, _assigned);
     }
 
     public bool Assign(int officeId, int? personId)

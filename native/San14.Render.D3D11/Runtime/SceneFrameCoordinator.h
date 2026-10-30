@@ -7,6 +7,7 @@
 #include "../Scene/View/Interop/NamedMapRendererInput.h"
 #include "../Passes/Environment/Ocean/Interop/OceanGridInput.h"
 #include "../Passes/Environment/Ocean/Interop/OceanSurfaceInput.h"
+#include "../Scene/Reflection/ReflectionSceneFrameOwner.h"
 #include <memory>
 
 namespace San14::Render {
@@ -79,15 +80,17 @@ public:
             readModelCollectionMasks(resources.directory(ResourceGroup::View)/"collection-masks.txt"),
             readModelCollectionMasks(resources.directory(ResourceGroup::View)/"field-collection-masks.txt"));
         viewPreparation_->registerView(0);
+        reflectionScene_.prepare(resources.directory(ResourceGroup::View).parent_path()/"reflection-scene-input");
         initialCommonPolicy_=Interop::readCommonRenderPolicy(
             resources.directory(ResourceGroup::View) / "common-render-policy.bin");
     }
     void bindFieldDisplay(ShadowPass& shadows,const NativeModelContinuous& catalog) {
-        shadows.bindFieldDisplay(fieldDisplay_,cameraRig_.distantProfile(),catalog);
+        shadows.bindFieldDisplay(fieldDisplay_,cameraRig_.distantProfile(),catalog,reflectionScene_.source());
     }
     // The host keeps this accepted season alive until the request yields. No
     // pointer to RenderHost or its mutable RenderInput is retained.
     void acceptRequest(const RenderInput& input,const source_current_season::Frame* season) {
+        reflectionScene_.invalidate();reflectionFieldCaller_.reset();
         season_=season;cloudLights_={input.currentRawSunPosition,input.currentCloudGeometry40};
     }
     void acceptCamera(const RenderInput& input,ShadowPass& shadows) {
@@ -192,6 +195,7 @@ public:
         deferredFields_ = std::move(camera);
         mapView_ = std::move(prepared);
         view.commitCollectionCallers(callers);
+        reflectionFieldCaller_=callers.field;
     }
     // Scene publication follows the actual View construction operation and
     // precedes Main traversal. Repeated queries never trigger publication.
@@ -200,6 +204,16 @@ public:
             namedRenderer_ ? &*namedRenderer_ : nullptr);
     }
     NamedMapRenderer& namedRenderer() { return namedRenderer_.value(); }
+    // Node66 invokes this only after actual geometry/resource preparation.
+    // Initial camera population occurs before StaticModelResources::prepareGeometry.
+    void publishReflectionSceneFrame(const StaticModelResources& models,const BaseRenderWorld& bases,
+        const ArmyRenderWorld& armies,const ShadowPass& shadows) {
+        if(!mapView_||!reflectionFieldCaller_)throw std::runtime_error("Reflection publication has no current prepared View/collection caller");
+        reflectionScene_.publish(*mapView_,cameraRig_.frame(),models,bases,armies,shadows,*reflectionFieldCaller_);
+    }
+    Reflection::SceneFrameOwner& reflectionSceneOwner() {return reflectionScene_;}
+    const std::shared_ptr<Reflection::SceneFrame>& reflectionSceneFrame() const {return reflectionScene_.current();}
+    template<class ClipState> void publishReflectionClipPlanes(const ClipState& actual){reflectionScene_.publishClipPlanes(actual);}
     const PreparedMapView& preparedView() const { return *mapView_; }
     const source_weather_fog::Power& framePower() const {return weatherPower_;}
     std::optional<source_aux_camera::FogAccelerationInputs> fogAccelerationInputs() const {
@@ -236,10 +250,13 @@ public:
     const CommonRenderPolicy& commonRenderPolicy()const {return commonRenderPolicy(season_);}
     const MapViewFrame& view()const {return mapView_->frame();}
     const source_current_season::Frame* season()const {return season_;}
+    const HeightFogSettings& heightFogSettings()const {return season_?season_->heightFog:initialHeightFog_;}
     const source_current_season_atmosphere::CloudLightInput& cloudLights()const {return cloudLights_;}
     source_camera::Zoom zoom()const {return cameraRig_.zoom();}
     double distance()const {return cameraRig_.distance();}
 private:
+    Reflection::SceneFrameOwner reflectionScene_;
+    std::optional<NativeModelCollectionCaller> reflectionFieldCaller_;
     CameraRig cameraRig_;
     FieldDisplay fieldDisplay_;
     SceneEnvironment environment_;

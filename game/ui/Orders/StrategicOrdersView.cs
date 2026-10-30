@@ -29,6 +29,7 @@ internal partial class StrategicOrdersView : Control
     private readonly List<UiSourceRadioButton> independence = [];
     private Func<bool>? admitted;
     private Action? returned;
+    private bool returnAllowed=true;
     private Action<int>? militaryChanged;
     private StrategicOrdersPageValues? publication;
     private bool abandoned, busy;
@@ -45,6 +46,7 @@ internal partial class StrategicOrdersView : Control
         unknown = text.Get("detail_unknown");
         Name = "StrategicOrders"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, kind + 0x127, RequestBack,
             () => { if (ReadAdmission() && publication?.CanConfirm == true) accepted(); }, threeButtonFooter: true, titleSection: 0);
@@ -225,14 +227,16 @@ internal partial class StrategicOrdersView : Control
             }
         }
         advice.Apply(value.AdvisorPortrait, value.Notice);
-        chrome.ApplyDecision(!busy && value.CanConfirm, true); chrome.ApplyReturn(!busy);
+        chrome.ApplyDecision(!busy && value.CanConfirm, true); chrome.ApplyReturn(!busy&&returnAllowed);
         continueOrders.Disabled = busy || !value.CanContinue;
     }
 
     internal void ApplyNotice(string value) { if (!abandoned) chrome.ApplyDefaultHint(value); }
     internal void SetBusy(bool value) { busy = value; if (publication is { } current) Apply(current); }
+    internal void SetReturnAllowed(bool value)
+    { returnAllowed=value;if(!abandoned&&publication is {} current)Apply(current); }
     private bool ReadAdmission() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
-    internal void RequestBack() { if (ReadAdmission()) returned?.Invoke(); }
+    internal void RequestBack() { if (ReadAdmission()&&returnAllowed) returned?.Invoke(); }
     internal void Abandon()
     {
         abandoned = true; admitted = null; returned = null; militaryChanged = null; publication = null;

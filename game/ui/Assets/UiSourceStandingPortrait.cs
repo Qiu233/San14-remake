@@ -7,12 +7,41 @@ using San14.Data.Formats;
 /// portrait resources; this renderer neither chooses characters nor masks faces.</summary>
 internal partial class UiSourceStandingPortrait : Control
 {
+    private readonly List<(int Node, UiSourceSprite View)> storyLayers = [];
+    private LcskDocument? storyLayout;
+    internal bool? StoryDark { get; private set; }
+
+    internal void SetStoryDark(bool dark, bool immediate = false)
+    {
+        var current = motion ?? throw new InvalidOperationException("Standing portrait is not configured.");
+        ApplyMotion(current.SetDark(dark, immediate));
+        StoryDark = dark;
+        RefreshProcessing();
+    }
+
+    private static void ConfigureMaterial(UiSourceSprite image, LcskNodeRecord node)
+    {
+        //Ordinary portrait resources use no black interpolation, Gamma1 and
+        //Saturation1. Other authored material routes require their own owner.
+        var bytes = node.RawBytes.AsSpan();
+        if (BinaryPrimitives.ReadUInt32LittleEndian(bytes[116..]) != 0 ||
+            BinaryPrimitives.ReadSingleLittleEndian(bytes[124..]) != 1 ||
+            BinaryPrimitives.ReadSingleLittleEndian(bytes[128..]) != 1)
+            throw new InvalidDataException("Standing portrait material requires its ordinary colour route.");
+        image.SetMaterialColorScale(BinaryPrimitives.ReadUInt32LittleEndian(bytes[120..]));
+    }
+
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,
         IReadOnlyList<LoadedSprite> layers)
     {
+        if (storyLayout is not null) throw new InvalidOperationException("Standing portrait already has a resource owner.");
+        SetProcess(false);
+        if(layers is LoadedStandingPortraitSprites { Kind:StandingPortraitKind.AnimatedFrames })
+        { ConfigureAnimated(repository,assets,shader,layers);ConfigureMotion(layers);return; }
         if(layers.Count!=3)throw new InvalidDataException("Standing portrait requires its three resolved source layers.");
         MouseFilter=MouseFilterEnum.Ignore;
         var layout=repository.LoadLayout("ScreenLayout",0xF8115B8B);
+        storyLayout = layout.Layout;
         var nodes=LcskNodeReader.Read(layout.Layout);
         var branch=nodes.Single(node=>node.Name=="chara_B");
         RequirePlanar(branch);
@@ -51,9 +80,12 @@ internal partial class UiSourceStandingPortrait : Control
                 ?assets.SrgbSpritePart(resolved.Definition.Name,uv,resolved)
                 :assets.SpritePart(resolved.Definition.Name,uv,resolved);
             image.Configure(shader,texture,UiSourceSprite.Blend.SourceAlphaDestinationAlpha);
+            ConfigureMaterial(image, node);
+            storyLayers.Add((node.Index, image));
             image.SetMeta("portrait_sprite",resolved.Definition.Name);
             image.SetMeta("source_node_index",node.Index);
         }
+        ConfigureMotion(layers);
         SetMeta("source_layout",layout.Source.ResourceUri);
     }
 

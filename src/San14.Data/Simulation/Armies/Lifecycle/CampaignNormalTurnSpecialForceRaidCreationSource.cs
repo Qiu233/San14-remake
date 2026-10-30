@@ -10,6 +10,12 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState CreateSpecialForceRaidArmyCurrent(GameState state, SourceWorldContext current,
         WorldIndexContext pool, int person, BaseReference source, BaseReference target,
         int troops, int landFormation, int navalFormation, int tactic)
+        => CreateSpecialForceRaidArmyCurrent(state, current, pool, person, source,
+            new SpecialForceBaseTarget(target), troops, landFormation, navalFormation, tactic);
+
+    private GameState CreateSpecialForceRaidArmyCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool, int person, BaseReference source, SpecialForceCreationTarget target,
+        int troops, int landFormation, int navalFormation, int tactic)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw RaidCreationMissing("same_current_pool");
         if (!RaidCreationKnown(current.ReadPersonNativeValidity(person), "commander_validity")) return state;
@@ -36,15 +42,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         int forceId = RaidCreationKnown(current.ReadForcePhysicalSlot(force), "commander_Force_ordinal");
         int district = RaidCreationKnown(current.ReadPersonDistrictSlot(person), "commanderE0");
         int sourceHex = ArmyConstruction.ResolveCurrentHex2A(current, commander) ?? throw RaidCreationMissing("Home_Hex");
-        int targetLocation = RaidCreationKnown(current.ReadBaseObjectLink(target), "target_Base4E");
-        byte action = targetLocation <= 51 ? (byte)4 : (byte)5;
-        var goal = new ArmyTargetSourceFields(targetLocation <= 51 ? (byte)5 : (byte)6,
-            (ushort)(targetLocation <= 51 ? targetLocation : targetLocation - 51));
-        int targetHex = current.ReadBaseCurrentHexIndex(target);
+        //Resolve only here, after the original commander/receiver gates.
+        //The old Base wrapper does not pre-read an otherwise skipped target.
+        var objective = ResolveSpecialForceCreationTarget(state, current, target);
+        byte action = objective.Action;
+        var goal = objective.Target;
+        int targetHex = objective.Hex;
         if (targetHex >= 48400) throw RaidCreationMissing("target_Base_Hex");
         var behavior = DeploymentDraftDefaults.Decode(2, 0, 1, 1)
             ?? throw RaidCreationMissing("source_deployment_behavior");
-        var attack = new DeploymentAction("attack", new(DeploymentTargetKind.Location, targetLocation));
+        var attack = objective.Command;
         state = ArmyIdentityAllocation.Initialize(state);
         int id = state.ArmyIdentities!.Candidate;
         //This transient descriptor adapts the already produced packet to the
@@ -82,7 +89,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             CarriedStores = receipt.CarriedStores, OverrideTarget = receipt.OverrideTarget,
             NativeDirection36 = before.Direction36, NativeMapUiByte13C = before.MapUiByte13C,
             NativeCommandControl140 = before.CommandControl140,
-            NativeRouteHold56 = 0, NativeRouteGoal1F8 = before.RouteGoal1F8,
+            NativeRouteHold56 = 0, NativeRouteGoal1F8 = before.RouteGoal1F8, AiActionFlags = before.AiActionFlags,
             NativeCommandChoice41 = 1, NativeHomeSequence28 = sequence, NativeSavedRegionHex152 = (ushort)sourceHex,
             PositionKnowledge = ArmyPositionKnowledge.Confirmed,
             March = new(0, ArmyMarchDestination.None, ArmyMarchDestination.None) { FollowingWaypoints = new([]) }
@@ -179,6 +186,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             int actualDistrict = selectedDistrict.IsRecognized ? selectedDistrict.DistrictId ?? 0 : 0;
             if (actualDistrict != playerDistrict && commander < 6000)
                 groups.Leaders[selected] = new(true, ArmyGroupSourceAdapter.Officer(current, (ushort)commander));
+            groups = groups.RegisterOriginalAiContext(selected); // Actual2D9630 -> D2ED0 registration tail.
             return state.WithArmyLifecycle(arena with { ArmyGroups = groups, Indexes = pool.ProjectOwnedRoles() });
         }
         finally { current.ClearTemporaryHexList(input); current.ReleaseTemporaryHexList(input); }

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace San14.Core;
 
 /// <summary>Signed final transfers: positive gives to the recipient, negative
@@ -24,6 +26,11 @@ public sealed record PersonnelDiplomacyTask(int Id, int DispatchSlot, int[] Memb
     bool Started, bool NeedsRefresh, bool Cancelled, bool AwaitingNegotiation,
     bool IsRetiring, bool IsAssociated)
 {
+    // The source order is retained while normal arrival pruning removes ineligible captives.
+    public ImmutableArray<int> RequestedCaptiveOfficerIds { get; init; } = [];
+    public DiplomacyOffer RequestedOffer { get; init; } = new(0, 0);
+    // Null preserves an unknown legacy dispatch forecast; -1 is the actual no-override result.
+    public int? AdvisorOutcomeAtDispatch { get; init; }
     public NativeMapSeasonDate? NegotiationDate { get; init; }
     public DiplomaticNegotiationState? Negotiation { get; init; }
 }
@@ -33,6 +40,8 @@ public sealed record DiplomacyNegotiationRequest(int TaskId, int ForceId, int Ta
     int AllianceMonths, int? TargetCityId, NativeMapSeasonDate ArrivalDate)
 {
     public DiplomaticNegotiationState? Negotiation { get; init; }
+    public ImmutableArray<int> RequestedCaptiveOfficerIds { get; init; } = [];
+    public DiplomacyOffer RequestedOffer { get; init; } = new(0, 0);
 }
 
 /// <summary>A real player decision, not an animation acknowledgement.</summary>

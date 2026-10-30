@@ -72,6 +72,8 @@ public sealed class NarrationVoiceRequests
         ReadOnlySpan<uint> slots = type < 26
             ? voiceId is >= 14 and <= 27 ? NarrationTacticSpatialVoiceDefinitions.Slots(settings.Language, type, voiceId)
                 : voiceId == 2 ? NarrationSpatialArmyVoice2Definitions.Slots(settings.Language, type)
+                : voiceId == 9 ? NarrationSpatialArmyVoice9Definitions.Slots(settings.Language, type)
+                : voiceId is 6 or 7 ? PersonPreviewVoiceDefinitions.Slots(settings.Language,type,voiceId)
                 : NarrationSpatialArmyVoiceDefinitions.Slots(settings.Language, type, voiceId) : [];
         int count = slots.Length;
         while (count > 0 && slots[count - 1] == 0) count--;
@@ -104,12 +106,13 @@ public sealed class NarrationVoiceRequests
     {
         //These imported families follow the ordinary405E80 path. Special
         //voice10/12/32 must not borrow these five-slot definitions.
-        if (voiceId is not (33 or 34 or 35 or 36 or 38 or 40 or 42 or 43 or 45)) throw Missing("voice_family");
+        if (voiceId is not (33 or 34 or 35 or 36 or 37 or 38 or 40 or 42 or 43 or 45)) throw Missing("voice_family");
         byte voiceType = person.VoiceType ?? throw Missing("current_Person_voice_type");
         ReadOnlySpan<uint> slots = voiceType < 26
             ? voiceId switch
             {
                 33 or 34 or 35 or 36 => NarrationPersonnelVoiceDefinitions.Slots(settings.Language, voiceType, voiceId),
+                37 => NarrationDeploymentVoiceDefinitions.Slots(settings.Language, voiceType),
                 38 => NarrationGroupMovementVoiceDefinitions.Slots(settings.Language, voiceType),
                 40 => NarrationRecruitVoiceDefinitions.Slots(settings.Language, voiceType),
                 43 => NarrationStrategicVoiceDefinitions.Slots(settings.Language, voiceType),

@@ -10,6 +10,7 @@ internal partial class IncomeReportDistrictNumbersView : Control
     private readonly List<UiSourceTabButton> tabs = [];
     private IReadOnlyList<IncomeReportDistrict> districts = [];
     private IncomeReportNumbersView numbers = null!;
+    private Control numericBackground = null!;
     private Func<DistrictReference, IncomeReportNumbers>? readNumbers;
     private Action<DistrictReference>? districtChanged;
     private Func<bool>? inputAdmitted;
@@ -19,6 +20,8 @@ internal partial class IncomeReportDistrictNumbersView : Control
     internal int SelectedIndex { get; private set; } = -1;
     internal int DistrictCount => districts.Count;
     internal DistrictReference? SelectedDistrict => SelectedIndex < 0 ? null : districts[SelectedIndex].Reference;
+    internal byte? SelectedNumber => SelectedIndex < 0 ? null : districts[SelectedIndex].Number;
+    internal void SetNumericVisible(bool visible) { numbers.Visible = visible; numericBackground.Visible = visible; }
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, MapFont font,
         string locale, SourceWorldContext current, ForceReference force,
@@ -59,7 +62,7 @@ internal partial class IncomeReportDistrictNumbersView : Control
             tab.Visible = present;
             tab.Pressed += () => { if (ReadAdmission() && !tab.Disabled) Run(() => SelectTab(ordinal)); };
         }
-        side.Art(this, 13, side.Rectangle(13), assets, shader);
+        numericBackground = side.Art(this, 13, side.Rectangle(13), assets, shader);
         numbers = new IncomeReportNumbersView { Name = "IncomeNumbers", Position = side.Rectangle(14).Position + new Vector2(0, 30) };
         AddChild(numbers);
         numbers.Configure(repository, assets, shader, font, locale);

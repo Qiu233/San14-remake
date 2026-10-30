@@ -129,7 +129,9 @@ public static class NormalArmyPairAftermath
             id is >= 0 and <= 51 ? id : 0), "current.Force_pointer")), "current.Force_validity");
         bool CommanderOrdinary(NormalCombatParticipant descriptor)
         {
-            if (descriptor.Kind is 5 or 6) return true;
+            //174EC0 tests a Commander only for a real Army participant.
+            //The generic Object has no Person, including after its F0 enqueue.
+            if (descriptor.Kind is 5 or 6 or 11) return true;
             if (descriptor.Kind != 27) throw Missing("current.stage8_participant_kind");
             //Source reads the current pooled receiver even after an enqueue.
             if (descriptor.UnitId is not int unitId || !working.Units.TryGetValue(unitId, out var army) ||

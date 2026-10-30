@@ -22,6 +22,7 @@ internal sealed record PersonnelHireRules(int ForceId, int DistrictId,
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private const string HireParameterPrefix = "simulation.personnel.hire-";
+    //TC/SC independently read cost and rank defaults; no original executable is used here.
     private static readonly IReadOnlyDictionary<string, int> HireStaticRules = new Dictionary<string, int>
     {
         ["gold-per-person"] = 500, ["command-book-cost"] = 1,
@@ -33,9 +34,16 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal static GameState InstallFreshPersonnelHireParameters(GameState state)
     {
         var native = state.NativeArmySimulation ?? throw HireMissing("parameter_owner");
-        if (native.Parameters.Language != "TC") return state;
+        if (native.Parameters.Language is not ("TC" or "SC") ||
+            native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(native.Parameters.Language))
+            throw HireMissing("parameter_rule_owner");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
-        foreach (var pair in HireStaticRules) values.TryAdd(HireParameterPrefix + pair.Key, pair.Value);
+        foreach (var pair in HireStaticRules)
+        {
+            string key = HireParameterPrefix + pair.Key;
+            if (native.Parameters.Float32Values.ContainsKey(key)) throw HireMissing(key);
+            values.TryAdd(key, pair.Value);
+        }
         return state with { NativeArmySimulation = native with
             { Parameters = native.Parameters with { Int32Values = values } } };
     }
@@ -107,7 +115,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw HireMissing("parameter_owner");
         string key = HireParameterPrefix + name;
-        if (bank.Language != "TC" || bank.RuleVersion != SimulationRuleIdentity.ForLocale("TC") ||
+        if (bank.Language is not ("TC" or "SC") || bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language) ||
             bank.Float32Values.ContainsKey(key)) throw HireMissing(key);
         return bank.Int32Values.TryGetValue(key, out int value) ? value
             : HireStaticRules.TryGetValue(name, out int initial) ? initial : throw HireMissing(key);

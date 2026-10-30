@@ -1,4 +1,5 @@
 #pragma once
+#include "../Runtime/PreparedFileInput.h"
 // CE 13E00/13CF0/15640/15BB0/175E0: retained CPU input/tick state.
 // No frame clock, quaternion interpolation, disk lookup or graphics objects.
 #include "CameraState.h"
@@ -20,7 +21,7 @@ struct Runtime {source_camera::Runtime camera{};V4 velocity{0,0,0,1};int32_t vel
 // for live immediate/tick. The ground owner decides whether to accept and pitch.
 using TerrainQualifier=std::function<bool(int,const State&,double,double,double,double&)>;
 inline Profile loadProfile(const std::filesystem::path& path){
-    std::ifstream stream(path,std::ios::binary);if(!stream||read<uint32_t>(stream)!=0x31504d43u)throw std::runtime_error("Camera motion source profile absent");
+    NativePreparedInputFile stream(path,std::ios::binary);if(!stream||read<uint32_t>(stream)!=0x31504d43u)throw std::runtime_error("Camera motion source profile absent");
     Profile result;result.bandPitch=read<std::array<double,7>>(stream);result.inertiaTimeout=read<int32_t>(stream);
     if(stream.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Camera motion source profile trailing data");return result;
 }

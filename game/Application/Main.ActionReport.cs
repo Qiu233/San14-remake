@@ -23,12 +23,16 @@ public partial class Main
             session.World.Phase != TurnPhase.Reporting || _campaignApplication is not { } application ||
             _campaignComposition is not { } composition) return false;
         if (_actionReportView is not null && ReferenceEquals(_actionReportSession, session) &&
-            ReferenceEquals(_actionReportApplication, application)) return true;
+            ReferenceEquals(_actionReportApplication, application) && _actionReportMap == _residentMap)
+        {
+            EnsureReportBackground(session, application, _residentMap, _actionReportView);
+            return true;
+        }
         if (ReferenceEquals(_actionReportSession, session) && session.World.PreparedActionReport is { Completed: false }) return false;
         CloseActionReport();
         _actionReportSource = composition.PrepareArmyQueries(session.World).CreateActionReportSource(new(
             () => application.TutorialBlocksAreaReports, () => application.SpecialModeSuppressesSceneryReport,
-            () => application.SpecialModeSuppressesAssociationReport));
+            () => application.SpecialModeSuppressesAssociationReport, () => application.TutorialBlocksAssociationReports));
         var prepared = session.PrepareActionReport(_actionReportSource, _presentationRandom).Report;
         if (!prepared.Completed)
         {
@@ -50,14 +54,14 @@ public partial class Main
         var sprites = new LocalizedUiSpriteSource(_repository);
         IReadOnlyList<LoadedSprite>? layers = null;
         if (_actionReportPeople.StrategistPortrait is { } route)
-            layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-                .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+            layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         RetirePeriodReportView();
         var view = new ActionReportView { Name = "CampaignActionReport" };
         _actionReportView = view;
         AddChild(view);
         try
         {
+            EnsureReportBackground(session, application, _actionReportMap, view);
             view.ConfigureOwned(_repository, _ui.SourceLocale, lists, layers, false,
                 CurrentListScrollSpeed(), CurrentListScrollSpeed, ResolveActionReportRow,
                 (_, _, record, command) => RunUiAction(() => NavigateActionReport(record, command)),
@@ -73,7 +77,7 @@ public partial class Main
     }
 
     private bool ActionReportInputAdmitted(ActionReportView view) =>
-        !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle &&
+        !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle && !TutorialOverlayOwnsInput &&
         _actionReportView == view && ReferenceEquals(_session, _actionReportSession) &&
         ReferenceEquals(_campaignApplication, _actionReportApplication) &&
         _world?.Phase == TurnPhase.Reporting && _detailsView is null && _reportMapReturn is null &&
@@ -115,6 +119,7 @@ public partial class Main
         AddChild(navigation);
         try
         {
+            SetReportBackgroundMapSuspended(true);
             view.Hide(); view.ProcessMode = ProcessModeEnum.Disabled;
             map.SetDetailsOpen(false); SetMapFocus(true);
             navigation.Configure(_repository!, _ui.SourceLocale, _sourceHeaders,
@@ -139,18 +144,29 @@ public partial class Main
         {
             _actionReportMap?.SetDetailsOpen(true, keepMapVisible: true);
             SetMapFocus(_reportMapPriorFocus);
+            SetReportBackgroundMapSuspended(false);
             view.ProcessMode = ProcessModeEnum.Inherit; view.Show();
         }
+        else if (navigation is not null) CloseReportBackground();
     }
 
     private void CompleteActionReport(ActionReportView view)
     {
         if (_actionReportView != view || !ReferenceEquals(_session, _actionReportSession)) return;
-        CloseActionReport();
-        FinishPlayableReport();
+        CloseActionReport(keepReportBackground: true);
+        try
+        {
+            ObserveTutorialActionReportAcknowledged();
+            if (OpenIncomeReport(FinishPlayableReport)) return;
+            FinishPlayableReport();
+        }
+        finally
+        {
+            if (!HasIncomeReport) CloseReportBackground();
+        }
     }
 
-    private void CloseActionReport()
+    private void CloseActionReport(bool keepReportBackground = false)
     {
         var view = _actionReportView;
         _actionReportView = null;
@@ -169,5 +185,6 @@ public partial class Main
             if (view.GetParent() is Node parent) parent.RemoveChild(view);
             if (!view.IsQueuedForDeletion()) view.QueueFree();
         }
+        if (!keepReportBackground && !HasIncomeReport) CloseReportBackground();
     }
 }

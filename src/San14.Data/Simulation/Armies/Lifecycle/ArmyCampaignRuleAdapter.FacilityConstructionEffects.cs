@@ -5,6 +5,32 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    //275960 ->1C2130 after creating a wall/chain: allocate a connecting
+    //sub-object for the created and adjacent Objects with the same raw kind.
+    private static void AppendAdjacentConstructionConnections(SourceWorldContext current,
+        ObjectReference obj, List<CampaignEffectRequest> requests)
+    {
+        var source = current.ReadPhysicalObject(K(obj.PhysicalSlot, "adjacent_source_pointer"))
+            ?? throw Missing("adjacent_source_fields");
+        if (source.RawField12 is not (9 or 10 or 16)) return;
+        int center = K(current.ReadObjectHexIndex(obj), "adjacent_source_Hex10");
+        var created = current.CurrentMapObjectDirectory!.ReceiverAtPhysical(K(obj.PhysicalSlot, "adjacent_source_identity"));
+        foreach (int hexId in TacticRemakeCurrentContext.NativeHexOrder(center, 1).Skip(1))
+        {
+            var hex = current.ReadHexTableReference(hexId) ?? throw Missing("adjacent_Hex_pointer");
+            var neighbor = FacilityConstructionLegality.ObjectAt(current, hex);
+            if (!K(current.ReadObjectNativeValidity(neighbor), "adjacent_Object_validity")) continue;
+            int physical = K(neighbor.PhysicalSlot, "adjacent_Object_pointer");
+            var fields = current.ReadPhysicalObject(physical) ?? throw Missing("adjacent_Object_fields");
+            if (fields.RawField12 != source.RawField12) continue;
+            var receiver = current.CurrentMapObjectDirectory!.ReceiverAtPhysical(physical);
+            requests.Add(new(null, null) { FacilityConstructionPresentation = new(
+                FacilityConstructionPresentationOperation.ConnectAdjacentFacility, created, center,
+                MapObjectSourceDirectory.DefinitionKey(source.RawField12), null)
+                { AdjacentReceiverId = receiver } });
+        }
+    }
+
     internal GameState AppendFacilityConstructionMarchTail(GameState state, SourceWorldContext current,
         UnitState image, NativeArmyProgressStageMoment? moment)
     {
@@ -43,7 +69,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("model_player_pointer");
         int playerId = K(player.PhysicalSlot, "model_player_identity");
         int forceId = K(force.PhysicalSlot, "model_Force_identity");
-        if (!IsSupported(fields.RawField12)) throw Missing("model_definition_consumer");
         //2C4830: own traps are visible immediately, without fabricating
         //completion or a diplomacy value. Non-traps share the ordinary tail.
         if (forceId == playerId) return true;
@@ -58,39 +83,37 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private GameState ApplyConstructionSiteOwnership(GameState state, SourceWorldContext current,
-        ArmyUnitReference army, HexReference site, MapObjectReceiverId receiver, string definitionKey,
+        ArmyUnitReference army, HexReference site, FacilityOperation operation,
         List<CampaignEffectRequest> requests)
     {
-        //288Bxx reads both the current Home and its City identity before the
-        //185D00 call, even when the wrapper will return without a write.
+        //2888B0 reads Home, its actual City identity and the Army raw Force
+        //before185D00's own eligibility and unchanged-owner early returns.
         var home = current.FindArmyUnitCurrentBase(army);
         var homeCity = CurrentGateMapQueries.FindCity(home, current);
-        _ = K(homeCity.PhysicalSlot, "ownership_Home_City_identity");
+        int city = K(homeCity.PhysicalSlot, "ownership_Home_City_identity");
         int force = current.ReadArmyUnitRawForceSlot(army);
         if (!GateCaptureTerritorySource.Eligible(state, current, site, force, requireNoArmy: false)) return state;
         if (K(current.ReadHexForceSlot(site), "ownership_previous_Force") == force) return state;
-        if (force is < 1 or > 45) throw Missing("ownership_special_Force_tail");
-        int surface = K(current.ReadHexSurfaceCode(site), "ownership_surface");
-        if (surface is >= 15 and <= 18) throw Missing("ownership_center_tail_outside_supported_facilities_terrain");
-        //The same normal numeric application lifetime used by ordinary
-        //occupation has no original scenery-view or tutorial-mode receiver.
-        //Keep the logical visual/sound requests instead of claiming playback.
-        current.CurrentSceneryLayout = new(null);
-        current.ArmyReturnTransferMode = new(false, null);
-        current.AssignHexForce(site, force);
-        int physical = K(site.PhysicalSlot, "ownership_Hex_identity");
-        if (!state.Territory.TryGetValue(physical, out var before)) throw Missing("ownership_canonical_Hex");
-        var working = state with { Territory = new(state.Territory) { [physical] = before with { ForceId = force } } };
-        var selected = current.ReadForceTableReference(K(current.ReadHexForceSlot(site), "ownership_written_Force"))
-            ?? throw Missing("ownership_written_Force_pointer");
-        if (K(current.ReadForceNativeValidity(selected), "ownership_written_Force_validity"))
-        {
-            requests.Add(new(null, null) { FacilityConstructionPresentation = new(
-                FacilityConstructionPresentationOperation.ShowSiteOwnershipChanged, receiver, physical, definitionKey, force) });
-            requests.Add(new(null, null) { FacilityConstructionPresentation = new(
-                FacilityConstructionPresentationOperation.PlaySiteOwnershipChangedSound, receiver, physical, definitionKey, force) });
-        }
-        return working;
+        //The construction current already owns its fixed Scenery links and
+        //live flags. Borrow the same pool and application lifetime; do not
+        //materialize another world or replace its existing layout receiver.
+        current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
+        current.ArmyReturnTransferMode = ReadApplicationTransferModeCurrent();
+        BindApplicationServiceCurrent(state, current);
+        if (current.SceneryLayoutReader is null && current.CurrentSceneryLayout is null)
+            current.CurrentSceneryLayout = new(null);
+        bool playerCenter = K(current.ReadHexSurfaceCode(site), "ownership_surface") is >= 15 and <= 18 &&
+            force == K((current.CurrentPlayerForce ?? throw Missing("ownership_player_pointer")).PhysicalSlot,
+                "ownership_player_identity");
+        var working = playerCenter ? PrepareApplicationServiceCurrent(state, current, profile => profile) : state;
+        //The common185D00(flags1,1,0) kernel owns center/Scenery notices,
+        //special-Force retention/neutralization, projections and map4/5 work.
+        working = TransferTerritoryHexCurrent(working, current, site, force, city,
+            enqueueEncirclement: true, allowType3Override: false, showAppearance: true,
+            date: operation.ReadDate(), borrowedEffects: requests).State;
+        if (!playerCenter) return working;
+        var service = current.TransferService ?? throw Missing("ownership_service");
+        return PrepareApplicationServiceCurrent(working, current, _ => service);
     }
 
     private static GameState AppendConstructionStartSpeech(GameState state, SourceWorldContext current,
@@ -111,7 +134,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         var receiver = current.CurrentMapObjectDirectory!.ReceiverAtPhysical(K(obj.PhysicalSlot, "speech_Object_identity"));
         requests.Add(new(new(CombatParticipantKind.Army, image.Id, officer,
             CombatSpeechEvent.ArmyFacilityConstructionStarted, position, CombatParticipantKind.FieldObject,
-            receiver.Value, null, null, null), null));
+            receiver.Value, null, null, null)
+            { FacilityArmySlot=K(army.PhysicalSlot,"speech_Army_packet_identity") }, null));
         return state;
     }
 

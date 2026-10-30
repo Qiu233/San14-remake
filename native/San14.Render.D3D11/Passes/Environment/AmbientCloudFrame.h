@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "CloudVolumeMaterial.h"
 // Current fixed Main/season WORK Cloud consumes node3's already advanced
 // global phase. It never advances animation or consumes Main Bayer/history.
@@ -9,7 +10,7 @@ struct NativeAmbientCloudContinuous {
     std::vector<NativeAmbientCloudAxis> axes;
 };
 static NativeAmbientCloudContinuous readNativeAmbientCloudContinuous(const fs::path& source,const NativeMainCloud& sharedNode3Cloud) {
-    NativeAmbientCloudContinuous result;std::ifstream rows(source/"animation.txt");UINT sourcePhase,cbOffset;float wind,period,position,scale;
+    NativeAmbientCloudContinuous result;NativePreparedInputFile rows(source/"animation.txt");UINT sourcePhase,cbOffset;float wind,period,position,scale;
     if(!rows)throw std::runtime_error("WORK Cloud shared animation source absent");
     while(rows>>sourcePhase>>cbOffset>>wind>>period>>position>>scale){
         auto found=std::find_if(sharedNode3Cloud.axes.begin(),sharedNode3Cloud.axes.end(),[&](const auto& axis){return axis.sourcePhase==sourcePhase;});

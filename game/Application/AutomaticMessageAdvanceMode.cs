@@ -9,12 +9,13 @@ internal enum AutomaticMessageAdvanceMode
 
 internal static class AutomaticMessageAdvanceSource
 {
-    // The four little-endian TC source values were extracted offline. These
-    // count active wait updates, not seconds; SC has no independently read table.
+    //The independent TC/SC source tables contain the same four values.
+    //They count active wait updates, not seconds, characters or voice duration.
+    internal static bool SupportsLocale(string sourceLocale) => sourceLocale is "TC" or "SC";
     internal static int? ReadThreshold(string sourceLocale, AutomaticMessageAdvanceMode mode)
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
-        if (sourceLocale != "TC") return null;
+        if (!SupportsLocale(sourceLocale)) return null;
         return mode switch
         {
             AutomaticMessageAdvanceMode.Manual => int.MaxValue,

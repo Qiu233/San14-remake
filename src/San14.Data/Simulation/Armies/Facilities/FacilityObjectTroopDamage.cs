@@ -5,11 +5,20 @@ namespace San14.Data;
 
 internal sealed partial class TrapEffectApplication
 {
-    //These mutable coefficients have no established saved-current owner in
-    //the current profile. Read only at the reached diplomacy consumer; never
-    //install cached executable-image values into an existing game.
+    //Ordinary source coefficients are independent of trap class4. These
+    //normal immutable rules were extracted offline; saved parameter overrides
+    //retain their own keys rather than aliasing the trap settings.
     private const string FacilityObjectRelationCeiling = "facility-object:relation-ceiling";
     private const string FacilityObjectRelationAdjustment = "facility-object:relation-adjustment";
+
+    private int OrdinaryFacilityRelationParameter(string key)
+    {
+        var bank=State.NativeArmySimulation?.Parameters??throw Missing("ordinary_relation_parameters");
+        if(bank.Float32Values.ContainsKey(key))throw Missing("ordinary_relation_parameter_type");
+        if(bank.Int32Values.TryGetValue(key,out int value))return value;
+        return key switch{FacilityObjectRelationCeiling=>15,FacilityObjectRelationAdjustment=>-5,
+            _=>Read(State,key)};
+    }
 
     private int FacilitySourcePanelDamage(ObjectReference facility, int basisDamage)
     {

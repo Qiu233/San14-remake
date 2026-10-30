@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -12,7 +13,7 @@ struct NativeRefractionTargetDeclaration {
 };
 inline std::map<std::string,NativeRefractionTargetDeclaration> readNativeRefractionTargets(
     const std::filesystem::path& path) {
-    std::ifstream input(path);
+    NativePreparedInputFile input(path);
     if (!input) throw std::runtime_error("Refraction target declarations are absent");
     std::map<std::string,NativeRefractionTargetDeclaration> result;
     std::string role;NativeRefractionTargetDeclaration target;

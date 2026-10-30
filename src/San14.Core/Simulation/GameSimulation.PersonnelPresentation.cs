@@ -17,11 +17,39 @@ public sealed partial class GameSimulation
         var batch = effects.PendingBatches[batchIndex];
         if ((uint)requestIndex >= (uint)batch.Requests.Length) return false;
         var request = batch.Requests[requestIndex];
+        //A real Intelligence wait consumes narration only through its typed
+        //receipt, which also preserves the current App stream and resume phase.
+        if (batch.Source == CampaignEffectSource.IntelligenceCommands &&
+            request.TalentCommandPresentation is { Operation: TalentCommandPresentationOperation.OfficerText or
+                TalentCommandPresentationOperation.ConditionalOfficerText } &&
+            IsIntelligenceNarrationOwnedByWait(owner, batchSequence)) return false;
         if (IsBaseCaptureRequest(request) && !IsPresentationHead(effects, batchIndex, requestIndex, IsBaseCaptureRequest)) return false;
         if (request.PersonDeathReport is not null &&
             !IsPresentationHead(effects, batchIndex, requestIndex, static item => item.PersonDeathReport is not null)) return false;
+        if (batch.Source is CampaignEffectSource.ForeignTradeCommands or CampaignEffectSource.SceneryInvestmentCommands or CampaignEffectSource.IntelligenceCommands or CampaignEffectSource.DiplomacyCommands &&
+            !TryReadSourcePresentationHead(expectedOwner, batch.Source, batchSequence, requestIndex,
+                out _, out _, out _, out _, out _)) return false;
+        //Occupation shares ArmyMovement with departure/trait work. Its
+        //actual map receipt cannot jump any earlier same-source request.
+        if (batch.Source == CampaignEffectSource.ArmyMovement &&
+            request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation } &&
+            !TryReadSourcePresentationHead(expectedOwner, batch.Source, batchSequence, requestIndex,
+                out _, out _, out _, out _, out _)) return false;
         bool canComplete = batch.Source switch
         {
+            CampaignEffectSource.ArmyMovement => request.MonthlyMaintenance is
+                { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 },
+            CampaignEffectSource.SceneryInvestmentCommands => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 4 } or
+                { Operation: TalentCommandPresentationOperation.Announcement },
+            CampaignEffectSource.IntelligenceCommands => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } or
+                { Operation: TalentCommandPresentationOperation.OfficerText, Speaker: not null } ||
+                IsIntelligenceNarrationSound(owner, batchSequence, request.TalentCommandPresentation),
+            CampaignEffectSource.ForeignTradeCommands => request.TalentCommandPresentation is
+                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 4 or 5 or 6 or 7 or 8 } or
+                { Operation: TalentCommandPresentationOperation.Announcement } or
+                { Operation: TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null },
             CampaignEffectSource.TalentCommands => request.TalentCommandPresentation is not null ||
                 request.TalentSceneryReward is not null,
             CampaignEffectSource.DiplomacyCommands => request.TalentCommandPresentation is not null ||
@@ -35,10 +63,11 @@ public sealed partial class GameSimulation
             CampaignEffectSource.StrategicCommands => request.TalentCommandPresentation is
                 { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText },
             CampaignEffectSource.ArmyBattleDefeat => request.TalentCommandPresentation is
-                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 5 or 6 or 7 or 8 } or
+                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 4 or 5 or 6 or 7 or 8 or 23 } or
                 { Operation: TalentCommandPresentationOperation.Announcement } or
-                { Operation: TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } ||
-                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 } ||
+                { Operation: TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } ||
+                request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.NarrationText } or
+                    { Operation: MonthlyMaintenanceOperation.TerritoryOccupation, EventKind: 4 or 5 } ||
                 request.MapObjectPresentation is { BaseCapture: not null,
                     Event: MapObjectPresentationEvent.BaseOwnershipLostVisual or MapObjectPresentationEvent.BaseOwnershipLostSound },
             CampaignEffectSource.OfficerGrowthNotifications => request.OfficerGrowthFeedback is

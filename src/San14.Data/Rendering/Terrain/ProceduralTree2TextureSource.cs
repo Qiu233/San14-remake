@@ -11,8 +11,8 @@ public static class ProceduralTree2TextureSource
         NamedModelShader provider,LoadedShaderContainer shader,int combinationIndex)
     {
         if(provider.Object.ClassId!=0xAB9C4087 || provider.ShaderFileHash!=shader.Source.FileId ||
-            shader.Source.FileId is not (0x20A8720A or 0x7FA757FD) || combinationIndex!=0)
-            throw new NotSupportedException("Only actual CE normal Tree220A8720A/7FA757FD is imported here.");
+            shader.Source.FileId is not (0x20A8720A or 0x7FA757FD or 0xDBB601B0) || combinationIndex!=0)
+            throw new NotSupportedException("Only the actual CE normal Tree2 instanced and noninstanced profiles are imported here.");
         var metadata=shader.ReadG1ResourceBindings(combinationIndex);
         var descriptor=G2ShaderTextureBaseReader.Read(shader.Source.Bytes);
         int pixel=metadata.Combination.Stages.Single(s=>s.StageCode==0).Entry!.ProgramIndex;

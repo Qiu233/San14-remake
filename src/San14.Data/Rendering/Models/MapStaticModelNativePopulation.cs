@@ -40,7 +40,7 @@ public static partial class MapStaticModelInstanceFactory
                 if (!ValidatePublication(publication)) {excluded.Add(key); continue;}
                 var state = publication.FreshConstructorBindPrefix ? UnitWorldTransform.ConstructScenePlacement(placement) :
                     publication.CurrentTransform ?? throw new InvalidDataException("Current original scene world transform fields are unknown.");
-                var asset = assets.LoadSceneInstance(placement.Source.Index);
+                var asset = assets.LoadSceneInstance(placement.Source);
                 instances.Add(FromNativeWorldState(key, asset, state, publication.CurrentIdentity!, publication.CurrentPrimitiveLocalRows) with
                     {SourcePlacement = placement, NativePublication = publication});
             }
@@ -121,7 +121,7 @@ public static partial class MapStaticModelInstanceFactory
             {ExcludedInstanceKeys = Array.AsReadOnly(populations.SelectMany(p => p.ExcludedInstanceKeys).ToArray())};
     }
 
-    private static MapStaticModelInstance FromNativeWorldState(string instanceKey, MapStaticModelAsset asset,
+    internal static MapStaticModelInstance FromNativeWorldState(string instanceKey, MapStaticModelAsset asset,
         UnitWorldTransformState sourceWorldState, string currentSourceIdentity,
         IReadOnlyDictionary<int, MapStaticModelPrimitiveLocalRows>? explicitCurrentPrimitiveLocals = null)
     {

@@ -15,7 +15,7 @@ public sealed partial class SourceWorldContext : IPersonalityNormalizationState
     {
         Check(offset,0xE1,"personality byte offset");
         int physical = MapPhysical(personality.PhysicalSlot,356,"personality");
-        return _personalityFields.TryGetValue(physical,out byte?[]? fields) ? fields[offset] : null;
+        return _personalityFields.TryGetValue(physical,out byte?[]? fields) ? fields[offset] : _initialPersonalities?.ReadByte(physical, offset);
     }
     public ushort? ReadPersonalityWord(PersonalityReference personality, int offset)
     {
@@ -27,7 +27,8 @@ public sealed partial class SourceWorldContext : IPersonalityNormalizationState
     public void SetPersonalityByte(int physical, int offset, byte? value)
     {
         Check(physical,356,"personality physical slot");Check(offset,0xE1,"personality byte offset");
-        if (!_personalityFields.TryGetValue(physical,out byte?[]? fields)) _personalityFields[physical]=fields=new byte?[0xE1];
+        if (!_personalityFields.TryGetValue(physical,out byte?[]? fields))
+            _personalityFields[physical]=fields=_initialPersonalities?.CopyRow(physical) ?? new byte?[0xE1];
         fields[offset]=value;
     }
     public void WritePersonalityWord(PersonalityReference personality, int offset, ushort value)

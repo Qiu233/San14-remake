@@ -2,6 +2,7 @@
 // city population, joint-population-shadow and shadow-camera-gpu headers.
 // Import/device preparation stays once; this helper owns no GPU objects.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 
 #include "ModelShadowAdmission.h"
 struct NativeCityGateShadowSource {
@@ -17,7 +18,7 @@ inline NativeCityGateShadowSource loadNativeCityGateShadowSource(const fs::path&
     source.fieldOwners=unsigned(field.instances.size());source.fieldPrimitives=unsigned(field.primitives.size());
     source.fieldTemplates=field.templateCount;source.primaryTemplates=unsigned(cities.templates.size());
     for(const auto& instance:field.instances)source.primaryBase=std::max(source.primaryBase,instance.index+1);
-    std::ifstream rows(directory/"admission.bin",std::ios::binary);
+    NativePreparedInputFile rows(directory/"admission.bin",std::ios::binary);
     if(primaryRead<unsigned>(rows)!=0x31414743u||primaryRead<unsigned>(rows)!=source.admission.size())
         throw std::runtime_error("Current City/Gate Shadow CGA1 import absent");
     for(auto& family:source.admission) {

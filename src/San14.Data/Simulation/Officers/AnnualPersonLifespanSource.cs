@@ -79,17 +79,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private int Mode() => state.CampaignEventWorld?.ScenarioMode ?? throw Missing("current_world_mode");
         private int Age(int physical, ushort id)
-        {
-            //229FC0 is the existing2A62E0 thunk. Keep the fresh mode read at
-            //the reached helper, after the caller's identity/flags gates.
-            int mode = Mode();
-            if (mode is 2 or 3) throw Missing("special_mode_age");
-            if (current.ResolveOfficerSource(id) != physical || !state.Officers.TryGetValue(id, out var person))
-                throw Missing("current_person_birth_owner");
-            int birth = person.BirthYear ?? throw Missing("current_person_birth_year");
-            int year = state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("current_native_year");
-            return Math.Max(0, unchecked((short)year - birth + 1));
-        }
+            => PersonCurrentAgeSource.Read(state, current, physical);
 
         private void Sort(HexListHandle list)
         {

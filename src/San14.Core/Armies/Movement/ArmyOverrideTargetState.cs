@@ -1,12 +1,15 @@
 namespace San14.Core;
 
 public enum ArmyOverrideTargetKind { None, City, Gate, Hex, Object, ArmyReceiver, Unresolved }
-public enum ArmyOverrideDestinationKind { None, City, Gate, Hex, ArmyReceiver, Unresolved }
+public enum ArmyOverrideDestinationKind { None, City, Gate, Hex, ArmyReceiver, Unresolved, MapObjectReceiver }
 
 /// <summary>An override destination uses campaign identities. An unresolved
 /// destination is known to exist, but its resource identity is not decoded.</summary>
 public sealed record ArmyOverrideDestination(ArmyOverrideDestinationKind Kind,
-    int? EntityId = null, ArmyReceiverId? ReceiverId = null);
+    int? EntityId = null, ArmyReceiverId? ReceiverId = null)
+{
+    public MapObjectReceiverId? MapObjectReceiverId { get; init; }
+}
 
 /// <summary>The temporary target selected by provocation and other explicit
 /// overrides. Category and destination knowledge are independent of the normal

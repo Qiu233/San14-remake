@@ -7,6 +7,7 @@ using San14.Data.Formats;
 internal partial class AreaAdministrationParentView : Control
 {
     private AdministrationPageChrome chrome=null!;
+    private UiSourceCommonBlur listBackdrop=null!;
     private AreaAdministrationResourceHeader resourceHeader=null!;
     private Control list=null!;
     private UiSourceScrollbar scroll=null!;
@@ -35,6 +36,7 @@ internal partial class AreaAdministrationParentView : Control
         this.regionRequested=regionRequested;this.returned=returned;this.accepted=accepted;this.modeChanged=modeChanged;
         this.order=order;this.unavailable=unavailable;this.autoRequested=autoRequested;this.dismissRequested=dismissRequested;
         Name="AreaAdministrationParent";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        listBackdrop=new UiSourceCommonBlur();AddChild(listBackdrop);listBackdrop.Configure(repository);
         chrome=new AdministrationPageChrome {Name="DomesticChrome"};AddChild(chrome);
         chrome.Configure(repository,text,0x04B7,RequestBack,()=>{if(Active)this.accepted?.Invoke();});
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
@@ -46,6 +48,7 @@ internal partial class AreaAdministrationParentView : Control
         resourceHeader.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,text);
         list=new Control {Name="DomesticAreaList",Size=new(1920,904),MouseFilter=MouseFilterEnum.Stop};chrome.Canvas.AddChild(list);
         var shell=new UiSourceLayout(repository,0xA3B4A82E);
+        shell.Blur(list,2,shell.Rectangle(2,new(191,147)));
         shell.Art(list,3,shell.Rectangle(3,new(191,147)),chrome.Assets,chrome.SpriteShader);
         var clip=new Control {Name="AreaListViewport",Position=new(213,264),Size=new(1464,596),ClipContents=true,MouseFilter=MouseFilterEnum.Pass};list.AddChild(clip);
         scroll=new UiSourceScrollbar {Name="AreaScrollbar",Position=new(1687,265),Size=new(16,597)};list.AddChild(scroll);
@@ -91,7 +94,7 @@ internal partial class AreaAdministrationParentView : Control
     private bool Active=>!suspended&&!inputBlocked&&!abandoned;
     internal void SetListMode(bool value,bool notify=true)
     {
-        if(!Active)return;listMode=value;list.Visible=value;resourceHeader.Visible=!value;MouseFilter=value?MouseFilterEnum.Stop:MouseFilterEnum.Ignore;
+        if(!Active)return;listMode=value;list.Visible=value;listBackdrop.Visible=value;resourceHeader.Visible=!value;MouseFilter=value?MouseFilterEnum.Stop:MouseFilterEnum.Ignore;
         mode.ApplyCaption(value?mapCaption:listCaption);chrome.ApplyTitle(value?listTitle:mapTitle);
         if(notify)modeChanged?.Invoke(value);
     }
@@ -107,6 +110,11 @@ internal partial class AreaAdministrationParentView : Control
         if(abandoned)return;
         if(entries.Count!=rows.Count||entries.Any(e=>!rows.ContainsKey(e.AreaId)))throw new InvalidDataException("Domestic publication no longer matches its held areas.");
         foreach(var entry in entries)rows[entry.AreaId].Apply(entry);
+    }
+    internal void ApplyAreaSelectionAdmission(Func<int,bool>? admitted)
+    {
+        if(abandoned)return;
+        foreach(var (id,row) in rows)row.Disabled=!(admitted?.Invoke(id)??true);
     }
     internal UiSourcePulldownMenu CreateAutomaticMenu(GameResourceRepository repository,PreviewText text,Action<int?> selected)
     {

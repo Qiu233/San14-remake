@@ -16,6 +16,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         InformationListKind kind, bool ownForceOnly) =>
         PrepareInformationBrowserPage(state, playerForceId).Query(kind, ownForceOnly);
 
+    /// <summary>Formats an actual caller-supplied Person list. Membership and
+    /// its order belong to that producer, not the global information filter.</summary>
+    public InformationList QueryProvidedOfficerInformation(GameState state, int playerForceId,
+        IReadOnlyList<int> officerIds) => new InformationSource(this,state,playerForceId).QueryProvidedOfficers(officerIds);
+
     private Dictionary<string, (int Id, string Text)>? informationColumnCaptions;
     internal InformationColumn InformationColumnFor(string key, string? nameTitle = null)
     {
@@ -207,7 +212,27 @@ public sealed partial class ArmyCampaignRuleAdapter
             return index >= 0 ? owner.ReadHistoryDataText(1, own && kind == InformationListKind.Items ? 0x69a : DynamicCaptions[index]) : "";
         }
 
-        private InformationList ReadDynamic(InformationListKind kind, bool own, string title)
+        internal InformationList QueryProvidedOfficers(IReadOnlyList<int> officerIds)
+        {
+            string title=Title(InformationListKind.Officers,false);
+            try { return ReadDynamic(InformationListKind.Officers,false,title,officerIds); }
+            catch(InvalidDataException error) { return Empty(title,error.Message); }
+        }
+
+        internal InformationList QueryArmyCaptives(int unitId)
+        {
+            var unit = state.Units.GetValueOrDefault(unitId) ?? throw Missing("captives.Army_owner");
+            int[] people = owner.EnumerateUnitDetailCaptivePhysicalSlots(state, C, unit)
+                .Select(physical => (int)K(C.ReadPersonIdentity(physical), "captives.Person_id")).ToArray();
+            //45E8D0 starts with selected-first sorting and no selected People.
+            //Its strict stable comparison therefore preserves this input order.
+            //Only these actual candidates receive the ordinary Person cells.
+            return ReadDynamic(InformationListKind.Officers, false,
+                owner.ReadHistoryDataText(1, 0x5d1), people);
+        }
+
+        private InformationList ReadDynamic(InformationListKind kind, bool own, string title,
+            IReadOnlyList<int>? officerIds=null)
         {
             var rows = new List<InformationRow>();
             var issues = new HashSet<string>(StringComparer.Ordinal);
@@ -297,14 +322,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                     }); break;
                 case InformationListKind.Officers:
                     columns.AddRange(["force", "location", "district", "leadership", "strength", "intelligence", "politics", "charm"]);
-                    Table(RegistryKind.Person, 1851, p =>
+                    void ReadOfficerRow(int p)
                     {
-                        byte status = K(C.ReadPersonStatus(p), "person.status");
-                        ushort flags = K(C.ReadArmyReturnPersonFlags196(p), "person.flags");
-                        if (status is < 1 or > 6 || (status == 5 && (flags & 0x4000) != 0)) return;
+                        if(officerIds is null)
+                        {
+                            byte status = K(C.ReadPersonStatus(p), "person.status");
+                            ushort flags = K(C.ReadArmyReturnPersonFlags196(p), "person.flags");
+                            if (status is < 1 or > 6 || (status == 5 && (flags & 0x4000) != 0)) return;
+                        }
                         int force = K((C.ReadPersonForce(p) ?? throw Missing("person.force_lookup")).PhysicalSlot, "person.force_pointer");
                         ushort home = K(C.ReadPersonFirstLocation(p), "person.home");
-                        if (force == 51 || ((home is < 1 or > 61) && force is >= 46 and <= 50)) return;
+                        if (officerIds is null && (force == 51 || ((home is < 1 or > 61) && force is >= 46 and <= 50))) return;
                         if (own && force != actualPlayer) return;
                         int id = K(C.ReadPersonIdentity(p), "person.id");
                         var person = state.Officers.GetValueOrDefault(id) ?? throw Missing("person.domain_owner");
@@ -320,8 +348,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                         }
                         else foreach (string key in new[] { "leadership", "strength", "intelligence", "politics", "charm" }) cells[key] = Unknown("person.current_abilities");
                         Add(id, name, cells);
-                    });
-                    rows = rows.OrderBy(row => row, Comparer<InformationRow>.Create((left, right) =>
+                    }
+                    if(officerIds is null)Table(RegistryKind.Person,1851,ReadOfficerRow);
+                    else foreach(int requested in officerIds)
+                    {
+                        if(requested is < 1 or > 6000)throw Missing("provided_person.identity");
+                        ReadOfficerRow(K(C.ReadPersonLookupReference(requested)?.PhysicalSlot,"provided_person.pointer"));
+                    }
+                    if(officerIds is null)rows = rows.OrderBy(row => row, Comparer<InformationRow>.Create((left, right) =>
                     {
                         var a = left.Cells["name"]; var b = right.Cells["name"];
                         if (a.UnresolvedOwner is not null || b.UnresolvedOwner is not null) return 0;

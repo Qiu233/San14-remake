@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/SkyPatternCamera.h"
 #include "CloudVolumeMaterial.h"
 #include <algorithm>
@@ -77,7 +78,7 @@ struct SkyPatternMaterialLayout {
 };
 namespace Interop {
 inline SkyPatternMaterialLayout readSkyPatternMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    NativePreparedInputFile input(path, std::ios::binary);
     auto word = [&]() {
         std::uint32_t value{}; input.read(reinterpret_cast<char*>(&value), 4);
         if (!input) throw std::runtime_error("Incomplete Pattern PML1 layout");

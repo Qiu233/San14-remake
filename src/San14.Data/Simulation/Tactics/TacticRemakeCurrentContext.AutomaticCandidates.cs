@@ -37,13 +37,9 @@ public sealed partial class TacticRemakeCurrentContext
             ArmyValid(state, caster) != true || ArmyValid(state, primary) != true ||
             caster.NativeArmyOrigin?.NativeSlotIndex != pair.Attacker.NativePoolSlot ||
             primary.NativeArmyOrigin?.NativeSlotIndex != pair.Target.NativePoolSlot ||
-            state.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(
-                TacticRemakeCurrentBattleControl.VersionKey) != 1 ||
-            !state.NativeArmySimulation.Parameters.Int32Values.TryGetValue(
-                TacticRemakeCurrentBattleControl.HeaderKey, out int header) || header != 0 ||
             EffectiveFormation(state, caster) is not int formation ||
             AvailableTactics(state, caster, formation) is not int[] available)
-        { missingOwner = "automatic-candidates.identity_control_or_available_tactics"; return null; }
+        { missingOwner = "automatic-candidates.identity_or_available_tactics"; return null; }
         var retained = new List<AutomaticTacticCandidateSource>();
         foreach (int id in available)
         {
@@ -51,6 +47,10 @@ public sealed partial class TacticRemakeCurrentContext
             if (ReadCurrentProgram(state, row) is not { } program || program.Instructions.Count != 2 ||
                 !program.Instructions.Select(instruction => instruction.Index).SequenceEqual([0, 1]))
             { missingOwner = "automatic-candidates.tactic_" + id + "_program"; return null; }
+            bool? tutorialAllowed = TutorialTacticEligibilitySource.AllowsCurrent(state, program);
+            if (tutorialAllowed is null)
+            { missingOwner = "automatic-candidates.tutorial_current_lesson499BC0"; return null; }
+            if (!tutorialAllowed.Value) continue;
             var selections = new TacticInstructionTargetsSource[2];
             var hexSelections = new TacticInstructionHexTargetsSource[2];
             foreach (S14TacticEffectInstruction instruction in program.Instructions)

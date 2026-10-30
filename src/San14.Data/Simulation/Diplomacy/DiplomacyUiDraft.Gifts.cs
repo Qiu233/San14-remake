@@ -49,7 +49,7 @@ public sealed partial class DiplomacyUiDraft
     {
         GiftGold = GiftSupplies = 0; GiftItemId = GiftAreaId = null;
         GiftUnresolvedInput = null;
-        if (Kind == DiplomaticMissionKind.CancelAlliance) return;
+        if (Kind is DiplomaticMissionKind.CancelAlliance or DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender) return;
         if (MaxGold >= 1000) GiftGold = 1000;
         else if (MaxSupplies >= 10000) GiftSupplies = 10000;
         else
@@ -64,7 +64,7 @@ public sealed partial class DiplomacyUiDraft
         InvalidateAmountSelections();
         CanChooseGold = CanChooseSupplies = CanChooseItem = CanChooseArea = false;
         AreaChoices = AreaAdministrationQuery<IReadOnlyList<DiplomacyPreparationGiftChoice>>.Known(Array.Empty<DiplomacyPreparationGiftChoice>());
-        if (Kind == DiplomaticMissionKind.CancelAlliance || SelectedExecutorOfficerId is null ||
+        if (Kind is DiplomaticMissionKind.CancelAlliance or DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender || SelectedExecutorOfficerId is null ||
             SelectedTargetForceId is not int recipient || Kind == DiplomaticMissionKind.RequestAttack && SelectedTargetCityId is null) return;
         CanChooseGold = MaxGold >= 1000; CanChooseSupplies = MaxSupplies >= 10000;
         if (Kind == DiplomaticMissionKind.Goodwill && recipient is >= 46 and <= 50) return;
@@ -80,6 +80,14 @@ public sealed partial class DiplomacyUiDraft
         if (allowed is null) return AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Unknown(GiftUnresolvedInput ?? "diplomacy.ui.gift_admission");
         if (!allowed.Value) return AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Known(
             new(false, supplies ? 10000 : 1000, supplies ? MaxSupplies : MaxGold, Array.Empty<int>()));
+        //74A640/7488D0's kind19 calculator uses the selected Force and
+        //capital treasury, without reading the executor selection.
+        if(Kind==DiplomaticMissionKind.Exchange)
+        {
+            try{return source.ExchangeAmount(ForceId,supplies);}
+            catch(InvalidDataException missing)
+            {return AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Unknown(missing.Message);}
+        }
         return source.Amount(SelectedExecutorOfficerId!.Value, SelectedTargetForceId!.Value,
             AllianceMonths, SelectedTargetCityId, supplies);
     }
@@ -164,6 +172,7 @@ internal sealed partial class DiplomacyUiSource
         { return areaChoices[recipient] = AreaAdministrationQuery<IReadOnlyList<DiplomacyPreparationGiftChoice>>.Unknown(missing.Message); }
     }
     internal AreaAdministrationQuery<DiplomacyNegotiationAmountSelection> Amount(int executor, int target,
-        int months, int? targetCity, bool supplies) => adapter.ReadDiplomacyPreparationAmountCurrent(
+        int months, int? targetCity, bool supplies) => Kind==DiplomaticMissionKind.Exchange
+            ?ExchangeAmount(ForceId,supplies):adapter.ReadDiplomacyPreparationAmountCurrent(
             State, current, executor, target, Kind, months, targetCity, supplies, supplies ? MaxSupplies : MaxGold);
 }

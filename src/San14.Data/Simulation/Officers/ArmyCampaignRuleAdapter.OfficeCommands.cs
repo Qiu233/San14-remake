@@ -225,7 +225,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int first = OfficeNeed(OwnedArmyMoraleWaveInputs.ReadPost37(state, old), "loyalty_old_Post37");
         int second = OfficeNeed(OwnedArmyMoraleWaveInputs.ReadPost37(state, next), "loyalty_new_Post37");
         var bank = state.NativeArmySimulation?.Parameters ?? throw OfficeMissing("loyalty_parameter_bank");
-        const string key = "officer-office:grade-loyalty-multiplier";
+        const string key = PersonnelCommandParameters.OfficeLoyaltyPerGrade;
         if (bank.Float32Values.ContainsKey(key)) throw OfficeMissing("loyalty_parameter_type");
         int multiplier;
         if (!bank.Int32Values.TryGetValue(key, out multiplier))

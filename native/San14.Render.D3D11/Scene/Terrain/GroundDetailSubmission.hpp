@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Owned CPU counterpart of the finite CE BB2110/BB8710 instancing path.
 // Include/use after importing the retained Packet. No graphics or process reads.
 #include "GroundDetailVisibility.hpp"
@@ -45,7 +46,7 @@ struct PrimitiveSource {uint32_t templateIndex,lod,sourceOrdinal,draw;std::strin
 // Mother template-lods.txt is emitted in the actual PartsSet/binder primitive
 // order. Its finite31-template categories are all0; Hi/Mid are a separate axis.
 inline std::vector<PrimitiveSource> readPrimitiveOrder(const Packet& p,const std::wstring& path) {
-    std::ifstream file(path);if(!file)throw std::runtime_error("Procedural Parts source order absent.");
+    NativePreparedInputFile file(path);if(!file)throw std::runtime_error("Procedural Parts source order absent.");
     std::vector<PrimitiveSource> result;std::vector<uint32_t> ordinals(p.templates.size());
     uint32_t ti,lod,draw;std::string name,relative;
     while(file>>ti>>name>>lod>>draw>>relative){

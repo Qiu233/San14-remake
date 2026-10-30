@@ -4,14 +4,17 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private static TalentSearchSceneryControl ReadTalentSceneryControlCurrent(SourceWorldContext current)
+    private TalentSearchSceneryControl ReadTalentSceneryControlCurrent(GameState state, SourceWorldContext current)
     {
-        //570850 is the same ordinary challenge-service owner used by return,
-        //capture and demolition. World48 belongs to a different object.
+        //570850 is the actual tutorial controller service. Its bitmap is
+        //separate from the ordinary World48 field. Consume the operation
+        //working state so a later task in the same stage sees a cleared bit.
         var mode = current.ArmyReturnTransferMode ?? throw SearchOutcomeMissing("Scenery_570850_owner");
         if (!mode.Present || SearchNeed(mode.Value, "Scenery_570850_value") == 0)
             return TalentSearchSceneryControl.Ordinary;
-        throw SearchOutcomeMissing("Scenery_present_challenge_570840_byteC_bit10");
+        return SearchNeed(TacticRemakeCurrentBattleControl.Read(state, 100),
+            "Scenery_tutorial_control100") ? TalentSearchSceneryControl.SpecialWithDiscovery
+                : TalentSearchSceneryControl.SpecialWithoutDiscovery;
     }
 
     //33C390 ->33C850 ->33C8C0. No new current, capture, pool export or ACK.
@@ -24,8 +27,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (valid && SearchNeed(current.ReadPersonNativeValidity(executor), "Scenery_executor_validity") &&
             SearchNeed(current.ReadForceNativeValidity(capturedForce), "Scenery_captured_Force_validity"))
         {
-            if (ReadTalentSceneryControlCurrent(current) != TalentSearchSceneryControl.Ordinary)
-                throw SearchOutcomeMissing("Scenery_challenge_visit_override");
             state = ClearTalentSceneryObject(state, current, scenery, capturedForce, executor, effects);
             int physical = SearchNeed(scenery.PhysicalSlot, "Scenery_pointer");
             var owner = state.LandmarkInvestments?.GetValueOrDefault(physical)
@@ -43,7 +44,17 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             var sampler = ReadArmyDestructionSampler(state, current) ?? throw SearchOutcomeMissing("Scenery_sampler");
             ushort hex = SearchNeed(current.ReadSceneryHexIndex(scenery), "Scenery44");
-            var development = _landmarkDevelopment.Initialize(state, physical, hex, enabled, sampler);
+            //33C390 first selects the ordinary kind, then replaces it before
+            //32E880 computes the ordinary effect. The latter still runs.
+            bool tutorialDiscovery = ReadTalentSceneryControlCurrent(state, current) ==
+                TalentSearchSceneryControl.SpecialWithDiscovery;
+            var development = _landmarkDevelopment.Initialize(state, physical, hex, enabled, sampler,
+                tutorialDiscovery ? (byte)2 : null);
+            if (ReadTalentSceneryControlCurrent(state, current) == TalentSearchSceneryControl.SpecialWithDiscovery)
+            {
+                development = development with { Effect = 10 };
+                state = SetTutorialLessonEventCurrent(state, 100, false);
+            }
             byte flags = (byte)(SearchNeed(current.ReadSceneryFlags47(scenery), "Scenery_flags47") | 1);
             state = state with { LandmarkInvestments = new(state.LandmarkInvestments!)
                 { [physical] = owner with { Phase = 1, Development = development, Flags = flags } } };

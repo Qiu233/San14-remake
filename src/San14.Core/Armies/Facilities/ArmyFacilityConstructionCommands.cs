@@ -22,6 +22,12 @@ public interface IPlayableArmyConstructionCommandRules
         DeploymentAction action, IReadOnlyList<int> waypointHexIds);
 }
 
+public interface IPlayableArmyContinuousConstructionCommandRules
+{
+    CommandResult IssueContinuousFacilityConstruction(GameState state, UnitState army,
+        int initialHexId, int finalHexId, string definitionKey, IReadOnlyList<int> waypointHexIds);
+}
+
 /// <summary>Formal current-object demolition command, shared by player and AI.</summary>
 public interface IPlayableArmyFacilityWorkCommandRules
 {

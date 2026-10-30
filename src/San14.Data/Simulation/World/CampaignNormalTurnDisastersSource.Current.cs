@@ -38,16 +38,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             int person = Person(N(current.ReadAssignmentArea36(area), "Area36"));
             if (!N(current.ReadPersonNativeValidity(person), "assigned_Person_validity")) return 40;
             int politics = Ability(person, 3), intelligence = Ability(person, 2);
-            int factor;
-            if (N(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "assigned_trait126") > 0) factor = 100;
-            else
-            {
-                int count = (current.ReadAssignmentPersonAreaVector(person) ?? throw Missing("Person_assignment_vector")).ActiveCount1E8;
-                //Both branches of the display-only3348E0 agree for one task.
-                //Do not assume its global flag for a reached multi-task actor.
-                if (count is not (0 or 1)) throw Missing("assigned_multiple_tasks_full_effort_current");
-                factor = 100;
-            }
+            int effect = N(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "assigned_trait126");
+            int? count = effect > 0 ? null : (current.ReadAssignmentPersonAreaVector(person)
+                ?? throw Missing("Person_assignment_vector")).ActiveCount1E8;
+            int factor = CeEconomyRuntimeContext.ReadPersonTaskPercent(false, effect, count, null)
+                ?? throw Missing("assigned_task_count_fallback");
             return Math.Clamp(Div(unchecked(factor * Math.Max(politics, intelligence)), 100), 50, 100);
         }
         private int OccurrenceProbability(BaseReference city, int mode)
@@ -332,9 +327,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = state.NativeArmySimulation?.Parameters ?? throw Missing("parameters");
             if (bank.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
-            //File-backed TC rule data. The two independent mutable/BSS
-            //spread inputs intentionally have no immutable fallback.
-            return name switch
+            // Saved integers remain authoritative. Mutable spread inputs have
+            // only a fresh producer; neither locale reconstructs missing saves.
+            int? knownTc = name switch
             {
                 "recovery-security-divisor" or "second-recovery-security-divisor" => 3,
                 "spread-population-divisor" => 30000, "spread-maximum" => 10,
@@ -346,8 +341,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 "second-summer-rate" => 1, "second-autumn-rate" => 4,
                 "harvest-probability" => 40, "harvest-preference-probability" => 50,
                 "harvest-low-count" => 2, "harvest-middle-count" => 5, "harvest-high-count" => 7,
-                _ => throw Missing("current_parameter_" + name)
+                _ => null
             };
+            return NormalTurnDisasterParameters.ReadGenerationDefault(package.Seed.Language, name, knownTc)
+                ?? throw Missing("current_parameter_" + name);
         }
         private static int Div(int value, int divisor) => divisor == 0 || value == int.MinValue && divisor == -1
             ? throw Missing("division") : value / divisor;

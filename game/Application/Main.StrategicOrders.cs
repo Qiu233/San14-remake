@@ -5,29 +5,59 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
+    private enum StrategicSelectionPurpose { None, Target, SecondForce, Executor }
     private sealed class StrategicOrdersWorkspace(GameplaySession session, GameState world, MapSceneView map,
         StrategicCommandDraft draft, AreaAdministrationOfficerContent cards)
     {
         internal GameplaySession Session { get; } = session;
-        internal GameState World { get; } = world;
+        internal GameState World { get; set; } = world;
         internal MapSceneView Map { get; } = map;
         internal StrategicCommandDraft Draft { get; } = draft;
         internal AreaAdministrationOfficerContent Cards { get; } = cards;
         internal StrategicOrdersView View { get; set; } = null!;
-        internal CommandSelectionView? Selection { get; set; }
+        internal StrategicSelectionView? Selection { get; set; }
+        internal StrategicSelectionPurpose SelectionPurpose { get; set; }
+        internal long SelectionAcceptedSequence { get; set; }
+        internal StrategicSelectionPurpose LastAcceptedPurpose { get; set; }
+        internal int? LastAcceptedId { get; set; }
+        internal Action? Returned { get; init; }
+        internal int? InitialTargetId { get; init; }
         internal DeploymentCalculatorDialog? Calculator { get; set; }
     }
-    private sealed record StrategicOrdersContinuation(GameplaySession Session, MapSceneView Map, int Kind);
+    private sealed record StrategicOrdersContinuation(GameplaySession Session, MapSceneView Map, int Kind,
+        int? InitialTargetId, Action? Returned);
     private StrategicOrdersWorkspace? _strategicOrders;
     private StrategicOrdersContinuation? _strategicOrdersContinuation;
+    private Func<int,bool>? StrategicTargetAdmission;
+    private Func<int,bool>? StrategicExecutorAdmission;
+    private bool StrategicSelectionReturnAllowed=true;
+    private bool StrategicSelectionAllowed(StrategicSelectionPurpose purpose,int id) =>
+        purpose==StrategicSelectionPurpose.Target ? StrategicTargetAdmission?.Invoke(id)??true :
+        purpose==StrategicSelectionPurpose.Executor ? StrategicExecutorAdmission?.Invoke(id)??true : true;
+    private void RefreshStrategicSelectionAdmission()
+    {
+        if(_strategicOrders is not {} owner)return;
+        owner.Selection?.ApplySelectionAdmission(id=>StrategicSelectionAllowed(owner.SelectionPurpose,id),
+            StrategicSelectionReturnAllowed);
+        owner.View.SetReturnAllowed(StrategicSelectionReturnAllowed);
+    }
     private bool HasStrategicOrdersPage => _strategicOrders is not null;
     private bool IsStrategicOrdersCurrent(StrategicOrdersWorkspace owner) => !_failed && !_shuttingDown &&
         _strategicOrders == owner && _session == owner.Session && ReferenceEquals(owner.World, owner.Session.World) &&
         _residentMap == owner.Map;
+    private void AdoptStrategicOrdersSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The common speech dispatcher admits the committed presentation-only
+        // successor. Keep the draft, cached advice and any selector/calculator.
+        if (_strategicOrders is not { } owner || owner.Session != session || _residentMap != owner.Map ||
+            !ReferenceEquals(owner.World, previous)) return;
+        owner.World = replacement;
+    }
+
     private bool CanEditStrategicOrders(StrategicOrdersWorkspace owner) => IsStrategicOrdersCurrent(owner) &&
         owner.Selection is null && owner.Calculator is null;
 
-    private void OpenStrategicOrders(int kind)
+    private void OpenStrategicOrders(int kind, int? initialTargetId = null, Action? returned = null)
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasAdministrationPage || HasMilitaryOrderPage ||
             HasEnvironmentSettings || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || HasActionReport ||
@@ -38,7 +68,10 @@ public partial class Main
             PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing) return;
         var draft = composition.PrepareArmyQueries(world).OpenStrategicCommandDraft(world, player, kind);
         if (draft.UnresolvedOwner is { } missing) { StrategicOrdersUnavailable(missing); return; }
-        var owner = new StrategicOrdersWorkspace(session, world, map, draft, new(_repository));
+        if (initialTargetId is int initial && !draft.SelectTarget(initial))
+        { StrategicOrdersUnavailable("strategic.page.initial_target"); return; }
+        var owner = new StrategicOrdersWorkspace(session, world, map, draft, new(_repository))
+            { Returned = returned, InitialTargetId = initialTargetId };
         var view = new StrategicOrdersView(); owner.View = view; _strategicOrders = owner; AddChild(view);
         try
         {
@@ -54,6 +87,8 @@ public partial class Main
                 choice => RunUiAction(() => ChangeStrategicOrders(owner, () => draft.SetIndependenceChoice(choice))));
             map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true);
             SetMapFocus(true); HideDeploymentHud(); RefreshStrategicOrders(owner);
+            if(kind==20)ObserveTutorialInformation(37);
+            BindCurrentTutorialStrategic();
         }
         catch { CloseStrategicOrders(); throw; }
     }
@@ -115,47 +150,67 @@ public partial class Main
 
     private void OpenStrategicExecutorSelection(StrategicOrdersWorkspace owner)
     {
-        if (!CanEditStrategicOrders(owner)) return;
-        var rows = owner.Draft.Executors.Select(row => new CommandSelectionRow(row.OfficerId,
-            [new(row.Name)], row.Enabled == true, row.DisabledReason ?? row.UnresolvedOwner)).ToArray();
-        OpenStrategicSelection(owner, 0x541, rows, owner.Draft.ExecutorId,
-            id => owner.Draft.SelectExecutor(id));
+        if(!CanEditStrategicOrders(owner))return;
+        var prepared=owner.Draft.ReadExecutorSelection();
+        if(!prepared.Available||prepared.Value is not {} publication)
+        {StrategicOrdersUnavailable(prepared.UnresolvedInput??"strategic.selection.executors");return;}
+        OpenStrategicSelection(owner,StrategicSelectionPurpose.Executor,publication,owner.Draft.SelectExecutor);
     }
 
-    private void OpenStrategicTargetSelection(StrategicOrdersWorkspace owner, bool second)
+    private void OpenStrategicTargetSelection(StrategicOrdersWorkspace owner,bool second)
     {
-        if (!CanEditStrategicOrders(owner)) return;
-        var rows = (second ? owner.Draft.SecondaryForces : owner.Draft.Targets).Select(row => new CommandSelectionRow(row.Id,
-            [new(row.Name)], row.Enabled == true, row.DisabledReason ?? row.UnresolvedOwner)).ToArray();
-        int title = second ? 0x636 : owner.Draft.Kind == 10 ? 0x632 : owner.Draft.Kind == 11 ? 0x478
-            : owner.Draft.Kind is 12 or 24 ? 0x542 : 0x477;
-        OpenStrategicSelection(owner, title, rows, second ? owner.Draft.SecondForceId : owner.Draft.TargetId,
-            id => second ? owner.Draft.SelectSecondForce(id) : owner.Draft.SelectTarget(id));
+        if(!CanEditStrategicOrders(owner))return;
+        var prepared=owner.Draft.ReadTargetSelection(second);
+        if(!prepared.Available||prepared.Value is not {} publication)
+        {StrategicOrdersUnavailable(prepared.UnresolvedInput??"strategic.selection.targets");return;}
+        OpenStrategicSelection(owner,second?StrategicSelectionPurpose.SecondForce:StrategicSelectionPurpose.Target,
+            publication,id=>second?owner.Draft.SelectSecondForce(id):owner.Draft.SelectTarget(id));
     }
 
-    private void OpenStrategicSelection(StrategicOrdersWorkspace owner, int title,
-        IReadOnlyList<CommandSelectionRow> rows, int? selected, Func<int, bool> accept)
+    private void OpenStrategicSelection(StrategicOrdersWorkspace owner,StrategicSelectionPurpose purpose,
+        StrategicSelectionPage publication,Func<int,bool> accept)
     {
-        if (!CanEditStrategicOrders(owner)) return;
-        var view = new CommandSelectionView(); owner.Selection = view; AddChild(view);
-        owner.View.SetBusy(true); owner.View.Hide();
+        if(!CanEditStrategicOrders(owner)||publication.Eligibility.Count==0)return;
+        var view=new StrategicSelectionView();owner.Selection=view;AddChild(view);
+        owner.SelectionPurpose=purpose;owner.View.SetBusy(true);owner.View.Hide();
+        bool Current()=>IsStrategicOrdersCurrent(owner)&&owner.Selection==view;
+        void BindMode(bool list)
+        {
+            if(!Current())return;
+            owner.Map.EndStrategicTargetPick(view);owner.Map.SetDetailsOpen(list,keepMapVisible:true);
+            if(!list)owner.Map.BeginStrategicTargetPick(view,owner.World,
+                publication.MapSelection??throw new InvalidDataException("strategic.selection.map_publication"),
+                ()=>Current()&&view.IsMapMode,view.CanChooseTarget,id=>RunUiAction(()=>{if(Current())view.PickMapTarget(id);}));
+            HideDeploymentHud();
+        }
+        view.TreeExiting+=()=>{if(GodotObject.IsInstanceValid(owner.Map))owner.Map.EndStrategicTargetPick(view);};
         try
         {
-            view.Configure(_repository!, _ui, title, [new("name", PersonnelDataText(title), 1464)], rows,
-                selected is int id ? [id] : [], 1, () => IsStrategicOrdersCurrent(owner) && owner.Selection == view,
-                result => RunUiAction(() =>
+            IntelligenceSelectionView.MapMode? mapMode=publication.MapSelection is {} mapSource?
+                new(mapSource.TitleMessageId,list=>RunUiAction(()=>BindMode(list)),owner.Map.SourceRightCancelReleased,
+                    InitialMap:mapSource.InitialMap):null;
+            view.Configure(_repository!,_ui,publication,Current,chosen=>RunUiAction(()=>
+            {
+                if(!Current()||chosen is int blocked&&!StrategicSelectionAllowed(purpose,blocked)||
+                    chosen is null&&!StrategicSelectionReturnAllowed)return;
+                owner.Map.EndStrategicTargetPick(view);owner.Map.SetDetailsOpen(true,keepMapVisible:true);
+                owner.Selection=null;owner.SelectionPurpose=StrategicSelectionPurpose.None;
+                view.Abandon();view.GetParent()?.RemoveChild(view);view.QueueFree();owner.View.Show();owner.View.SetBusy(false);
+                if(chosen is int accepted&&accept(accepted))
                 {
-                    if (!IsStrategicOrdersCurrent(owner) || owner.Selection != view) return;
-                    owner.Selection = null; view.Abandon(); view.GetParent()?.RemoveChild(view); view.QueueFree();
-                    owner.View.Show(); owner.View.SetBusy(false);
-                    if (result is { Count: 1 }) accept(result[0]);
-                    RefreshStrategicOrders(owner);
-                }), CurrentListScrollSpeed, requireSelection: true, singleSelection: true);
+                    owner.LastAcceptedPurpose=purpose;owner.LastAcceptedId=accepted;
+                    owner.SelectionAcceptedSequence=checked(owner.SelectionAcceptedSequence+1);
+                }
+                RefreshStrategicOrders(owner);
+            }),CurrentListScrollSpeed,mapMode);
+            BindCurrentTutorialStrategic();RefreshStrategicSelectionAdmission();
+            if(mapMode is not null)BindMode(!view.IsMapMode);
         }
         catch
         {
-            owner.Selection = null; view.Abandon(); view.GetParent()?.RemoveChild(view); view.QueueFree();
-            owner.View.Show(); owner.View.SetBusy(false); throw;
+            owner.Map.EndStrategicTargetPick(view);owner.Map.SetDetailsOpen(true,keepMapVisible:true);
+            owner.Selection=null;owner.SelectionPurpose=StrategicSelectionPurpose.None;
+            view.Abandon();view.GetParent()?.RemoveChild(view);view.QueueFree();owner.View.Show();owner.View.SetBusy(false);throw;
         }
     }
 
@@ -188,8 +243,9 @@ public partial class Main
         owner.View.SetBusy(true);
         if (!ApplyPlayableOrder(order, () =>
         {
-            CloseStrategicOrders();
-            if (keepOpen) _strategicOrdersContinuation = new(owner.Session, owner.Map, owner.Draft.Kind);
+            CloseStrategicOrders(notifyReturned: !keepOpen);
+            if (keepOpen) _strategicOrdersContinuation = new(owner.Session, owner.Map, owner.Draft.Kind,
+                owner.InitialTargetId, owner.Returned);
         })) RefreshStrategicOrders(owner);
     }
 
@@ -201,28 +257,33 @@ public partial class Main
         { _strategicOrdersContinuation = null; return false; }
         if (HasAdministrationPage || HasMilitaryOrderPage || HasEnvironmentSettings || HasCampaignSavePage || HasMapSystemMenu ||
             HasCommandWorkspace || HasPersonnelConfirmation || _detailsView is not null || _diplomacyNegotiation is not null) return false;
-        _strategicOrdersContinuation = null; OpenStrategicOrders(next.Kind); return HasStrategicOrdersPage;
+        _strategicOrdersContinuation = null; OpenStrategicOrders(next.Kind, next.InitialTargetId, next.Returned);
+        if (!HasStrategicOrdersPage) next.Returned?.Invoke();
+        return HasStrategicOrdersPage;
     }
 
     private void RequestStrategicOrdersBack()
     {
         if (_strategicOrders is not { } owner || !IsStrategicOrdersCurrent(owner)) return;
+        if(!StrategicSelectionReturnAllowed)return;
         if (owner.Calculator is { } calculator) calculator.RequestCancel();
         else if (owner.Selection is { } selector) selector.RequestCancel();
-        else CloseStrategicOrders();
+        else CloseStrategicOrders(notifyReturned: true);
     }
 
-    private void CloseStrategicOrders()
+    private void CloseStrategicOrders(bool notifyReturned = false)
     {
+        StrategicTargetAdmission=StrategicExecutorAdmission=null;StrategicSelectionReturnAllowed=true;
         var owner = _strategicOrders; _strategicOrders = null;
         if (owner is null) return;
         if (owner.Selection is { } selection)
-        { owner.Selection = null; selection.Abandon(); selection.GetParent()?.RemoveChild(selection); selection.QueueFree(); }
+        { if(GodotObject.IsInstanceValid(owner.Map))owner.Map.EndStrategicTargetPick(selection);owner.Selection = null; selection.Abandon(); selection.GetParent()?.RemoveChild(selection); selection.QueueFree(); }
         if (owner.Calculator is { } calculator)
         { owner.Calculator = null; calculator.Abandon(); calculator.GetParent()?.RemoveChild(calculator); calculator.QueueFree(); }
         owner.View.Abandon(); owner.View.GetParent()?.RemoveChild(owner.View); owner.View.QueueFree();
         if (GodotObject.IsInstanceValid(owner.Map) && _residentMap == owner.Map)
         { owner.Map.SetDetailsOpen(false); if (!_failed && !_shuttingDown) SetMapFocus(_mapFocused); }
+        if (notifyReturned) owner.Returned?.Invoke();
     }
 
     private void StrategicOrdersUnavailable(string missing)

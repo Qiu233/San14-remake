@@ -6,8 +6,10 @@ namespace San14.Data;
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private const string NormalForeignParameterPrefix = "simulation.foreign-relations.";
-    //TC file-backed data extracted offline. Runtime uses this remake-owned
-    //table or an explicitly saved typed override, never the original executable.
+    //TC and SC independently resolve all thirty caller-read file-backed
+    //parameters to these same values. The normal algorithms are also paired
+    //over their complete bodies. Runtime uses this semantic table or a saved
+    //typed override, never the original executable or its execution cache.
     private static readonly IReadOnlyDictionary<string, int> NormalForeignStaticRules = new Dictionary<string, int>
     {
         ["first-war-start-year"] = 194, ["first-war-start-month"] = 1,
@@ -48,7 +50,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         state = state with { ForeignCountryRelations = new(countries.ToImmutable()) };
         var native = state.NativeArmySimulation ?? throw NormalForeignMissing("fresh_parameter_owner");
-        if (native.Parameters.Language != "TC") return state;
+        if (native.Parameters.Language != Seed.Language || native.Parameters.Language is not ("TC" or "SC") ||
+            native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(native.Parameters.Language))
+            throw NormalForeignMissing("fresh_parameter_source");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var pair in NormalForeignStaticRules) values.TryAdd(NormalForeignParameterPrefix + pair.Key, pair.Value);
         return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
@@ -188,11 +192,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         T Setting<T>(T? value, string field) where T : struct => value ?? throw NormalForeignMissing(field);
     }
 
-    private static int ReadNormalForeignParameter(GameState state, string name)
+    private int ReadNormalForeignParameter(GameState state, string name)
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw NormalForeignMissing("parameter_owner");
         string key = NormalForeignParameterPrefix + name;
-        if (bank.Language != "TC" || bank.RuleVersion != SimulationRuleIdentity.ForLocale("TC") || bank.Float32Values.ContainsKey(key))
+        if (bank.Language != Seed.Language || bank.Language is not ("TC" or "SC") ||
+            bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language) || bank.Float32Values.ContainsKey(key))
             throw NormalForeignMissing(key);
         return bank.Int32Values.TryGetValue(key, out int value) ? value :
             NormalForeignStaticRules.TryGetValue(name, out int initial) ? initial : throw NormalForeignMissing(key);

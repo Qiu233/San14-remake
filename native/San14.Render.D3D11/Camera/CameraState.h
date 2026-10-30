@@ -1,4 +1,5 @@
 #pragma once
+#include "../Runtime/PreparedFileInput.h"
 // CPU-only source Main mode0 publication + ordinary Landscape producer.
 // Ported from San14.Data's audited CE scalar/SSE kernels; no DirectX camera substitute.
 #include <algorithm>
@@ -86,7 +87,7 @@ inline Prefix encodePreparedCamera(const Prefix& formatTemplate,const CameraTran
     return packet;
 }
 inline Profile loadProfile(const std::filesystem::path& path){
-    std::ifstream s(path,std::ios::binary);if(!s||read<uint32_t>(s)!=0x31504343u)throw std::runtime_error("Camera source profile CCP1 absent");
+    NativePreparedInputFile s(path,std::ios::binary);if(!s||read<uint32_t>(s)!=0x31504343u)throw std::runtime_error("Camera source profile CCP1 absent");
     Profile p;p.staticPrefix=read<Prefix>(s);p.optics=decodeCameraOptics(p.staticPrefix);p.halfFovTangent=read<float>(s);p.lookDistance=read<float>(s);
     const auto clipFlags=read<uint32_t>(s);
     p.clipDepthRange=clipFlags&2?ClipDepthRange::ZeroToOne:ClipDepthRange::MinusOneToOne;
@@ -114,7 +115,7 @@ inline int currentRenderMode(Zoom zoom){return prepareCurrentRenderMode(zoom).sc
 struct RenderModePrefixProfile {uint32_t adaptedScale,bloomWeight,lensFlareWeight,selectedCloudy,cloudyChangedAltitude,initialPriorCloudy;};
 struct RenderModePrefixState {uint32_t priorCloudy430=0;};
 inline RenderModePrefixProfile loadRenderModePrefixProfile(const std::filesystem::path& path){
-    std::ifstream input(path,std::ios::binary);if(!input||read<uint32_t>(input)!=0x31504d52u)throw std::runtime_error("Main render direct prefix profile absent");
+    NativePreparedInputFile input(path,std::ios::binary);if(!input||read<uint32_t>(input)!=0x31504d52u)throw std::runtime_error("Main render direct prefix profile absent");
     auto result=read<RenderModePrefixProfile>(input);if(input.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Main render direct prefix profile trailing bytes");return result;
 }
 inline RenderModePrefixState createRenderModePrefixState(const RenderModePrefixProfile& p){return {p.initialPriorCloudy};}
@@ -130,14 +131,14 @@ inline Prefix prepareCurrentRenderModeDirectPrefix(const RenderModePrefixProfile
     state.priorCloudy430=profile.selectedCloudy;return result;
 }
 inline GroundHeightProfile loadGroundHeightProfile(const std::filesystem::path& directory){
-    std::ifstream input(directory/"profile.bin",std::ios::binary);if(!input)throw std::runtime_error("Explicit current Field GroundHeight profile absent");
+    NativePreparedInputFile input(directory/"profile.bin",std::ios::binary);if(!input)throw std::runtime_error("Explicit current Field GroundHeight profile absent");
     GroundHeightProfile p;p.preparationBranch=read<uint32_t>(input);p.outerOwnerPresent=read<uint32_t>(input);
     p.heightScale=read<float>(input);p.originX=read<float>(input);p.originZ=read<float>(input);
     p.spacing=read<float>(input);p.minimum=read<float>(input);p.maximum=read<float>(input);p.width=read<int>(input);p.height=read<int>(input);
     if(p.preparationBranch>2||p.outerOwnerPresent!=1||p.width<1||p.height<1||p.width>65535||p.height>65535||
         !std::isfinite(p.spacing)||p.spacing<=0||!std::isfinite(p.heightScale)||!std::isfinite(p.originX)||!std::isfinite(p.originZ)||!std::isfinite(p.minimum))
         throw std::runtime_error("Unsupported current GroundHeight source fields");
-    std::ifstream samples(directory/"packed24.bin",std::ios::binary);p.packed.resize((size_t(p.width)+1)*(size_t(p.height)+1));
+    NativePreparedInputFile samples(directory/"packed24.bin",std::ios::binary);p.packed.resize((size_t(p.width)+1)*(size_t(p.height)+1));
     samples.read(reinterpret_cast<char*>(p.packed.data()),std::streamsize(p.packed.size()*4));
     if(!samples||samples.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Incomplete current Field packed24 grid");return p;
 }

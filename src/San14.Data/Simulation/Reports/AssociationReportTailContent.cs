@@ -39,7 +39,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (entered) throw Missing("operation_already_entered"); entered = true;
             //570850/570840 suppression precedes the independent tutorial gate.
             if (Gate(application.SpecialModeSuppressesAssociationReport, "special_mode") ||
-                Gate(application.TutorialBlocksAreaReports, "tutorial"))
+                Gate(application.TutorialBlocksAssociationReports, "tutorial"))
             { completed = true; return Snapshot; }
             var actor = OwnedCurrentPlayerForce.ReadCurrentReference(State, current) ?? throw Missing("World3A_Force");
             var primary = new PersonDeathHistorySelection(State, current, pool,

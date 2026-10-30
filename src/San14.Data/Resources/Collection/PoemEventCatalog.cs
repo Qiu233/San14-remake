@@ -88,6 +88,18 @@ public sealed class PoemEventCatalog
         return result;
     }
 
+    /// <summary>The ordinary event's raw descriptor index, rather than a
+    /// Collection Item or layout index. The dispatcher owns its actual skip
+    /// gate and raw IDs at least 21, which do not create a poem presentation.</summary>
+    public PoemEventPublication ReadEvent(int rawId)
+    {
+        if (rawId is < 1 or > 20)
+            throw new InvalidDataException("poem-event.event.descriptor_index");
+        //6C6120 passes the same twenty descriptors directly. All have their
+        //second-footer hint flag set; only title633C60 clears it.
+        return Read(Configurations[rawId - 1].ItemId) with { InformationFooterHintMessageId = 0x2985 };
+    }
+
     // Kind29's registry alias and the actual atlas sprite name are different.
     // Follow its explicit normal declaration/wrapper, retaining the installed
     // language artwork rather than fabricating a translated sprite suffix.

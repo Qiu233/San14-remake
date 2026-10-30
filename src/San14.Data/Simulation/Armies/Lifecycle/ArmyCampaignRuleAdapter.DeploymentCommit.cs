@@ -72,7 +72,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableOrdinaryDeploymen
                     if (row.TacticIds.Any(x => x != 0 && !allowed.Contains(x)))
                         return CommandResult.Reject("Selected tactics are not currently available.", "deployment.tactics");
                 }
-                var selectionError = OCValidateInitialFacilitySelection(row.ConstructionSelection);
+                var selectionError = OCValidateInitialFacilitySelection(state,current,person,row.ConstructionSelection,row.Actions is [{ActionKey:"build"}]);
                 if (selectionError is not null) return selectionError;
                 var targetError = OCReadDeploymentTarget(state, current, person, row.Actions, out var target);
                 if (targetError is not null) return targetError;
@@ -95,69 +95,98 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableOrdinaryDeploymen
             if (working.ArmyIdentities!.NextId + units.Count - 1 > int.MaxValue) throw OCMissing("identity_exhausted");
             foreach (var row in units)
             {
-                int person = OCKnown(current.ReadPersonLookupReference(row.OfficerId)?.PhysicalSlot, "person_pointer");
-                var preference = DeploymentDraftDefaults.Encode(row.Behavior ?? throw OCMissing("behavior"));
-                var target = targets[row.OfficerId];
-                var configuration = new ArmyCreationConfiguration(row.NavalFormationId!.Value,
-                    target.Action, preference.EnemyApproach, preference.Retreat, preference.Pursuit)
-                { Choice50Input = preference.AfterAction, RouteHold40Input = 0, TargetKind38 = target.Fields.Kind38 };
-                // This compatibility descriptor is a transient input adapter to
-                // the existing creator. It is never inserted in the saved queue.
-                var plan = new PreparedDeployment(1, 1, source.ForceId, source.DistrictId, source.LocationId,
-                    row.OfficerId, row.FormationId, row.Troops, Enumerable.Range(0, 3).Select(i => i < row.TacticIds.Count ? row.TacticIds[i] : 0).ToArray(), row.Actions.ToArray(),
-                    row.WaypointHexIds.ToArray(), row.Behavior!, true, true);
-                var army = new UnitState(working.ArmyIdentities!.Candidate, source.ForceId, row.OfficerId,
-                    source.HexId, target.GoalHex, Math.Clamp(row.Troops, 0, ushort.MaxValue), 0,
-                    new(OCKnown(current.ReadBaseMorale44(BaseLookup.Find(source.LocationId, current)), "source_morale"), null))
-                { SourceLocationId = source.LocationId, Formations = new(row.FormationId, null, null),
-                    TacticIds = plan.TacticIds.ToArray(), Behavior = row.Behavior,
-                    TacticRuntime = UnitTacticRuntime.Empty(), Mission = target.Action is 9 or 10
-                        ? new(target.Action == 9 ? UnitMissionKind.RepairStructure : UnitMissionKind.DemolishStructure,
-                            TargetStructureId: row.Actions[0].Target.Id)
-                        : target.Action == 14 ? new(UnitMissionKind.OccupyArea, TargetAreaId: row.Actions[0].Target.Id)
-                        : target.Action == 8 ? new(UnitMissionKind.BuildStructure,
-                            StructureKindId: row.Actions[0].StructureKindId)
-                        : new(UnitMissionKind.Combat) };
-                army = PlayableWaypointMarch.AttachAction(army, row.Actions[0], row.WaypointHexIds);
-                GameState? afterTroopWrite = null;
-                var receipt = CreateOrdinaryCore(working, plan, army, configuration, (before, fields) =>
-                {
-                    if (fields.CurrentMorale is null || fields.CommanderPosition is null) throw OCMissing("creation_morale_or_position");
-                    var troopCurrent = CaptureWritableTransportRouteCurrent(before);
-                    _baseCapacityInputs.BindCurrent(before, troopCurrent);
-                    // The receiver is not admitted yet: resolve its actual
-                    // commander E2 instead of reading an unassigned Army header.
-                    ushort first = OCKnown(troopCurrent.ReadPersonFirstLocation(person), "commander_home");
-                    var home = BaseLookup.Find(first, troopCurrent);
-                    int stock = OCKnown(troopCurrent.ReadBaseResource(home, BaseResourceKind.Troops), "Base_troops");
-                    int after = OCBound(unchecked(stock - row.Troops), BasePostLoad.ReadResourceCapacities(home, troopCurrent).Troops);
-                    after = OCBound(after, BasePostLoad.ReadResourceCapacities(home, troopCurrent).Troops);
-                    var changed = OCWithTroops(before, home, after);
-                    var officer = changed.Officers[row.OfficerId];
-                    changed = changed with { Officers = new(changed.Officers) { [officer.Id] = officer with
-                    { LocationState = officer.LocationState is { } location ? location with { Position = fields.CommanderPosition }
-                        : new(fields.CommanderPosition, null) } } };
-                    afterTroopWrite = changed;
-                    return changed;
-                }, normalTarget: target.Fields) ?? throw OCMissing("creator_or_registration");
-                working = PlayableArmyCreation.PublishCreated(afterTroopWrite ?? throw OCMissing("troop_write"), army, receipt);
-                working = OCBindInitialFacilitySelection(working, army.Id, row);
-                working = OCBindInitialFalseReportDestination(working, army.Id, row);
-                working = OCApplyGovernorTail(working, person);
-                working = OCCompleteCreationGroups(working, army.Id);
-                working = OCApplyFinalDebits(working, army.Id, person, debitCommandBook);
-                var routeCurrent = CaptureWritableTransportRouteCurrent(working);
-                var routed = OrdinaryArmyRouteSource.PrepareCreation(working, routeCurrent, working.Units[army.Id]);
-                var route = routed.Receipt ?? throw OCMissing(routed.UnresolvedOwner ?? "initial_route");
-                var created = working.Units[army.Id];
-                working = (working with { Units = new(working.Units) { [army.Id] = created with
-                { March = created.March! with { NextStep = route.NextHexWrite is ushort next
-                    ? ArmyMarchSourceAdapter.DecodeDestination(next) : ArmyMarchDestination.None } } } })
-                    .WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = routeCurrent.ReadOwnedCurrentListPool()!.ExportOwnedState() });
+                working = CreateOrdinaryDeploymentArmyCurrent(working, current, source, row, targets[row.OfficerId], debitCommandBook);
             }
             return CommandResult.Accept(working);
         }
         catch (InvalidDataException error) { return CommandResult.RuleUnavailable("rules.ordinary_deployment_commit", error.Message); }
+    }
+
+    // The actual1EC980 creation/accounting tail shared by independently
+    // admitted player and source-AI callers. Player dialog eligibility remains
+    // above; this method never substitutes that eligibility for a source node.
+    private GameState CreateOrdinaryDeploymentArmyCurrent(GameState working, SourceWorldContext current,
+        DeploymentSource source, DeploymentUnitRequest row, ArmyCommandTarget target, bool debitCommandBook,
+        ArmyCreationConfiguration? directConfiguration = null)
+    {
+        int person = OCKnown(current.ReadPersonLookupReference(row.OfficerId)?.PhysicalSlot, "person_pointer");
+        working = MarkOrdinaryDepartureCommanderCurrent(working, current, person, row.OfficerId);
+        var preference = directConfiguration is { } explicitPacket
+            ? new DeploymentPreferenceEncoding(explicitPacket.Category44, explicitPacket.Flag48Input, explicitPacket.Flag4CInput,
+                explicitPacket.Choice50Input ?? throw OCMissing("source_creation_choice"))
+            : DeploymentDraftDefaults.Encode(row.Behavior ?? throw OCMissing("behavior"));
+        var configuration = directConfiguration ?? new ArmyCreationConfiguration(row.NavalFormationId!.Value,
+            target.Action, preference.EnemyApproach, preference.Retreat, preference.Pursuit)
+        { Choice50Input = preference.AfterAction, RouteHold40Input = 0, TargetKind38 = target.Fields.Kind38 };
+        // This compatibility descriptor is a transient input adapter to
+        // the existing creator. It is never inserted in the saved queue.
+        var plan = new PreparedDeployment(1, 1, source.ForceId, source.DistrictId, source.LocationId,
+            row.OfficerId, row.FormationId, row.Troops, Enumerable.Range(0, 3).Select(i => i < row.TacticIds.Count ? row.TacticIds[i] : 0).ToArray(), row.Actions.ToArray(),
+            row.WaypointHexIds.ToArray(), row.Behavior!, true, true);
+        var army = new UnitState(working.ArmyIdentities!.Candidate, source.ForceId, row.OfficerId,
+            source.HexId, target.GoalHex, Math.Clamp(row.Troops, 0, ushort.MaxValue), 0,
+            new(OCKnown(current.ReadBaseMorale44(BaseLookup.Find(source.LocationId, current)), "source_morale"), null))
+        { SourceLocationId = source.LocationId, Formations = new(row.FormationId, null, null),
+            TacticIds = plan.TacticIds.ToArray(), Behavior = row.Behavior,
+            TacticRuntime = UnitTacticRuntime.Empty(), Mission = row.Actions.Count == 0 ? null : target.Action is 9 or 10
+                ? new(target.Action == 9 ? UnitMissionKind.RepairStructure : UnitMissionKind.DemolishStructure,
+                    TargetStructureId: row.Actions[0].Target.Id)
+                : target.Action == 14 ? new(UnitMissionKind.OccupyArea, TargetAreaId: ReadInitialOccupationAreaCurrent(current,row.Actions[0],target.GoalHex))
+                : target.Action == 8 ? new(UnitMissionKind.BuildStructure,
+                    StructureKindId: row.Actions[0].StructureKindId)
+                : new(UnitMissionKind.Combat) };
+        if (row.Actions.Count != 0) army = PlayableWaypointMarch.AttachAction(army, row.Actions[0], row.WaypointHexIds);
+        GameState? afterTroopWrite = null;
+        var receipt = CreateOrdinaryCore(working, plan, army, configuration, (before, fields) =>
+        {
+            if (fields.CurrentMorale is null || fields.CommanderPosition is null) throw OCMissing("creation_morale_or_position");
+            var troopCurrent = CaptureWritableTransportRouteCurrent(before);
+            _baseCapacityInputs.BindCurrent(before, troopCurrent);
+            // The receiver is not admitted yet: resolve its actual
+            // commander E2 instead of reading an unassigned Army header.
+            ushort first = OCKnown(troopCurrent.ReadPersonFirstLocation(person), "commander_home");
+            var home = BaseLookup.Find(first, troopCurrent);
+            int stock = OCKnown(troopCurrent.ReadBaseResource(home, BaseResourceKind.Troops), "Base_troops");
+            int after = OCBound(unchecked(stock - row.Troops), BasePostLoad.ReadResourceCapacities(home, troopCurrent).Troops);
+            after = OCBound(after, BasePostLoad.ReadResourceCapacities(home, troopCurrent).Troops);
+            var changed = OCWithTroops(before, home, after);
+            var officer = changed.Officers[row.OfficerId];
+            changed = changed with { Officers = new(changed.Officers) { [officer.Id] = officer with
+            { LocationState = officer.LocationState is { } location ? location with { Position = fields.CommanderPosition }
+                : new(fields.CommanderPosition, null) } } };
+            afterTroopWrite = changed;
+            return changed;
+        }, normalTarget: target.Fields) ?? throw OCMissing("creator_or_registration");
+        working = PlayableArmyCreation.PublishCreated(afterTroopWrite ?? throw OCMissing("troop_write"), army, receipt);
+        if (row.Actions.Count != 0)
+        {
+            working = OCBindInitialFacilitySelection(working, army.Id, row);
+            working = OCBindInitialFalseReportDestination(working, army.Id, row);
+        }
+        working = OCApplyGovernorTail(working, person);
+        working = OCCompleteCreationGroups(working, army.Id);
+        working = OCApplyFinalDebits(working, army.Id, person, debitCommandBook);
+        var routeCurrent = CaptureWritableTransportRouteCurrent(working);
+        var routed = OrdinaryArmyRouteSource.PrepareCreation(working, routeCurrent, working.Units[army.Id], configuration.SourceDeparture);
+        var route = routed.Receipt ?? throw OCMissing(routed.UnresolvedOwner ?? "initial_route");
+        var created = working.Units[army.Id];
+        working = (working with { Units = new(working.Units) { [army.Id] = created with
+        { March = created.March! with { NextStep = route.NextHexWrite is ushort next
+            ? ArmyMarchSourceAdapter.DecodeDestination(next) : ArmyMarchDestination.None } } } })
+            .WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = routeCurrent.ReadOwnedCurrentListPool()!.ExportOwnedState() });
+        return working;
+    }
+
+    private static GameState MarkOrdinaryDepartureCommanderCurrent(GameState state, SourceWorldContext current,
+        int person, int officerId)
+    {
+        ushort previous = OCKnown(current.ReadArmyReturnPersonFlags196(person), "departure_commander15E");
+        ushort flags = (ushort)(previous | 1);
+        if (flags == previous) return state;
+        current.WriteArmyReturnPersonFlags196(person, flags);
+        var officer = state.Officers[officerId];
+        return state with { Officers = new(state.Officers) { [officer.Id] = officer with
+            { Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(officer.Behavior, flags) } } };
     }
 
     private GameState OCApplyGovernorTail(GameState state, int person)

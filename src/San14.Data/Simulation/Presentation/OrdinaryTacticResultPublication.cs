@@ -33,13 +33,21 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// again, consumes a random draw, nor acknowledges a presentation.</summary>
     public AreaAdministrationQuery<OrdinaryTacticResultPublication> QueryOrdinaryTacticResults(
         GameState state, TacticPresentationRequest request, MainMapCameraTerrainSource? terrain = null)
+        => QueryTacticResultsCurrent(state, request, TacticPresentationKind.OrdinaryEffects, terrain);
+
+    public AreaAdministrationQuery<OrdinaryTacticResultPublication> QueryUniqueTacticResults(
+        GameState state, TacticPresentationRequest request, MainMapCameraTerrainSource? terrain = null)
+        => QueryTacticResultsCurrent(state, request, TacticPresentationKind.UniqueDirection, terrain);
+
+    private AreaAdministrationQuery<OrdinaryTacticResultPublication> QueryTacticResultsCurrent(
+        GameState state, TacticPresentationRequest request, TacticPresentationKind expectedKind,
+        MainMapCameraTerrainSource? terrain)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(request);
         try
         {
-            if (request.Kind != TacticPresentationKind.OrdinaryEffects)
-                throw TacticResultMissing("unique_direction_host");
+            if (request.Kind != expectedKind) throw TacticResultMissing("presentation_kind");
             if (request.Actors.Length is < 1 or > 11)
                 throw TacticResultMissing("primary_and_ten_linked_actors");
             var current = CaptureOwnedArmyReturnWorld(state).Context;

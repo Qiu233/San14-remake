@@ -1,4 +1,5 @@
 using San14.Data.Formats;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -11,38 +12,55 @@ public sealed record CampaignEventExecutionInputs(
     Func<SceneryReference, string?> ReadSceneryName,
     bool? SkipCamera)
 {
+    public SourceWorldContext? AreaListCurrent { get; init; }
+    public Func<int, int, int?>? ReadStoryPersonRelationWord { get; init; }
+    public Func<int, int, bool?>? ReadStoryPersonKinship { get; init; }
+    public Func<int, int>? SampleStoryInvocationSourceSelection { get; init; }
+    public Func<int, int?>? ReadPersonDoctrineValue { get; init; }
+    public Func<bool?>? ReadReturnToTitlePending { get; init; }
+    public Func<CampaignStoryMessageContext,IReadOnlyList<int>,IReadOnlyList<string>>? ResolveMessageStringParameters { get; init; }
+    public Func<int, int, int?>? ReadForceFriendshipValue { get; init; }
+    public bool? ForcedIfResult { get; init; }
+    public Func<CampaignNarrationExperienceBonus>? ReadNarrationExperienceBonus { get; init; }
+    public CampaignEventDialogueCast? InitialDialogueCast { get; init; }
+    public Func<S14EventConditionPersonReference, ushort?>? ReadServiceYear { get; init; }
     public IReadOnlyList<int>? InitialPersonParameters { get; init; }
+    public IReadOnlyList<int?>? InitialMessagePeople { get; init; }
+    public IReadOnlyList<int>? InitialCityParameters { get; init; }
+    public IReadOnlyList<int>? InitialForceParameters { get; init; }
+    public IReadOnlyList<int>? InitialAreaParameters { get; init; }
+    public IReadOnlyList<int>? InitialItemParameters { get; init; }
+    public IReadOnlyList<int?>? InitialNumberParameters { get; init; }
+    public IReadOnlyList<int?>? InitialProvinceParameters { get; init; }
+    public Func<S14EventConditionPersonReference, int?>? ReadCurrentPersonAge { get; init; }
+    public Func<int, string?>? ReadDoctrineMessageName { get; init; }
+    public Func<int, string?>? ReadMonthMessageName { get; init; }
     public IReadOnlyList<string>? InitialNameParameters { get; init; }
+    public Func<BaseReference, ushort?>? ReadCameraBaseHex { get; init; }
 }
 
 /// <summary>Invocation-local candidate list and selected actors. Clearing the
 /// candidates does not clear the actors. No mutation escapes a failed plan.</summary>
-internal sealed class CampaignEventExecutionContext(CampaignEventExecutionInputs inputs)
+internal sealed partial class CampaignEventExecutionContext(CampaignEventExecutionInputs inputs)
 {
     private readonly List<S14EventConditionPersonReference> _candidates = [];
     private readonly Dictionary<int, S14EventConditionPersonReference> _actors = [];
     public IReadOnlyList<S14EventConditionPersonReference> Candidates => _candidates.AsReadOnly();
     public IReadOnlyDictionary<int, S14EventConditionPersonReference> Actors => _actors;
     private IS14PlayerEventConditionQueries Queries => inputs.Persons;
+    internal int? ReadCurrentStoryPersonRelationWord(int person, int field) =>
+        (inputs.ReadStoryPersonRelationWord ?? throw Missing("current relationship word reader"))(person, field);
+    internal bool? ReadCurrentStoryPersonKinship(int first, int second) =>
+        (inputs.ReadStoryPersonKinship ?? throw Missing("current kinship reader"))(first, second);
+    internal int? ReadStoryPersonDoctrineValue(int physical) =>
+        (inputs.ReadPersonDoctrineValue ?? throw Missing("current person Doctrine reader"))(physical);
 
-    public S14EventConditionPersonReference ResolvePerson(int selector)
-    {
-        S14EventConditionPersonPointer? pointer;
-        if (selector is >= -14 and <= -10)
-            pointer = new(_actors.GetValueOrDefault(selector)); // constructor reset is an observed null actor
-        else if (selector == -4) pointer = Queries.ReadConditionCurrentPlayerPerson();
-        else if (selector < 0) throw new InvalidDataException($"Story person selector {selector} has no current producer.");
-        else pointer = selector <= 6000 ? Queries.ReadConditionPersonTableSlot(selector) : Queries.ReadConditionBasePerson();
-        if (pointer is null) throw Missing("person pointer");
-        return pointer.Value ?? (Queries.ReadConditionPersonTableSlot(0) ?? throw Missing("person-zero pointer")).Value
-            ?? throw new InvalidDataException("Current person-zero pointer is null.");
-    }
-
-    public void AddForcePersons(IReadOnlyList<int> arguments)
+    public void AddForcePersons(IReadOnlyList<int> arguments,
+        Func<int, S14EventConditionForceReference?> readTargetForce)
     {
         foreach (int raw in arguments)
         {
-            var force = ResolveForce(raw);
+            var force = ResolveForce(raw, readTargetForce);
             if (force is null || !Known(Queries.ReadConditionForceValidity(force), "force validity")) continue;
             for (int mode = 0; mode <= 1; mode++)
             {
@@ -121,20 +139,11 @@ internal sealed class CampaignEventExecutionContext(CampaignEventExecutionInputs
         ? string.Empty : inputs.ReadSceneryName(scenery) ?? throw Missing("scenery name");
     public bool SkipCamera => Known(inputs.SkipCamera, "camera execution mode");
 
-    private S14EventConditionForceReference? ResolveForce(int selector)
+    public int CityMessageParameter(int selector)
     {
-        S14EventConditionForcePointer? force;
-        if (selector == -1) force = Queries.ReadConditionCurrentPlayerForce();
-        else if (selector < 0) throw new InvalidDataException($"Story force selector {selector} has no current producer.");
-        else
-        {
-            var person = ResolvePerson(selector);
-            force = Known(Queries.ReadConditionPersonValidity(person), "force selector person validity") &&
-                Known(Queries.ReadConditionPersonStatus(person), "force selector person status") == 1
-                ? Queries.ReadConditionPersonForce(person) : new(null);
-        }
-        if (force is null) throw Missing("selected force pointer");
-        return force.Value ?? (Queries.ReadConditionForceTableSlot(0) ?? throw Missing("force-zero pointer")).Value;
+        var receiver = ResolveBaseSelector(selector);
+        return Known(Queries.ReadConditionBaseValidity(receiver), "city parameter validity")
+            ? Known(Queries.ReadConditionBaseObjectId(receiver), "city parameter object identity") : 0;
     }
 
     private static bool Special(int id) => (uint)(id - 4111) <= 9 || (uint)(id - 4131) <= 9 ||

@@ -8,7 +8,7 @@ public partial class Main
 {
     private OfficerOfficePage? _officerOfficePage;
     private OfficerOfficeDraft? _officerOfficeDraft;
-    private TalentPersonSelectionView? _officerOfficePeople;
+    private OfficerOfficePersonSelectionView? _officerOfficePeople;
     private DeploymentTargetConfirmation? _officerOfficeConfirmation;
     private GameplaySession? _officerOfficeSession;
     private GameState? _officerOfficeWorld;
@@ -17,6 +17,15 @@ public partial class Main
     private bool IsOfficerOfficeCurrent => !_failed && !_shuttingDown && HasOfficerOfficePage &&
         ReferenceEquals(_session,_officerOfficeSession) && ReferenceEquals(_world,_officerOfficeWorld) &&
         _residentMap == _officerOfficeMap;
+
+    private void AdoptOfficerOfficeSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // Keep the captured rules, edited appointments and pending selector/confirmation.
+        if (_officerOfficePage is null || _officerOfficeDraft is null || _officerOfficeSession != session ||
+            _officerOfficeMap is null || _officerOfficeMap != _residentMap ||
+            !ReferenceEquals(_officerOfficeWorld, previous)) return;
+        _officerOfficeWorld = replacement;
+    }
 
     private void OpenOfficerOffices()
     {
@@ -56,33 +65,32 @@ public partial class Main
             _officerOfficeSession?.PlayerForceId is not int player) return;
         var slot = draft.Rows.FirstOrDefault(row=>row.OfficeId==officeId);
         if(slot is not { Enabled:true }) return;
-        var candidates = draft.QueryCandidates(officeId).Select(candidate=>new TalentPersonChoice(
-            candidate.OfficerId,candidate.Name,candidate.CurrentOfficeName,world.Forces[player].Name,
-            candidate.Abilities.Value?.Intelligence,candidate.Abilities.Value?.Politics,candidate.Abilities.Value?.Charm,
-            candidate.Enabled,candidate.DisabledReason)).ToArray();
-        var messages=_repository.LoadMessages(_ui.SourceLocale,MessageKind.Data).Messages.Sections[1];
-        string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing office selector caption.");
-        var selector=new TalentPersonSelectionView();_officerOfficePeople=selector;AddChild(selector);
-        _officerOfficePage!.SetBusy(true);
+        var prepared=draft.ReadPeopleSelection(officeId);
+        if(!prepared.Available || prepared.Value is not {} model)
+        {
+            if(prepared.UnresolvedInput is {} missing)GD.PushWarning(missing);
+            return;
+        }
+        var selector=new OfficerOfficePersonSelectionView();_officerOfficePeople=selector;AddChild(selector);
+        _officerOfficePage!.SetBusy(true);_officerOfficePage.Hide();
         try
         {
-            selector.Configure(_repository,_ui,candidates,[],1,true,
+            selector.Configure(_repository,_ui,model,slot.OfficeName,
                 ()=>IsOfficerOfficeCurrent&&_officerOfficePeople==selector,
                 selected=>RunUiAction(()=>
                 {
                     if(!IsOfficerOfficeCurrent||_officerOfficePeople!=selector)return;
                     CloseOfficerOfficePeople();
-                    if(selected is {Count:1})draft.Assign(officeId,selected[0]);
+                    if(selected is int id)draft.Assign(officeId,id);
                     _officerOfficePage!.Apply();
-                }),CurrentListScrollSpeed,titleMessage:0x032E,firstContextCaption:Message(0x05DD),
-                extraCaption:Message(0x029E),extraAction:()=>RunUiAction(()=>
+                }),()=>RunUiAction(()=>
                 {
                     if(!IsOfficerOfficeCurrent||_officerOfficePeople!=selector)return;
                     if(!draft.Assign(officeId,null))return;
-                    // Keep the actual person-selection stage open with its
-                    // updated draft eligibility; no order has been issued.
-                    CloseOfficerOfficePeople();OpenOfficerOfficePeople(officeId);
-                }),extraEnabled:slot.AssignedOfficer is not null);
+                    //The original Dismiss refreshes this dialog and closes
+                    //with no selected Person. It does not reopen a selector.
+                    CloseOfficerOfficePeople();_officerOfficePage!.Apply();
+                }),CurrentListScrollSpeed);
         }
         catch { CloseOfficerOfficePeople(); throw; }
     }
@@ -123,7 +131,7 @@ public partial class Main
     {
         var view=_officerOfficePeople;_officerOfficePeople=null;
         if(view is not null){view.Abandon();view.GetParent()?.RemoveChild(view);view.QueueFree();}
-        _officerOfficePage?.SetBusy(false);
+        _officerOfficePage?.SetBusy(false);_officerOfficePage?.Show();
     }
 
     private void CloseOfficerOffices()

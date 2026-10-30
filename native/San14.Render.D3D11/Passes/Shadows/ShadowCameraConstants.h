@@ -2,9 +2,12 @@
 // static Model population. Include after model-native.h/shadow-native.h and
 // the usual load/check helpers. Device work is prepared once, not per frame.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ShadowCameraFrame.h"
 #include "ShadowReceiverMaterial.h"
 #include <array>
+#include <span>
+#include <cstdint>
 #include <fstream>
 #include <vector>
 namespace source_shadow_gpu {
@@ -23,7 +26,7 @@ struct Profile {
 };
 struct Draw {
     unsigned pass{}, primitiveIndex{}, bytes{};
-    std::array<char, 112> constants{};
+    std::array<char, 272> constants{};
 };
 struct Plan {
     std::vector<Draw> draws;
@@ -39,7 +42,7 @@ inline void setCurrentParameters(Profile &owned, const Profile &current) {
     owned.loops = current.loops;
 }
 inline Profile loadProfile(const std::filesystem::path &file) {
-    std::ifstream s(file, std::ios::binary);
+    NativePreparedInputFile s(file, std::ios::binary);
     using source_camera::read;
     if (!s || read<unsigned>(s) != 0x31504753u)
         throw std::runtime_error("Shadow GPU SGP1 profile absent");
@@ -63,7 +66,8 @@ inline Profile loadProfile(const std::filesystem::path &file) {
         t.bytes = read<unsigned>(s);
         t.localToProjection = read<unsigned>(s);
         t.pixelProgram = read<int>(s);
-        if (t.pixelProgram != -1 || (t.localToProjection ? t.bytes != 64 : t.bytes != 112))
+        if (t.bytes == 272 ? t.localToProjection != 0 :
+            (t.pixelProgram != -1 || (t.localToProjection ? t.bytes != 64 : t.bytes != 112)))
             throw std::runtime_error(
                 "Current static Shadow profile needs its active alpha/nonrigid source owner");
     }
@@ -86,9 +90,16 @@ template <class Catalog> inline void bindCatalog(Profile &p, const Catalog &mode
         throw std::runtime_error("Shadow template catalog differs from source Model catalog");
 }
 template <class Primitive>
-inline std::array<char, 112> rigidConstants(const Template &t, const Primitive &primitive,
+inline std::array<char, 272> rigidConstants(const Template &t, const Primitive &primitive,
                                             const source_camera::Matrix &shadow) {
-    std::array<char, 112> bytes{};
+    std::array<char, 272> bytes{};
+    if (t.bytes == 272) {
+        if (primitive.extendedVertex.size() != 272)
+            throw std::runtime_error("Tree2 shadow requires its actual complete normal material packet");
+        std::memcpy(bytes.data(), primitive.extendedVertex.data(), 272);
+        std::memcpy(bytes.data(), shadow.data(), 64);
+        return bytes;
+    }
     if (t.localToProjection) {
         std::array<float, 12> rows;
         std::memcpy(rows.data(), primitive.vertex.data() + 112, 48);
@@ -166,10 +177,8 @@ inline San14::Render::ShadowReceiverMaterial receiverMaterial(const Profile &p, 
                                                const San14::Render::ShadowReceiverMaterial &original) {
     using namespace source_shadow_camera;
     auto material = original;
-    if(!material.shadow) {
-        if(shadow.passCount!=4)throw std::runtime_error("Fresh receiver cascade tails require four initialized passes");
-        material.shadow.emplace();
-    }
+    if(!material.shadow)
+        throw std::runtime_error("Receiver shadow backing requires its fresh constructor");
     auto& values=*material.shadow;
     std::array<Matrix, 4> textures;
     for (unsigned i = 0; i < unsigned(shadow.passCount); i++) {
@@ -220,6 +229,9 @@ struct NativeShadowCameraGpuTemplate {
     ComPtr<ID3D11VertexShader> vertex;
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> constants;
+    ComPtr<ID3D11PixelShader> pixel;
+    ComPtr<ID3D11Buffer> pixelConstants;
+    std::array<char, 48> pixelBytes{};
 };
 struct NativeShadowCameraGpu {
     NativeShadowMap map;
@@ -279,7 +291,7 @@ prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile pr
         };
         std::vector<Element> elements;
         Element e;
-        std::ifstream rows(directory / "layout.txt");
+        NativePreparedInputFile rows(directory / "layout.txt");
         while (rows >> e.name >> e.index >> e.format >> e.slot >> e.offset)
             elements.push_back(e);
         std::vector<D3D11_INPUT_ELEMENT_DESC> layout;
@@ -293,15 +305,27 @@ prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile pr
         cb.Usage = D3D11_USAGE_DEFAULT;
         cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         check(device->CreateBuffer(&cb, nullptr, &t.constants), "mutable complete original caster CB");
+        if (source.pixelProgram >= 0) {
+            auto pixel = load(directory / "ps.dxbc");
+            auto material = load(directory / "ps-b0.bin");
+            if (source.bytes != 272 || material.size() != t.pixelBytes.size())
+                throw std::runtime_error("Root Tree2 shadow alpha material is incomplete");
+            std::memcpy(t.pixelBytes.data(), material.data(), material.size());
+            check(device->CreatePixelShader(pixel.data(), pixel.size(), nullptr, &t.pixel),
+                  "source-selected Tree2 depth-class5 alpha PS");
+            cb.ByteWidth = UINT(t.pixelBytes.size());
+            check(device->CreateBuffer(&cb, nullptr, &t.pixelConstants), "Tree2 shadow alpha material CB");
+        }
     }
     return out;
 }
-template <class LogicalDepth, class AdditionalCasters>
+template <class LogicalDepth, class CurrentTree2Wind, class AdditionalCasters>
 inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDepth &logical,
                                          NativeShadowCameraGpu &gpu, const source_shadow_camera::Frame &frame,
                                          const source_shadow_gpu::Plan &plan,
                                          const NativeModelContinuous &catalog,
                                          const NativeModelInputs &completeModels, unsigned renderMode,
+                                         const CurrentTree2Wind& currentTree2Wind,
                                          AdditionalCasters&& additionalCasters) {
     retainNativeShadowRasterExit(context, gpu.raster);
     std::array<ID3D11ShaderResourceView *, 3> nulls{};
@@ -335,6 +359,9 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
             context->IASetInputLayout(t.layout.Get());
             auto cb = t.constants.Get();
             context->VSSetConstantBuffers(0, 1, &cb);
+            context->PSSetShader(t.pixel.Get(), nullptr, 0);
+            auto pixelBuffer = t.pixelConstants.Get();
+            context->PSSetConstantBuffers(0, 1, &pixelBuffer);
             currentTemplate = primitive.templateIndex;
         }
         std::vector<ID3D11Buffer *> streams;
@@ -346,7 +373,36 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
         context->IASetIndexBuffer(geometry.indices.Get(),
                                   geometry.indexBits == 16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT, 0);
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY(geometry.topology));
-        context->UpdateSubresource(t.constants.Get(), 0, nullptr, row.constants.data(), 0, 0);
+        auto constants = row.constants;
+        std::array<ID3D11ShaderResourceView*,16> vertexResources{};
+        std::array<ID3D11SamplerState*,16> vertexSamplers{};
+        if (row.bytes == 272) {
+            // Shadow runs before ordinary Model submission. Borrow this frame's
+            // real wind owner directly rather than last frame's model draws.
+            currentTree2Wind.writeCurrentTree2Vs(std::span<uint8_t>(
+                reinterpret_cast<uint8_t*>(constants.data()), row.bytes), primitive.groupFlags);
+            NativeModelDraw borrowed;
+            currentTree2Wind.attachCurrentTree2Resources(borrowed, primitive.groupFlags);
+            for (size_t i=0;i<vertexResources.size();++i) {
+                vertexResources[i]=borrowed.vertexTextures[i].Get();
+                vertexSamplers[i]=borrowed.vertexSamplers[i].Get();
+            }
+        }
+        context->VSSetShaderResources(0,UINT(vertexResources.size()),vertexResources.data());
+        context->VSSetSamplers(0,UINT(vertexSamplers.size()),vertexSamplers.data());
+        auto primary=t.pixel ? geometry.textures[0].Get() : nullptr;
+        auto primarySampler=t.pixel ? geometry.samplers[0].Get() : nullptr;
+        if(t.pixel && (!primary || !primarySampler))
+            throw std::runtime_error("Tree2 shadow alpha needs its actual retained primary texture and sampler");
+        context->PSSetShaderResources(0,1,&primary);
+        context->PSSetSamplers(0,1,&primarySampler);
+        if(t.pixel) {
+            const auto& raster=gpu.raster.source.at(renderMode);
+            const float bias[2]{raster.scale*.5f,raster.bias.at(raster.selector==0?0:row.pass)};
+            std::memcpy(t.pixelBytes.data(),bias,sizeof(bias));
+            context->UpdateSubresource(t.pixelConstants.Get(),0,nullptr,t.pixelBytes.data(),0,0);
+        }
+        context->UpdateSubresource(t.constants.Get(), 0, nullptr, constants.data(), 0, 0);
         context->DrawIndexed(geometry.indexCount, geometry.indexStart, geometry.baseVertex);
         ++gpu.map.draws;
     }

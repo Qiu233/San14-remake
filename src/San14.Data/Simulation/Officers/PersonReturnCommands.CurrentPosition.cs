@@ -13,6 +13,10 @@ public static partial class PersonReturnCommands
             return current.ReadHexTableReference(task.StationHex) ?? throw Missing("absence target hex");
         if (owner.Talents?.GetValueOrDefault(identity) is { } talent)
             return current.ReadHexTableReference(talent.EndHexId) ?? throw Missing("talent target Hex");
+        if (owner.Caravans?.GetValueOrDefault(identity) is { } caravan)
+            return current.ReadHexTableReference(caravan.EndHexId) ?? throw Missing("caravan target Hex");
+        if (owner.Intelligences?.GetValueOrDefault(identity) is { } intelligence)
+            return current.ReadHexTableReference(intelligence.EndHexId) ?? throw Missing("intelligence target Hex");
         var command = owner.Returns.GetValueOrDefault(identity) ?? throw Missing("current_Command_receiver");
         if (command.RouteDestinations.Length == 0) return new(null);
         var selected = ToBase(command.RouteDestinations[0]);

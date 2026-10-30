@@ -1,3 +1,4 @@
+#include "../../Runtime/PreparedFileInput.h"
 // Normal node78, node123 and node166 fullscreen draws into retained node73 HDR.
 // Current bank selection owns bindings and buffers; logical depth/raster state
 // remains inherited at each selected fullscreen draw.
@@ -8,7 +9,7 @@
 #include "Interop/HdrProgramBindingInputs.h"
 #include "../../Device/ContextEnvironmentResources.h"
 static void applySourceModelStencil(ID3D11Device* device,NativeModelInputs& models,const fs::path& source) {
-    std::ifstream rows(source/"model-references.txt");std::string directory;
+    NativePreparedInputFile rows(source/"model-references.txt");std::string directory;
     UINT enabled,reference,readMask,writeMask,compare,fail,depthFail,pass;
     if(!rows)throw std::runtime_error("Source model stencil references absent");
     while(rows>>directory>>enabled>>reference>>readMask>>writeMask>>compare>>fail>>depthFail>>pass) {
@@ -28,7 +29,7 @@ struct NativeSourceHdrTarget {
 static NativeSourceHdrTarget createSourceHdr(ID3D11Device* device,const fs::path& firstPass,
     UINT width,UINT height) {
     std::uint32_t objectId;UINT resource,shader,target,w,h;
-    std::ifstream input(firstPass/"target.txt");input>>std::hex>>objectId>>std::dec>>resource>>shader>>target>>w>>h;
+    NativePreparedInputFile input(firstPass/"target.txt");input>>std::hex>>objectId>>std::dec>>resource>>shader>>target>>w>>h;
     if(!input||w!=width||h!=height)throw std::runtime_error("Source HDR target extent mismatch");
     NativeSourceHdrTarget result;result.objectId=objectId;
     result.shaderFormat=DXGI_FORMAT(shader);result.targetFormat=DXGI_FORMAT(target);

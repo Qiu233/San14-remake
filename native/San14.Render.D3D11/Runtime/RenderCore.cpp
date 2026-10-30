@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <filesystem>
 #include <fstream>
+#include "PreparedFileInput.h"
 #include <iostream>
 #include <vector>
 #include <array>
@@ -25,7 +26,7 @@ static void check(HRESULT h, const char* what) {
     if (FAILED(h)) { std::cerr << what << " HRESULT=0x" << std::hex << h << '\n'; throw std::runtime_error(what); }
 }
 static std::vector<char> load(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
+    NativePreparedInputFile f(path, std::ios::binary);
     if (!f) throw std::runtime_error("Missing input: " + path.string());
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
@@ -36,7 +37,7 @@ static ComPtr<ID3D11Buffer> buffer(ID3D11Device* d, const std::vector<char>& b, 
     check(d->CreateBuffer(&desc,&data,&out),"buffer"); return out;
 }
 static ComPtr<ID3D11Texture2D> loadTexture(ID3D11Device* device,const fs::path& path) {
-    std::ifstream f(path,std::ios::binary);if(!f)throw std::runtime_error(path.string());
+    NativePreparedInputFile f(path,std::ios::binary);if(!f)throw std::runtime_error(path.string());
     D3D11_TEXTURE2D_DESC d{};d.Width=u32(f);d.Height=u32(f);d.ArraySize=u32(f);d.MipLevels=u32(f);d.Format=DXGI_FORMAT(u32(f));d.SampleDesc.Count=1;d.Usage=D3D11_USAGE_IMMUTABLE;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
     std::vector<std::vector<char>> storage(d.ArraySize*d.MipLevels);std::vector<D3D11_SUBRESOURCE_DATA> initial(storage.size());
     for(size_t i=0;i<storage.size();++i){initial[i].SysMemPitch=u32(f);initial[i].SysMemSlicePitch=u32(f);storage[i].resize(u32(f));f.read(storage[i].data(),storage[i].size());initial[i].pSysMem=storage[i].data();}
@@ -60,6 +61,7 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 }
 #include "../Device/DepthState.h"
 #include "../Passes/Shadows/ShadowMask.h"
+#include "../Passes/Sdf/SdfNativeSceneOwner.h"
 #include "../Passes/Environment/AmbientRenderer.h"
 #include "../Passes/Lighting/GgxLookupTable.h"
 #include "../Scene/Models/ModelRenderer.h"
@@ -100,6 +102,8 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Passes/Effects/EffectResources.h"
 #include "../Passes/Effects/EffectRenderer.h"
 #include "../Passes/Effects/CurrentEffectRenderer.h"
+#include "../Passes/Effects/MainEffectSceneCapture.h"
+#include "../Passes/Reflection/ReflectionRenderer.h"
 #include "../Passes/Effects/EffectCameraFrame.h"
 #include "../Passes/Environment/AtmosphereCameraFrame.h"
 #include "../Passes/Environment/WeatherFogFrame.h"
@@ -107,6 +111,7 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Passes/Environment/WeatherFogConstants.h"
 #include "../Passes/Environment/FogAccelerationPass.h"
 #include "MainRenderPhaseState.h"
+#include "../Passes/Environment/Rain/RainDropManager.h"
 #include "../Passes/Effects/SpecialEffectState.h"
 #include "../Passes/PostProcessing/MapExposure.h"
 #include "../Scene/Terrain/TerritoryRenderer.h"
@@ -171,18 +176,18 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const bool sourceArmyVisuals=configuration.world.armies;
     const bool sourceAccessoryVisuals=configuration.world.accessories;
     UINT width,height,instanceCount,indexCount;std::array<DXGI_FORMAT,5> formats;DXGI_FORMAT depthFormat;
-    std::ifstream scene(input/"scene.txt");if(!scene)throw std::runtime_error("scene.txt absent");
+    NativePreparedInputFile scene(input/"scene.txt");if(!scene)throw std::runtime_error("scene.txt absent");
     scene>>width>>height>>instanceCount>>indexCount;
     for(auto& format:formats){int n;scene>>n;format=DXGI_FORMAT(n);}int df;scene>>df;depthFormat=DXGI_FORMAT(df);
-    bool groupedTerrain=fs::exists(input/"batches.txt");
-    if(groupedTerrain){std::ifstream geometry(input/"geometry.txt");geometry>>width>>height>>instanceCount>>indexCount;}
+    bool groupedTerrain=fs::exists(nativePreparedFilePath(input/"batches.txt"));
+    if(groupedTerrain){NativePreparedInputFile geometry(input/"geometry.txt");geometry>>width>>height>>instanceCount>>indexCount;}
     // Source DXGI resource, SRV and RTV/DSV formats are distinct. In particular,
     // typeless allocation must preserve the original sRGB/linear consumer views.
     std::array<DXGI_FORMAT,6> resourceFormats,shaderFormats;
     std::array<std::uint32_t,6> targetObjectIds{};std::array<UINT,6> surfaces{};
     for(int i=0;i<5;++i)resourceFormats[i]=shaderFormats[i]=formats[i];
     resourceFormats[5]=shaderFormats[5]=depthFormat;
-    std::ifstream targetRows(input/"targets.txt");
+    NativePreparedInputFile targetRows(input/"targets.txt");
     if(!targetRows)throw std::runtime_error("Main G-buffer target declarations are absent");
     for(int i=0;i<6;++i) {
         UINT resource,shader,target;
@@ -217,6 +222,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto& phase=host.mainPhase;
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
     current_effect::Renderer currentEffects;
+    current_effect::MainSceneCapture effectSceneCapture;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
     AtmospherePass atmosphere;
@@ -228,7 +234,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     ShadowPass shadows;
     const auto jointShadowInput=resources.directory(ResourceGroup::BaseShadows);
     SceneFrameCoordinator frameState{host.currentSeason?&*host.currentSeason:nullptr};
+    SdfNativeSceneOwner sourceSdf;
+    sourceSdf.loadFreshNormalSource(resources.root()/"sdf-source-input");
     CloudEnvironmentPass clouds; // Retires before its borrowed Star and numerical resource owners.
+    rain::Manager rainManager;
     GraphicsClipState frontendClip;
     const auto& staticCamera=frameState.camera();
     UINT64 completedMainRequests=1;
@@ -252,9 +261,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         });
         frameState.prepareWeatherLight(resources);
         shadows.preparePopulation(jointShadowInput,staticModels->catalog(),bases.citySource(),bases.primary());
-        frameState.bindFieldDisplay(shadows,staticModels->catalog());
         shadows.prepareRaster(resources.directory(ResourceGroup::ShadowRaster));
         frameState.prepareView(resources);
+        frameState.bindFieldDisplay(shadows,staticModels->catalog());
         // Normal ready STA, Camera kind0: D57E50/EBD510 select K1890's
         // original white Static. FE8 belongs to the older empty-registry lab.
         shadows.prepareReceiverResources(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
@@ -266,7 +275,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             shadows.publishPrimaryPopulation(staticModels->catalog(),bases.primary(),
                 *staticModels);
         }
-        if(sourceArmyVisuals)armies.synchronize(device.Get(),*host.armyWorld);
+        if(armies.hasActiveArmyOwner())armies.synchronize(device.Get(),*host.armyWorld);
     };
     auto prepareAcceptedCamera=[&]() {
 
@@ -283,6 +292,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         frameState.preparePopulation(context.Get(),*staticModels,bases,armies,shadows,groundDetails,
             commonPublication,commonClock.settingsFlags10);
         frameState.publishHdrAmbientSelection();
+        sourceSdf.prepareCurrentView(frameState.preparedView().slot(),sourceHostFlags3E4,
+            commonClock.settingsFlags10,width,height); // Actual graph2 shared SDF preparation.
 
     };
     const auto animationFps=source_animation_cadence::readProfile(
@@ -299,10 +310,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             armies.updateAnimation(device.Get(),context.Get(),host.armyWorld,host.input,eventCamera,mode,
                 animationFps,fpsMode,cityAccessories,areaAccessories,host.animationState);
         });
+        territory.recordMapUpdate(fpsMode);
     };
     if(host.input.contains(FrameInputFlag::InitialAnimationUpdate))host.animationUpdate(0); // explicit initial normal Map callback
     host.armyUnitPositions=[&]() {
-        if(!sourceArmyVisuals)return std::vector<ArmyLabelUnitPosition>{};
+        if(!armies.hasActiveArmyOwner())return std::vector<ArmyLabelUnitPosition>{};
         return armies.labelPositions(*host.armyWorld);
     };
     auto beginAcceptedMain=[&](float currentClock) {
@@ -325,9 +337,40 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 atmosphere.currentHalfFovTangent(),frameState.preparedView().baseLight(),
                 frameState.commonRenderPolicy(),frontendClip.shaderPlane(0));
         clouds.generateAmbient(context.Get(),currentClock,frameState.commonRenderPolicy());
+        if(const auto* current=frameState.season();current&&current->rain)
+            rainManager.node4(device.Get(),*current->rain,frameState.camera(),sourceHostFlags3E4,
+                frameState.view().rainGroups,currentClock,
+                source_current_season::read<float>(current->main,0x1dc),
+                source_current_season::read<float>(current->main,0x1d4),phase);
+    };
+    auto drawCurrentRoutes=[&](float currentClock,NativeSourceDepthState& currentDepth) {
+        if(routes.empty())return;
+        const auto& common=frameState.viewDefinition().common;
+        const bool ambientPresent=frameState.preparedView().ambientSelection().has_value();
+        bool heightEnabled=false;
+        if(ambientPresent&&(common.featureFlags&0x200)!=0) {
+            const auto* current=frameState.season();
+            if(!current||!current->hdrSelection)
+                throw std::runtime_error("Route current Common effect mode has no accepted producer");
+            const auto mode=current->hdrSelection->commonEffectMode;
+            heightEnabled=mode>=1&&mode<=5;
+        }
+        RouteAcceptedInputs inputs{frameState.heightFogSettings(),heightEnabled,currentClock,
+            postProcessing.mapExposureLuminance(),
+            {frontendClip.shaderPlane(0),frontendClip.shaderPlane(1),frontendClip.shaderPlane(2),
+             frontendClip.shaderPlane(3),frontendClip.shaderPlane(4),frontendClip.shaderPlane(5)},
+            postProcessing.mapExposureView(),postProcessing.mapExposureSampler()};
+        routes.draw(context.Get(),currentDepth,frameState.camera(),sourceHostFlags3E4,inputs);
     };
     auto publishThinSurface=[&]() {
-        phase.publishThinSurface(frameState.view().rainGroups!=0);
+        phase.publishThinSurface(rainManager.hasBackend()&&frameState.view().rainGroups!=0);
+    };
+    auto executeCurrentRain=[&]() {
+        if(const auto* current=frameState.season();current&&current->rain) {
+            rainManager.executeParticleNode(*current->rain,157);
+            rainManager.executeParticleNode(*current->rain,158);
+            rainManager.executeParticleNode(*current->rain,159);
+        }
     };
     {
         lightingSource=resources.directory(ResourceGroup::Lighting);
@@ -345,7 +388,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         context->ClearState(); // Bootstrap ends before any Main entry; not a per-request operation.
         {
 
-            specialEffects=createNativeSpecialEffectsWithoutParticleOwner(sourceHostFlags3E4);
+            specialEffects=createNativeSpecialEffects(sourceHostFlags3E4);
             fogAcceleration.prepare(device.Get(),resources.directory(ResourceGroup::FogAcceleration));
         }
         postProcessing.prepareExposure(device.Get(),context.Get(),resources.directory(ResourceGroup::MapExposure),normalInitialSource);
@@ -361,7 +404,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             staticCamera.optics.reversedDepth}};
     postProcessing.prepareOutput(device.Get(),resources.directory(ResourceGroup::FinalOutput),width,height);
     geometryTargets.prepareExpandedTargets(device.Get(),formats[3]);
-    const bool hasVisibleModels=fs::exists(modelSource/"models.txt");
+    const bool hasVisibleModels=fs::exists(nativePreparedFilePath(modelSource/"models.txt"));
     if(hasVisibleModels){
         {
             staticModels->prepareGeometry(device.Get());
@@ -385,7 +428,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto drawOpaqueGeometry=[&]() {
         geometryTargets.beginGeometry(context.Get(),staticCamera.optics.reversedDepth,sourceDepth);
         {
-            const auto& staticSubmission=staticModels->updateSubmission(context.Get(),frameState.view());
+            const auto& staticSubmission=staticModels->updateSubmission(context.Get(),frameState.view(),groundDetails);
             bases.updateSubmission(context.Get(),staticSubmission);
         }
         {
@@ -429,6 +472,18 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     };
     drawOpaqueGeometry();
     auto mainDepth=createNativeDepthMirror(device.Get(),geometryTargets.depthTexture(),shaderFormats[5]);
+    auto drawCurrentSpecialEffects=[&](UINT node) {
+        const auto* current=frameState.season();
+        if(!current){phase.publishSpecialTail();return;}
+        if(!current->specialEffects)throw std::runtime_error("Current Special Effect admission inputs are absent");
+        specialEffects.hostFlags=sourceHostFlags3E4;
+        applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,
+            *current->specialEffects,currentEffects.hasMainBankZeroOwner(),node,[&]() {
+                currentEffects.drawSpecial(device.Get(),context.Get(),sourceDepth,
+                    {mainDepth.depth.Get(),postProcessing.mapExposureView(),fogAcceleration.samplingView(),nullptr,
+                     postProcessing.mapExposureSampler()},node);
+            });
+    };
     updateNativeDepthMirror(context.Get(),mainDepth,"59 after geometry");
     {
         source_territory_gpu::Targets territoryTargets;
@@ -482,7 +537,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         if(!current)throw std::runtime_error("Shadow receiver requires current season inputs");
         return *current;
     };
-    NativeRs69Fallback fallback69;
+    // Shared SDF state belongs to sourceSdf across69/120/164 and later Main requests.
+    HdrShaderModuleBank hdrShaderModules;
     DeferredLightingPass hdr78,hdr123,hdr166;
     ComPtr<ID3D11RenderTargetView> indirectTarget;
     NativePrimaryForwardSource primaryForwardSource;
@@ -525,6 +581,34 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             hdr166.bank().ggx.Get(),[&]{return contextEnvironment.select(clouds.environmentImage());},fogAcceleration.samplingView());
 
     };
+    auto prepareCurrentEffectGlobals=[&]() {
+        current_effect::GlobalViews globals{mainDepth.depth.Get(),postProcessing.mapExposureView(),
+            fogAcceleration.samplingView(),nullptr,postProcessing.mapExposureSampler()};
+        globals.patternLighting=[&](UINT outerObject) -> current_effect::ExternalSampling {
+            const auto* current=frameState.season();
+            if(!current||std::none_of(current->lights.begin(),current->lights.end(),
+                    [&](const auto& light){return light.object==outerObject;}))
+                throw std::runtime_error("Current Effect outer Light is not in the accepted Main");
+            const auto palette=clouds.receiverPatternPalette();
+            const auto& inputs=shadows.patternResources();
+            if(palette.atmosphere&&current->shadowReceiver.patternCameraBranch!=5)
+                return {palette.selected?palette.selected->view.Get():inputs.fallback().view.Get(),
+                    palette.selected?palette.selected->sampler.Get():inputs.fallback().sampler.Get()};
+            const auto selected=inputs.ordinaryLit(outerObject,current->patternCamera.mergedOverrideEnabled);
+            return {selected.view,selected.sampler};
+        };
+        // Both Main paths execute the actual node71 producer before Effects.
+        // Its fresh empty source can retain null point/spot buffers without
+        // claiming that a dispatch ran or manufacturing zero buffer contents.
+        globals.clusterCurrent=currentEffects.needsLighting();
+        if(globals.clusterCurrent) {
+            const auto& cluster=currentEffects.clusterLights();
+            globals.pointCount=cluster.pointCount;globals.spotCount=cluster.spotCount;
+            for(UINT index=0;index<globals.clustered.size();++index)
+                globals.clustered[index]=primaryForwardGpu.resources[16+index].Get();
+        }
+        return effectSceneCapture.begin(device.Get(),context.Get(),sourceDepth,std::move(globals));
+    };
     auto isolateCurrentShadowVisibility=[&]() {
 
     };
@@ -545,15 +629,41 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         rsDesc.Texture2DArray.FirstArraySlice=3;rsDesc.Texture2DArray.ArraySize=1;
         check(device->CreateRenderTargetView(geometryTargets.textures()[2].Get(),&rsDesc,&indirectTarget),"Main indirect RS3 target");
     }
+    std::optional<Reflection::ReflectionRenderer> reflections;
+    auto executeCurrentReflection=[&]() {
+        // Node66 runs after the actual current geometry and Shadow owners,
+        // including initial model device preparation, are available.
+        frameState.publishReflectionSceneFrame(*staticModels,bases,armies,shadows);
+        struct RetireFrame {
+            Reflection::SceneFrameOwner& owner;
+            ~RetireFrame(){owner.invalidate();}
+        } retire{frameState.reflectionSceneOwner()};
+        frameState.publishReflectionClipPlanes(frontendClip);
+        auto current=frameState.reflectionSceneFrame();
+        if(!reflections)reflections.emplace(device.Get(),geometryTargets.textures()[3].Get(),formats[3],
+            resources.directory(ResourceGroup::View).parent_path()/"reflection-input");
+        if(!current->captureWork.empty()) {
+            // The ordinary current resource family has no direct Field rows.
+            // Reached dynamic/overridden Fields require their real shadow View
+            // and radiance-light producer before this complete earlier stage
+            // can advance; an allocation is not an observed shadow image.
+            throw std::runtime_error("Reflection reached Field capture requires its actual field-owned shadow View and radiance-light publication");
+        }
+        reflections->synchronizeFields(*current);
+        reflections->submitCurrentFallback(context.Get(),*current);
+    };
     callerTargets.restore(context.Get()); //64
+    executeCurrentReflection(); //66 actual normal D3D11 View, not the alternate Godot host.
     {auto raw=indirectTarget.Get();context->OMSetRenderTargets(1,&raw,geometryTargets.depthView());} //67
     {
         shadows.prepareGeometryReceiver(staticCamera);
         shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
             receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),initialCommonClock);
     }
-    fallback69=prepareRs69Fallback(device.Get(),input,geometryTargets.textures()[2].Get(),formats[2],width,height);
-    executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());
+    sourceSdf.prepareFallbackGpu(device.Get(),geometryTargets.textures()[2].Get(),formats[2],width,height);
+    shadows.prepareLateReceiver(staticCamera);
+    sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),69,
+        mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);
     isolateCurrentShadowVisibility();
     callerTargets.restore(context.Get()); //70
     prepareCurrentEffectLights(); //71
@@ -564,7 +674,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             ComPtr<ID3D11RenderTargetView> hdrTarget;check(device->CreateRenderTargetView(litColor.Get(),&hdrDesc,&hdrTarget),"Main73 retained HDR target");
             auto mainTargets=NativeMainTargetScope::main73(hdrTarget.Get(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
             mainTargets.restore(context.Get());
-            hdr78.prepare(device.Get(),earlySource,78,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
+            hdr78.prepare(device.Get(),earlySource,78,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get(),hdrShaderModules);
             {
                 hdr78.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock));
             }
@@ -598,17 +708,19 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             {
                 // 118 binds the existing RS3 and water-updated Main D1 without
                 // clearing. 119 selects the Ocean group (process50). The same
-                // explicitly empty SDF owner used at69 preserves RG at120;
+                // retained shared source SDF owner runs its own node120 gate;
                 // 121 pops this target scope without copying depth.
                 auto rsTarget=indirectTarget.Get();context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView()); //118
                 shadows.prepareWaterReceiver(staticCamera);
                 shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
                     receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),initialCommonClock);
+                sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),120,
+                    mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);
                 isolateCurrentShadowVisibility();
                 mainTargets.restore(context.Get()); //121
                 drawCurrentTerritory(122,2);
                 publishThinSurface();
-                hdr123.prepare(device.Get(),earlySource,123,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
+                hdr123.prepare(device.Get(),earlySource,123,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get(),hdrShaderModules);
                 {
                     hdr123.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera()));
                 }
@@ -644,26 +756,30 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 //callback makes142's requested mirror update a no-op.
                 context->OMSetRenderTargets(0,nullptr,ocean.depthTarget()); //138
                 ;
-                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,141);
+                drawCurrentSpecialEffects(141);
                 mainTargets.restore(context.Get()); //142, B616 has no mirror
                 geometryTargets.sixTargetScope().restore(context.Get()); //143
                 std::array<ID3D11RenderTargetView*,6> sixExpected{};
                 for(UINT i=0;i<6;++i)sixExpected[i]=geometryTargets.sixTargetScope().colors[i].Get();
                 ;
-                applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,147);
+                drawCurrentSpecialEffects(147);
                 updateNativeDepthMirror(context.Get(),mainDepth,"148 after source special zero-tail state");
                 mainTargets.restore(context.Get());
                 // Q400 closes150/154;142 belongs to distinct B616, not MainD1.
                 geometryTargets.sixTargetScope().restore(context.Get()); //156
                 ;
-                updateNativeDepthMirror(context.Get(),mainDepth,"160 Rain writers pending");
+                executeCurrentRain();
+                updateNativeDepthMirror(context.Get(),mainDepth,"160 current Rain");
                 mainTargets.restore(context.Get());
                 publishThinSurface();
-                //162/165 retain their source RS3 scope; this finite cohort
-                //has no process60 writer between them.
+                //162 binds the actual RS3;164 consumes the shared source SDF owner.
                 context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
-                mainTargets.restore(context.Get());
-                hdr166.prepare(device.Get(),earlySource,166,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get());
+                shadows.executeLateReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+                    receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),initialCommonClock); //163
+                sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),164,
+                    mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);
+                mainTargets.restore(context.Get()); //165
+                hdr166.prepare(device.Get(),earlySource,166,litColor.Get(),geometryTargets.textures(),shaderFormats,ggx.Get(),hdrShaderModules);
                 {
                     hdr166.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),initialCommonClock,&ocean.refractionCamera(),filteredSpecularImages()));
                 }
@@ -673,10 +789,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 ;
                 {
                     drawCurrentPrimaryForward(initialCommonClock); //184..187, before Effects188 and mirror191.
-                    //188 reads160.189's independent View1 remains outside this
-                    //cohort; do not duplicate View0's population into it.
+                    //188 and189 consume their separate View0/View1 populations before mirror191.
                     currentEffects.draw188(device.Get(),context.Get(),sourceDepth,
-                        {mainDepth.depth.Get(),postProcessing.mapExposureView(),fogAcceleration.samplingView(),nullptr,postProcessing.mapExposureSampler()});
+                        prepareCurrentEffectGlobals());
+                    currentEffects.draw189(device.Get(),context.Get(),sourceDepth,
+                        prepareCurrentEffectGlobals());
                     updateNativeDepthMirror(context.Get(),mainDepth,"191 after current effects before normal post");
                     groundDetails.finishRenderNode();
                     callerTargets.restore(context.Get());
@@ -690,7 +807,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                         const auto postCaller=NativeMainTargetScope::retain(context.Get());
                         auto sameOutput=postProcessing.outputTarget();
                         context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView()); //194, no clear
-                        routes.draw(context.Get(),sourceDepth,frameState.camera(),sourceHostFlags3E4); //200
+                        drawCurrentRoutes(initialCommonClock,sourceDepth); //200
 
                         postCaller.restore(context.Get()); //203
                         ComPtr<ID3D11DepthStencilView> tailDepth;context->OMGetRenderTargets(0,nullptr,&tailDepth);
@@ -730,10 +847,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         callerTargets.restore(context.Get());
         auto abTarget=geometryTargets.colors()[0];context->OMSetRenderTargets(1,&abTarget,geometryTargets.depthView());
         executeCurrentContactOcclusion();callerTargets.restore(context.Get());
+        executeCurrentReflection(); //66 current accepted Main; owner retires before later World updates.
         auto rsTarget=indirectTarget.Get();context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
         shadows.executeGeometryReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
             receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);
-        executeRs69Fallback(device.Get(),context.Get(),sourceDepth,fallback69,geometryTargets.depthView());callerTargets.restore(context.Get());
+        sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),69,
+            mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);callerTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
         prepareCurrentEffectLights(); //71 current Main
         auto mainTargets=NativeMainTargetScope::main73(postProcessing.sceneTarget(),geometryTargets.depthView(),geometryTargets.viewport(),geometryTargets.scissor());
@@ -751,7 +870,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         updateNativeDepthMirror(context.Get(),mainDepth,"117 new Main Ocean");mainTargets.restore(context.Get());
         context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
         shadows.executeWaterReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
-            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);mainTargets.restore(context.Get());
+            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock);
+        sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),120,
+            mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);mainTargets.restore(context.Get());
         isolateCurrentShadowVisibility();
         drawCurrentTerritory(122,2);
         publishThinSurface();
@@ -772,12 +893,16 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             frameState.season(),currentClock,frameState.view().activeGroups);mainTargets.restore(context.Get());
         ocean.executeFilters(context.Get(),sourceDepth,currentSpecularSource());mainTargets.restore(context.Get());
         std::array<ID3D11ShaderResourceView*,32> empty{};context->VSSetShaderResources(0,32,empty.data());context->PSSetShaderResources(0,32,empty.data());
-        context->OMSetRenderTargets(0,nullptr,ocean.depthTarget());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,141);
-        mainTargets.restore(context.Get());geometryTargets.sixTargetScope().restore(context.Get());applyNativeSpecialEffects(device.Get(),context.Get(),sourceDepth,specialEffects,phase,147);
+        context->OMSetRenderTargets(0,nullptr,ocean.depthTarget());drawCurrentSpecialEffects(141);
+        mainTargets.restore(context.Get());geometryTargets.sixTargetScope().restore(context.Get());drawCurrentSpecialEffects(147);
         updateNativeDepthMirror(context.Get(),mainDepth,"148 new Main special");mainTargets.restore(context.Get());
-        geometryTargets.sixTargetScope().restore(context.Get());updateNativeDepthMirror(context.Get(),mainDepth,"160 new Main rain source-closed");mainTargets.restore(context.Get());
+        geometryTargets.sixTargetScope().restore(context.Get());executeCurrentRain();updateNativeDepthMirror(context.Get(),mainDepth,"160 current Rain");mainTargets.restore(context.Get());
         publishThinSurface();
-        context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());mainTargets.restore(context.Get());
+        context->OMSetRenderTargets(1,&rsTarget,geometryTargets.depthView());
+        shadows.executeLateReceiver(device.Get(),context.Get(),sourceDepth,mainDepth.depth.Get(),receiverDepthObject,
+            receiverCurrentFrame(),frameState.preparedView(),clouds.receiverPatternPalette(),currentClock); //163
+        sourceSdf.executeCurrentNode(device.Get(),context.Get(),sourceDepth,geometryTargets.depthView(),164,
+            mainDepth.depth.Get()!=nullptr&&geometryTargets.textures()[1].Get()!=nullptr);mainTargets.restore(context.Get());
         {
             hdr166.update(context.Get(),currentLightingFrame(phase.deferredQueueFlags(),currentClock,&ocean.refractionCamera(),filteredSpecularImages()));
         }
@@ -785,7 +910,9 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             currentClock,frameState.view().activeGroups,frameState.view().oceanGroups);
         drawCurrentPrimaryForward(currentClock);
         currentEffects.draw188(device.Get(),context.Get(),sourceDepth,
-            {mainDepth.depth.Get(),postProcessing.mapExposureView(),fogAcceleration.samplingView(),nullptr,postProcessing.mapExposureSampler()});
+            prepareCurrentEffectGlobals());
+        currentEffects.draw189(device.Get(),context.Get(),sourceDepth,
+            prepareCurrentEffectGlobals());
         mainTargets.restore(context.Get());
 
         updateNativeDepthMirror(context.Get(),mainDepth,"191 after current effects in new Main");callerTargets.restore(context.Get());
@@ -795,7 +922,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         //194/203 alias the same Final109;206 remains closed with null callerDSV.
         const auto postCaller=NativeMainTargetScope::retain(context.Get());auto sameOutput=postProcessing.outputTarget();
         context->OMSetRenderTargets(1,&sameOutput,geometryTargets.depthView());
-        routes.draw(context.Get(),sourceDepth,frameState.camera(),sourceHostFlags3E4); //200
+        drawCurrentRoutes(currentClock,sourceDepth); //200
         postCaller.restore(context.Get());
         ++completedMainRequests;
 
@@ -805,6 +932,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             // drives subsequent requests; no native window or polling thread.
             host.replaceRoutes=[&](const San14RouteOverlayInputV1& input) {routes.accept(device.Get(),input);};
             host.replaceCurrentEffects=[&](const San14CurrentEffectInputV1& input) {currentEffects.accept(device.Get(),context.Get(),input);};
+            host.retireEffectOwner=[&](std::uint64_t owner) {currentEffects.retireOwner(owner);};
             host.createDirectEffect=[&](const std::uint8_t* bytes,std::uint32_t count) {return currentEffects.createDirect(device.Get(),{bytes,count});};
             host.submitDirectEffect=[&](std::uint64_t id,const std::uint8_t* bytes,std::uint32_t count) {currentEffects.submitDirect(device.Get(),context.Get(),id,{bytes,count});};
             host.directEffectLive=[&](std::uint64_t id) {return currentEffects.directLive(context.Get(),id);};

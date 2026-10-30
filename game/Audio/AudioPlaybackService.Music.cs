@@ -2,10 +2,10 @@ using Godot;
 
 public partial class AudioPlaybackService
 {
-    private sealed class MapMusicVoice(AudioStreamPlayer player, MusicMixerInterval interval, ulong releaseTicks,
+    private sealed class MapMusicVoice(OriginalAudioPlayer player, MusicMixerInterval interval, ulong releaseTicks,
         ulong attackTicks, int? musicIndex)
     {
-        internal readonly AudioStreamPlayer Player = player;
+        internal readonly OriginalAudioPlayer Player = player;
         internal readonly MusicMixerInterval Interval = interval;
         internal bool RequestedPaused;
         internal bool Releasing;
@@ -15,6 +15,12 @@ public partial class AudioPlaybackService
         internal int? MusicIndex = musicIndex;
         internal ulong ReleaseTicks = releaseTicks;
         internal bool LinearRelease;
+        internal float PauseGain = 1;
+        internal float PauseStartGain = 1;
+        internal ulong PauseElapsed;
+        internal ulong PauseTicks;
+        internal bool PauseFading;
+        internal MapMusicPauseHandle? MoviePauseOwner;
         internal ulong Duration => Releasing ? ReleaseTicks : attackTicks;
         internal bool Advance(ulong ticks)
         {
@@ -165,7 +171,26 @@ public partial class AudioPlaybackService
     {
         if (voice.Player.Stream is null || (!voice.Player.Playing && !voice.Player.StreamPaused))
         { Stop(channel); return; }
-        if (voice.Advance(voice.Interval.Drain(frames))) { Stop(channel); return; }
+        ulong ticks = voice.Interval.Drain(frames);
+        if (voice.Advance(ticks)) { Stop(channel); return; }
+        if (voice.PauseFading)
+        {
+            voice.PauseElapsed = Math.Min(voice.PauseTicks, checked(voice.PauseElapsed + Math.Min(ticks, voice.PauseTicks)));
+            float u = voice.PauseTicks == 0 ? 1 : (float)voice.PauseElapsed / voice.PauseTicks;
+            //Use the existing music attack/release envelopes. Their exact
+            //middleware equivalence remains part of the later audio review.
+            float easing = voice.RequestedPaused ? (MathF.Sin((u - .5f) * 3.1415927f) + 1) * .5f : u;
+            voice.PauseGain = voice.PauseStartGain + ((voice.RequestedPaused ? 0 : 1) - voice.PauseStartGain) * easing;
+            if (voice.PauseElapsed == voice.PauseTicks)
+            {
+                voice.PauseFading = false;
+                if (voice.RequestedPaused)
+                {
+                    voice.Player.StreamPaused = true;
+                    voice.Interval.SetRunning(false, frames);
+                }
+            }
+        }
         ApplyVolume(_players[channel]);
     }
 
@@ -186,7 +211,7 @@ public partial class AudioPlaybackService
         finally { AudioServer.Unlock(); }
     }
 
-    private void PauseMapMusic(string channel, bool requested)
+    private void PauseMapMusic(string channel, bool requested, bool retainFade = false)
     {
         AudioServer.Lock();
         try
@@ -195,8 +220,14 @@ public partial class AudioPlaybackService
             ulong frames = ReadMapMusicFrames();
             DrainMapMusic(channel, voice, frames);
             if (!_mapMusic.ContainsKey(channel)) return;
+            if (!retainFade)
+            {
+                voice.MoviePauseOwner = null;
+                voice.PauseFading = false;
+                voice.PauseGain = requested ? 0 : 1;
+            }
             voice.RequestedPaused = requested;
-            bool paused = requested || !CanProcess();
+            bool paused = requested && !voice.PauseFading || !CanProcess();
             voice.Player.StreamPaused = paused;
             voice.Interval.SetRunning(!paused, frames);
         }
@@ -209,7 +240,7 @@ public partial class AudioPlaybackService
             what != NotificationDisabled && what != NotificationEnabled)) return;
         try
         {
-            foreach (var pair in _mapMusic.ToArray()) PauseMapMusic(pair.Key, pair.Value.RequestedPaused);
+            foreach (var pair in _mapMusic.ToArray()) PauseMapMusic(pair.Key, pair.Value.RequestedPaused, retainFade: true);
         }
         catch (InvalidOperationException error) { GD.PushWarning(error.Message); }
     }

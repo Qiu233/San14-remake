@@ -175,9 +175,9 @@ public static class BattleRemakeCurrentForcePolicies
     /// pending appointments. The selected roster is a read-only argument view;
     /// it does not copy a parameter bank for every selected effect.</summary>
     internal static int? ReadGovernanceTargetLevel(GameState state, ForceState force,
-        GovernanceRoster target, int effect, SourceWorldContext current)
+        GovernanceRoster target, int effect, SourceWorldContext current, bool suppressCreditBonus = false)
     {
-        return ReadForceRawLevelCore(state, force, effect, current, true, target);
+        return ReadForceRawLevelCore(state, force, effect, current, true, target, suppressCreditBonus);
     }
 
     private static int? ReadForceEffectCore(GameState state, ForceState force, int nativeEffectIndex,
@@ -187,7 +187,7 @@ public static class BattleRemakeCurrentForcePolicies
 
     private static int? ReadForceRawLevelCore(GameState state, ForceState force, int nativeEffectIndex,
         SourceWorldContext? operationCurrent, bool unwrittenFreedomCredit = false,
-        GovernanceRoster? preview = null)
+        GovernanceRoster? preview = null, bool suppressCreditBonus = false)
     {
         if (nativeEffectIndex is < 1 or > 100 || state.NativeArmySimulation is not { } simulation || !ProfileMatches(simulation.Parameters) ||
             !state.Forces.TryGetValue(force.Id, out ForceState? current) || current.Id != force.Id ||
@@ -267,12 +267,12 @@ public static class BattleRemakeCurrentForcePolicies
             //Every early exit in2AA170/2A9FF0 is0 for kind3. These known
             //fields also make every remaining body path return0, without
             //guessing the unconsumed world/UI mode or static reward choices.
-            bool zeroKind3 = operationCurrent is null
+            bool zeroKind3 = suppressCreditBonus || (operationCurrent is null
                 ? person.ServiceStatus == OfficerServiceStatus.Ruler || person.Behavior?.UsesSpecialPersonRules == true ||
                     person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState)
                 : operationCurrent.ReadPersonStatus(personPhysical) == 1 ||
                     operationCurrent.ReadPersonBehavior(personPhysical)?.UsesSpecialPersonRules == true ||
-                    unwrittenFreedomCredit && (person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState));
+                    unwrittenFreedomCredit && (person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState)));
             if (ReadByte(PersonFieldKey(personId, 0x1BA)) is not byte basic || person.PolicyBaseCost != basic)
                 return false;
             int bonus = 0;

@@ -1,14 +1,15 @@
 namespace San14.Data;
 
-/// <summary>The complete source roster passed by the ordinary new-game force
-/// page to its single-selection picker. Rows preserves that roster's order;
-/// NativeSortedRows is unavailable until the generic list's initial column-sort
-/// inputs are known. A missing sort/display field does not remove a source row.
-/// Row ForceId is the actual Force receiver accepted by the formal SelectForce
-/// callback; RulerForceId belongs to the separate avatar callback.</summary>
+/// <summary>The complete source roster and authored seven-group Force selector.
+/// Rows retains the caller's original occurrences; NativeSortedRows is its
+/// stable selected-first order. Pages preserves SourceIndex through that order
+/// and shares the ordinary Cell/Sort algorithms over one clockless capture.
+/// Missing runtime fields remain explicit per-cell display/sort unknowns.
+/// ForceId is the real picker receiver, independent of avatar RulerForceId.</summary>
 public sealed record NewGameForcePickerPreview(
     IReadOnlyList<NewGameForcePreview> Rows,
     IReadOnlyList<NewGameForcePreview>? NativeSortedRows,
     int? InitialSelectedForceId,
     string? SortUnresolvedInput,
-    IReadOnlyList<string> UnresolvedInputs);
+    IReadOnlyList<string> UnresolvedInputs,
+    ForceInformationPageSet Pages);

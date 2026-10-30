@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -7,8 +8,15 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>TC2A2760(from,to,1). The normal Turn owns this operation's
     /// current world and pool, including any outer Force candidate temporary.</summary>
     internal GameState ApplyNormalTurnForceAbsorptionCurrent(GameState state,
-        SourceWorldContext current, WorldIndexContext pool, ForceReference from, ForceReference to)
+        SourceWorldContext current, WorldIndexContext pool, ForceReference from, ForceReference to, bool suppressEliminationPresentation = true,
+        AutomaticEmperorCaptureInputs? emperorInputs = null, bool eventPlaybackPresent = false)
     {
+        if (state.ForceAbsorptionContinuation is { } resumed)
+        {
+            if (resumed.OriginalForcePhysicalSlot != from.PhysicalSlot || resumed.RecipientForcePhysicalSlot != to.PhysicalSlot)
+                throw ForceAbsorptionMissing("resume_Force_identity");
+            return ResumeNormalTurnForceAbsorptionCurrent(state, current, pool, emperorInputs, eventPlaybackPresent);
+        }
         if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
             throw ForceAbsorptionMissing("current_pool");
         var working = state;
@@ -16,6 +24,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         int recipient = AbsorptionK(current.ReadForcePhysicalSlot(to), "recipient_Force");
         var date = working.NativeMapSeason?.ThirdDate ?? throw ForceAbsorptionMissing("source_date");
         var effects = new List<CampaignEffectRequest>();
+        GameState PublishEffects(GameState value)=>effects.Count==0?value:value with
+        {CampaignEffectRequests=(value.CampaignEffectRequests??throw ForceAbsorptionMissing("effect_queue"))
+            .Append(CampaignEffectSource.MonthlyMaintenance,value.NativeClock?.UpdateOrdinal??throw ForceAbsorptionMissing("effect_revision"),effects)};
         TacticSourceSamplerWorld Sampler() => ReadArmyDestructionSampler(working, current)
             ?? throw ForceAbsorptionMissing("source_World450_45C");
         int Day() => Sampler().Day450;
@@ -140,103 +151,29 @@ public sealed partial class ArmyCampaignRuleAdapter
             working = ConsumeArmyLifecyclePendingCurrent(working, current, pool) ?? throw ForceAbsorptionMissing("Army_pending_cleanup");
 
             bases = current.CreatePersonInjuryTemporary();
-            foreach (var entry in current.ReadRegisteredBases() ?? throw ForceAbsorptionMissing("Base_registry"))
+            var registeredBases = current.ReadRegisteredBases() ?? throw ForceAbsorptionMissing("Base_registry");
+            for (int index = 0; index < registeredBases.Count; index++)
             {
-                var target = entry ?? throw ForceAbsorptionMissing("Base_pointer");
+                var target = registeredBases[index] ?? throw ForceAbsorptionMissing("Base_pointer");
                 if (original is < 1 or > 51 || AbsorptionK(current.ReadBaseForceSlot(target), "Base_Force") != original) continue;
                 AbsorptionAppendBase(current, bases, target);
                 var ruler = current.ReadPersonLookupReference(newRuler <= 6000 ? newRuler : 0)
                     ?? throw ForceAbsorptionMissing("recipient_ruler_pointer");
-                working = ApplyForceAbsorptionBaseTransferCurrent(working, current, pool, target, primary, ruler, date, effects);
-            }
-
-            //Two ordered full Hex traversals are native business writers, not
-            //online correctness scans. Their distinct timing preserves a live
-            //third-party Army's later restoration of its occupied cells.
-            for (int hex = 0; hex < 48400; hex++)
-                if (AbsorptionK(current.ReadHexForceSlot(new(hex)), "source_Hex_Force") == original)
-                    working = TransferAbsorptionHexCurrent(working, current, new(hex), recipient, 0);
-            for (int hex = 0; hex < 48400; hex++)
-            {
-                var tile = new HexReference(hex);
-                if (AbsorptionK(current.ReadHexForceSlot(tile), "recipient_Hex_Force") != recipient) continue;
-                int rawArmy = AbsorptionK(current.ReadHexRaw1C(tile), "Hex_Army");
-                var army = current.ReadArmyUnitTableReference(rawArmy is >= 1 and <= 500 ? rawArmy : 0)
-                    ?? throw ForceAbsorptionMissing("Hex_Army_pointer");
-                if (!AbsorptionK(current.ReadArmyUnitNativeValidity(army), "foreign_Army_validity")) continue;
-                int physical = AbsorptionK(army.PhysicalSlot, "foreign_Army_pointer");
-                if (AbsorptionK(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(working, current, physical), "foreign_Army_excluded")) continue;
-                var force = current.ReadArmyUnitForceReference(army);
-                int other = AbsorptionK(current.ReadForcePhysicalSlot(force), "foreign_Army_Force");
-                if (!AbsorptionK(current.ReadForceNativeValidity(force), "foreign_Force_validity") || other == original || other == recipient ||
-                    new DiplomacyCommandSource(working, current).HasTreaty(recipient, other)) continue;
-                var mapped = CurrentGateMapQueries.FindCity(current.FindArmyUnitCurrentBase(army), current);
-                working = TransferAbsorptionHexCurrent(working, current, tile, other,
-                    AbsorptionK(mapped.PhysicalSlot, "foreign_Army_mapped_City"));
-            }
-
-            foreach (int person in AbsorptionForcePeople(current, original))
-            {
-                byte status = AbsorptionK(current.ReadPersonStatus(person), "transfer_Person_status");
-                if (status != 6)
+                working = ApplyForceAbsorptionBaseTransferCurrent(working, current, pool, target, primary, ruler, date, effects, emperorInputs, eventPlaybackPresent);
+                if (working.ForceTransferEmperorTail is not null)
                 {
-                    if (status is not (>= 1 and <= 4)) continue;
-                    if ((AbsorptionK(current.ReadOwnedReturnPersonFlags(person), "transfer_Person_flags") & 0x4000) == 0)
-                    {
-                        var home = BaseLookup.Find(AbsorptionK(current.ReadPersonFirstLocation(person), "transfer_Person_home"), current);
-                        working = ApplyForceAbsorptionPersonJoinCurrent(working, current, person, primary, home, date, Day, effects).State;
-                    }
-                    else working = ApplyCaptiveFreedomCurrent(working, current, pool, person, date, Day, Sampler, effects);
-                }
-                else
-                {
-                    current.WriteFormerForceKnowledge(person, 0);
-                    var assignments = new List<PersonAssignmentPrecallResult>();
-                    PersonDistrictTransfer.Apply(person, 0, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
-                        assignments, result => working = ApplyPersonAssociationRemovalReports(working, current, person, result, Day, effects)));
-                    if (assignments.Count != 0) working = PersonAssignmentPrecallInputs.PublishDeathTouched(working, current, person, assignments);
-                    byte loyalty = (AbsorptionK(current.ReadOwnedReturnPersonFlags(person), "captive_loyalty_flags") & 0x2000) != 0 ? (byte)255 : (byte)0;
-                    current.SetPersonDestructionLoyaltyE8(person, loyalty);
-                    working = ArmyDestructionLoyalty.PublishCurrentRawE8(working, current, person, loyalty);
-                    var native = working.NativeArmySimulation ?? throw ForceAbsorptionMissing("captive_service_year_owner");
-                    working = working with { NativeArmySimulation = native with { Parameters = native.Parameters with
-                    { Int32Values = new(native.Parameters.Int32Values) { [OwnedArmyGovernorComparatorInputs.PersonWord166Key(person)] = 0 } } } };
-                    working = current.PublishOfficerAftermath(working, AbsorptionK(current.ReadPersonIdentity(person), "captive_identity"));
+                    working = working with { ForceAbsorptionContinuation = new(original, recipient,
+                        AbsorptionK(primary.PhysicalSlot, "resume_primary_District"), newRuler, date,
+                        suppressEliminationPresentation, ReadForceAbsorptionDistrictPayloads(current, districts),
+                        AbsorptionBases(current, bases).Select(at => ForceAbsorptionSavedBase(current, at)).ToImmutableArray(),
+                        registeredBases.Skip(index + 1).Select(at => ForceAbsorptionSavedBase(current,
+                            at ?? throw ForceAbsorptionMissing("resume_remaining_Base"))).ToImmutableArray(), 0) };
+                    return PublishEffects(working);
                 }
             }
-            foreach (var target in AbsorptionBases(current, bases))
-            {
-                int location = AbsorptionK(current.ReadBaseObjectLink(target), "tail_Base_location");
-                var governor = current.ReadArmyReturnBaseGovernor2E(target) ?? throw ForceAbsorptionMissing("tail_Base_governor");
-                int person = AbsorptionPerson(current, governor);
-                if (AbsorptionK(current.ReadPersonNativeValidity(person), "tail_governor_validity")) current.WritePersonStatus(person, 3);
-            }
-            working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
-            var unregistered = new ForceUnregisterSource(this).TryApplyAbsorptionBorrowedCurrent(working, original, current, pool);
-            working = unregistered.State ?? throw ForceAbsorptionMissing(unregistered.UnresolvedOwner ?? "Force_unregister");
-            working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
-            //Non-serving people may retain the old E0 when293BD0 resets its
-            //District. Their derived Force changes even though E0 did not.
-            Dictionary<int, OfficerState>? derivedPeople = null;
-            foreach (var person in working.Officers.Values)
-            {
-                if (person.ForceId != original) continue;
-                int physical = current.ResolveOfficerSource(person.Id) ?? throw ForceAbsorptionMissing("tail_Person_pointer");
-                var actual = current.ReadPersonForce(physical) ?? throw ForceAbsorptionMissing("tail_Person_Force");
-                int slot = AbsorptionK(current.ReadForcePhysicalSlot(actual), "tail_Person_Force_slot");
-                int? forceId = slot == 0 ? null : slot;
-                if (forceId == person.ForceId) continue;
-                derivedPeople ??= new(working.Officers);
-                derivedPeople[person.Id] = person with { ForceId = forceId };
-            }
-            if (derivedPeople is not null) working = working with { Officers = derivedPeople };
-            if (effects.Count != 0) working = working with
-            {
-                CampaignEffectRequests = (working.CampaignEffectRequests ?? throw ForceAbsorptionMissing("effect_queue"))
-                    .Append(CampaignEffectSource.MonthlyMaintenance,
-                        working.NativeClock?.UpdateOrdinal ?? throw ForceAbsorptionMissing("effect_revision"), effects)
-            };
-            return working;
+
+            return CompleteNormalTurnForceAbsorptionTailCurrent(working, current, pool,
+                from, to, primary, date, suppressEliminationPresentation, bases, effects);
         }
         finally
         {
@@ -272,17 +209,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         int id = AbsorptionK(current.ReadForcePhysicalSlot(player), "player_ordinal");
         return id != 0 && id == AbsorptionK(current.ReadForcePhysicalSlot(force), "compared_Force");
     }
-    private static void AbsorptionAppend(SourceWorldContext current, HexListHandle list, RegistryObjectReference payload)
+    private static void AbsorptionAppend(SourceWorldContext current, HexListHandle list, RegistryObjectReference payload,
+        bool requireAllocation = false)
     {
         if (AbsorptionK(current.ReadRegistryLockEnabled(), "append_lock")) current.EnterRegistryLock();
         try { var node = current.AllocateRegistryNode(new(list.Identity)) ?? throw ForceAbsorptionMissing("append_node");
+            if (requireAllocation && !node.Identity.HasValue) throw ForceAbsorptionMissing("resume_District_allocation");
             if (node.Identity.HasValue) current.WriteRegistryNodePayload(node, payload); }
         finally { if (AbsorptionK(current.ReadRegistryLockEnabled(), "append_unlock")) current.ExitRegistryLock(); }
     }
-    private static void AbsorptionAppendBase(SourceWorldContext current, HexListHandle list, BaseReference target)
+    private static void AbsorptionAppendBase(SourceWorldContext current, HexListHandle list, BaseReference target,
+        bool requireAllocation = false)
     {
         if (AbsorptionK(current.ReadRegistryLockEnabled(), "Base_append_lock")) current.EnterRegistryLock();
         try { var node = current.AllocateBaseRegistryNode(new(list.Identity)) ?? throw ForceAbsorptionMissing("Base_append_node");
+            if (requireAllocation && !node.Identity.HasValue) throw ForceAbsorptionMissing("resume_Base_allocation");
             if (node.Identity.HasValue) current.WriteBaseRegistryNodePayload(node, target); }
         finally { if (AbsorptionK(current.ReadRegistryLockEnabled(), "Base_append_unlock")) current.ExitRegistryLock(); }
     }

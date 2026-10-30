@@ -27,7 +27,9 @@ enum class FrameInputFlag : unsigned {
     PublishedCamera=1,
     Paused=2,
     InitialAnimationUpdate=4,
-    HideTerritory=8
+    HideTerritory=8,
+    //A loaded Startup scene has Army resources, but no live publication owner.
+    StartupArmyOwnerAbsent=0x80000
 };
 struct RenderInput {
     source_camera::Prefix camera{};
@@ -82,6 +84,7 @@ struct RenderHost {
     std::function<void(const std::filesystem::path&)> replaceAtmosphereResources;
     std::function<void(const San14RouteOverlayInputV1&)> replaceRoutes;
     std::function<void(const San14CurrentEffectInputV1&)> replaceCurrentEffects;
+    std::function<void(std::uint64_t)> retireEffectOwner;
     std::function<std::uint64_t(const std::uint8_t*,std::uint32_t)> createDirectEffect;
     std::function<void(std::uint64_t,const std::uint8_t*,std::uint32_t)> submitDirectEffect;
     std::function<int(std::uint64_t)> directEffectLive;
@@ -102,7 +105,7 @@ public:
         host.armyUnitPositions={};
         host.replaceAtmosphereResources={};
         host.replaceRoutes={};
-        host.replaceCurrentEffects={};
+        host.replaceCurrentEffects={};host.retireEffectOwner={};
         host.createDirectEffect={};host.submitDirectEffect={};host.directEffectLive={};host.releaseDirectEffect={};
         host.setDirectEffectDraw={};host.setDirectEffectLighting={};host.configureEffectLighting={};
     }

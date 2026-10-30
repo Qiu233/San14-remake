@@ -14,11 +14,32 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, int casterId, int targetId, int requestedLoss,
         NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
         List<CampaignEffectRequest> effects, long? immediatePauseRevision = null)
+        => ApplyAutomaticArmyTroopDamageCurrentCore(input, current, casterId, null, targetId, requestedLoss,
+            sampler, operationDate, effects, immediatePauseRevision);
+
+    internal AutomaticArmyTroopApplication ApplyRetiredEnteredAutomaticArmyTroopDamageCurrent(GameState input,
+        SourceWorldContext current, int sourcePhysical, int targetId, int requestedLoss,
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        List<CampaignEffectRequest> effects, long? immediatePauseRevision = null)
+    {
+        RequireRetiredAutomaticActorCurrent(input, current, sourcePhysical);
+        return ApplyAutomaticArmyTroopDamageCurrentCore(input, current, null, sourcePhysical, targetId,
+            requestedLoss, sampler, operationDate, effects, immediatePauseRevision);
+    }
+
+    private AutomaticArmyTroopApplication ApplyAutomaticArmyTroopDamageCurrentCore(GameState input,
+        SourceWorldContext current, int? casterId, int? retiredSourcePhysical, int targetId, int requestedLoss,
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        List<CampaignEffectRequest> effects, long? immediatePauseRevision)
     {
         var pool = current.ReadOwnedCurrentListPool();
         if (pool is null || !pool.OwnsArmyReturnProfile() || !ReferenceEquals(pool.ArmyReturnOwner, current))
             throw BaseAutomaticMissing("Army_damage_shared_pool");
         var context = Context(current, sampler);
+        var sourceImage = casterId is int liveId ? RequireLatestAutomaticActorImageCurrent(input, current, liveId) : null;
+        int sourcePhysical = sourceImage?.NativeArmyOrigin?.NativeSlotIndex ?? retiredSourcePhysical
+            ?? throw BaseAutomaticMissing("Army_damage_source_physical");
+        if (sourceImage is not null) context.BindAutomaticActorResumeCurrent(input, current, sourcePhysical);
         TacticRemakeCurrentContext ReadLatest(GameState reached)
         {
             OwnedArmyDestructionCurrent.BindOwnedCurrentContext(reached, current);
@@ -26,22 +47,31 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         _baseCapacityInputs.BindCurrent(input, current);
         var body = TryApplyNativeDamageTargetBody(input, casterId, targetId, requestedLoss,
-            ReadLatest, ordinaryCurrent: current);
+            ReadLatest, ordinaryCurrent: current, borrowedAttacker: sourceImage,
+            retiredArmyOrigin: retiredSourcePhysical is int retired ? new(retired) : null);
         if (body.Outcome == NormalArmyApplicationPrefixOutcome.CurrentInputsUnresolved || body.Receipt is not { } receipt)
             throw BaseAutomaticMissing(body.MissingPhase ?? "Army_damage_body");
         var working = body.PendingCleanupState ?? body.State;
         if (body.Outcome == NormalArmyApplicationPrefixOutcome.NativeTargetSkipped)
             return new(working, false);
         bool killed = receipt.Killed ?? throw BaseAutomaticMissing("Army_damage_native_return");
-        if (receipt.TroopDebit is not { } debit || !working.Units.TryGetValue(casterId, out var actor) ||
-            !working.Units.TryGetValue(targetId, out var target) ||
+        if (receipt.TroopDebit is not { } debit || !working.Units.TryGetValue(targetId, out var target) ||
             target.NativeArmyOrigin?.NativeSlotIndex is not int targetPhysical)
             throw BaseAutomaticMissing("Army_damage_current_images");
-        var force = ApplyBorrowedNormalForceResult(working, current, actor.ForceId, target.ForceId,
-            debit.AppliedLoss, killed, new NormalArmyForceResultDefinitions(current));
-        if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
-            throw BaseAutomaticMissing("Army_damage_Force_result");
-        working = force.State;
+        //178EC0 reaches257670 only for a native-valid source Army.
+        //The explicit retired path does not substitute Force0 or grant rewards.
+        if (retiredSourcePhysical is null)
+        {
+            //Full can change the source commander's District while its Army
+            //receiver remains pending.22CD80 reads that current owner afresh.
+            int attackerForce = current.ReadArmyUnitRawForceSlot(new(sourcePhysical));
+            int targetForce = current.ReadArmyUnitRawForceSlot(new(targetPhysical));
+            var force = ApplyBorrowedNormalForceResult(working, current, attackerForce, targetForce,
+                debit.AppliedLoss, killed, new NormalArmyForceResultDefinitions(current));
+            if (force.Outcome == NormalArmyForceResultOutcome.CurrentInputsUnresolved)
+                throw BaseAutomaticMissing("Army_damage_Force_result");
+            working = force.State;
+        }
         var feedback = new ArmyTraitFeedback(working, current, operationDate, effects, () => working,
             speechConsumer: CreateArmyTraitSpeechConsumer(current, () => working, next => working = next));
         var targetReference = new ArmyUnitReference(targetPhysical);
@@ -60,7 +90,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         working = feedback.Publish(working);
         if (killed)
         {
-            int winnerPhysical = working.Units[casterId].NativeArmyOrigin?.NativeSlotIndex
+            int winnerPhysical = retiredSourcePhysical ?? RequireLatestAutomaticActorImageCurrent(working, current,
+                casterId ?? throw BaseAutomaticMissing("Army_damage_winner_id")).NativeArmyOrigin?.NativeSlotIndex
                 ?? throw BaseAutomaticMissing("Army_damage_winner_receiver");
             var admission = OwnedArmyDestructionCurrent.AdmitOrdinaryArmy1745B0(working, current,
                 targetPhysical, winnerPhysical, null);

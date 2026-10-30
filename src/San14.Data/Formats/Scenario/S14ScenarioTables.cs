@@ -29,10 +29,18 @@ public sealed record S14CityName(int Slot, string Name);
 
 public sealed record S14CityDefinition(int Slot, string Name, string SecondaryText,
     IReadOnlyList<byte> LinkedLocationSlots, uint RawLimit0, uint RawLimit1,
-    uint RawLimit2, byte GroupCode);
+    uint RawLimit2, byte GroupCode)
+{
+    public IReadOnlyList<byte>? RawNeighborSlots58 { get; init; }
+    public byte? RawField68 { get; init; }
+}
 
 public sealed record S14GateDefinition(int Slot, int LocationSlot, string Name,
-    string SecondaryText, IReadOnlyList<byte> LinkedLocationSlots);
+    string SecondaryText, IReadOnlyList<byte> LinkedLocationSlots)
+{
+    public IReadOnlyList<byte>? RawNeighborSlots58 { get; init; }
+    public byte? RawField68 { get; init; }
+}
 
 public sealed record S14AreaDefinition(int Slot, string Name, string SecondaryText,
     byte CitySlot, ushort HexId, string RemainingBytesHex)
@@ -165,10 +173,16 @@ public static class S14ScenarioTables
             if (row[39] != slot)
                 throw new InvalidDataException($"S14 fixed city slot ID differs at {slot}.");
             definitions.Add(new S14CityDefinition(slot, name,
-                ReadUtf16Slot(row.Slice(8, 20)), ReadLocationLinks(row.Slice(28, 11), slot),
+                ReadUtf16Slot(row.Slice(8, 20)), ReadLocationLinks(row.Slice(28, 10), slot),
                 BinaryPrimitives.ReadUInt32LittleEndian(row.Slice(40, 4)),
                 BinaryPrimitives.ReadUInt32LittleEndian(row.Slice(44, 4)),
-                BinaryPrimitives.ReadUInt32LittleEndian(row.Slice(48, 4)), row[52]));
+                BinaryPrimitives.ReadUInt32LittleEndian(row.Slice(48, 4)), row[52])
+            {
+                // The foothold serializer transfers ten bytes to Base+58,
+                // then a separate scalar to Base+68. Keep the zero slots too.
+                RawNeighborSlots58 = row.Slice(28, 10).ToArray(),
+                RawField68 = row[38]
+            });
         }
         return definitions;
     }
@@ -192,7 +206,11 @@ public static class S14ScenarioTables
                 throw new InvalidDataException($"S14 fixed gate slot ID differs at {slot}.");
             gates.Add(new S14GateDefinition(slot, slot == 0 ? 0 : 51 + slot,
                 ReadUtf16Slot(row[..8]), ReadUtf16Slot(row.Slice(8, 20)),
-                ReadLocationLinks(row.Slice(28, 11), 51 + slot)));
+                ReadLocationLinks(row.Slice(28, 10), 51 + slot))
+            {
+                RawNeighborSlots58 = row.Slice(28, 10).ToArray(),
+                RawField68 = row[38]
+            });
         }
         return gates;
     }
@@ -221,8 +239,10 @@ public static class S14ScenarioTables
             var neighbors = new ushort[8];
             for (int index = 0; index < neighbors.Length; index++)
                 neighbors[index] = BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(47 + index * 2,2));
-            areas.Add(new S14AreaDefinition(slot, ReadUtf16Slot(row[..8]),
-                ReadUtf16Slot(row.Slice(8, 28)), citySlot, hexId,
+            //CAreaData fixed serialization has five name words followed
+            //by thirteen independent sorting words (native10 and1A).
+            areas.Add(new S14AreaDefinition(slot, ReadUtf16Slot(row[..10]),
+                ReadUtf16Slot(row.Slice(10, 26)), citySlot, hexId,
                 Convert.ToHexString(row[39..]))
             {
                 RawField44 = BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(41, 2)),

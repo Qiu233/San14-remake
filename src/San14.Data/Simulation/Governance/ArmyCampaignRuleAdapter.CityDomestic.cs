@@ -69,7 +69,9 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityDomesticExecution
         try
         {
             CityDomesticParameterCatalog.RequireScenario(_scenario, Seed.Language);
-            if (state.CampaignEventWorld?.CurrentUserIndex != -1) throw new InvalidDataException("city-domestic.tutorial_current_user");
+            if (state.CampaignEventWorld?.CurrentUserIndex != -1 &&
+                ReadApplicationGameplay()?.UserSelectionServicePresent != false)
+                throw new InvalidDataException("city-domestic.tutorial_current_user");
             if (!state.Cities.TryGetValue(cityId, out var city)) throw new InvalidDataException("city-domestic.city");
             var indexes = state.ReadArmyLifecycle()?.Indexes ?? throw new InvalidDataException("city-domestic.saved_indexes");
             var current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
@@ -82,7 +84,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityDomesticExecution
             bool bound = _baseCapacityInputs.BindCurrent(state, current);
             var preview = new AreaAdministrationPreviewSource(state, current, _scenario, Seed.Language, _baseCapacityInputs, bound);
             return AreaAdministrationQuery<CityDomesticDraft>.Known(new(state, current, city, _definitions, _scenario, Seed.Language,
-                _baseCapacityInputs, bound, card, preview, narrationSource: new(state, current, _definitions, _scenario, Seed.Language, _repository, _baseCapacityInputs), governorInputs: _governorInputs, personResources: _repository));
+                _baseCapacityInputs, bound, card, preview, narrationSource: new(state, current, _definitions, _scenario, Seed.Language, _repository, _baseCapacityInputs), governorInputs: _governorInputs, personResources: _repository,
+                userSelectionServicePresent: ReadApplicationGameplay()?.UserSelectionServicePresent));
         }
         catch (InvalidDataException unknown) { return AreaAdministrationQuery<CityDomesticDraft>.Unknown(unknown.Message); }
     }
@@ -148,6 +151,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityDomesticExecution
         // effective abilities, training capacity or incomes, nor install those inputs.
         var card = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario, Seed.Language, _baseCapacityInputs, _repository);
         var preview = new AreaAdministrationPreviewSource(state, current, _scenario, Seed.Language, _baseCapacityInputs, false);
-        return new(state, current, city, _definitions, _scenario, Seed.Language, _baseCapacityInputs, false, card, preview, false);
+        return new(state, current, city, _definitions, _scenario, Seed.Language, _baseCapacityInputs, false, card, preview, false,
+            userSelectionServicePresent: ReadApplicationGameplay()?.UserSelectionServicePresent);
     }
 }

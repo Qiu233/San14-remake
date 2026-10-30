@@ -28,6 +28,12 @@ internal partial class DeploymentUnitInformationView : Control
     private UiSourceTroopThresholdButton primaryThreshold=null!,secondaryThreshold=null!;
     private int? primaryTroops,secondaryTroops;
     private Control? landChoices;
+    private bool formationSelectionBound;
+    internal bool FormationSelectionActive=>!abandoned&&!IsQueuedForDeletion()&&IsVisibleInTree()&&
+        CanProcess()&&formationSelectionBound&&landChoices is { } choices&&
+        !choices.IsQueuedForDeletion()&&choices.IsVisibleInTree();
+    internal int? SelectedFormationId {get;private set;}
+    internal DeploymentTroopMarker? TroopMarker {get;private set;}
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
         PreviewText text,Control modalHost)
@@ -68,6 +74,7 @@ internal partial class DeploymentUnitInformationView : Control
     {
         if(abandoned)return;
         changeTroops=changed;this.calculatorReturned=calculatorReturned;
+        TroopMarker=row is null?null:info?.LandTroops?.Marker??figures?.TroopMarker;
         currentTroops=row?.Request.Troops??0;maximumTroops=info?.MaximumTroops;
         bool enabled=row is not null&&maximumTroops is >999&&changed is not null;
         slider.SetValue(currentTroops,maximumTroops??0,enabled);number.Value=currentTroops;number.Disabled=!enabled;
@@ -98,7 +105,7 @@ internal partial class DeploymentUnitInformationView : Control
             var box=source.Rectangle(3);portrait=new UiSourcePortrait {Name="SelectedPortrait",Position=box.Position,Size=box.Size};AddChild(portrait);
             portrait.ConfigureFace3(repository,assets,shader,resolvedPortrait);
         }
-        if(row is null){calculator?.RequestCancel();ApplyLandFormationChoices(null,0,null);}
+        if(row is null){calculator?.RequestCancel();ApplyLandFormationChoices(null,0,null);ApplyTacticChoices(null,null);}
 
         void RefreshThreshold(UiSourceTroopThresholdButton button,int? troops)
         {
@@ -132,6 +139,8 @@ internal partial class DeploymentUnitInformationView : Control
     internal void AbandonInteraction()
     {
         abandoned=true;
+        AbandonTacticInteraction();
+        formationSelectionBound=false;
         changeTroops=null;calculatorReturned=null;
         number.Disabled=primaryThreshold.Disabled=secondaryThreshold.Disabled=true;
         slider.SetValue(currentTroops,maximumTroops??0,false);
@@ -141,8 +150,10 @@ internal partial class DeploymentUnitInformationView : Control
     internal void ApplyLandFormationChoices(DeploymentLandFormationChoices? query,int selectedFormation,Action<int>? choose)
     {
         if(abandoned)return;
+        formationSelectionBound=false;SelectedFormationId=null;
         if(landChoices is not null){landChoices.Hide();landChoices.Name="PreviousLandFormationChoices";landChoices.QueueFree();landChoices=null;}
         if(query?.Choices is not { } choices)return;
+        SelectedFormationId=selectedFormation;
         landChoices=new Control {Name="LandFormationChoices",MouseFilter=MouseFilterEnum.Ignore};AddChild(landChoices);
         // The source query owns six candidates, but this pane registers five
         // radio bodies. The remaining candidate belongs to formation details.
@@ -153,5 +164,6 @@ internal partial class DeploymentUnitInformationView : Control
                 Position=new(96+index++*118,456),Selected=choice.FormationId==selectedFormation,Disabled=choose is null};
             landChoices.AddChild(button);button.Configure(repository,assets,shader,font,choice,id=>choose?.Invoke(id));
         }
+        formationSelectionBound=choose is not null&&index>0;
     }
 }

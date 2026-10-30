@@ -11,8 +11,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw Missing("current_pool_binding");
         int forceId = K(current.ReadForcePhysicalSlot(force), "Force60");
-        rankPromotionNames ??= ArmyFlagPaneNames.Load(_scenario);
-        var definitions = rankPromotionNames.CustomNames.Definitions;
+        var definitions = ReadEmpireNameResourcesCurrent().CustomNames.Definitions;
         if (kingdomNameChoice is >= 1 and <= 100) Store(kingdomNameChoice);
         else SelectNpcName();
         int actual = K(current.ReadForceKingdomNameIndex(forceId), "Force48");
@@ -102,37 +101,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             return K(current.ReadBaseNativeValidity(city), "required_City_validity") &&
                 K(current.ReadBaseForceSlot(city), "required_City_Force") == forceId;
         }
-        bool Used(int country)
-        {
-            //2CA330 intentionally has no Force native-validity filter.
-            foreach (var entry in current.ReadRegistryReferences(RegistryKind.Force) ?? throw Missing("ForceC0"))
-            {
-                if (entry is not { Kind: RegistryKind.Force, PhysicalSlot: int physical }) throw Missing("ForceC0_payload");
-                if (K(current.ReadForceKingdomNameIndex(physical), "used_Force48") == country) return true;
-            }
-            return false;
-        }
-        int ImperialForce()
-        {
-            int emperor = Lookup(K(CityCaptureTerritoryInputs.ReadEmperor1654(state), "World1654"));
-            int citySlot = 0;
-            if (K(current.ReadPersonNativeValidity(emperor), "emperor_validity"))
-            {
-                var place = PersonPositionRepair.DecodeSecondLocation(K(current.ReadPersonSecondLocation(emperor), "emperor_E4"));
-                if (place.Kind == 5) citySlot = place.Index < 52 ? place.Index : 0;
-            }
-            var city = current.ReadCityTableReference(citySlot) ?? throw Missing("emperor_City_pointer");
-            return K(current.ReadBaseNativeValidity(city), "emperor_City_validity")
-                ? K(current.ReadBaseForceSlot(city), "emperor_City_Force")
-                : K((current.ReadForceTableReference(0) ?? throw Missing("Force0_pointer")).PhysicalSlot, "Force0");
-        }
-        void Store(int country)
-        {
-            byte index = checked((byte)Math.Clamp(country, 0, 100));
-            current.SetForceKingdomNameIndex(forceId, index);
-            var owner = state.Forces.GetValueOrDefault(forceId) ?? throw Missing("Force_owner");
-            state = state with { Forces = new(state.Forces) { [forceId] = owner with { KingdomNameIndex = index } } };
-        }
+        bool Used(int country) => EmpireNameUsedCurrent(current, country);
+        int ImperialForce() => ReadEmpireNameImperialForceCurrent(state, current);
+        void Store(int country) => state = StoreEmpireNameCurrent(state, current, forceId, country);
         int Sample(int bound) => TacticEffectSourceSamplerMath.Sample(bound, 1, forceId, 0, 0, 0,
             ReadArmyDestructionSampler(state, current) ?? throw Missing("World450_45C"));
         int Lookup(int id) => K((id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))?.PhysicalSlot, "Person_lookup");

@@ -8,6 +8,7 @@ public partial class OfficerDetailsView : DetailsView
         bool showReturnButton = true, bool showHeader = true)
     {
         DetailContent content = view.Content;
+        if (showReturnButton || showHeader) ConfigureCommonBackdrop(repository);
         ConfigureLayout(repository, "res://ui/officer-details.json", "OfficerDetails", "detail_officer_title",
             text, content.Values, content.PortraitAppearanceCode, content.Caption, close,
             showReturnButton: showReturnButton, showHeader: showHeader);

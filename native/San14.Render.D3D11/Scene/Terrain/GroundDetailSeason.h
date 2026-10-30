@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Settled seasonal banks from the same scene resource owner. Switching groups
 // replaces population only; template media and wind resources remain owned.
 #include "GroundDetailPacketReader.hpp"
@@ -30,7 +31,7 @@ struct BankPair {
 inline BankPair loadOnce(const std::filesystem::path& root,const ground_detail_source::Packet& packet) {
     BankPair p;p.streamCapacity.resize(packet.templates.size());
     p.group[0]=readBanks(root/"spring-summer/banks.bin",packet);p.group[1]=readBanks(root/"autumn-winter/banks.bin",packet);
-    std::ifstream input(root/"stream-capacities.txt");uint32_t index,count;
+    NativePreparedInputFile input(root/"stream-capacities.txt");uint32_t index,count;
     while(input>>index>>count){if(index>=p.streamCapacity.size())throw std::runtime_error("Seasonal stream template out of range");p.streamCapacity[index]=count;}
     if(!input.eof())throw std::runtime_error("Seasonal stream capacity file");return p;
 }

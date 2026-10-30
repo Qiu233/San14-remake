@@ -12,7 +12,8 @@ internal sealed record DistrictSetupChoice(DistrictSetupField Field, int Value, 
 internal sealed record DistrictSetupPageValues(string DistrictName,
     IReadOnlyList<IReadOnlyDictionary<int, string>> Text,
     IReadOnlyList<DistrictSetupChoice> Choices, string CityCaption, string LeaderCaption, string TargetCaption,
-    bool CanChooseCities, bool CanChooseLeader, bool CanChooseTarget, bool CanConfirm, bool CanContinue, string Guide);
+    bool CanChooseCities, bool CanChooseLeader, bool CanChooseTarget, bool CanConfirm, bool CanContinue, string Guide)
+{ internal int DistrictNumber { get; init; } }
 
 /// <summary>The four authored district-setting panes. Only input changes the
 /// captured draft; switching panes retains every setting and scroll owner.</summary>
@@ -32,18 +33,21 @@ internal partial class DistrictSetupView : Control
     private Action<DistrictSetupField, int>? selected;
     private DistrictSetupPageValues? publication;
     private bool busy, abandoned;
+    private Action<int>? applyDistrictNumber;
+    private Func<string?>? hoveredHint;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, bool editing,
         Func<bool> admitted, Action returned, Action<bool> accepted,
-        Action chooseCities, Action chooseLeader, Action chooseTarget, Action<DistrictSetupField, int> selected)
+        Action chooseCities, Action chooseLeader, Action chooseTarget, Action<DistrictSetupField, int> selected, Func<int,string> guide)
     {
         this.admitted = admitted; this.returned = returned; this.accepted = accepted; this.selected = selected;
         Name = "DistrictSetup"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, editing ? 0x3A8 : 0x3A7, RequestBack, () => RequestApply(false), threeButtonFooter: true);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
-        again = new() { Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadAdmission };
+        again = new() { Name="ContinueDistrictAdministration", Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadAdmission };
         chrome.Canvas.AddChild(again);
         again.ConfigureContinue(repository, chrome.Assets, chrome.SpriteShader, text.SourceLocale, () => RequestApply(true));
         var messageTable = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages;
@@ -58,22 +62,65 @@ internal partial class DistrictSetupView : Control
         for (int index = 0; index < 4; index++)
         {
             int slot = index; var box = shell.Rectangle(4 + index * 2, mount);
-            var tab = new UiSourceTabButton { Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
+            var tab = new UiSourceTabButton { Name="DistrictSetupTab"+index, Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
             chrome.Canvas.AddChild(tab); tab.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, Message(tabTitles[index]));
             tab.Pressed += () => { if (ReadAdmission()) SetTab(slot); }; tabs.Add(tab);
-            panes[index] = new Control { Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+            panes[index] = new Control { Name="DistrictSetupPane"+index, Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
             chrome.Canvas.AddChild(panes[index]);
         }
         uint[] files = [0xB54757E9, 0x0500440B, 0x49AA8A6B, 0x0585A602];
         var layouts = files.Select(file => new UiSourceLayout(repository, file)).ToArray();
         Vector2 paneMount = shell.Rectangle(1, mount).Position;
         BuildBasic();
+        ConfigurePresentation(repository,text,layouts[0],paneMount);
         BuildConstruction();
         BuildResources();
         BuildIntelligence();
-        chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
+        chrome.ApplyReturnHint(guide(0x2733));
+        chrome.ApplyDecisionHint(guide(editing?0x594B:0x591A));
+        Hint(cities,editing?0x594C:0x5917);Hint(leader,editing?0x5951:0x5918);
+        BindHint(target,()=>guide(target.Disabled?0x5927:0x5953));
+        Hint(again,editing?0x5948:0x5914);
+        Control? districtMarker=null;int markerNumber=0;
+        var markerNames=ArmyMapUiSources.Create();
+        applyDistrictNumber=number=>
+        {
+            if(number is <1 or >8||number==markerNumber)return;
+            markerNumber=number;
+            if(districtMarker is not null){districtMarker.GetParent()?.RemoveChild(districtMarker);districtMarker.QueueFree();}
+            districtMarker=shell.Art(chrome.Canvas,19,shell.Rectangle(19,mount),chrome.Assets,chrome.SpriteShader,
+                commonSpriteOverride:markerNames.IconName(new(0x230+number,0)),sourceMaterial:true);
+            districtMarker.Name="DistrictNumberMarker";
+        };
         SetMeta("source_layout", shell.Source.Source.ResourceUri); SetTab(0); SetBusy(false);
 
+        void BindHint(Control control,Func<string?> read)
+        {
+            control.MouseEntered+=()=>{if(ReadAdmission()){hoveredHint=read;chrome.ApplyHoverHint(read());}};
+            control.MouseExited+=()=>{if(ReferenceEquals(hoveredHint,read))hoveredHint=null;if(!abandoned)chrome.ApplyHoverHint(null);};
+        }
+        void Hint(Control control,int message)=>BindHint(control,()=>guide(message));
+        void ChoiceHint(UiSourceButton button,DistrictSetupField field,int value)
+        {
+            int enabled=field switch
+            {
+                DistrictSetupField.Policy=>value switch{1=>0x595A,2 or 3=>0x595B,4=>0x595C,5=>0x595D,_=>0},
+                DistrictSetupField.Attack=>0x5925,DistrictSetupField.Transport=>0x5926,
+                DistrictSetupField.Priority=>0x5928,DistrictSetupField.Recruitment=>0x5929,
+                DistrictSetupField.Enlistment=>0x592A,DistrictSetupField.Merchant=>0x592C,
+                DistrictSetupField.Facilities=>0x592D,DistrictSetupField.Demolition=>0x5930,
+                DistrictSetupField.GoldUse or DistrictSetupField.FoodUse or DistrictSetupField.TroopsUse=>0x5931+value,
+                _=>0
+            };
+            if(enabled==0)return;
+            BindHint(button,()=>
+            {
+                if(!button.Disabled)return guide(enabled);
+                if(field==DistrictSetupField.Policy)return null;
+                bool soldiers=publication?.Choices.Any(choice=>choice.Field==DistrictSetupField.Priority&&choice.Value==4&&choice.Selected)==true;
+                return guide(field==DistrictSetupField.Enlistment&&soldiers?0x592B:0x5927);
+            });
+        }
         void Draw(UiSourceLayout layout, Control parent, Vector2 origin, IReadOnlySet<int> replaced)
         {
             foreach (var node in layout.Nodes)
@@ -91,7 +138,7 @@ internal partial class DistrictSetupView : Control
         UiSourceCommandButton Command(int tab, int node, Action action, string? caption = null)
         {
             var box = layouts[tab].Rectangle(node, paneMount);
-            var button = new UiSourceCommandButton { Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
+            var button = new UiSourceCommandButton { Name="DistrictCommand"+tab+"_"+node, Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
             panes[tab].AddChild(button);
             button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, caption ?? Message(0x3FE), () => { if (ReadAdmission()) action(); });
             return button;
@@ -99,25 +146,25 @@ internal partial class DistrictSetupView : Control
         void Choice(int tab, int node, DistrictSetupField field, int value, string caption)
         {
             var button = Command(tab, node, () => this.selected?.Invoke(field, value), caption);
-            choices.Add((field, value, button));
+            choices.Add((field, value, button)); ChoiceHint(button,field,value);
         }
         void Radios(int tab, DistrictSetupField field, int[] roots, int[] values, int[] captions, bool catalogue = false)
         {
             for (int index = 0; index < roots.Length; index++)
             {
                 int value = values[index]; var box = layouts[tab].Rectangle(roots[index], paneMount);
-                var button = new UiSourceRadioButton { Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
+                var button = new UiSourceRadioButton { Name="District"+field+value, Position = box.Position, Size = box.Size, InputAdmission = ReadAdmission };
                 panes[tab].AddChild(button);
                 button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,
                     index == 0 ? UiSourceRadioSegment.Left : index == roots.Length - 1 ? UiSourceRadioSegment.Right : UiSourceRadioSegment.Centre,
                     catalogue ? Catalogue(captions[index]) : Message(captions[index]),
                     () => { if (ReadAdmission()) this.selected?.Invoke(field, value); });
-                choices.Add((field, value, button));
+                choices.Add((field, value, button)); ChoiceHint(button,field,value);
             }
         }
         void BuildBasic()
         {
-            int[] roots = [4, 9, 25, 27, 29, 31, 33, 38, 43, 45, 50, 52, 58, 60, 62, 64, 69, 71, 76, 78, 83, 85, 89, 93, 106];
+            int[] roots = [4, 9, 25, 27, 29, 31, 33, 38, 43, 45, 50, 52, 58, 60, 62, 64, 69, 71, 76, 78, 83, 85, 89, 91, 93, 106, 112, 124, 128, 132, 136, 140, 144, 148];
             Draw(layouts[0], panes[0], paneMount, roots.ToHashSet());
             foreach (var (node, message) in new[] { (3, 0x207), (8, 0x214), (14, 0x211), (19, 0x20E), (24, 0x3A6),
                 (37, 0x39F), (42, 0x27D), (49, 0x26B), (57, 0x3A0), (68, 0x277), (75, 0x4BB), (82, 0x2B0) }) Label(0, node, message);
@@ -168,7 +215,7 @@ internal partial class DistrictSetupView : Control
     internal void Apply(DistrictSetupPageValues value)
     {
         if (abandoned) return;
-        publication = value; district.Text = value.DistrictName;
+        publication = value; district.Text = value.DistrictName; applyDistrictNumber?.Invoke(value.DistrictNumber);
         cities.Caption = value.CityCaption; leader.Caption = value.LeaderCaption; target.Caption = value.TargetCaption;
         foreach (var field in fields)
             field.Text.SetKnownColourLine(field.Tab < value.Text.Count ? value.Text[field.Tab].GetValueOrDefault(field.Node) ?? "" : "");
@@ -180,11 +227,13 @@ internal partial class DistrictSetupView : Control
         }
         cities.Disabled = busy || !value.CanChooseCities; leader.Disabled = busy || !value.CanChooseLeader; target.Disabled = busy || !value.CanChooseTarget;
         again.Disabled = busy || !value.CanContinue;
-        chrome.ApplyDecision(!busy && value.CanConfirm, true); chrome.ApplyReturn(!busy); chrome.ApplyDefaultHint(value.Guide);
+        chrome.ApplyDecision(!busy && value.CanConfirm, true); chrome.ApplyReturn(!busy); chrome.ApplyDefaultHint(value.Guide); chrome.ApplyHoverHint(hoveredHint?.Invoke());
     }
     private void SetTab(int tab)
     {
+        hoveredHint=null;
         for (int index = 0; index < panes.Length; index++) { panes[index].Visible = index == tab; tabs[index].Selected = index == tab; }
+        chrome.ApplyHoverHint(null);
     }
     private bool ReadAdmission() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     internal void SetBusy(bool value)
@@ -198,5 +247,5 @@ internal partial class DistrictSetupView : Control
     private void RequestApply(bool keepOpen)
     { if (ReadAdmission() && (keepOpen ? publication?.CanContinue : publication?.CanConfirm) == true) accepted?.Invoke(keepOpen); }
     internal void Abandon()
-    { abandoned = true; admitted = null; returned = null; accepted = null; selected = null; publication = null; chrome?.Abandon(); Hide(); }
+    { abandoned = true; admitted = null; returned = null; accepted = null; selected = null; publication = null; applyDistrictNumber=null; hoveredHint=null; chrome?.Abandon(); Hide(); }
 }

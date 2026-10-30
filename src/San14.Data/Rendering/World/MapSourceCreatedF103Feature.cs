@@ -58,7 +58,7 @@ public sealed class DeferredF103Kind1Scratch
 /// F103 tail override is included; no selected shader feature row is copied.</summary>
 public sealed class MapSourceCreatedF103FeaturePacket
 {
-    private readonly byte[] feature, lightData, cameraPrefix, producerTail;
+    private readonly byte[] feature, lightData, producerTail;
     private readonly MapCameraConstructionPacket camera;
     private readonly byte[] modifierLightData;
     internal MapSourceCreatedF103FeaturePacket(MapCameraConstructionPacket acceptedCamera,
@@ -66,7 +66,7 @@ public sealed class MapSourceCreatedF103FeaturePacket
         DeferredF103Kind1Scratch scratch, byte[] effectiveLight, byte[] feature,
         byte[] producerTail, bool rebuilt, bool copied, MapSourceCreatedLightingPacket? innerLighting = null)
     {
-        camera = acceptedCamera.CopyAcceptedSnapshot(); cameraPrefix = camera.Prefix.ToArray();
+        camera = acceptedCamera.CopyAcceptedSnapshot();
         lightData = effectiveLight.ToArray(); this.feature = feature.ToArray(); this.producerTail = producerTail.ToArray();
         FrameNumber = current.FrameNumber; CurrentView = current; Scratch = scratch; StateRebuilt = rebuilt;
         EffectiveLightDataCopied = copied;
@@ -93,8 +93,6 @@ public sealed class MapSourceCreatedF103FeaturePacket
     public bool StateRebuilt { get; }
     public DeferredF103Kind1Scratch Scratch { get; }
     public MapCameraConstructionPacket AcceptedCamera => camera.CopyAcceptedSnapshot();
-    internal bool MatchesAcceptedCameraPrefix(ReadOnlySpan<byte> currentPrefix)
-        => cameraPrefix.AsSpan().SequenceEqual(currentPrefix);
     public ReadOnlyMemory<byte> CurrentFeature48 => feature.ToArray();
     public ReadOnlyMemory<byte> EffectiveLocalLightData => lightData.ToArray();
     /// <summary>The inner record's nonnull H, or the outer record's fallback H.
@@ -110,7 +108,7 @@ public sealed class MapSourceCreatedF103FeaturePacket
         if (FrameNumber != acceptedCamera.FrameNumber || FrameNumber != lighting.FrameNumber ||
             Binding != lighting.Binding || LightingSourceIdentity != lighting.SourceIdentity ||
             LightingProducerProvenance != lighting.SourceProvenance ||
-            !MatchesAcceptedCameraPrefix(acceptedCamera.Prefix.Span) ||
+            !camera.SharesEncodedOutputWith(acceptedCamera) ||
             camera.Source.Camera.ObjectId != acceptedCamera.Source.Camera.ObjectId ||
             camera.Source.Resource.Source.ResourceUri != acceptedCamera.Source.Resource.Source.ResourceUri ||
             camera.Source.Resource.Source.FileId != acceptedCamera.Source.Resource.Source.FileId ||

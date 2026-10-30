@@ -13,7 +13,7 @@ public sealed partial class CityDomesticDraft
             if (!Enum.IsDefined(column) || !Enum.IsDefined(direction))
                 throw CityDomesticPersonCellSource.Missing("sort_column");
             var rows = PersonOrder(selection, currentOrder).ToList();
-            var source = new CityDomesticPersonCellSource(_state, _current, _definitions, _governorInputs);
+            var source = new CityDomesticPersonCellSource(_state, _current, _definitions, _governorInputs, _scenario, _personResources, _language, _userSelectionServicePresent);
             bool reversed = direction == CityDomesticPersonSortDirection.Reversed;
             AreaAdministrationAutomaticOrder.StableSort(rows, Before);
             return AreaAdministrationQuery<IReadOnlyList<int>>.Known(rows.AsReadOnly());
@@ -36,7 +36,7 @@ public sealed partial class CityDomesticDraft
                     return reversed ? source.BeforeLocation(b, a, column == CityDomesticPersonSortColumn.CurrentLocation)
                         : source.BeforeLocation(a, b, column == CityDomesticPersonSortColumn.CurrentLocation);
                 if (column == CityDomesticPersonSortColumn.TaskTarget)
-                    return reversed ? source.BeforeTaskTarget(b, a) : source.BeforeTaskTarget(a, b);
+                    return source.BeforeTaskTarget(a, b, reversed);
                 if (column >= CityDomesticPersonSortColumn.District)
                 {
                     var left = Key(a); var right = Key(b);
@@ -82,6 +82,7 @@ public sealed partial class CityDomesticDraft
                     CityDomesticPersonSortColumn.Health => Number(source.HealthKey(c)),
                     CityDomesticPersonSortColumn.ItemCount => source.ItemKey(c),
                     CityDomesticPersonSortColumn.Office => source.OfficeKey(c),
+                    CityDomesticPersonSortColumn.CommandCapacity => source.CommandCapacityKey(c),
                     CityDomesticPersonSortColumn.OtherMetric => source.OtherMetricKey(c),
                     CityDomesticPersonSortColumn.Doctrine => source.DoctrineKey(c),
                     CityDomesticPersonSortColumn.Age => source.AgeKey(c),
@@ -94,7 +95,7 @@ public sealed partial class CityDomesticDraft
                     CityDomesticPersonSortColumn.Merit => source.MeritKey(c),
                     CityDomesticPersonSortColumn.CreditRankStage => source.RankStageKey(c),
                     CityDomesticPersonSortColumn.CommandBonus => Number(source.CreditBonus(c, 1)),
-                    CityDomesticPersonSortColumn.AdditionalAreaCapacity => Number(source.AdditionalBonus(c, () => Additional(c.PhysicalSlot))),
+                    CityDomesticPersonSortColumn.AdditionalAreaCapacity => Number(source.AdditionalBonus(c)),
                     CityDomesticPersonSortColumn.CreditKind3Bonus => Number(source.CreditBonus(c, 3)),
                     CityDomesticPersonSortColumn.ResetCounter => source.ResetKey(c),
                     _ => throw CityDomesticPersonCellSource.Missing("sort_key")

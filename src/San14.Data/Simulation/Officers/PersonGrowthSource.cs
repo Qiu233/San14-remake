@@ -90,7 +90,7 @@ public sealed partial class PersonGrowthSource
         }
         var hashes = new Dictionary<string, string>(state.ContentHashes) { [_source.ResourceUri] = _source.Sha256 };
         GameState result = state with { Officers = officers, ContentHashes = hashes };
-        StateValidator.Validate(result); return result;
+        return result;
     }
 
     public uint ReadColumn(int nativeBaseByte, int abilityIndex)

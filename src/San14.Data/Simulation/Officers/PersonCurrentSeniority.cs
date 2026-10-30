@@ -68,13 +68,7 @@ internal sealed class PersonCurrentSeniority(GameState state, SourceWorldContext
             ?? throw Missing("maternal_lookup");
         return pointer;
     }
-    private int Age(int person)
-    {
-        int mode = state.CampaignEventWorld?.ScenarioMode ?? throw Missing("age_world_mode");
-        if (mode is 2 or 3) throw Missing("special_mode_age");
-        int year = state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("age_current_year");
-        return Math.Max(0, unchecked((short)year - K(Owner(person).BirthYear, "age_current_birth") + 1));
-    }
+    private int Age(int person) => PersonCurrentAgeSource.Read(state, current, person);
     private byte Generation(int person) => K(Owner(person).FamilyGeneration, "generation_B8");
     private OfficerState Owner(int physical)
     {

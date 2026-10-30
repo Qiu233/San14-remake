@@ -52,6 +52,7 @@ internal static class ArmyCautionDistrictResetSource
             if (current.ReadTemporaryHexListCount(members) is null) throw Missing("caution_members");
             cautions.GroupLabels.Remove(physical);
             cautions.GroupDistrictIds![physical] = 0;
+            cautions = ArmyCautionGroupPlanningSource.Reset(cautions, physical);
             current.ClearTemporaryHexList(members);
 
             //The initial search in32B570 gates3DFB50; that callee removes all

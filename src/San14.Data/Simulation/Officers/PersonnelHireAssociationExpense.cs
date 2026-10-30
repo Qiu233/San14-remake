@@ -5,7 +5,7 @@ namespace San14.Data;
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private const string HireAssociationPrefix = "simulation.personnel.hire-association-";
-    // File-backed TC constants extracted offline. Saved typed parameters take
+    // TC and SC constants independently matched offline. Saved typed parameters take
     // precedence; this table also supports saves made before this consumer.
     private static readonly IReadOnlyDictionary<string, int> HireAssociationRules = new Dictionary<string, int>
     {
@@ -26,7 +26,9 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal static GameState InstallFreshPersonnelHireAssociationParameters(GameState state)
     {
         var native = state.NativeArmySimulation ?? throw HireMissing("association.parameter_owner");
-        if (native.Parameters.Language != "TC") return state;
+        if (native.Parameters.Language is not ("TC" or "SC")) return state;
+        if (native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(native.Parameters.Language))
+            throw HireMissing("association.parameter_rule_version");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var pair in HireAssociationRules) values.TryAdd(HireAssociationPrefix + pair.Key, pair.Value);
         return state with { NativeArmySimulation = native with
@@ -86,7 +88,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private int ReadHireAssociationGain(GameState state, SourceWorldContext current,
-        ForceReference own, ForceReference other, int actor)
+        ForceReference own, ForceReference other, int actor, int? fixedActivity = null,
+        bool includePanel = true, bool capToRemaining = true)
     {
         if (!HireNeed(current.ReadForceNativeValidity(other), "association.gain_target_validity") ||
             !HireNeed(current.ReadPersonNativeValidity(actor), "association.gain_actor_validity") ||
@@ -110,9 +113,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             cities is >= 11 and <= 15 ? "large-force-adviser-percent" : "other-force-adviser-percent");
         int defense = unchecked(factor * adviserIntelligence) / 100;
         defense = defense < minimum ? minimum : Math.Min(defense, 120);
-        bool busy = (HireNeed(current.ReadArmyReturnPersonFlags196(actor), "association.actor15E") & 1) != 0 ||
-            ReadHireAssociationActorBusy(current, actor);
-        int activity = HireAssociationParameter(state, busy ? "busy-activity-factor" : "idle-activity-factor");
+        int activity;
+        if(fixedActivity is int providedActivity)activity=providedActivity;
+        else
+        {
+            bool busy = (HireNeed(current.ReadArmyReturnPersonFlags196(actor), "association.actor15E") & 1) != 0 ||
+                ReadHireAssociationActorBusy(current, actor);
+            activity = HireAssociationParameter(state, busy ? "busy-activity-factor" : "idle-activity-factor");
+        }
         float root = MathF.Sqrt(MathF.Sqrt(territory));
         float weight = root * HireAssociationParameter(state, "territory-factor") +
             HireAssociationParameter(state, "territory-offset");
@@ -122,7 +130,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int policy = ReadHireAssociationPolicy(state, current, own, 25);
         int policyAdd = policy > 0 ? Math.Max(1, unchecked(HireAssociationParameter(state, "policy-gain-percent") * policy * basis) / 100) : policy;
         int ownId = HireNeed(current.ReadForcePhysicalSlot(own), "association.own_ordinal");
-        int panel = HireNeed(_baseCapacityInputs.ReadPanelModifier(state, ownId, 44), "association.Force_panel44");
+        int panel = includePanel?HireNeed(_baseCapacityInputs.ReadPanelModifier(state, ownId, 44), "association.Force_panel44"):0;
         int gain = unchecked(unchecked(panel * basis) / 100 + policyAdd + basis);
         int selector = HireNeed(BattleRemakeCurrentSettings.ReadSelectorE58(state), "association.settings_E58");
         int percent;
@@ -144,6 +152,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int threat = HireAssociationParameter(state, ReadHireAssociationThreat(state, current, otherId)
             ? "threatened-gain-percent" : "ordinary-gain-percent");
         gain = unchecked(threat * gain) / 100;
+        if(!capToRemaining)return gain;
         int districtSlot = HireNeed(current.ReadPersonDistrictSlot(actor), "association.actorE0");
         var actorDistrict = current.ReadDistrictTableReference(districtSlot < 52 ? districtSlot : 0)
             ?? throw HireMissing("association.actor_District_pointer");
@@ -195,7 +204,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (manager.Disappearances?.ContainsKey(id) == true) return true; // Actual v98=16.
         if (manager.Returns.ContainsKey(id) || manager.Talents?.ContainsKey(id) == true ||
             manager.Diplomacies?.ContainsKey(id) == true || manager.Strategies?.ContainsKey(id) == true ||
-            manager.Independences?.ContainsKey(id) == true) return false;
+            manager.Independences?.ContainsKey(id) == true || manager.Caravans?.ContainsKey(id) == true ||
+            manager.Intelligences?.ContainsKey(id) == true) return false;
         throw HireMissing("association.actor_command_virtual98");
     }
 
@@ -245,7 +255,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw HireMissing("association.parameter_owner");
         string key = HireAssociationPrefix + name;
-        if (bank.Language != "TC" || bank.RuleVersion != SimulationRuleIdentity.ForLocale("TC") || bank.Float32Values.ContainsKey(key))
+        if (bank.Language is not ("TC" or "SC") || bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language) || bank.Float32Values.ContainsKey(key))
             throw HireMissing(key);
         return bank.Int32Values.TryGetValue(key, out int value) ? value :
             HireAssociationRules.TryGetValue(name, out int initial) ? initial : throw HireMissing(key);

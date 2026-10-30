@@ -8,18 +8,32 @@ using San14.Data.Formats;
 public partial class Main
 {
     private Control? _personnelAdministrationPage;
-    private CommandSelectionView? _personnelAdministrationPeople;
+    private PersonnelAdministrationPersonSelectionView? _personnelAdministrationPeople;
     private DeploymentTargetConfirmation? _personnelAdministrationQuestion;
     private GameplaySession? _personnelAdministrationSession;
     private GameState? _personnelAdministrationWorld;
     private MapSceneView? _personnelAdministrationMap;
     private Action? _personnelAdministrationBack, _personnelAdministrationAbandon;
+    private PersonnelCreditDraft? _personnelCreditDraft;
+    private long _personnelCreditSelectionAcceptedSequence, _personnelCreditChoiceAcceptedSequence;
+    private Func<IReadOnlyList<int>, bool>? PersonnelCreditSelectionAdmission;
+    private Func<bool>? PersonnelCreditDecisionAdmission;
+    private bool PersonnelCreditReturnAllowed = true;
     private bool HasPersonnelAdministrationPage => _personnelAdministrationPage is not null;
 
     private bool IsPersonnelAdministrationCurrent(Control page) => !_failed && !_shuttingDown &&
         _personnelAdministrationPage == page && ReferenceEquals(_session, _personnelAdministrationSession) &&
         ReferenceEquals(_world, _personnelAdministrationWorld) && ReferenceEquals(_session?.World, _personnelAdministrationWorld) &&
         _residentMap == _personnelAdministrationMap;
+
+    private void AdoptPersonnelAdministrationSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // Every retained child uses this root's Current predicate; draft rules and edits stay captured.
+        if (_personnelAdministrationPage is null || _personnelAdministrationSession != session ||
+            _personnelAdministrationMap is null || _personnelAdministrationMap != _residentMap ||
+            !ReferenceEquals(_personnelAdministrationWorld, previous)) return;
+        _personnelAdministrationWorld = replacement;
+    }
 
     private void OpenPersonnelAdministration(MapMenuCommand command, int? retainedOfficer = null)
     {
@@ -80,19 +94,15 @@ public partial class Main
 
             void ChoosePeople()
             {
-                if (!IsPersonnelAdministrationCurrent(view) || _personnelAdministrationPeople is not null) return;
-                var rows = draft.Rows.Select(row => new CommandSelectionRow(row.OfficerId,
-                    [new(row.Name, SortKey: world.Officers.GetValueOrDefault(row.OfficerId)?.CurrentNameSortKey),
-                     new(Number(row.LoyaltyBefore), row.LoyaltyBefore), new(Number(row.LoyaltyAfter), row.LoyaltyAfter)],
-                    row.Eligible == true, row.UnresolvedOwner is null ? null : _ui.Get("information_partial"))).ToArray();
-                var selector = new CommandSelectionView(); _personnelAdministrationPeople = selector; AddChild(selector);
+                if (!IsPersonnelAdministrationCurrent(view) || _personnelAdministrationPeople is not null ||
+                    draft.Rows.Count == 0 || draft.Budget.MaximumSelection is not > 0) return;
+                var selection = rules.PreparePersonnelRewardOfficerSelection(draft);
+                if (!selection.Available) { Unavailable(selection.UnresolvedInput ?? "personnel.reward.selection"); return; }
+                var selector = new PersonnelAdministrationPersonSelectionView(); _personnelAdministrationPeople = selector; AddChild(selector);
                 view.SetBusy(true);
                 try
                 {
-                    selector.Configure(_repository, _ui, 0x245,
-                        [new("name", PersonnelDataText(0x211), 500), new("loyalty", _ui.Get("detail_loyalty"), 458, true),
-                         new("loyalty_after", _ui.Get("detail_loyalty"), 458, true)],
-                        rows, draft.SelectedOfficerIds, draft.Budget.MaximumSelection ?? 0,
+                    selector.Configure(_repository, _ui, selection.Value!,
                         () => IsPersonnelAdministrationCurrent(view) && _personnelAdministrationPeople == selector,
                         selected => RunUiAction(() =>
                         {
@@ -110,14 +120,10 @@ public partial class Main
         {
             var draft = rules.OpenPersonnelBanishDraft(world, player);
             if (draft.UnresolvedOwner is { } missing) { Unavailable(missing); return; }
-            var view = new CommandSelectionView();
-            var rows = draft.Rows.Select(row => new CommandSelectionRow(row.OfficerId,
-                [new(row.Name, SortKey: world.Officers.GetValueOrDefault(row.OfficerId)?.CurrentNameSortKey),
-                 new(world.Officers.GetValueOrDefault(row.OfficerId)?.ForceId is int force ? world.Forces.GetValueOrDefault(force)?.Name ?? "" : "")],
-                row.Enabled == true, row.DisabledReason)).ToArray();
-            Begin(view, () => view.Configure(_repository, _ui, 0x273,
-                [new("name", PersonnelDataText(0x211), 708), new("force", _ui.Get("force"), 708)],
-                rows, draft.SelectedOfficerIds, rows.Length,
+            var selection = rules.PreparePersonnelBanishOfficerSelection(draft);
+            if (!selection.Available) { Unavailable(selection.UnresolvedInput ?? "personnel.banish.selection"); return; }
+            var view = new PersonnelAdministrationPersonSelectionView();
+            Begin(view, () => view.Configure(_repository, _ui, selection.Value!,
                 () => IsPersonnelAdministrationCurrent(view) && _personnelAdministrationQuestion is null,
                 chosen => RunUiAction(() =>
                 {
@@ -138,8 +144,7 @@ public partial class Main
                         }));
                     }
                     catch { _personnelAdministrationQuestion = null; question.Abandon(); question.QueueFree(); view.Show(); throw; }
-                }), CurrentListScrollSpeed, guide: new AdministrationMessages(_repository, _ui.SourceLocale).Format(0x5884),
-                retainOnAccept: true, requireSelection: true), view.Abandon, view.RequestCancel);
+                }), CurrentListScrollSpeed, retainOnAccept: true), view.Abandon, view.RequestCancel);
         }
 
         void OpenCredit(bool rankup)
@@ -147,6 +152,8 @@ public partial class Main
             var draft = rankup ? rules.OpenPersonnelCreditRankupDraft(world, player) : rules.OpenPersonnelCreditGiveDraft(world, player);
             if (draft.UnresolvedOwner is { } missing) { Unavailable(missing); return; }
             var view = new PersonnelCreditView();
+            view.DecisionAdmission = () => PersonnelCreditDecisionAdmission?.Invoke() ?? true;
+            view.ReturnAdmission = () => PersonnelCreditReturnAllowed;
             var content = new AreaAdministrationOfficerContent(_repository);
             var portraits = new Dictionary<int, LoadedSprite?>();
             var sprites = new LocalizedUiSpriteSource(_repository);
@@ -155,19 +162,24 @@ public partial class Main
                     ? sprites.LoadTexturePackSprite(route.ResourceName!, route.SpriteName!) : null;
             Begin(view, () =>
             {
+                _personnelCreditDraft = draft;
                 view.Configure(_repository, _ui, rankup, () => IsPersonnelAdministrationCurrent(view),
                     RequestPersonnelAdministrationBack, () => RunPlayAction(() =>
                     {
-                        if (!IsPersonnelAdministrationCurrent(view) || draft.BuildOrder() is not { } order) return;
+                        if (!IsPersonnelAdministrationCurrent(view) ||
+                            !(PersonnelCreditDecisionAdmission?.Invoke() ?? true) || draft.BuildOrder() is not { } order) return;
                         if (!ApplyPlayableOrder(order, ClosePersonnelAdministration)) Refresh();
                     }), ChoosePeople, (person, choice) => RunUiAction(() =>
                     {
-                        if (IsPersonnelAdministrationCurrent(view)) { draft.ToggleChoice(person, choice); Refresh(); }
+                        if (IsPersonnelAdministrationCurrent(view) && draft.ToggleChoice(person, choice))
+                        { _personnelCreditChoiceAcceptedSequence++; Refresh(); }
                     }), mode => RunUiAction(() =>
                     {
-                        if (IsPersonnelAdministrationCurrent(view)) { draft.ApplyAutomatic(mode); Refresh(); }
+                        if (IsPersonnelAdministrationCurrent(view) && draft.ApplyAutomatic(mode))
+                        { _personnelCreditChoiceAcceptedSequence++; Refresh(); }
                     }));
                 Refresh();
+                BindCurrentTutorialCreditAndDoctrine();
             }, view.Abandon, ClosePersonnelAdministration);
 
             void Refresh()
@@ -215,26 +227,26 @@ public partial class Main
 
             void ChoosePeople()
             {
-                if (!IsPersonnelAdministrationCurrent(view) || _personnelAdministrationPeople is not null) return;
-                var rows = draft.Rows.Select(row => new CommandSelectionRow(row.OfficerId,
-                    [new(row.Name, SortKey: world.Officers.GetValueOrDefault(row.OfficerId)?.CurrentNameSortKey),
-                     new(Number(row.MeritBefore), row.MeritBefore), new(row.CurrentStageName), new(row.NextStageName)], true)).ToArray();
-                var selector = new CommandSelectionView(); _personnelAdministrationPeople = selector; AddChild(selector);
+                if (!IsPersonnelAdministrationCurrent(view) || _personnelAdministrationPeople is not null || draft.Rows.Count == 0) return;
+                var selection = rules.PreparePersonnelCreditOfficerSelection(draft);
+                if (!selection.Available) { Unavailable(selection.UnresolvedInput ?? "personnel.credit.selection"); return; }
+                var selector = new PersonnelAdministrationPersonSelectionView(); _personnelAdministrationPeople = selector; AddChild(selector);
                 view.SetBusy(true);
                 try
                 {
-                    selector.Configure(_repository, _ui, rankup ? 0x81E : 0x820,
-                        [new("name", PersonnelDataText(0x211), 450), new("merit", _ui.Get("detail_merit"), 322, true),
-                         new("rank", PersonnelDataText(0x821), 322), new("next_rank", PersonnelDataText(0x821), 322)],
-                        rows, draft.SelectedOfficerIds, draft.Budget.MaximumSelection ?? 0,
+                    selector.Configure(_repository, _ui, selection.Value!,
                         () => IsPersonnelAdministrationCurrent(view) && _personnelAdministrationPeople == selector,
                         selected => RunUiAction(() =>
                         {
                             if (!IsPersonnelAdministrationCurrent(view) || _personnelAdministrationPeople != selector) return;
+                            if (selected is not null && (!(PersonnelCreditSelectionAdmission?.Invoke(selected) ?? true) ||
+                                !draft.SelectTargets(selected))) { selector.Show(); return; }
                             ClosePersonnelAdministrationPeople(); view.SetBusy(false);
-                            if (selected is not null) draft.SelectTargets(selected);
+                            if (selected is not null) _personnelCreditSelectionAcceptedSequence++;
                             Refresh();
-                        }), CurrentListScrollSpeed);
+                        }), CurrentListScrollSpeed, retainOnAccept: true);
+                    selector.SelectionConfirmationAdmission = ids => PersonnelCreditSelectionAdmission?.Invoke(ids) ?? true;
+                    BindCurrentTutorialCreditAndDoctrine();
                 }
                 catch { ClosePersonnelAdministrationPeople(); view.SetBusy(false); throw; }
             }
@@ -274,12 +286,20 @@ public partial class Main
 
     private void RequestPersonnelAdministrationBack()
     {
+        if (_personnelCreditDraft is not null && !PersonnelCreditReturnAllowed) return;
         if (_personnelAdministrationQuestion is { } question) question.RequestCancel();
+        else if (_personnelHireCities is { } cities) cities.RequestCancel();
+        else if (_personnelDevelopmentPeople is { } development) development.RequestCancel();
         else if (_personnelAdministrationPeople is { } people) people.RequestCancel();
         else _personnelAdministrationBack?.Invoke();
     }
     private void ClosePersonnelAdministrationPeople()
     {
+        var cities = _personnelHireCities; _personnelHireCities = null;
+        if (cities is not null)
+        { _personnelAdministrationMap?.EndCityOfficerMovementMapPick(cities); cities.Abandon(); cities.GetParent()?.RemoveChild(cities); cities.QueueFree(); }
+        var development = _personnelDevelopmentPeople; _personnelDevelopmentPeople = null;
+        if (development is not null) { development.Abandon(); development.GetParent()?.RemoveChild(development); development.QueueFree(); }
         var people = _personnelAdministrationPeople; _personnelAdministrationPeople = null;
         if (people is not null) { people.Abandon(); people.GetParent()?.RemoveChild(people); people.QueueFree(); }
     }
@@ -292,6 +312,8 @@ public partial class Main
         _personnelAdministrationAbandon?.Invoke();
         _personnelAdministrationPage = null; _personnelAdministrationSession = null; _personnelAdministrationWorld = null;
         _personnelAdministrationMap = null; _personnelAdministrationBack = _personnelAdministrationAbandon = null;
+        _personnelCreditDraft = null;
+        PersonnelCreditSelectionAdmission = null; PersonnelCreditDecisionAdmission = null; PersonnelCreditReturnAllowed = true;
         if (view is not null) { view.GetParent()?.RemoveChild(view); view.QueueFree(); }
         if (!_failed && !_shuttingDown && map is not null && map == _residentMap && GodotObject.IsInstanceValid(map))
         { map.SetDetailsOpen(false); SetMapFocus(true); }

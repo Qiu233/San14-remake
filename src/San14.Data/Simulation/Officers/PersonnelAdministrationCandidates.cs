@@ -94,6 +94,8 @@ internal static class PersonnelAdministrationCandidates
         { start = talent.StartDate; clampNegative = false; }
         else if (commands.Diplomacies is {} diplomacies && diplomacies.TryGetValue(identity, out var diplomacy))
         { start = diplomacy.StartDate; clampNegative = false; }
+        else if (commands.Caravans?.GetValueOrDefault(identity) is { } caravan)
+        { start = caravan.StartDate; clampNegative = false; }
         else if (commands.Disappearances is {} disappearances && disappearances.TryGetValue(identity, out var disappearance))
         { start = disappearance.StartedOn; clampNegative = false; }
         else throw Missing("linked_virtualB0_start_date");

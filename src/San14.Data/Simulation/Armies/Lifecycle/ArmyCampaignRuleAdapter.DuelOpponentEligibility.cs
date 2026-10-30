@@ -85,9 +85,21 @@ internal static class DuelOpponentParameters
 {
     private const string Prefix = "duel-opportunity:opponent:";
     // Existing TC file-backed catalog, installed only by genuine fresh creation.
+    // Independently extracted SC file-backed words through the actual
+    // paired campaign consumer. This table does not borrow the TC values.
+    private static readonly (string Name, int Value)[] FreshSc =
+    [
+        ("adjustment-divisor", 4),
+        ("nonnegative-disposition-bonus", 5),
+    ];
     internal static void AddFresh(string language, Dictionary<string, int> values,
         IReadOnlyDictionary<string, float> floating)
     {
+        if (language == "SC")
+        {
+            foreach (var row in FreshSc) Add(row.Name, row.Value);
+            return;
+        }
         if (language != "TC") return;
         Add("adjustment-divisor", 4);
         Add("nonnegative-disposition-bonus", 5);

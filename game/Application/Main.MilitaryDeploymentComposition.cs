@@ -5,6 +5,33 @@ public partial class Main
 {
     private MilitaryDeploymentBatchPanel? _deploymentComposition;
 
+    private void AdoptMilitaryPagesSpeechWorld(San14.Client.Gameplay.GameplaySession session,
+        GameState previous,GameState replacement)
+    {
+        // The speech host has admitted this exact presentation transaction.
+        // Every retained page still requires its original session, map and predecessor.
+        if(_deploymentDraftSession==session&&_deploymentDraftMap==_residentMap&&
+            _deploymentDraftCityId is int city&&_deploymentCityDraft?.IsFor(previous,city)==true)
+        {
+            _deploymentCityDraft.AcceptPreferenceWorld(previous,replacement);
+            _deploymentAdoptSpeechWorld?.Invoke(previous,replacement);
+        }
+        if(_campaignDeploymentSession==session&&_campaignDeploymentMap==_residentMap&&
+            HasCampaignDeploymentPage&&ReferenceEquals(_campaignDeploymentWorld,previous))
+            _campaignDeploymentWorld=replacement;
+        if(_campaignRetreatSession==session&&_campaignRetreatMap==_residentMap&&
+            HasCampaignRetreatPage&&ReferenceEquals(_campaignRetreatWorld,previous))
+            _campaignRetreatWorld=replacement;
+        if(_cityDeploymentCancellation is { } cancellation&&cancellation.Session==session&&
+            cancellation.Map==_residentMap&&ReferenceEquals(cancellation.World,previous))
+            cancellation.World=replacement;
+        if(_generalUnitTarget is { } target&&target.Session==session&&target.Map==_residentMap&&
+            ReferenceEquals(target.World,previous))
+        {
+            target.Presenter?.AdoptSpeechWorld(previous,replacement);target.World=replacement;
+        }
+    }
+
     private void BuildMilitaryDeploymentComposition(VBoxContainer military)
     {
         _deploymentComposition = new MilitaryDeploymentBatchPanel();

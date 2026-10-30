@@ -26,11 +26,19 @@ internal static class ArmyWaypointArrivalSource
     /// <summary>The five native words have one consumer, while ordinary and
     /// transport orders retain their separate saved owners.</summary>
     internal static GameState? ConsumeCurrent(GameState state, UnitState army)
+        => ConsumeCurrent(state, army, static (input, image) =>
+            input with { Units = new(input.Units) { [image.Id] = image } });
+
+    //The same source queue consumer also serves a registered pending image.
+    //Its caller supplies the existing lifecycle image writer; no active Unit
+    //is manufactured merely to execute waypoint stores.
+    internal static GameState? ConsumeCurrent(GameState state, UnitState army,
+        Func<GameState, UnitState, GameState> writeImage)
     {
         if (army.NativeTacticRuntime?.Status10 != 2)
         {
             var march = Consume(state, army);
-            return march is null ? null : state with { Units = new(state.Units) { [army.Id] = army with { March = march } } };
+            return march is null ? null : writeImage(state, army with { March = march });
         }
         if (TransportRouteSourceAdapter.ReadWaypoints(state, army) is not { } words ||
             ArmySavedCommandKnowledge.ReadControl(state, army) is not byte control) return null;
@@ -39,8 +47,8 @@ internal static class ArmyWaypointArrivalSource
         var resources = state.ResourceState;
         if ((resources as CampaignSourceKnowledge)?.FindTransportRoute(army.Id) is { } residue)
             resources = TransportRouteSourceAdapter.Write(resources, army.Id, words, residue.Choice41);
-        return state with { Units = new(state.Units) { [army.Id] = army with
-            { TransportRoute = TransportRouteSourceAdapter.Decode(words) } }, ResourceState = resources };
+        return writeImage(state with { ResourceState = resources }, army with
+            { TransportRoute = TransportRouteSourceAdapter.Decode(words) });
     }
 
     private static void ConsumeWords(ushort[] words)

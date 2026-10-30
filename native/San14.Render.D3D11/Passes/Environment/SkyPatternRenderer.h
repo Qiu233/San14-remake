@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "SkyPatternMaterial.h"
 #include "SkyPatternProgramBank.h"
 #include "../../Device/RenderTargetScope.h"
@@ -122,7 +123,7 @@ private:
             throw std::runtime_error("The selected Pattern pass has no drawable shader stages");
         if(auto found=programs_.find(reference.recipe);found!=programs_.end())return found->second;
         const auto recipe=source_/"recipes"/std::to_string(reference.recipe);
-        std::ifstream unsupported(recipe/"unsupported.txt");
+        NativePreparedInputFile unsupported(recipe/"unsupported.txt");
         if(unsupported)throw std::runtime_error("Selected Pattern recipe is unsupported: "+
             std::string(std::istreambuf_iterator<char>(unsupported),{}));
         Program candidate;candidate.layout=Interop::readSkyPatternMaterialLayout(recipe/"layout.bin");

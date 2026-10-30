@@ -76,11 +76,24 @@ public sealed record CampaignAchievementClockRead(int Id, int YearsSince1900, in
 public sealed record CampaignServiceChanges(int[] Events, CampaignAchievementWrite[] Achievements, bool Dirty = false)
 {
     [JsonRequired] public CampaignAchievementClockRead[] ClockReads { get; init; } = [];
+    [JsonRequired] public int[] CompletedScenarios { get; init; } = [];
+    [JsonRequired] public int[] CompletedEndingTracks { get; init; } = [];
+    [JsonRequired] public int[] UnlockedBonusOfficerIndices { get; init; } = [];
+    //Older session metadata predates tutorial completion outbox writes.
+    //World181 independently requires this field in its versioned codec.
+    public int[] CompletedTutorialLessons { get; init; } = [];
     public static CampaignServiceChanges Empty => new([], []);
-    public CampaignServiceChanges Copy() => this with { Events = Events.ToArray(), Achievements = Achievements.ToArray(), ClockReads = ClockReads.ToArray() };
+    public CampaignServiceChanges Copy() => this with { Events = Events.ToArray(), Achievements = Achievements.ToArray(),
+        ClockReads = ClockReads.ToArray(), CompletedScenarios = CompletedScenarios.ToArray(),
+        CompletedEndingTracks = CompletedEndingTracks.ToArray(), UnlockedBonusOfficerIndices = UnlockedBonusOfficerIndices.ToArray(),
+        CompletedTutorialLessons = CompletedTutorialLessons.ToArray() };
     internal void Validate()
     {
-        if (Events is null || Achievements is null || ClockReads is null || Events.Any(id => id is < 0 or >= 1024) ||
+        if (Events is null || Achievements is null || ClockReads is null || CompletedScenarios is null || CompletedEndingTracks is null || UnlockedBonusOfficerIndices is null || CompletedTutorialLessons is null ||
+            CompletedTutorialLessons.Any(id => id is < 0 or > 7) ||
+            UnlockedBonusOfficerIndices.Any(id => id is < 0 or > 60) ||
+            CompletedScenarios.Any(id => id is < 0 or >= 200) || CompletedEndingTracks.Any(id => id is < 0 or > 2) ||
+            Events.Any(id => id is < 0 or >= 1024) ||
             Achievements.Any(a => a is null || a.Id is < 0 or > 56 || a.Date is null || a.Date.Month is < 1 or > 12 || a.Date.Day is < 1 or > 31 || a.Date.Hour > 23) ||
             ClockReads.Any(c => c is null || c.Id is < 0 or > 56) || ClockReads.Select(c => c.Id).Distinct().Count() != ClockReads.Length)
             throw new InvalidDataException("Campaign service continuation is incomplete.");

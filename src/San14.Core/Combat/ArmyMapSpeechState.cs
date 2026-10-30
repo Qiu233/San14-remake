@@ -16,7 +16,21 @@ public sealed record ArmyMapSpeechEntry(long Sequence, int ArmyId, int OfficerId
     /// Zero retains the source's valid null receiver.</summary>
     public int? ContextBaseLocationId { get; init; }
     public int? ContextTraitId { get; init; }
+    /// <summary>The original action6 packet's fire-command cause. Null keeps
+    /// unknown older knowledge; personality action28 uses ContextTraitId.</summary>
+    public bool? FireCommandOrigin { get; init; }
     public int? ContextAreaId { get; init; }
+    /// <summary>The duel packet's actual other participant and aftermath,
+    /// independent of the speaker or a later unit/commander lookup.</summary>
+    public int? ContextDuelOpponentOfficerId { get; init; }
+    public CampaignDuelAftermath? ContextDuelAftermath { get; init; }
+    /// <summary>The reached facility speech packet's stable Object receiver
+    /// and original Army physical operand, independent of a later Unit lookup.</summary>
+    public MapObjectReceiverId? ContextFacilityReceiverId { get; init; }
+    public int? ContextFacilityArmySlot { get; init; }
+    /// <summary>The source packet's definition operand for counter and
+    /// facility-attack speech. Null preserves unknown older packets.</summary>
+    public int? ContextFacilityDefinitionId { get; init; }
     /// <summary>The actual Base speaker, independent of an Army receiver and
     /// of the Base0 operand retained in the same source packet.</summary>
     public int? BaseSpeakerLocationId { get; init; }

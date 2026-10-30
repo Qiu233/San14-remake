@@ -16,15 +16,28 @@ public sealed record G2ShaderTextureBases(int ModeValueOffset, uint ModeValue,
 public static class G2ShaderTextureBaseReader
 {
     public static G2ShaderTextureBases Read(ReadOnlySpan<byte> source)
+        => ReadCore(source,0,0,true);
+
+    /// <summary>Actual selected feature and texture-descriptor rows. The old
+    /// single-row constructor contract remains the default Read overload.</summary>
+    public static G2ShaderTextureBases ReadSelectedRows(ReadOnlySpan<byte> source,
+        uint actualFeatureRow,uint actualTextureDescriptorRow)
+        => ReadCore(source,actualFeatureRow,actualTextureDescriptorRow,false);
+
+    private static G2ShaderTextureBases ReadCore(ReadOnlySpan<byte> source,uint featureRow,uint textureRow,bool single)
     {
         G2ShaderContainer container = G2ShaderContainerReader.Read(source);
         G2ShaderCombinations combinations = G2ShaderCombinationReader.Read(source);
-        if (U32(source,0x48) != 1 || U32(source,0x58) != 1)
+        uint featureCount=U32(source,0x48),textureCount=U32(source,0x58);
+        if (single && (featureCount != 1 || textureCount != 1))
             throw Error("constructor requires one entry in both source descriptor tables");
+        if(featureRow>=featureCount||textureRow>=textureCount)
+            throw Error("selected source descriptor row exceeds its declaration");
         uint table = U32(source,0x78), descriptor = U32(source,0x88);
         if (table > int.MaxValue - 0x20 || descriptor > int.MaxValue)
             throw Error("source descriptor offset exceeds supported addressing");
-        int modeOffset = (int)table + 0x20, descriptorOffset = (int)descriptor;
+        int modeOffset = checked((int)table + checked((int)featureRow*48) + 0x20);
+        int descriptorOffset = checked((int)descriptor + checked((int)textureRow*40));
         InMetadata(container,modeOffset,4);
         InMetadata(container,descriptorOffset,16);
         uint mode = U32(source,modeOffset);

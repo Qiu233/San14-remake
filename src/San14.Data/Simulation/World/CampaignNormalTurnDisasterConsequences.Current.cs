@@ -79,7 +79,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (owner.Disappearances.ContainsKey(identity)) return;
                 if (!owner.Returns.ContainsKey(identity) && owner.Talents?.ContainsKey(identity) != true &&
                     owner.Diplomacies?.ContainsKey(identity) != true && owner.Strategies?.ContainsKey(identity) != true &&
-                    owner.Independences?.ContainsKey(identity) != true) throw Missing("illness_associated_virtual98");
+                    owner.Independences?.ContainsKey(identity) != true && owner.Intelligences?.ContainsKey(identity) != true)
+                    throw Missing("illness_associated_virtual98");
             }
             int id = N(current.ReadPersonIdentity(person), "illness_Person10");
             var sampler = package.ReadArmyDestructionSampler(state, current) ?? throw Missing("illness_World450_45C");
@@ -218,13 +219,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = state.NativeArmySimulation?.Parameters ?? throw Missing("parameters");
             if (bank.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
-            if (package.Seed.Language != "TC") throw Missing("locale_parameter_" + name);
-            //File-backed TC data1A4A8D0..954. Saved current values win.
-            return name switch { "loss-random-bound" => 6, "plague-base-cap" => 3000, "advanced-plague-base-cap" => 10000,
+            // Independent locale defaults; saved current values above win.
+            int? knownTc = name switch { "loss-random-bound" => 6, "plague-base-cap" => 3000, "advanced-plague-base-cap" => 10000,
                 "plague-unit-cap" => 500, "advanced-plague-unit-cap" => 2500, "advanced-plague-population-cap" => 5000,
                 "plague-security-random-bound" => 4, "locust-security-random-bound" => 4, "plague-illness-rate" => 6,
                 "locust-base-food-cap" => 10000, "advanced-locust-base-food-cap" => 40000,
-                _ => throw Missing("parameter_" + name) };
+                _ => null };
+            return NormalTurnDisasterParameters.ReadConsequenceDefault(package.Seed.Language, name, knownTc)
+                ?? throw Missing("parameter_" + name);
         }
         private static int Clamp(int value, int minimum, int maximum) => value < minimum ? minimum : value > maximum ? maximum : value;
         private static T N<T>(T? value, string name) where T : struct => value ?? throw Missing(name);

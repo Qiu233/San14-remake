@@ -24,6 +24,7 @@ public sealed record NormalCombatImmediateContinuation(
 {
     public AutomaticTacticExecutionContinuation? AutomaticExecution { get; init; }
     public BaseAutomaticTacticExecutionContinuation? BaseAutomaticExecution { get; init; }
+    public bool PendingAutomaticFatalFeedback { get; init; }
 }
 
 public sealed partial record GameState
@@ -44,12 +45,16 @@ internal static class NormalCombatImmediateContinuationValidation
             return;
         }
         if (state.NativePeriodContinuation?.Cursor is not { StageIndex: 13 } ||
-            state.ArmyDefeatContinuation is not { SettlementIndex: -1 } ||
+            state.ArmyDefeatContinuation is not { SettlementIndex: -1 } && state.BaseCaptureContinuation is not { SettlementIndex: -1 } ||
             value.Actors.IsDefault || value.OrderedPairs.IsDefaultOrEmpty || value.ArmyDescriptors is null ||
             value.PairIndex < 0 || value.PairIndex >= value.OrderedPairs.Length)
             throw new InvalidDataException("The immediate combat continuation has no matching phase or current pair.");
         if (value.AutomaticExecution is not null && value.BaseAutomaticExecution is not null)
             throw new InvalidDataException("A combat instruction cannot have both an Army and a Base caster.");
+        if (value.PendingAutomaticFatalFeedback && (value.AutomaticExecution is not null || value.BaseAutomaticExecution is not null ||
+            value.OrderedPairs[value.PairIndex] is not { Actor.Kind: 27, Target.Kind: 5 or 6 } ||
+            state.BaseCaptureContinuation is not { SettlementIndex: -1 }))
+            throw new InvalidDataException("The pending fatal feedback has no matching ordinary Army-to-Base occupation.");
         if (value.BaseAutomaticExecution is { } baseAutomatic)
         {
             if (value.OrderedPairs[value.PairIndex].Actor.Kind is not (5 or 6) ||
@@ -60,25 +65,30 @@ internal static class NormalCombatImmediateContinuationValidation
                 baseAutomatic.Instructions[baseAutomatic.InstructionIndex] is not { } instruction ||
                 instruction.Index != baseAutomatic.InstructionIndex || instruction.OrderedHexIds.IsDefault ||
                 baseAutomatic.TargetIndex < 0 || baseAutomatic.TargetIndex >= instruction.OrderedHexIds.Length ||
-                baseAutomatic.TargetUnitId <= 0 || baseAutomatic.TargetArmyPhysicalSlot < 0 ||
-                baseAutomatic.TargetReceiverId.Value <= 0 || baseAutomatic.TargetHexId is < 0 or > 48400 ||
-                instruction.Opcode is not (1 or 16) || (instruction.Opcode == 1) != (baseAutomatic.TroopPrefix is not null) ||
+                !ValidTarget(baseAutomatic.TargetUnitId, baseAutomatic.TargetArmyPhysicalSlot, baseAutomatic.TargetReceiverId, baseAutomatic.TargetBase) ||
+                baseAutomatic.TargetHexId is < 0 or > 48400 ||
+                instruction.Opcode is not (1 or 16) || baseAutomatic.TargetBase is not null && instruction.Opcode != 1 ||
+                (instruction.Opcode == 1) != (baseAutomatic.TroopPrefix is not null) ||
                 baseAutomatic.DamageContributions.IsDefault || baseAutomatic.Details.IsDefault ||
                 baseAutomatic.FirstInstructionResults.IsDefault || baseAutomatic.SecondInstructionResults.IsDefault ||
                 baseAutomatic.ArmyPresentationEffects.IsDefault)
                 throw new InvalidDataException("The Base automatic tactic has no matching instruction or target cursor.");
         }
         if (value.AutomaticExecution is { } automatic)
-        {
+            ValidateAutomaticExecution(automatic);
+    }
+
+    internal static void ValidateAutomaticExecution(AutomaticTacticExecutionContinuation automatic)
+    {
             if (automatic.CasterUnitId <= 0 || automatic.TacticId is < 0 or > 200 ||
                 automatic.Instructions.IsDefault || automatic.InstructionIndex < 0 ||
                 automatic.InstructionIndex >= automatic.Instructions.Length ||
                 automatic.Instructions[automatic.InstructionIndex] is not { } instruction ||
                 instruction.Index != automatic.InstructionIndex || instruction.OrderedHexIds.IsDefault ||
                 automatic.TargetIndex < 0 || automatic.TargetIndex >= instruction.OrderedHexIds.Length ||
-                automatic.TargetUnitId <= 0 || automatic.TargetArmyPhysicalSlot < 0 || automatic.TargetReceiverId.Value <= 0 ||
+                !ValidTarget(automatic.TargetUnitId, automatic.TargetArmyPhysicalSlot, automatic.TargetReceiverId, automatic.TargetBase) ||
                 automatic.TargetHexId is < 0 or > 48400 ||
-                instruction.Opcode is not (1 or 16) ||
+                instruction.Opcode is not (1 or 16) || automatic.TargetBase is not null && instruction.Opcode != 1 ||
                 (instruction.Opcode == 1) != (automatic.TroopPrefix is not null) ||
                 (instruction.Opcode == 16) != (automatic.MoralePrefix is not null) ||
                 automatic.DamageContributions.IsDefault || automatic.Details.IsDefault ||
@@ -88,6 +98,13 @@ internal static class NormalCombatImmediateContinuationValidation
             if (automatic.LinkedExecution is { } linked && (linked.RemainingActors.IsDefault ||
                 linked.CompletedActors.IsDefault || linked.RemainingActors.Length + linked.CompletedActors.Length > 10))
                 throw new InvalidDataException("The automatic tactic linked actor continuation is incomplete.");
-        }
+            if (automatic.EntrySource is { } source && (source.ForceId is < 0 or > 51 ||
+                source.CommanderOfficerId is < 0 or > 6000 || source.CommanderPersonPhysical is < 0 or > 6000))
+                throw new InvalidDataException("The automatic tactic actor source is outside its campaign identities.");
     }
+
+    private static bool ValidTarget(int? unit, int? physical, ArmyReceiverId? receiver, SettlementBase? target) =>
+        target is null ? unit is > 0 && physical is >= 0 && receiver is { Value: > 0 } :
+        unit is null && physical is null && receiver is null && Enum.IsDefined(target.Kind) &&
+        (target.Kind == SettlementBaseKind.City ? target.Id is >= 1 and <= 51 : target.Id is >= 52 and <= 61);
 }

@@ -13,6 +13,18 @@ public partial class AudioPlaybackService
         internal CancellationTokenSource? Preparation;
         internal AudioClip? OwnedClip;
         internal bool Spatial;
+        internal float ScriptVolume=1,FadeGain=1;
+        internal float? FadeInMilliseconds;
+        internal AudioCueEnvelope? Envelope;
+        internal MusicMixerInterval? EnvelopeInterval;
+        internal bool EnvelopeStops;
+        internal bool NativeEnvelopeActive;
+        internal float NativeEnvelopeFrom, NativeEnvelopeTarget;
+        internal uint NativeEnvelopeTicks;
+        internal AudioCueEnvelopeCurve NativeEnvelopeCurve;
+        internal float ReleaseSeconds;
+        internal AudioCueEnvelopeCurve ReleaseCurve;
+        internal float ControlGain=>ScriptVolume*FadeGain;
     }
     //One freshly constructed shared manager, including UI and script requests.
     //Ordinary requests allocate only0..7; all62 actual slots participate in
@@ -24,6 +36,18 @@ public partial class AudioPlaybackService
     // of whether the present campaign has emitted a special-mode request.
     private int _specialAudioMode;
     private int _specialAudioSlot = -1;
+
+    internal int CaptureAudioSpecialMode() { RequireEngineThread(); return _specialAudioMode; }
+
+    internal void RestoreAudioSpecialMode(int mode)
+    {
+        RequireEngineThread();
+        if (mode == _specialAudioMode) return;
+        if (mode == 0) { ResetAudioSpecialMode(); return; }
+        //No current host produces a nonzero special mode. Such a future
+        //producer must retain its actual special sound/slot before restoring.
+        throw new NotSupportedException("audio.special_mode.restore_owner");
+    }
 
     internal void ResetAudioSpecialMode()
     {
@@ -68,13 +92,19 @@ public partial class AudioPlaybackService
     // frequency equivalence remains separate from the three-update rule.
     private void UpdateEffects()
     {
-        _normalSounds.Update(_repository is not null, QueryEffectHandle, RetireEffect);
+        _normalSounds.Update(_repository is not null, QueryEffectHandle, retirement =>
+        {
+            if (retirement.Kind == NormalSoundRetirementKind.Timeout && _effects[retirement.Slot] is { } effect)
+                ReleaseEffect(effect, retirement.FadeSeconds);
+            else RetireEffect(retirement);
+        });
     }
 
     internal void StopEffects()
     {
         RequireEngineThread();
-        _normalSounds.StopAll(QueryEffectHandle, RetireEffect);
+        foreach (var effect in _effects)
+            if (effect is not null) ReleaseEffect(effect);
     }
 
     private EffectVoice? ReserveEffect(int managerId, object? owner,
@@ -101,14 +131,16 @@ public partial class AudioPlaybackService
     {
         string bus = _originalDeviceProfile is null ? "Master" : OriginalOutputs.EffectsBus;
         _originalOutputs?.ValidateHost();
-        Play(clip, effect.Channel, bus: bus, volumeGroup: category);
+        InstallEffectEnvelope(effect, clip);
+        PlayVoice(clip,effect.Channel,0,bus,category,0,effect);
         effect.Reserved = false;
     }
 
     private void RemoveEffect(EffectVoice effect)
     {
         if (!ReferenceEquals(_effects[effect.Slot], effect)) return;
-        _normalSounds.StopSlot(effect.Slot, QueryEffectHandle, RetireEffect);
+        if (!_normalSounds.StopSlot(effect.Slot, QueryEffectHandle, RetireEffect))
+            RetireEffect(new(effect.Slot, NormalSoundRetirementKind.ExplicitStop));
     }
 
     private void RetireEffect(NormalSoundRetirement retirement)

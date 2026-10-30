@@ -132,7 +132,7 @@ public sealed partial class AreaAdministrationDraft
             int[] touched = previousArea is int prior ? [area, prior] : [area];
             var ids = touched.Select(Person).Append(desired);
             var people = ids.Select(p => PersonAreaAppointmentSource.Resolve(_current, p));
-            checkpoint = _current.CaptureAreaPreview(touched, people);
+            checkpoint = _current.CaptureAreaPreview(touched, people, captureCityDistricts: candidate.HasValue);
             _vectors = original.Fork();
             if (candidate.HasValue && raw != desired)
             {
@@ -144,7 +144,13 @@ public sealed partial class AreaAdministrationDraft
                 _previewSource.Development(area, person, 2, full, _vectors.Count, candidate.HasValue),
                 _previewSource.Development(area, person, 3, full, _vectors.Count, candidate.HasValue),
                 _previewSource.Security(area, person, full, _vectors.Count));
-            return AreaAdministrationQuery<AreaAdministrationDevelopmentPreview>.Known(new(area, Revision, Values(false), Values(true)));
+            return AreaAdministrationQuery<AreaAdministrationDevelopmentPreview>.Known(new(area, Revision, Values(false), Values(true))
+            {
+                CandidateOccupation = candidate.HasValue ? _previewSource.Occupation(area, person, _vectors.Count)
+                    : new(null, "area-draft.candidate_occupation_not_requested"),
+                CandidateFullEffortOccupation = candidate.HasValue ? _previewSource.Occupation(area, person, _vectors.Count, true)
+                    : new(null, "area-draft.candidate_occupation_not_requested")
+            });
         }
         catch (InvalidDataException unknown)
         { return AreaAdministrationQuery<AreaAdministrationDevelopmentPreview>.Unknown(unknown.Message); }

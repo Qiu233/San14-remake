@@ -15,22 +15,32 @@ public sealed record G1EffectMapInputFrame(G1EffectDrawCamera CpuCamera,
     IReadOnlyList<G1EffectGpuFrameMissing> Missing,
     G1EffectDirectComputeView? DirectView = null,
     G1EffectDirectLightingClusterPrepared? LightingCluster = null,
-    uint LightingIndexFormat = 0);
+    uint LightingIndexFormat = 0)
+{
+    public Func<G1EffectGpuExternalBinding, G1EffectGpuFrameBinding?>? ExternalBindings { get; init; }
+    public Func<int, int, Matrix4x4?>? EmitterTransformProvider { get; init; }
+    public Func<uint, G1EffectDrawPacket, G1EffectGpuPacketInputs>? SpecialPacketInputs { get; init; }
+}
 
 /// <summary>One normal map generation's Effect2 preparation. Original resources
 /// are read only at construction. Each frame borrows its accepted Main, actual
 /// registered current lights and prepared Sky media; no cache files are read.</summary>
-public sealed class G1EffectMapInputs
+public sealed partial class G1EffectMapInputs
 {
     private readonly D3D11CurrentSeasonResources resources;
     private readonly DeferredEarlyIndirectPatternMapState pattern;
     private readonly LoadedSkyPatternProjectionMatrixSource patternProjection;
+    private readonly GameResourceRepository sourceRepository;
+    private readonly G1EffectGpuSampler nullImageSampler;
+    private readonly uint cameraIesReference;
     private readonly G1EffectGpuSampler depthSampler;
+    private readonly G1EffectGpuSampler captureSampler;
     private readonly CommonRenderSettings common;
     private readonly float ambientRate;
     private readonly uint blendMode;
     private readonly RenderTextureDefinition depthTarget;
     private readonly uint tableFeatureWord;
+    private readonly G1EffectViewLightSource effectLightSource;
     private readonly G1EffectDirectLightingCluster lightingCluster;
     private readonly LoadedShaderContainer lightingConsumer;
     private readonly SkyWeatherNativePowerSource lightingPower;
@@ -40,11 +50,24 @@ public sealed class G1EffectMapInputs
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(resources);
         this.resources = resources;
+        sourceRepository = repository;
+        cameraIesReference = ReadCameraIesReference(resources.Source.CameraSource.Selection.FirstPackage.Camera);
         var objects = repository.LoadObjects("system", 0x93FB3280);
         depthTarget = RenderTextureResources.Read(objects, 0xE13DDB4F);
         var samplerSource = RenderSamplerSourceAdapters.Load(repository.SourceDirectory, resources.Source.Locale);
+        nullImageSampler = new(RenderSamplerSourceAdapters.BackendDefaultDescriptor(samplerSource));
         depthSampler = new(RenderSamplerSourceAdapters.DecodeKey(samplerSource,
             RenderSamplerSourceAdapters.FinalRenderTextureKey(samplerSource, depthTarget)).EncodeD3D11Descriptor());
+        var captureTarget = RenderTextureResources.Read(objects, 0x47A42FA8);
+        var captureFormats = RenderTextureFormatMath.Resolve(captureTarget);
+        if (captureTarget.Kind != RenderTextureKind.Texture2D || captureTarget.LevelNum != 1 ||
+            captureTarget.MultiSample != 0 || captureTarget.MinMipLevel != 0 ||
+            captureTarget.Width != 0 || captureTarget.Height != 0 || captureTarget.NeverInternalCopy != 0 ||
+            captureFormats.ResourceFormat != 26 ||
+            captureFormats.ShaderViewFormat != 26 || captureFormats.TargetViewFormat != 26)
+            throw new NotSupportedException("Main Effect capture requires its current single-mip R11G11B10 target.");
+        captureSampler = new(RenderSamplerSourceAdapters.DecodeKey(samplerSource,
+            RenderSamplerSourceAdapters.FinalRenderTextureKey(samplerSource, captureTarget)).EncodeD3D11Descriptor());
         pattern = LoadedDeferredEarlyIndirectPatternMapSource.Load(repository, resources.Source.Locale)
             .ConstructAfterSourceFactoryPreparation();
         patternProjection = LoadedSkyPatternProjectionMatrixSource.Load(repository, resources.Source.Locale);
@@ -54,6 +77,8 @@ public sealed class G1EffectMapInputs
         var view = repository.LoadObjects("system", DefaultView0Source.ViewResourceId)
             .Document.Objects.Single(value => value.ObjectId == DefaultView0Source.ViewObjectId);
         tableFeatureWord = Word(view, 30, 0xF103F4C8, 5);
+        effectLightSource = G1EffectViewLightSource.Import(view,
+            commonObjects.Document.Objects.Single(value => value.ObjectId == CommonRenderResources.SourceObjectId));
         lightingCluster = new(repository);
         lightingConsumer = HdrShaderResources.Load(repository)[HdrShaderResources.MainLightingNode].Shader;
         lightingPower = SkyWeatherNativePowerSource.Create(resources.Source.Locale);
@@ -71,13 +96,14 @@ public sealed class G1EffectMapInputs
     public G1EffectMapRuntimeSelection OwnedRendererSelection(uint? currentPrimaryLightObjectId) =>
         new(0, tableFeatureWord, false, false, false, currentPrimaryLightObjectId);
 
-    /// <summary>The current native PreparedView clears1B18 and has no external
-    /// record publisher for it. Kind-one base association publishes1B20 only;
-    /// terrain/army population does not imply a primary modifier record.</summary>
+    /// <summary>D78900 publishes the first actual ordered kind-one record
+    /// intersecting the configured EffectLightGroupID. This modifier owner is
+    /// independent of the Common ViewAux selection used for the base light.</summary>
     public G1EffectMapRuntimeSelection OwnedRendererSelection(D3D11CurrentSeasonFrame current)
     {
         ArgumentNullException.ThrowIfNull(current);
-        return OwnedRendererSelection((uint?)null);
+        var primary = current.Lights.FirstOrDefault(light => effectLightSource.Selects(light.GroupMask));
+        return OwnedRendererSelection(primary?.ObjectId);
     }
 
     public G1EffectMapInputFrame Prepare(D3D11CurrentSeasonFrame current, int width, int height,
@@ -180,10 +206,14 @@ public sealed class G1EffectMapInputs
             BitConverter.UInt32BitsToSingle(ActualWord(0xE88,167,0x0AB376BC,8)),width,height,
             // Fresh global construction; this renderer has no temporary scale setter.
             1,0,0);
+        var consumerClusters = new Dictionary<LoadedMapEffectResources, DeferredClusterInputs?>();
         var cluster = lightingCluster.PrepareCurrent(new(worldToView,projection,lens.IsOrthographic,
             checked((uint)width),checked((uint)height),0,0,lightingIndexFormat,ReadOnlyMemory<float>.Empty),
             lightingConsumer,clusterMain,DeferredClusterFloatLogPath.Sse,lightingPower);
-        return new(cpuCamera, gpuCamera, PacketInputs, missing.AsReadOnly(), directView,cluster,lightingIndexFormat);
+        return new(cpuCamera, gpuCamera, PacketInputs, missing.AsReadOnly(), directView,cluster,lightingIndexFormat)
+            { ExternalBindings = External,
+                SpecialPacketInputs = PrepareSpecialPacketInputs(gpuCamera, lightConstants,
+                    patternConstants, common.Flags8, primary?.GroupMask) };
 
         G1EffectGpuPacketInputs PacketInputs(G1EffectDrawPacket packet)
         {
@@ -191,13 +221,28 @@ public sealed class G1EffectMapInputs
                 throw new NotSupportedException("Effect tail requires its actual special141/147 scope preparation.");
             uint recipeIndex = packet.MeshSubdrawIndex is null ? packet.HeaderFlags >> 3 & 7 : packet.HeaderFlags & 7;
             uint[] recipes = [0x00151440, 0x00111440, 0x00111140, 0x00111442, 0x00111142, 0x00101140, 0x00001100];
-            if (blendMode != 1 || recipeIndex >= recipes.Length)
+            if (blendMode != 1 || packet.RenderingType != 38 && recipeIndex >= recipes.Length)
                 throw new NotSupportedException("Effect row requires its actual current renderer blend recipe.");
+            // The capture callback selects the renderer's independent special
+            // recipe. Normal Main's primary group transforms it to recipes[0].
+            uint recipe = packet.RenderingType == 38 ? recipes[0] : recipes[recipeIndex];
             var effect = G1EffectGpuEffectConstants.CreateFreshOwned(packet, packet.AlphaReference != 0);
             return new(bank, feature, new(188, 0, uint.MaxValue),
-                new(gpuCamera, effect, lightConstants, patternConstants),
-                G1EffectGpuBlend.EncodePackedRecipe(recipes[recipeIndex]), External);
+                new(gpuCamera, effect, lightConstants, patternConstants, Cluster: ConsumerCluster(packet.Resources)),
+                G1EffectGpuBlend.EncodePackedRecipe(recipe), ExternalForFrame);
         }
+        DeferredClusterInputs? ConsumerCluster(LoadedMapEffectResources material)
+        {
+            if (consumerClusters.TryGetValue(material, out var value)) return value;
+            var shader = material.LoadShaderBank(sourceRepository, bank)
+                ?? throw new InvalidDataException("Current Effect lighting bank is null.");
+            value = shader.ReadConfigurations().Records.Any(record => record.Name == "ClusterLightList")
+                ? G1EffectDirectLightingCluster.PrepareConsumerInputs(shader, clusterMain, DeferredClusterFloatLogPath.Sse) : null;
+            consumerClusters.Add(material, value);
+            return value;
+        }
+        G1EffectGpuFrameBinding? ExternalForFrame(G1EffectGpuExternalBinding binding) =>
+            PrepareLightingExternal(binding, outer.ObjectId) ?? External(binding);
     }
 
     private static DeferredLightingInputs PrepareUnmodifiedLighting(HdrLightState light, bool suppressAmbient)
@@ -270,6 +315,11 @@ public sealed class G1EffectMapInputs
                 ? G1EffectGpuFrameBinding.StandaloneSampler(external.StageCode, declaration.BindPoint, depthSampler)
                 : declaration.InputType == 2
                     ? G1EffectGpuFrameBinding.Graph(external.StageCode, declaration.BindPoint, G1EffectGpuGlobalTexture.MainDepthMirror) : null;
+        if (external.Registrations.Any(entry => entry.PrimaryEncoded == 34 && entry.Name == "sRTT"))
+            return declaration.InputType == 3
+                ? G1EffectGpuFrameBinding.StandaloneSampler(external.StageCode, declaration.BindPoint, captureSampler)
+                : declaration.InputType == 2
+                    ? G1EffectGpuFrameBinding.Graph(external.StageCode, declaration.BindPoint, G1EffectGpuGlobalTexture.SceneCapture) : null;
         if (declaration.InputType != 2) return null;
         // These two are direct fixed setter slots in the selected original
         // Effect2 ABI, not entries in the encoded local texture registration.

@@ -8,10 +8,11 @@ public partial class Main
 
     private bool[] TitleAvailability() =>
         [CampaignSaves.HasAnyCampaign,
-         true,false,false,_ui.SourceLocale == "TC",true,true,true];
+         true,true,false,true,true,true,true];
 
     private void OpenTitleMenu()
     {
+        CancelNewGamePreparation(restoreParent: false);
         if(_failed||_shuttingDown||_titleMenu is not null||_repository is null||_playerForceId.HasValue)return;
         CaptureApplicationCrtRandom();
         CloseNewGameSetup();CloseScenarioSelection();LeaveSceneAudioContext();
@@ -22,7 +23,7 @@ public partial class Main
         try
         {
             view.Configure(_repository,_ui,TitleAvailability(),
-                ()=>!_failed&&!_shuttingDown&&_titleMenu==view&&!HasCampaignSavePage&&!HasEnvironmentSettings&&!HasTitleEditMenu&&!HasCollectionMenu&&_titleConfirmation is null,
+                ()=>!_failed&&!_shuttingDown&&_titleMenu==view&&!HasCampaignSavePage&&!HasEnvironmentSettings&&!HasTitleEditMenu&&!HasCollectionMenu&&!HasTutorialSelection&&_titleConfirmation is null,
                 command=>RunUiAction(()=>ExecuteTitleCommand(command)),
                 locale=>RunUiAction(()=>ChangeTitleLanguage(locale)));
             _browserContent.Hide();_browserContent.ProcessMode=ProcessModeEnum.Disabled;
@@ -32,13 +33,16 @@ public partial class Main
 
     private void ExecuteTitleCommand(TitleMenuCommand command)
     {
-        if(_titleMenu is not { } view||HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||_titleConfirmation is not null)return;
+        if(_titleMenu is not { } view||HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||HasTutorialSelection||_titleConfirmation is not null)return;
         switch(command)
         {
             case TitleMenuCommand.NewGame:
-                // Tutorial induction is deferred with the unavailable tutorial
-                // route. Do not fabricate acknowledged/completed preferences.
+                ResetRegisteredOfficerNewGame();
+                // Opening the tutorial directory does not acknowledge the
+                // independent new-game induction preferences.
                 CloseTitleMenu();OpenScenarioSelection();break;
+            case TitleMenuCommand.Tutorial:
+                OpenTutorialSelection();break;
             case TitleMenuCommand.Load:
                 OpenCampaignSaves(false);if(HasCampaignSavePage)view.Hide();break;
             case TitleMenuCommand.Settings:
@@ -66,19 +70,20 @@ public partial class Main
 
     private void ChangeTitleLanguage(int locale)
     {
-        if(_titleMenu is null||HasTitleEditMenu||HasCollectionMenu||locale==_locale.Selected||locale is <0 or >1)return;
+        if(_titleMenu is null||HasTitleEditMenu||HasCollectionMenu||HasTutorialSelection||locale==_locale.Selected||locale is <0 or >1)return;
         CloseTitleMenu();_locale.Select(locale);UpdateLocale();RefreshScenarios(loadPreview:false);OpenTitleMenu();
     }
 
     private bool ResumeTitleMenu()
     {
         if(_failed||_shuttingDown||_titleMenu is not { } view||_playerForceId.HasValue||
-            HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||_titleConfirmation is not null)return false;
+            HasCampaignSavePage||HasEnvironmentSettings||HasTitleEditMenu||HasCollectionMenu||HasTutorialSelection||_titleConfirmation is not null)return false;
         view.ApplyAvailability(TitleAvailability());view.Show();return true;
     }
 
     private void CloseTitleMenu()
     {
+        CloseTutorialSelection(resumeTitle: false);
         CloseTitleEditMenu(resumeTitle: false);
         CloseCollectionMenu(resumeTitle: false);
         var question=_titleConfirmation;_titleConfirmation=null;

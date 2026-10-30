@@ -27,6 +27,8 @@ public sealed partial class G1EffectGenericRuntime : IDisposable
     public float? ModuleEmissionScale { get; set; }
     /// <summary>The real prepared particle-motion consumer, when present.</summary>
     public Action<G1EffectRecord, Memory<byte>, float>? ParticleMotion { get; set; }
+    /// <summary>Generic-owned fields update after its parent slots and before its child generics.</summary>
+    public Action<float>? NestedAuxiliaryAdvance { get; set; }
 
     public G1EffectGenericRuntime(G1EffectModule module, G1EffectRecord generic, G1EffectContext context)
     {
@@ -100,6 +102,7 @@ public sealed partial class G1EffectGenericRuntime : IDisposable
             if ((BinaryPrimitives.ReadUInt16LittleEndian(slot.Bytes.Span[6..]) & 4) == 0) Retire(slot);
             else AdvanceParticle(slot, seconds);
         }
+        NestedAuxiliaryAdvance?.Invoke(seconds);
         foreach (var child in Children) child.Advance(seconds);
         if (Record.Type == 3)
             foreach(var slot in EnumerateInitialized()) EmitNested(slot,seconds);
@@ -195,13 +198,15 @@ public sealed partial class G1EffectGenericRuntime : IDisposable
         float finish = BinaryPrimitives.ReadSingleLittleEndian(slot.Bytes.Span[(elapsed + (type == 3 ? 4 : -4))..]);
         if ((Int(stop) & 1) != 0 && finish <= next * 1.0000119f) { Retire(slot); return; }
         foreach (var controller in Controllers(type == 3 ? 0x204 : 0x208))
-            G1EffectParticleControllers.Apply(controller, slot.Bytes, seconds, context, CurrentRecord, ModuleEmissionScale);
+            G1EffectParticleControllers.Apply(controller, slot.Bytes, seconds, context, CurrentRecord, ModuleEmissionScale,
+                BinaryPrimitives.ReadSingleLittleEndian(module.Data.Span[0x34..]));
         if ((Int(stop) & 2) != 0 && (type == 3
             ? BinaryPrimitives.ReadSingleLittleEndian(slot.Bytes.Span[Int(0xBC)..]) < 0.0078125f
             : slot.Bytes.Span[0x33] < 2)) { Retire(slot); return; }
         if (type != 3)
             foreach (var controller in Controllers(0x214))
-                G1EffectParticleControllers.Apply(controller, slot.Bytes, seconds, context, CurrentRecord, ModuleEmissionScale);
+                G1EffectParticleControllers.Apply(controller, slot.Bytes, seconds, context, CurrentRecord, ModuleEmissionScale,
+                    BinaryPrimitives.ReadSingleLittleEndian(module.Data.Span[0x34..]));
         if(type!=3 && (Int(stop)&0x10000)!=0 && (Int(0x208)+Int(0x214))!=0)
         {
             ushort flags=BinaryPrimitives.ReadUInt16LittleEndian(slot.Bytes.Span[6..]);

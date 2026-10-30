@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -22,7 +23,7 @@ namespace Interop {
 // These are the four ordered target declarations, not current palette selection
 // or evidence that a Pattern operation has produced any pixels.
 inline SkyPatternTargetInputs readSkyPatternTargetInputs(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"targets.bin",std::ios::binary);
+    NativePreparedInputFile input(directory/"targets.bin",std::ios::binary);
     auto word=[&]() {
         std::uint32_t value{};
         input.read(reinterpret_cast<char*>(&value),sizeof(value));
@@ -45,7 +46,7 @@ inline SkyPatternTargetInputs readSkyPatternTargetInputs(const std::filesystem::
     if(input.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Unexpected Pattern PTP1 target declarations tail");
     for(std::size_t index=0;index<result.samplers.size();++index) {
-        std::ifstream sampler(directory/("target"+std::to_string(index)+"-sampler-desc.bin"),std::ios::binary);
+        NativePreparedInputFile sampler(directory/("target"+std::to_string(index)+"-sampler-desc.bin"),std::ios::binary);
         auto& bytes=result.samplers[index];
         sampler.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
         if(!sampler||sampler.peek()!=std::char_traits<char>::eof())

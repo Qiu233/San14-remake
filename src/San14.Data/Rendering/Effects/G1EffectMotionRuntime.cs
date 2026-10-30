@@ -20,9 +20,26 @@ public sealed partial class G1EffectMotionRuntime
         ArgumentNullException.ThrowIfNull(module); ArgumentNullException.ThrowIfNull(context);
         this.context = context;
         this.auxiliaries = new(auxiliaries, context);
+        foreach (var generic in GenericTree(module.Records))
+            this.auxiliaries.RegisterOwned(generic.FileOffset,
+                generic.Children.Where(child => child.Table == G1EffectTable.NestedAuxiliary).ToArray());
     }
 
     public void Advance(float seconds) => auxiliaries.Advance(seconds);
+    public void Advance(float seconds, Matrix4x4 world)
+    { auxiliaries.SetWorldTransform(world); auxiliaries.Advance(seconds); }
+    internal void AdvanceOwnedAuxiliaries(int genericFileOffset, float seconds) =>
+        auxiliaries.AdvanceOwned(genericFileOffset, seconds);
+
+    private static IEnumerable<G1EffectRecord> GenericTree(IReadOnlyList<G1EffectRecord> records)
+    {
+        foreach (var record in records)
+        {
+            if (record.Table != G1EffectTable.Generic) continue;
+            yield return record;
+            foreach (var child in GenericTree(record.Children)) yield return child;
+        }
+    }
 
     public IEnumerable<G1EffectObjectDataPatch> EnumeratePreparedData() => auxiliaries.EnumeratePreparedData();
     public IEnumerable<G1EffectObjectDataPatch> EnumerateLiveData() => auxiliaries.EnumerateLiveData();
@@ -52,8 +69,8 @@ public sealed partial class G1EffectMotionRuntime
     {
         switch (I(descriptor, 4))
         {
-            case 0: case 3: return;
-            case 6: PrepareMotion(descriptor[0x10..]); return;
+            case 0: case 2: case 3: return;
+            case 6: case 7: PrepareMotion(descriptor[0x10..]); return;
             case 9:
                 PrepareMotion(descriptor[0x20..]);
                 G1EffectPostTransform.Initialize(descriptor[checked(0x10 + I(descriptor, 0x10))..]);
@@ -89,6 +106,13 @@ public sealed partial class G1EffectMotionRuntime
                     dt * velocity.Z + position.Z, dt * velocity.W + position.W));
                 return;
             }
+            case 2:
+            {
+                int cursor = 0x1C;
+                PutV(particle, I(generic.Bytes, 0x44),
+                    ExpressionVector(descriptor, ref cursor, generic, particle, particle));
+                return;
+            }
             case 3: return; // The installed motion operation itself is empty.
             case 6:
             {
@@ -100,6 +124,34 @@ public sealed partial class G1EffectMotionRuntime
                 {
                     InheritScale(generic, particle, parent, 0x114, 0xA4, 0x10);
                     InheritScale(generic, particle, parent, 0x118, 0xA8, 0x20);
+                }
+                return;
+            }
+            case 7:
+            {
+                ApplyMotion(descriptor[0x10..], checked(fileOffset + 0x10), generic, particle, dt);
+                int localMatrix = I(generic.Bytes, 0x50), destination = I(generic.Bytes, 0x38);
+                Vector4 position = V(particle, I(generic.Bytes, 0x44));
+                PutV(particle, destination, Transform(position, particle, localMatrix));
+                ReadOnlyMemory<byte> parent = Parent(generic, particle);
+                PutV(particle, destination, Transform(V(particle, destination), parent, 0x10));
+                if ((generic.Bytes.Span[10] & 1) != 0)
+                {
+                    Vector4 localY = V(particle, checked(localMatrix + 0x10));
+                    int originalX = I(generic.Bytes, 0x114);
+                    if (originalX >= 0)
+                    {
+                        Vector4 axis = Transform(V(particle, localMatrix), parent, 0x10);
+                        float scale = MathF.Sqrt(axis.X * axis.X + axis.Y * axis.Y + axis.Z * axis.Z);
+                        PutF(particle, I(generic.Bytes, 0xA4), scale * F(particle, originalX));
+                    }
+                    int originalY = I(generic.Bytes, 0x118);
+                    if (originalY >= 0)
+                    {
+                        // This axis uses the retained local matrix directly.
+                        float scale = MathF.Sqrt(localY.X * localY.X + localY.Y * localY.Y + localY.Z * localY.Z);
+                        PutF(particle, I(generic.Bytes, 0xA8), scale * F(particle, originalY));
+                    }
                 }
                 return;
             }

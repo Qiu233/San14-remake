@@ -78,13 +78,22 @@ internal sealed partial class SceneAudioBinding : IDisposable
         if (channel.Channel is "map-music" or "map-music:1") MusicChanged?.Invoke();
     }
 
-    internal void EnterPlayableMap(GameplaySession campaign, string locale, MapMusicPreferences preferences)
+    internal void EnterPlayableMap(GameplaySession campaign, string locale, MapMusicPreferences preferences,
+        bool resumeNormalStory = false)
     {
         if (ReferenceEquals(_playableSession, campaign)) return;
         LeavePlayableMap();
         _retainMusicForTitle = false;
         _musicSession.ResetMapMusicPositions();
         _playableSession = campaign;
+        //A loaded invocation restores its saved audio owner and Scene.Music.
+        //Do not introduce a new map request before that reconstruction.
+        if (resumeNormalStory)
+        {
+            MapMusicSelection = null; MapMusicError = null;
+            MusicChanged?.Invoke();
+            return;
+        }
         var lifetime = new CancellationTokenSource(); _mapEntry = lifetime;
         try
         {
@@ -122,6 +131,10 @@ internal sealed partial class SceneAudioBinding : IDisposable
 
     internal void LeavePlayableMap()
     {
+        CloseNormalStoryAudio();
+        _ = EndEventTest(restore: false);
+        CloseCollectionEventAudio();
+        EndCollectionMovie(restore: false);
         EndPoemEvent(restore: false);
         EndCollectionMusic(restore: false);
         if (GodotObject.IsInstanceValid(_session) && _session.IsInsideTree())

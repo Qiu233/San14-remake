@@ -12,28 +12,33 @@ public static class PersonCreditFreshSource
     public const string ProfileId = "san14:ce-owned-person-credit-fresh-20261003";
 
     public static GameState InstallFresh(GameState state, LoadedScenario source,
-        SourceWorldContext current)
+        SourceWorldContext current, IReadOnlyList<int>? resetIdentities = null)
     {
+        // The local result comes from the actual3361D0 reset consumer. It is
+        // neither a saved readiness marker nor a reconstruction while loading.
+        var reset = resetIdentities?.ToHashSet();
+        bool FreshCredit(OfficerState person) => reset?.Contains(person.Id) == true
+            ? person.MeritState is { Merit: 0, PendingMerit: 0, RankStageId: 0,
+                FirstSelectionCount: 0, SecondSelectionCount: 0, ResetCode: 0 }
+            : person.MeritState is { Merit: null, PendingMerit: null,
+                FirstSelectionCount: null, SecondSelectionCount: null, ResetCode: null };
         if (state.NativeArmySimulation?.Parameters is not { } parameters ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             source.Metadata.FormatMarker != 0x66 || source.Snapshot.Locale != parameters.Language ||
             state.ContentHashes.GetValueOrDefault(source.ScenarioSource.ResourceUri) != source.ScenarioSource.Sha256 ||
             state.ContentHashes.GetValueOrDefault(source.FixedDataSource.ResourceUri) != source.FixedDataSource.Sha256 ||
             source.Snapshot.CreditRankParameters is not { FormatMarker: 0x66, Ranks.Count: 7 } ranks ||
-            state.Officers.Values.Any(person => person.MeritState is not { Merit: null, PendingMerit: null, FirstSelectionCount: null,
-                    SecondSelectionCount: null, ResetCode: null }))
+            state.Officers.Values.Any(person => !FreshCredit(person)))
             throw new InvalidDataException("Fresh credit cannot replace a saved or incomplete CE Person owner.");
 
-        //Current ordinary settings are explicit saved writers. The earlier
-        //female reset/movement branches must not be assumed inactive from a
-        //difficulty or from the source setting's usual coincidence.
+        //The formal fresh caller has completed3361D0 then335E90 on this same
+        //current table. Legacy direct callers can still prove an inactive
+        //female prefix; an unknown current setting never assumes that prefix.
         int? selector = BattleRemakeCurrentSettings.ReadSelectorE58(state);
         int? meritChoice = selector == 1 ? BattleRemakeCurrentSettings.ReadInt32(state, 0x120) : null;
         int? surrenderChoice = selector == 1 ? BattleRemakeCurrentSettings.ReadInt32(state, 0x128) : null;
         bool prefixKnown = meritChoice is 0 or 1 && surrenderChoice is 0 or 1 &&
-            BattleRemakeCurrentSettings.ReadByte(state, 0x78) == 0 &&
-            BattleRemakeCurrentSettings.ReadByte(state, 0x79) == 0 &&
-            BattleRemakeCurrentSettings.ReadInt32(state, 0xDC) is int personal && personal != 1;
+            (resetIdentities is not null || BattleRemakeCurrentSettings.ReadByte(state, 0x78) == 0);
         var officers = new Dictionary<int, OfficerState>(state.Officers);
         foreach (OfficerState person in state.Officers.Values)
         {
@@ -45,21 +50,37 @@ public static class PersonCreditFreshSource
             OfficerMeritState credit = new(null, null, person.MeritState!.RankStageId, null, null, null);
             CreditState? after = null;
             CharacterPreviewRecord row = source.Snapshot.Characters[physical];
-            if (prefixKnown && row.CharacterId == person.Id && row.CreditReference is { } appendix &&
-                AppendixMatches(appendix) && OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) == row.StatusCode && OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) == appendix.RawFlagsWord &&
-                OfficerMeritSourceAdapter.EncodeStage(person.MeritState) == appendix.RawStageCode && OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) == appendix.RawTailCode &&
-                current.ReadPersonStatus(physical) == OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus) &&
+            byte? status = OfficerServiceStatusSourceAdapter.Encode(person.ServiceStatus);
+            if (prefixKnown && row.CharacterId == person.Id && status is byte currentStatus &&
+                current.ReadPersonStatus(physical) == currentStatus &&
                 current.ReadPhysicalPerson(physical) is { } captured &&
-                captured.RawFlags196 == OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) && captured.RawFlag1FD == OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) &&
+                captured.RawFlags196 == OfficerBehaviorSourceAdapter.EncodeFlags(person.Behavior) &&
+                captured.RawFlag1FD == OfficerBehaviorSourceAdapter.EncodeMarker(person.Behavior) &&
                 Eligibility(person, physical, current) is bool eligible)
             {
-                //226720/226480 clears dword1FC on fresh allocation. The nine
-                //serialized appendix bytes do not contain this reset byte.
-                var before = CreditInitialization.ReadSource(appendix, 0);
-                after = CreditInitialization.Apply(before, eligible, row.StatusCode,
-                    new(meritChoice == 0, surrenderChoice == 0), ranks);
-                credit = OfficerMeritSourceAdapter.Decode(after.Merit, after.RawValue1, after.Stage,
-                    after.FirstSelectionCount, after.SecondSelectionCount, after.RawResetCode);
+                CreditState? before = null;
+                if (reset?.Contains(person.Id) == true)
+                {
+                    //226480 reset the reached person's actual credit fields.
+                    //3361D0 then changed status to9;3255D0 consumes that status,
+                    //not the old archive status or its old appendix values.
+                    before = new(0, 0, 0, 0, 0, 0, captured.RawFlag1FD);
+                }
+                else if (row.CreditReference is { } appendix && AppendixMatches(appendix) &&
+                    OfficerMeritSourceAdapter.EncodeStage(person.MeritState) == appendix.RawStageCode)
+                {
+                    //The governor repair may change another person's status.
+                    //The untouched raw credit appendix still supplies its
+                    //pre-credit values, while the tail is the current owner.
+                    before = CreditInitialization.ReadSource(appendix, 0) with { RawTailCode = captured.RawFlag1FD };
+                }
+                if (before is not null)
+                {
+                    after = CreditInitialization.Apply(before, eligible, currentStatus,
+                        new(meritChoice == 0, surrenderChoice == 0), ranks);
+                    credit = OfficerMeritSourceAdapter.Decode(after.Merit, after.RawValue1, after.Stage,
+                        after.FirstSelectionCount, after.SecondSelectionCount, after.RawResetCode);
+                }
             }
             officers[person.Id] = person with
             {
@@ -67,8 +88,7 @@ public static class PersonCreditFreshSource
                 Behavior = after is null ? person.Behavior : person.Behavior!.WithSpecialValidityMarker(after.RawTailCode)
             };
         }
-        GameState result = state with { Officers = officers };
-        StateValidator.Validate(result); return result;
+        return state with { Officers = officers };
     }
 
     private static bool? Eligibility(OfficerState person, int personPhysical,

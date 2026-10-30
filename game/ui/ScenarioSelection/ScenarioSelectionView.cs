@@ -89,8 +89,8 @@ internal partial class ScenarioSelectionView : Control
         Vector2 backgroundMount = source.Rectangle(1).Position;
         // Preset node1 has no local artwork. Main2/24 and the replaced
         // placeholder subtrees are intentionally not instantiated.
-        background.Art(body, 2, background.Rectangle(2, backgroundMount), assets, shader);
-        background.Art(body, 3, background.Rectangle(3, backgroundMount), assets, shader);
+        background.Art(body, 2, background.Rectangle(2, backgroundMount), assets, shader, sourceMaterial: true);
+        background.Art(body, 3, background.Rectangle(3, backgroundMount), assets, shader, sourceMaterial: true);
 
         var descriptionSource = new UiSourceLayout(repository, 0x09C88359);
         var descriptionHost = new Control { Name = "ScenarioDescription", Position = source.Rectangle(22).Position,

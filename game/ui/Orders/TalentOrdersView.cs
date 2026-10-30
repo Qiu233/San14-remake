@@ -42,6 +42,7 @@ internal partial class TalentOrdersView : Control
         bool search = kind == TalentOrderKind.Search;
         Name = search ? "TalentSearch" : "TalentRecruit"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, search ? 0x0276 : 0x0277, RequestBack,
             () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); },threeButtonFooter:true);

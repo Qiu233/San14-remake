@@ -8,7 +8,9 @@ namespace San14.Data;
 public sealed record D3D11CameraContinuousInputs(MainMapCameraFrame InitialMain,
     bool MaximumYOverride, uint NativeClipProfile, NativeCameraTangentDispatch TangentDispatch);
 
-/// <summary>The initial direct-store state for the supported Main mode0/1 profile.
+/// <summary>Initial explicit App/config values for camera source preparation.
+/// The standalone RMP1 projection supports mode0/1; a complete prepared post
+/// packet supplies the actual direct words for other owned Main modes.
 /// Selected cloudy and prior cloudy are original float bits, not resource keys.</summary>
 public sealed record D3D11CameraDirectProfileInputs(int Quality, int MainMode288,
     uint AppFlags, uint PriorCloudy430Bits, uint SelectedCloudy430Bits);
@@ -101,6 +103,30 @@ public sealed class D3D11CameraInputPreparation
         writer.Write(0x31504D52u);
         writer.Write(words[0x1C4]); writer.Write(words[0x180]); writer.Write(words[0x188]);
         writer.Write(words[0x1D0]); writer.Write(words[0x210]); writer.Write(current.PriorCloudy430Bits);
+    }
+
+    /// <summary>Encode the current Main17BD0 owner's actual prepared direct
+    /// words. The current-season packet remains the complete runtime owner;
+    /// this six-word source cache never substitutes a standalone mode0/1 owner.</summary>
+    public void WriteRenderModePrefixInputs(string directory,MapMainCameraPostSelectionPacket prepared,
+        MapCameraConstructionPacket actualMain)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directory);ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(actualMain);prepared.ValidateSameMain(actualMain);
+        if(actualMain.ExecutableLocale!=Locale)
+            throw new InvalidDataException("Prepared RMP1 words require this camera preparation's source locale.");
+        uint Required(int offset)=>prepared.TryReadPreparedWord(offset,out uint bits)?bits:
+            throw new InvalidDataException("Prepared Main post-selection is missing RMP1 direct word "+offset.ToString("X")+".");
+        uint adapted=Required(0x1C4),bloom=Required(0x180),flare=Required(0x188),cloudy=Required(0x1D0),altitude=Required(0x210);
+        if(!float.IsFinite(BitConverter.UInt32BitsToSingle(prepared.PriorCloudy430Bits))||
+            !float.IsFinite(BitConverter.UInt32BitsToSingle(prepared.SelectedCloudy430Bits))||
+            !float.IsFinite(BitConverter.UInt32BitsToSingle(cloudy)))
+            throw new InvalidDataException("Prepared RMP1 requires finite actual prior, selected and written cloudy values.");
+        Directory.CreateDirectory(directory);
+        using var writer=new BinaryWriter(File.Create(Path.Combine(directory,"render-mode-prefix-profile.bin")));
+        writer.Write(0x31504D52u);
+        writer.Write(adapted);writer.Write(bloom);writer.Write(flare);writer.Write(cloudy);writer.Write(altitude);
+        writer.Write(prepared.PriorCloudy430Bits);
     }
 
     public void WriteMotionInputs(string directory) => WriteMotionInputs(directory, Parameters);

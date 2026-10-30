@@ -97,7 +97,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var associated = current.ReadPersonLinkedEntity(successor) ?? throw Missing("successor_associated22AC00");
                 if (Known(current.ReadLinkedEntityNativeValidity(associated), "successor_associated_validity") &&
                     ItemAssociatedKind(associated) is 17 or 18)
-                    throw Missing("successor_group_move335CD0_cancellation");
+                    CancelRulerSuccessorCaravanCurrent(successor, force, associated);
                 SortRulerPeople(retained, (a, b) => RulerPostOrder(a) != RulerPostOrder(b)
                     ? RulerPostOrder(a) < RulerPostOrder(b) : Identity(a) < Identity(b));
 

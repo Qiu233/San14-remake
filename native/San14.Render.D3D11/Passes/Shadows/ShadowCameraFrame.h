@@ -2,6 +2,7 @@
 // The camera consumes a published transform; SHC1 decoding stays at import.
 // Caster admission uses the complete model catalog independently of main visibility.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraMatrix.h"
 #include "../../Camera/CameraState.h"
 #include <bit>
@@ -97,7 +98,7 @@ inline void retainOwned(Owner &owner, const Frame &f) {
     owner.atlas = f.atlas;
 }
 inline Profile loadProfile(const std::filesystem::path &path) {
-    std::ifstream s(path, std::ios::binary);
+    NativePreparedInputFile s(path, std::ios::binary);
     using source_camera::read;
     if (!s || read<unsigned>(s) != 0x31434853u)
         throw std::runtime_error("Shadow source SHC1 profile absent");

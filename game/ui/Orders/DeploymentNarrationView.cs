@@ -23,6 +23,7 @@ internal partial class DeploymentNarrationView : Control
     private bool retainCompletedStory;
     private Control? storyContinueCursor;
     internal Func<InputEvent, bool>? KeyboardInput { get; set; }
+    internal Func<InputEventMouseButton, bool>? MouseInputAdmission { get; set; }
     internal Func<int, bool>? MessageModeRequested { get; set; }
     internal Func<bool>? ReadStoryAccelerated { get; set; }
     internal int PageIndex {get;private set;}
@@ -70,8 +71,7 @@ internal partial class DeploymentNarrationView : Control
         int bodyNode=person?6:4;
         var box=source.Rectangle(bodyNode,mount);
         announcement=new(){Name="AnnouncementMessage",Position=box.Position,Size=box.Size};canvas.AddChild(announcement);
-        announcement.Configure(font,MapFontProfile.FromNode(source.Nodes[bodyNode],source.Source.Source.ResourceUri)
-            with{WidthFitMode=3,RawCharacterMode=2});
+        announcement.ConfigureFormattedMessage(font,MapFontProfile.FromNode(source.Nodes[bodyNode],source.Source.Source.ResourceUri));
         announcement.Draw+=()=>{if(!finished)ready=true;};announcement.Apply(expanded);
         var cursor=new UiSourceLayout(repository,0xC09B0A33);
         cursor.Art(canvas,2,cursor.Rectangle(2,source.Rectangle(person?12:5,mount).Position),assets,shader);
@@ -89,16 +89,17 @@ internal partial class DeploymentNarrationView : Control
     // scene. This child supplies only the same source message/paging owner.
     internal void ConfigureStoryMessage(GameResourceRepository repository, PreviewText text,
         string speaker, string expanded, Action consumed,
-        Func<AutomaticMessageAdvanceMode>? automaticAdvance = null, Func<bool>? admitted = null)
+        Func<AutomaticMessageAdvanceMode>? automaticAdvance = null, Func<bool>? admitted = null,
+        bool singleWait = false)
     {
         retainCompletedStory = true;
-        ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted);
+        ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted, singleWait);
     }
 
     internal void RetainStoryPage()
     {
         if (!retainCompletedStory) return;
-        if (body.PageCount > 0) { PageIndex = body.PageCount - 1; body.ShowPage(PageIndex); }
+        if (announcement is null && body.PageCount > 0) { PageIndex = body.PageCount - 1; body.ShowPage(PageIndex); }
         Abandon(); Show(); storyContinueCursor?.Hide();
     }
 
@@ -113,7 +114,7 @@ internal partial class DeploymentNarrationView : Control
 
     private void ConfigureEvent(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<(int Node,IReadOnlyList<LoadedSprite> Layers)> participants,
-        int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted)
+        int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,bool singleWait = false)
     {
         Name="DeploymentNarration";ZIndex=10;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);completed=consumed;
@@ -138,9 +139,20 @@ internal partial class DeploymentNarrationView : Control
             {WidthFitMode=2,RawCharacterMode=2});
         name.Text=speaker;
         var rectangle=message.Rectangle(4);
-        body=new DeploymentNarrationBody{Name="NarrationBody",Position=rectangle.Position,Size=rectangle.Size};canvas.AddChild(body);
-        body.PageDrawn+=publication=>{if(!finished&&publication==body.Publication)ready=true;};
-        body.Configure(font,MapFontProfile.FromNode(message.Nodes[4],message.Source.Source.ResourceUri),expanded);
+        if(singleWait)
+        {
+            announcement=new(){Name="NarrationBody",Position=rectangle.Position,Size=rectangle.Size};canvas.AddChild(announcement);
+            // Speech-only messages use the same formatted-message setters as
+            // ordinary announcements, while retaining their one actual wait.
+            announcement.ConfigureFormattedMessage(font,MapFontProfile.FromNode(message.Nodes[4],message.Source.Source.ResourceUri));
+            announcement.Draw+=()=>{if(!finished)ready=true;};announcement.Apply(expanded);
+        }
+        else
+        {
+            body=new DeploymentNarrationBody{Name="NarrationBody",Position=rectangle.Position,Size=rectangle.Size};canvas.AddChild(body);
+            body.PageDrawn+=publication=>{if(!finished&&publication==body.Publication)ready=true;};
+            body.Configure(font,MapFontProfile.FromNode(message.Nodes[4],message.Source.Source.ResourceUri),expanded);
+        }
         var cursor=new UiSourceLayout(repository,0x0D12D720);
         storyContinueCursor=cursor.Art(canvas,2,cursor.Rectangle(2,message.Rectangle(5).Position),assets,shader);
         BeginPageWait();
@@ -159,6 +171,7 @@ internal partial class DeploymentNarrationView : Control
         {GetViewport().SetInputAsHandled();return;}
         if(input is InputEventMouseButton {ButtonIndex:MouseButton.Left} mouse)
         {
+            if (MouseInputAdmission?.Invoke(mouse) == false) { mouseArmed = false; return; }
             GetViewport().SetInputAsHandled();
             if(mouse.Pressed){mouseArmed=ready;return;}
             bool advance=mouseArmed&&ready;mouseArmed=false;if(advance)Advance();
@@ -224,7 +237,7 @@ internal partial class DeploymentNarrationView : Control
     internal void Abandon()
     {
         finished=true;ready=false;mouseArmed=false;keyArmed=Key.None;automaticThreshold=null;
-        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;MessageModeRequested=null;ReadStoryAccelerated=null;Hide();
+        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;MouseInputAdmission=null;MessageModeRequested=null;ReadStoryAccelerated=null;Hide();
     }
 
     private void Fit()
@@ -236,7 +249,7 @@ internal partial class DeploymentNarrationView : Control
 
     public override void _ExitTree()
     {
-        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;finished=true;
+        completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;MouseInputAdmission=null;finished=true;
         font?.Dispose();assets?.Dispose();shader?.Dispose();
     }
 }

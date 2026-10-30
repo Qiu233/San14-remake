@@ -18,6 +18,10 @@ public sealed class PlayableDiplomacyOrders(IOrderRules otherCommands,
             return otherCommands.Apply(state, force, order, context);
         if (!Enum.IsDefined(command.Kind))
             return CommandResult.Reject("Unknown diplomatic command.", "diplomacy.kind");
+        if (command.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
+            return CommandResult.RuleUnavailable("rules.diplomacy_native_command", "This command requires the normal diplomatic personnel task rules.");
+        if (!command.RequestedCaptiveOfficerIds.IsDefaultOrEmpty || command.RequestedOffer != new DiplomacyOffer(0, 0))
+            return CommandResult.Reject("This diplomatic command does not carry a captive or exchange request.", "diplomacy.unexpected_request");
         if (state.Diplomacy is not { } diplomacy)
             return CommandResult.RuleUnavailable("rules.diplomacy_state", "Diplomacy state is unresolved.");
         if (!state.Forces.TryGetValue(command.TargetForceId, out ForceState? target) ||

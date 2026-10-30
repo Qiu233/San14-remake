@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -24,7 +25,7 @@ public sealed class SkySeasonMainCameraSource
         AtmosphereScattering=SkyAtmosphereNativeSource.Load(repository,transmittance.Atan.Locale,NativeLogDispatch.Sse);
         CloudTextures=SkyAppliedSeasonCloudTextures.Read(repository,this);
         cloudWeatherSettings=new(() => SkyCloudWeatherSettingsImport.Import(selection.FirstPackage));}
-    private SkySeasonMainCameraSource(MapSeasonRuntimeFrame calendar,
+    private SkySeasonMainCameraSource(MapSeasonCalendarFrame calendar,
         SkySeasonMainCameraSource loaded)
     {
         Season=new(calendar,loaded.Season.Resources);Selection=loaded.Selection;
@@ -39,11 +40,35 @@ public sealed class SkySeasonMainCameraSource
     }
     /// <summary>Bind this request's calendar while retaining the parsed source
     /// package. A different season requires its actual resource generation.</summary>
-    public SkySeasonMainCameraSource WithCalendar(MapSeasonRuntimeFrame calendar)
+    public SkySeasonMainCameraSource WithCalendar(MapSeasonCalendarFrame calendar)
     {
-        ArgumentNullException.ThrowIfNull(calendar);
+        ArgumentNullException.ThrowIfNull(calendar);MapSeasonRuntime.ValidateFrame(calendar);
+        if(calendar.GetType()!=Season.Calendar.GetType())
+            throw new InvalidDataException("Live and scenario-preview calendars require separate Main Camera source owners.");
         if(calendar.Selection!=Season.Resources.Selection)
             throw new NotSupportedException("A season transition requires a new Main Camera source package generation.");
+        return new(calendar,this);
+    }
+    /// <summary>Explicit preview-to-started-campaign ownership transfer. The
+    /// caller has drained old requests and supplies the real started calendar
+    /// and next Main capture. Parsed resources and scene seeds survive.</summary>
+    public SkySeasonMainCameraSource AdoptStartedCampaignCalendar(
+        NativeMapSeasonState actualNativeState,MainMapCameraFrame actualMain)
+    {
+        ArgumentNullException.ThrowIfNull(actualMain);
+        var calendar=MapSeasonRuntime.PrepareFrame(actualNativeState,actualMain.Camera.FrameNumber);
+        if(Season.Calendar is not MapSeasonScenarioPreviewFrame preview)
+            throw new InvalidOperationException("Calendar adoption requires an actual scenario-preview source owner.");
+        MapSeasonRuntime.ValidateFrame(preview);
+        if(actualMain.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId||
+            actualMain.Camera.ExecutableLocale!=Transmittance.Atan.Locale)
+            throw new InvalidDataException("Calendar adoption requires this source locale and its actual Main Camera capture.");
+        if(actualNativeState.SourceScenarioUri!=preview.Source.Source.ResourceUri||
+            !actualNativeState.SourceScenarioSha256.Equals(preview.Source.Source.Sha256,StringComparison.OrdinalIgnoreCase)||
+            !actualNativeState.SourceWorldSha256.Equals(preview.Source.Document.WorldSha256,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Started campaign and preview belong to different scenario or World resource generations.");
+        if(calendar.Selection!=Season.Resources.Selection)
+            throw new NotSupportedException("Calendar adoption requires the actually loaded preview season; a different season needs its real resource installation.");
         return new(calendar,this);
     }
     public MapSeasonResolvedSourceFrame Season{get;}
@@ -113,18 +138,37 @@ public static class SkySeasonMainCameraProducer
         MapSeasonResolvedSourceFrame ownedSeason,string locale,
         MapSeasonCameraSelection? explicitlySelectedPackage=null)
     {
-        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(ownedSeason);
-        var canonical=MapSeasonRuntime.PrepareFrame(ownedSeason.Calendar.State,ownedSeason.Calendar.FrameNumber);
-        if(canonical!=ownedSeason.Calendar||ownedSeason.Resources.Selection!=canonical.Selection)
-            throw new InvalidDataException("Sky season source requires its canonical owned World-third-date frame.");
-        var provider=MapSeasonCameraApplication.ReadProvider(ownedSeason.Resources.Action);
+        ArgumentNullException.ThrowIfNull(ownedSeason);
+        if(ownedSeason.Calendar is not MapSeasonRuntimeFrame)
+            throw new InvalidDataException("Owned Sky season source requires an actual owned World-third-date frame.");
+        return ResolveSource(repository,ownedSeason,locale,explicitlySelectedPackage);
+    }
+
+    public static SkySeasonMainCameraSource ResolveScenarioPreviewSource(GameResourceRepository repository,
+        MapSeasonResolvedSourceFrame previewSeason,string locale,
+        MapSeasonCameraSelection? explicitlySelectedPackage=null)
+    {
+        ArgumentNullException.ThrowIfNull(previewSeason);
+        if(previewSeason.Calendar is not MapSeasonScenarioPreviewFrame)
+            throw new InvalidDataException("Preview Sky season source requires an actual scenario resource third date.");
+        return ResolveSource(repository,previewSeason,locale,explicitlySelectedPackage);
+    }
+
+    private static SkySeasonMainCameraSource ResolveSource(GameResourceRepository repository,
+        MapSeasonResolvedSourceFrame season,string locale,
+        MapSeasonCameraSelection? explicitlySelectedPackage)
+    {
+        ArgumentNullException.ThrowIfNull(repository);MapSeasonRuntime.ValidateFrame(season.Calendar);
+        if(season.Resources.Selection!=season.Calendar.Selection)
+            throw new InvalidDataException("Sky calendar and its resolved source season keys disagree.");
+        var provider=MapSeasonCameraApplication.ReadProvider(season.Resources.Action);
         var seed=MapSeasonCameraApplication.ReadSourceSceneClockSeed(provider);
         // This factory creates the source selector with its source0/0 axes and
         // absent external selector. A later current selector is explicit.
         var selection=explicitlySelectedPackage??MapSeasonCameraApplication.SelectSourceEmptyAxes(
             provider,seed.Controls.SelectorScalar1A0,seed.Controls.SelectorScalar1A4);
         selection.Validate();
-        if(selection.Provider.Database.Action.Selection!=canonical.Selection||
+        if(selection.Provider.Database.Action.Selection!=season.Calendar.Selection||
             selection.Provider.Database.Objects.Source.ResourceUri!=provider.Database.Objects.Source.ResourceUri||
             selection.Provider.Database.Objects.Source.DecodedSha256!=provider.Database.Objects.Source.DecodedSha256)
             throw new InvalidDataException("Current selected Camera package belongs to another owned source season generation.");
@@ -132,7 +176,7 @@ public static class SkySeasonMainCameraProducer
             throw new NotSupportedException("The seven Skylight pair interpolation is available separately; this full source-controller producer requires its exact direct selected package until other controller blend instructions are closed.");
         var controller=PreparedCameraLightingSource.ReadController(selection.FirstPackage.Camera);
         float kelvin=SkySeasonMoonTemperature.ReadKelvin(selection);
-        return new(repository,ownedSeason,selection,seed,controller,kelvin,
+        return new(repository,season,selection,seed,controller,kelvin,
             SkySeasonTransmittanceSource.Load(repository,selection.FirstPackage,locale),explicitlySelectedPackage is null,
             MapSeasonCameraPostEffectScalarSource.Load(repository,locale));
     }

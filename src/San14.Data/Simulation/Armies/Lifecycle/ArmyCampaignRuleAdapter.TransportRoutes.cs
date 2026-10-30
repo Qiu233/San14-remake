@@ -57,8 +57,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.BindArmyMapOccupancy(state);
         current.RestoreOwnedArmyReturnSlots(state, arena);
         OwnedArmyDestructorFlags.BindCurrent(arena, current);
-        OwnedArmyLifecycleTargets.BindCurrent(state, current);
         BaseCaptureCurrentInputs.BindCurrent(state, current);
+        // Nullable gameplay IDs do not encode known native empty receivers.
+        // Restore their saved values before appearance captures flag names;
+        // explicit force reset images then retain the last writer's precedence.
+        OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
+        ForceUnregisterInputs.BindCurrent(state, current);
         return current;
     }
 }

@@ -5,7 +5,7 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //42AC90/2A3390 owns one invitation. Its selected members are retained across
+    //TC 42AC90 and SC 42B310 own one invitation. Members are retained across
     //the real Yes/No boundary; answering never repeats selection or sampling.
     internal GameState ApplyNormalTurnMonthlyCoalitionFormationCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, uint? restoreApp = null,
@@ -47,9 +47,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             var season = state.NativeMapSeason ?? throw Missing("calendar");
             var cooldown = native.World.PlayerCoalitionCooldownDate ?? throw Missing("World16A0_cooldown");
             if (DateValue(season.ThirdDate) < DateValue(cooldown)) return state;
-            if (package.Seed.Language != "TC") throw Missing("locale_rules");
+            NormalTurnCoalitionParameters.RequireSupportedLocale(package.Seed.Language);
             int difficulty = Difficulty();
-            int minimum = difficulty switch { 0 => 108, 1 => 90, 2 => 72, _ => 54 };
+            int minimum = NormalTurnCoalitionParameters.Read(state, "minimum-period-" + DifficultyRule(difficulty),
+                difficulty switch { 0 => 108, 1 => 90, 2 => 72, _ => 54 });
             if (unchecked(world.ElapsedPeriodOffset + (int)season.AdvancedPeriods) <= minimum) return state;
             foreach (var force in Forces())
                 if ((K(state.NativeArmySimulation?.Forces.GetValueOrDefault(Ordinal(force))?.DiplomacyFlags178, "Force178") & 1) != 0) return state;
@@ -86,13 +87,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (!excluded) Add(candidates, RegistryKind.Force, K(force.PhysicalSlot, "candidate_pointer"));
                 }
                 var members = Values(candidates, RegistryKind.Force).ToImmutableArray();
-                if (members.Length < 3) return state;
+                if (members.Length < NormalTurnCoalitionParameters.Read(state, "minimum-members", 3)) return state;
                 bool hasPlayer = members.Any(id => Player(new(id)));
                 if (!Player(target) && !hasPlayer && Forces().Any(Player)) return state;
                 var sampler = package.ReadArmyDestructionSampler(state, current) ?? throw Missing("trial_World450_45C");
                 int sample = TacticEffectSourceSamplerMath.Sample(100, 1, Ordinal(target), season.ThirdDate.Year,
                     season.ThirdDate.Month, 0, sampler);
-                int chance = difficulty switch { 0 => 20, 1 => 30, 2 => 35, _ => 40 };
+                int chance = NormalTurnCoalitionParameters.Read(state, "formation-chance-" + DifficultyRule(difficulty),
+                    difficulty switch { 0 => 20, 1 => 30, 2 => 35, _ => 40 });
                 if (sample >= chance) return state;
                 int? camera = null;
                 if (hasPlayer)
@@ -221,6 +223,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         private GameState Publish()
             => state.WithArmyLifecycle((state.ReadArmyLifecycle() ?? throw Missing("lifecycle")) with { Indexes = pool.ProjectOwnedRoles() });
+        private static string DifficultyRule(int difficulty)
+            => difficulty switch { 0 => "0", 1 => "1", 2 => "2", _ => "other" };
         private int Difficulty()
         {
             int selector = K(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selector");

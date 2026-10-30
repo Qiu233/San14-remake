@@ -262,6 +262,7 @@ public static class ArmyDestructionResources
     public static GameState PublishResources(GameState state, ArmyDestructionResourcePacket packet)
     {
         var cities = new Dictionary<int, CityState>(state.Cities);
+        var gates = new Dictionary<int, GateState>(state.Gates);
         var units = new Dictionary<int, UnitState>(state.Units);
         var arena = state.ReadArmyLifecycle() ?? throw new InvalidDataException("Current resource publication lacks its saved Army owner.");
         var receivers = new Dictionary<ArmyReceiverId, ArmyReceiverState>();
@@ -269,6 +270,24 @@ public static class ArmyDestructionResources
         {
             if (write.Base is { } target)
             {
+                if (target.Kind == BaseKind.Gate)
+                {
+                    //The virtual resource preparation already routed currency
+                    //to its real City. Gate40/44 keep the Gate's own runtime.
+                    int location = checked((target.PhysicalSlot ?? throw new InvalidDataException(
+                        "Current destruction Gate receiver is missing.")) + 51);
+                    if (!gates.TryGetValue(location, out var gate) || gate.NativeCombatRuntime is not { } gateRuntime)
+                        throw new InvalidDataException("Current destruction Gate numeric saved owner is missing.");
+                    gates[location] = write.Kind switch
+                    {
+                        ArmyDestructionResourceWriteKind.BaseWounded40 => gate with
+                            { NativeCombatRuntime = gateRuntime with { Wounded40 = write.Value } },
+                        ArmyDestructionResourceWriteKind.BaseMorale44 => gate with
+                            { NativeCombatRuntime = gateRuntime with { Morale44 = unchecked((byte)write.Value) } },
+                        _ => throw new InvalidDataException("Destruction Gate currency was not routed to its current City.")
+                    };
+                    continue;
+                }
                 if (target.Kind != BaseKind.City || target.PhysicalSlot is not int physical ||
                     !cities.TryGetValue(physical, out var city) || city.NativeReturnRuntime is not { } native)
                     throw new InvalidDataException("Current destruction Base numeric saved owner is missing.");
@@ -294,7 +313,7 @@ public static class ArmyDestructionResources
                 else receivers[slot.ReceiverId] = slot with { PendingImage = next };
             }
         }
-        var result = (state with { Cities = cities,
+        var result = (state with { Cities = cities, Gates = gates,
                 Units = units }).WithArmyLifecycle(arena with { Receivers = receivers.Count == 0 ? arena.Receivers :
                     arena.Receivers.WithEntries(receivers.Values.ToArray()) });
         foreach (var write in packet.Writes.Where(write => write.Army is not null))

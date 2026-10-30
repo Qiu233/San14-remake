@@ -1,6 +1,7 @@
 // Main depth of field, bloom, exposure, tone mapping and antialiasing.
 // Import the prepared module media once and retain its physical resources.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include <sstream>
 #include <functional>
@@ -64,7 +65,7 @@ static void normalPostUnbind(ID3D11DeviceContext* context) {
 }
 
 static NormalPostSurface createNormalPostFinalOutput(ID3D11Device* device,const fs::path& source,UINT width,UINT height) {
-    UINT resource,sampled,rendered,w,h;std::ifstream row(source/"109-fxaa/target.txt");
+    UINT resource,sampled,rendered,w,h;NativePreparedInputFile row(source/"109-fxaa/target.txt");
     if(!(row>>resource>>sampled>>rendered>>w>>h)||w!=width||h!=height)
         throw std::runtime_error("Normal caller Output13BF extent differs");
     return normalPostSurface(device,w,h,1,resource,sampled,rendered,0,true,false);
@@ -74,7 +75,7 @@ static NormalPostSurface createNormalPostExposureHistory(ID3D11Device* device,co
     // A new remake scene starts at neutral exposure and its reciprocal. The
     // original allocation leaves these texels unspecified. Subsequent frames
     // retain this same storage and the actual exposure pass results.
-    UINT er,es,eu,ew,eh;std::ifstream exposureRow(source/"exposure.txt");
+    UINT er,es,eu,ew,eh;NativePreparedInputFile exposureRow(source/"exposure.txt");
     if(!(exposureRow>>er>>es>>eu>>ew>>eh)||ew!=2||eh!=1)throw std::runtime_error("Normal post Exposure61 descriptor missing");
     const std::array<float,2> neutralExposure{1.f,1.f};D3D11_SUBRESOURCE_DATA prior{};
     prior.pSysMem=neutralExposure.data();prior.SysMemPitch=prior.SysMemSlicePitch=8;
@@ -91,7 +92,7 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     // Actual114AB40 paired declarations. Unused module parameters are not
     // fabricated as GPU owners; retain only bindings reached by this slice.
     std::map<UINT,UINT> pairedBuffers;
-    std::ifstream pairs(source/"history-pairs.txt");std::string category,sourceName;UINT parameter,inputSide,endSide;
+    NativePreparedInputFile pairs(source/"history-pairs.txt");std::string category,sourceName;UINT parameter,inputSide,endSide;
     if(!pairs)throw std::runtime_error("Normal post source history catalogue absent");
     while(pairs>>category>>parameter>>inputSide>>endSide>>sourceName)
         if(category=="BufferParameters")pairedBuffers.emplace(parameter,inputSide);
@@ -122,7 +123,7 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     surfaces.emplace("Texture61",exposure);surfaces.emplace("Exposure61",exposure);surfaces.emplace("Exposure104",exposure);
     UINT index,w,h,mips,r,s,t,u,rt,ua,count,side;
     auto readTextures=[&](const fs::path& file,bool shape) {
-        std::ifstream rows(file);if(!rows)throw std::runtime_error("Normal post source texture declarations absent");
+        NativePreparedInputFile rows(file);if(!rows)throw std::runtime_error("Normal post source texture declarations absent");
         while(rows>>index>>w>>h>>mips>>r>>s>>t>>u>>rt>>ua>>count>>side) {
             if(index==61)continue;
             if(!count||side>=count)throw std::runtime_error("Normal post exported current texture side invalid");
@@ -133,18 +134,18 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
         }
     };
     readTextures(source/"dof-shape.txt",true);readTextures(source/"dof-textures.txt",false);
-    UINT bw,bh,bm,br,bs,bt;std::ifstream bloomRow(source/"bloom.txt");
+    UINT bw,bh,bm,br,bs,bt;NativePreparedInputFile bloomRow(source/"bloom.txt");
     if(!(bloomRow>>index>>bw>>bh>>bm>>br>>bs>>bt)||index!=85)throw std::runtime_error("Normal post physical Bloom85 descriptor absent");
     surfaces.emplace("Bloom85",normalPostSurface(device,bw,bh,bm,br,bs,bt,0,true,false));
     auto outputTarget=[&](const std::string& name,const fs::path& directory) {
-        UINT rr,ss,tt,ww,hh;std::ifstream row(directory/"target.txt");
+        UINT rr,ss,tt,ww,hh;NativePreparedInputFile row(directory/"target.txt");
         if(!(row>>rr>>ss>>tt>>ww>>hh)||ww!=width||hh!=height)throw std::runtime_error("Normal post final target descriptor differs");
         surfaces.emplace(name,normalPostSurface(device,ww,hh,1,rr,ss,tt,0,true,false));
     };
     outputTarget("Tone108",source/"108-tone");surfaces.emplace("Final109",callerOutput);
 
     UINT bytes,usage,cpu,bind,misc,stride,format,elements,srvDimension,srvFlags,uavFlags;
-    std::ifstream bufferRows(source/"dof-buffers.txt");if(!bufferRows)throw std::runtime_error("Normal post source DOF buffer declarations absent");
+    NativePreparedInputFile bufferRows(source/"dof-buffers.txt");if(!bufferRows)throw std::runtime_error("Normal post source DOF buffer declarations absent");
     while(bufferRows>>index>>bytes>>usage>>cpu>>bind>>misc>>stride>>format>>elements>>srvDimension>>srvFlags>>uavFlags) {
         D3D11_BUFFER_DESC d{};d.ByteWidth=bytes;d.Usage=D3D11_USAGE(usage);d.CPUAccessFlags=cpu;d.BindFlags=bind;d.MiscFlags=misc;d.StructureByteStride=stride;
         D3D11_SHADER_RESOURCE_VIEW_DESC sv{};sv.Format=DXGI_FORMAT(format);sv.ViewDimension=D3D11_SRV_DIMENSION(srvDimension);
@@ -161,14 +162,14 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
         }
         state.selectors.emplace(name,selected);buffers.emplace(name,sides.at(selected));
     }
-    std::ifstream stagingRows(source/"dof-staging.txt");UINT stagingSide;
+    NativePreparedInputFile stagingRows(source/"dof-staging.txt");UINT stagingSide;
     if(!stagingRows)throw std::runtime_error("Normal post controller staging descriptors absent");
     while(stagingRows>>stagingSide>>bytes>>usage>>cpu>>bind>>misc>>stride) {
         D3D11_BUFFER_DESC d{};d.ByteWidth=bytes;d.Usage=D3D11_USAGE(usage);d.CPUAccessFlags=cpu;
         d.BindFlags=bind;d.MiscFlags=misc;d.StructureByteStride=stride;
         check(device->CreateBuffer(&d,nullptr,&spriteStaging.at(stagingSide)),"normal post source controller staging");
     }
-    UINT viewFormat,histElements;std::ifstream histogramRow(source/"histogram.txt");
+    UINT viewFormat,histElements;NativePreparedInputFile histogramRow(source/"histogram.txt");
     if(!(histogramRow>>bytes>>viewFormat>>histElements>>bind>>usage>>cpu>>misc>>stride))throw std::runtime_error("Normal post original histogram descriptor absent");
     D3D11_BUFFER_DESC hd{};hd.ByteWidth=bytes;hd.BindFlags=bind;hd.Usage=D3D11_USAGE(usage);hd.CPUAccessFlags=cpu;hd.MiscFlags=misc;hd.StructureByteStride=stride;
     NormalPostBuffer histogram;check(device->CreateBuffer(&hd,nullptr,&histogram.buffer),"normal post original Histogram8");
@@ -178,9 +179,9 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     check(device->CreateUnorderedAccessView(histogram.buffer.Get(),&hu,&histogram.uav),"normal post Histogram8 UAV");buffers.emplace("Histogram8",histogram);
 
     // Exact selected original HDR volume. No replacement LUT or color fit.
-    std::ifstream lutFile(source/"108-tone/hdr-lut.tex",std::ios::binary);if(!lutFile)throw std::runtime_error("Normal post source HDR LUT absent");
+    NativePreparedInputFile lutFile(source/"108-tone/hdr-lut.tex",std::ios::binary);if(!lutFile)throw std::runtime_error("Normal post source HDR LUT absent");
     UINT lw=u32(lutFile),lh=u32(lutFile),ld=u32(lutFile),lm=u32(lutFile),lf=u32(lutFile),lr,ls;
-    std::ifstream lutFormats(source/"108-tone/hdr-resource.txt");if(!(lutFormats>>lr>>ls)||ls!=lf)throw std::runtime_error("Normal post HDR format absent");
+    NativePreparedInputFile lutFormats(source/"108-tone/hdr-resource.txt");if(!(lutFormats>>lr>>ls)||ls!=lf)throw std::runtime_error("Normal post HDR format absent");
     std::vector<std::vector<char>> lutStorage(lm);std::vector<D3D11_SUBRESOURCE_DATA> lutInitial(lm);
     for(UINT mip=0;mip<lm;++mip){auto& data=lutInitial[mip];data.SysMemPitch=u32(lutFile);data.SysMemSlicePitch=u32(lutFile);
         lutStorage[mip].resize(u32(lutFile));lutFile.read(lutStorage[mip].data(),std::streamsize(lutStorage[mip].size()));

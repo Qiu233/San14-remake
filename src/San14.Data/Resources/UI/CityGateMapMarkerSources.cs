@@ -27,18 +27,25 @@ public sealed class CityGateMapMarkerSources
         MapMarkerLayout.Load(repository, "00_81_07_0120_btn_city_offset_01", 0x6E6DB2D5, "LCSK8500"),
         MapMarkerLayout.Load(repository, "cmn_flag_force_kunigae", 0xC628C466, "LCSK9500"),
         MapMarkerLayout.Load(repository, "00_81_07_btn_gate_offset_01", 0x06A0C88D, "LCSK7500"),
-        MapMarkerLayout.Load(repository, "cmn_bar", 0xAFC125D8, "LCSK4500"));
+        LoadBar(repository));
+
+    public static MapMarkerLayout LoadBar(GameResourceRepository repository)
+        => MapMarkerLayout.Load(repository, "cmn_bar", 0xAFC125D8, "LCSK4500");
 
     public MapBarGeometry BarGeometry(int current, int capacity, AreaMarkerRectangle control,
         int? retainedSourceFillWidth = null)
+        => CalculateBarGeometry(Bar, current, capacity, control, retainedSourceFillWidth);
+
+    public static MapBarGeometry CalculateBarGeometry(MapMarkerLayout bar, int current, int capacity,
+        AreaMarkerRectangle control, int? retainedSourceFillWidth = null)
     {
         // 85B2B0 leaves this UI child's current width untouched for cap<=0.
         // The HP caller, rather than the shared bar, supplies its6000 fallback.
         int width = capacity > 0
-            ? (int)((long)Bar.Nodes[1].Value44 * Math.Clamp(current, 0, capacity) / capacity)
-            : retainedSourceFillWidth ?? Bar.Nodes[2].Value44;
-        float sx = control.Width / Bar.Nodes[0].Value44, sy = control.Height / Bar.Nodes[0].Value46;
-        var fill = Bar.Nodes[2];
+            ? (int)((long)bar.Nodes[1].Value44 * Math.Clamp(current, 0, capacity) / capacity)
+            : retainedSourceFillWidth ?? bar.Nodes[2].Value44;
+        float sx = control.Width / bar.Nodes[0].Value44, sy = control.Height / bar.Nodes[0].Value46;
+        var fill = bar.Nodes[2];
         return new(control, new(control.Left + fill.HeaderValues[0] * sx,
             control.Top - fill.HeaderValues[1] * sy, width * sx, fill.Value46 * sy), width, sx, sy);
     }

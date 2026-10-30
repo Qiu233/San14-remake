@@ -14,16 +14,18 @@ public sealed record RegionEncirclementResult(GameState? State,
 /// encirclement consumer. Each candidate has an independent traversal.</summary>
 internal static class RegionEncirclementSource
 {
-    internal static int[] ExpandCandidates(GameState state, SourceWorldContext current, int seed, int force)
+    internal static int[] ExpandCandidates(GameState state, SourceWorldContext current, int seed, int force,
+        (int AreaId, int ForceId)? assumedOwnership = null)
     {
-        var q = new Queries(state, current);
+        var q = new Queries(state, current, assumedOwnership);
         return q.Owner(seed) != force ? [] : q.Neighbors(seed).Where(id => (q.Flags(id) & 0x40) == 0 &&
             Known(ArmyLogisticsPreparation.ReadNativeRelationGate(state, force, q.Owner(id)), "relation")).ToArray();
     }
 
-    internal static RegionEncirclementCandidate EvaluateCandidate(GameState state, SourceWorldContext current, int candidate, int force)
+    internal static RegionEncirclementCandidate EvaluateCandidate(GameState state, SourceWorldContext current, int candidate, int force,
+        (int AreaId, int ForceId)? assumedOwnership = null)
     {
-        var q = new Queries(state, current);
+        var q = new Queries(state, current, assumedOwnership);
         var captured = new List<int>(); var boundary = new List<int>();
         var visited = new HashSet<int>(); var visitOrder = new List<int>();
         bool enclosed = Visit(candidate);
@@ -40,15 +42,22 @@ internal static class RegionEncirclementSource
         }
     }
 
-    private sealed class Queries(GameState state, SourceWorldContext current)
+    internal static IEnumerable<int> ReadNeighbors(GameState state, SourceWorldContext current, int area)
+        => new Queries(state, current, null).Neighbors(area);
+
+    private sealed class Queries(GameState state, SourceWorldContext current,
+        (int AreaId, int ForceId)? assumedOwnership)
     {
         internal AreaReference Area(int id) => current.ReadAreaTableReference(id is >= 0 and <= 500 ? id : 0)
             ?? throw Missing("area_pointer");
         internal int Owner(int id)
         {
             var area = Area(id);
-            return Known(current.ReadAreaNativeValidity(area), "area_validity")
-                ? Known(current.ReadAreaCurrentForceSlot(area), "area_owner") : 0;
+            if (!Known(current.ReadAreaNativeValidity(area), "area_validity")) return 0;
+            //42F7C0 evaluates one prospective border Area as owned by the
+            //attacking Force. Actual capture consumers keep the default view.
+            return assumedOwnership is { } assumed && assumed.AreaId == area.PhysicalSlot
+                ? assumed.ForceId : Known(current.ReadAreaCurrentForceSlot(area), "area_owner");
         }
         internal byte Flags(int id) => Known(current.ReadAreaFlags38(Area(id)), "area_flags");
         internal IEnumerable<int> Neighbors(int id)

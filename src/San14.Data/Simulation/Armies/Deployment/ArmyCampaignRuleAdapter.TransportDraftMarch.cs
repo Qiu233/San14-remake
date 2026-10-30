@@ -18,37 +18,71 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (startHex is < 0 or >= 48400 || goalHex is < 0 or >= 48400) throw TM("march-endpoints");
             var current = capture();
-            var source = TransportSource(state, current, sourceCityId);
-            int person = TK(current.ReadPersonLookupReference(officerId)?.PhysicalSlot, "march-person");
-            if (!TK(current.ReadPersonNativeValidity(person), "march-person-validity") ||
-                TK(current.ReadPersonIdentity(person), "march-person-identity") != officerId) throw TM("march-person-owner");
-            if (TK(current.ReadPersonFirstLocation(person), "march-home") != TK(current.ReadBaseObjectLink(source), "march-source-link")) throw TM("march-source-owner");
-            var force = TransportPersonForce(current, officerId);
-            _ = TK(force.PhysicalSlot, "march-force");
-            if (!TK(current.ReadForceNativeValidity(force), "march-force-validity")) throw TM("march-force-invalid");
-            //The reset motion interface consumes the raw Army10/Person
-            //District force key and resolves its table entry itself. Do not
-            //feed it a resolved physical identity for a second lookup.
-            int owner = TK(current.ReadPersonOldForceSlot(person), "march-raw-force-key");
-            int naval = navalFormationId;
-            if (naval is < 1 or > 20 || TK(TacticRemakeCurrentFormations.ReadRawByte(state, naval, 0x7E), "march-naval-kind") != 2)
-                naval = TK(TransportArmyPacketSource.ReadDefaultNaval(state, current, force), "march-naval-fallback");
+            var motion = ReadTransportDraftMotionCurrent(state, current, sourceCityId,
+                officerId, troops, navalFormationId);
             var goal = current.ReadHexTableReference(goalHex) ?? throw TM("march-goal-pointer");
             if (goal.PhysicalSlot is null) return NoPath();
             int code = TK(current.ReadHexSurfaceCode(goal), "march-goal-surface");
             var terrain = current.ReadSurfaceTypeTableReference(code <= 30 ? code : 0) ?? throw TM("march-goal-terrain");
             if (TK(current.ReadSurfaceTypeRawField2A(terrain), "march-goal-cost") == 0) return NoPath();
-            var motion = new TransportDraftMotion(state, current, person, owner,
-                Math.Clamp(troops, 0, 65535), (byte)naval, Math.Clamp(TransportSourceHex(current, source), 0, 48399));
             int[] path = ArmyRouteSearch.Search(new ArmyRouteSearch.Queries(state, current,
                 motion, startHex, goalHex, byte.MaxValue, 0, null, 1), out int expanded);
             if (path.Length == 0) return new(DeploymentDraftRouteStatus.NoPath, [], 0, null, expanded, null, null);
+            var eta = ReadTransportDraftEtaCurrent(state, current, motion, path[..^1]);
             return new(DeploymentDraftRouteStatus.Found, Array.AsReadOnly(path), path.Length,
-                null, expanded, null, "transport.setup.march-eta-type2-flags1");
+                eta.Days, expanded, null, eta.UnresolvedInput);
         }
         catch (InvalidDataException error) { return new(DeploymentDraftRouteStatus.Unresolved, null, null, null, 0, error.Message, null); }
         catch (ArmyRouteSearch.MissingOwner error) { return new(DeploymentDraftRouteStatus.Unresolved, null, null, null, 0, error.Message, null); }
         static TransportDraftMarch NoPath() => new(DeploymentDraftRouteStatus.NoPath, [], 0, null, 0, null, null);
+    }
+
+    private TransportDraftMotion ReadTransportDraftMotionCurrent(GameState state, SourceWorldContext current,
+        int sourceCityId, int officerId, int troops, int navalFormationId)
+    {
+        var source = TransportSource(state, current, sourceCityId);
+        int person = TK(current.ReadPersonLookupReference(officerId)?.PhysicalSlot, "march-person");
+        if (!TK(current.ReadPersonNativeValidity(person), "march-person-validity") ||
+            TK(current.ReadPersonIdentity(person), "march-person-identity") != officerId) throw TM("march-person-owner");
+        if (TK(current.ReadPersonFirstLocation(person), "march-home") != TK(current.ReadBaseObjectLink(source), "march-source-link")) throw TM("march-source-owner");
+        var force = TransportPersonForce(current, officerId);
+        _ = TK(force.PhysicalSlot, "march-force");
+        if (!TK(current.ReadForceNativeValidity(force), "march-force-validity")) throw TM("march-force-invalid");
+        //The reset motion interface consumes the raw Army10/Person
+        //District force key and resolves its table entry itself. Do not
+        //feed it a resolved physical identity for a second lookup.
+        int owner = TK(current.ReadPersonOldForceSlot(person), "march-raw-force-key");
+        int naval = navalFormationId;
+        if (naval is < 1 or > 20 || TK(TacticRemakeCurrentFormations.ReadRawByte(state, naval, 0x7E), "march-naval-kind") != 2)
+            naval = TK(TransportArmyPacketSource.ReadDefaultNaval(state, current, force), "march-naval-fallback");
+        return new TransportDraftMotion(state, current, person, owner,
+            Math.Clamp(troops, 0, 65535), (byte)naval, Math.Clamp(TransportSourceHex(current, source), 0, 48399));
+    }
+
+    private TransportDraftEta ReadTransportDraftEta(GameState state, int sourceCityId, int officerId,
+        int troops, int navalFormationId, IReadOnlyList<int> etaPath, Func<SourceWorldContext> capture)
+    {
+        //7C65D0's short-list branch precedes constructing the reset descriptor.
+        if (etaPath.Count < 2) return new(0, null);
+        try
+        {
+            var current = capture();
+            var motion = ReadTransportDraftMotionCurrent(state, current, sourceCityId, officerId, troops, navalFormationId);
+            return ReadTransportDraftEtaCurrent(state, current, motion, etaPath);
+        }
+        catch (InvalidDataException error) { return new(null, error.Message); }
+    }
+
+    private static TransportDraftEta ReadTransportDraftEtaCurrent(GameState state, SourceWorldContext current,
+        TransportDraftMotion motion, IReadOnlyList<int> etaPath)
+    {
+        if (etaPath.Count < 2) return new(0, null);
+        try
+        {
+            return new(DeploymentDraftMarchSource.Eta(state, current, motion.LandFormation,
+                motion.NavalFormation, motion.EtaMobility, etaPath), null);
+        }
+        catch (InvalidDataException error) { return new(null, error.Message); }
     }
 
     /// <summary>Existing type2 ->7D8390 packet ->353FE0 reset descriptor.
@@ -120,6 +154,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal override bool WallPermission => wall ??= !TK(TacticRemakeCurrentTraits.CommanderImmune(current, person, 102), "march-wall-permission");
         internal override byte? Action => 0;
         internal override bool HasNoDestination => true;
+        internal float EtaMobility(int formation, int previousHex)
+        {
+            //353FE0 keeps type2, land19, actual naval/Person and troop count.
+            //266860 replaces only position with the previous path Hex and
+            //requests2B0660's condition-evaluating form, without explicit surface.
+            var result = ArmyRouteMobilityEvaluation.Read(state, current,
+                new(person, force, 2, previousHex, 19, naval, troops, true, () => (byte)0), formation, null);
+            return result.Value ?? throw new InvalidDataException(result.UnresolvedOwner);
+        }
         internal override float ReadMobility(int formation, byte explicitSurface)
         {
             var result = ArmyRouteMobilityEvaluation.Read(state, current,

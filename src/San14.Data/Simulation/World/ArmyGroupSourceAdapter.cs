@@ -12,9 +12,15 @@ internal static class ArmyGroupSourceAdapter
         .Select(x => x.Kind == WorldEntityKind.Army && x.Id is int id ? id
             : throw new InvalidDataException("Current army roster member is unknown.")).ToArray();
 
-    internal static int UnitId(ArmyLifecycleSourceView arena, int physical) =>
-        arena.ReceiverSlots()[physical].ActiveUnitId ?? arena.ReceiverSlots()[physical].PendingImage?.Id
-        ?? throw new InvalidDataException("Current group member has no logical unit identity.");
+    internal static int UnitId(ArmyLifecycleSourceView arena, int physical)
+    {
+        if ((uint)physical >= (uint)arena.Slots.Count)
+            throw new InvalidDataException("Current group member receiver index is invalid.");
+        var receiver = arena.Receivers.Find(arena.Slots[physical].ReceiverId)
+            ?? throw new InvalidDataException("Current group member receiver owner is unknown.");
+        return receiver.ActiveUnitId ?? receiver.PendingImage?.Id
+            ?? throw new InvalidDataException("Current group member has no logical unit identity.");
+    }
 
     internal static int[] Roster(ArmyLifecycleSourceView arena, SourceWorldContext current) =>
         ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current)
@@ -37,6 +43,11 @@ internal static class ArmyGroupSourceAdapter
         SourceWorldContext current, int unitId)
     {
         int physical = arena.ReceiverSlots().First(x => x.ActiveUnitId == unitId || x.PendingImage?.Id == unitId).PhysicalSlot;
+        return Commander(current, physical);
+    }
+
+    internal static ArmyGroupCommander Commander(SourceWorldContext current, int physical)
+    {
         ushort sourceId = current.ReadArmyUnitCommanderId(new(physical))
             ?? throw new InvalidDataException("Current group commander is unknown.");
         var reference = Officer(current, sourceId);

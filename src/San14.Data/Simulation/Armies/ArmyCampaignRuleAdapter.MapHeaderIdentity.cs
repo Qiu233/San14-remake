@@ -17,7 +17,12 @@ public sealed record MapHeaderIdentity(MapHeaderUpdate Update, int? ForceId = nu
 }
 
 public sealed record MapHeaderCommandBooks(MapHeaderUpdate Update, int? Count = null, string? UnresolvedInput = null);
-public sealed record MapHeaderProjection(MapHeaderIdentity Identity, MapHeaderCommandBooks CommandBooks);
+public sealed record MapHeaderProjection(MapHeaderIdentity Identity, MapHeaderCommandBooks CommandBooks)
+{
+    public MapMainCommandStyle MainCommandStyle { get; init; } = new(null, "map.main_command.style_not_prepared");
+    public MapMainCommandPresentation MainCommandPresentation { get; init; } = new([], ["map.main_command.presentation_not_prepared"])
+        { Update = MapHeaderUpdate.Unresolved };
+}
 /// <summary>View-owned presentation values, never part of the saved simulation.</summary>
 public sealed record MapHeaderDisplayState(int DistrictId, int? OrderCount);
 
@@ -29,13 +34,18 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current;
         try { current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions); }
         catch (InvalidDataException error)
-        { return new(new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message), new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message)); }
+        { return new(new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message), new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message))
+            { MainCommandStyle = new(null, error.Message), MainCommandPresentation = new([], [error.Message])
+                { Update = MapHeaderUpdate.Unresolved } }; }
+        var style = ReadMainCommandStyleCurrent(state, current);
+        var commandPresentation = ReadMainCommandPresentationCurrent(state, current);
         var identity = ReadIdentity();
         int? retainedDistrict = identity.Update == MapHeaderUpdate.Updated ? identity.DistrictId : displayed?.DistrictId;
         if (retainedDistrict is not int district)
             return new(identity, identity.Update == MapHeaderUpdate.Unchanged ? new(MapHeaderUpdate.Unchanged)
-                : new(MapHeaderUpdate.Unresolved, UnresolvedInput: "map.header.quantity_retained_district"));
-        return new(identity, ReadBooks(district));
+                : new(MapHeaderUpdate.Unresolved, UnresolvedInput: "map.header.quantity_retained_district"))
+            { MainCommandStyle = style, MainCommandPresentation = commandPresentation };
+        return new(identity, ReadBooks(district)) { MainCommandStyle = style, MainCommandPresentation = commandPresentation };
 
         MapHeaderIdentity ReadIdentity()
         {

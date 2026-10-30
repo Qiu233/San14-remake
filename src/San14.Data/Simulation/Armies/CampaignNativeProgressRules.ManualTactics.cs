@@ -16,6 +16,15 @@ public sealed partial class CampaignNativeProgressRules
     {
         var owner = input.ManualTacticIntervention ?? throw Missing("manual_tactic_manager");
         GameState state = input;
+        if (state.ManualTacticExecutionContinuation is { } execution)
+        {
+            var resumed = campaign.TryExecuteManualTacticIntervention(state, moment, execution.Request,
+                manualPresentation ?? UnknownManualPresentation.Instance);
+            state = resumed.State ?? throw Missing(resumed.UnresolvedOwner ?? "manual_execution_resume");
+            if (state.ManualTacticExecutionContinuation is not null) return new(state, phase, null);
+            owner = state.ManualTacticIntervention ?? throw Missing("manual_resume_manager");
+            phase = ManualTacticStagePhase.AfterIntervention;
+        }
         if (phase == ManualTacticStagePhase.EnterStage)
         {
             if (owner.EffectBusy)
@@ -35,6 +44,7 @@ public sealed partial class CampaignNativeProgressRules
                 state = result.State ?? throw Missing(result.UnresolvedOwner ?? "manual_tactic_execution");
                 owner = state.ManualTacticIntervention ?? throw Missing("manual_tactic_execution_owner");
             }
+            if (state.ManualTacticExecutionContinuation is not null) return new(state, phase, null);
             phase = ManualTacticStagePhase.AfterIntervention;
         }
         if (owner.EffectBusy)
@@ -78,6 +88,8 @@ public sealed partial class CampaignNativeProgressRules
             var stage = AdvanceManualStage(accepted.Candidate, accepted.Context.Moment, accepted.StagePhase, accepted.LastStorySequence);
             accepted = accepted with { Candidate = stage.State, StagePhase = stage.Phase,
                 LastStorySequence = Math.Max(accepted.LastStorySequence, stage.State.ManualTacticIntervention!.LastPresentationSequence) };
+            if (stage.State.ManualTacticExecutionContinuation is not null)
+                return AwaitingManual(accepted with { Presentation = null, ContinueAfterPresentation = false });
             if (stage.Presentation is not null)
                 return AwaitingManual(accepted with { Presentation = new(stage.Presentation.Sequence, stage.Presentation.Kind), ContinueAfterPresentation = false });
             return Drive(accepted.Candidate, accepted.Request, accepted.BlockIndex, accepted.Calendar, accepted.Captures,

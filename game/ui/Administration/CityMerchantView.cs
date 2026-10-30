@@ -29,6 +29,7 @@ internal partial class CityMerchantView : Control
         this.chooseAmount = chooseAmount; clear = reset;
         Name = "CityMerchant"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new() { Name = "MerchantChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x02B0, RequestBack,
             () => { if (!abandoned && !busy) this.accepted?.Invoke(); });

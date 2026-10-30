@@ -28,13 +28,17 @@ public sealed record SpirvShaderInterface(string Sha256, uint VersionWord, uint 
 /// Unsupported interface types and missing layouts are rejected explicitly.</summary>
 public static class SpirvShaderInterfaceReader
 {
-    public static SpirvShaderInterface Read(ReadOnlySpan<byte> source)
+    public static SpirvShaderInterface Read(ReadOnlySpan<byte> source) => Read(source, false);
+
+    /// <summary>Explicit scalar-float storage admission for original typed
+    /// RWBuffer&lt;float&gt; programs. Default callers retain uint32-only storage.</summary>
+    public static SpirvShaderInterface Read(ReadOnlySpan<byte> source, bool allowFloat32StorageRuntimeArrays)
     {
-        try { return ReadCore(source); }
+        try { return ReadCore(source, allowFloat32StorageRuntimeArrays); }
         catch (OverflowException error) { throw new InvalidDataException("SPIR-V interface byte layout exceeds its supported range.", error); }
     }
 
-    private static SpirvShaderInterface ReadCore(ReadOnlySpan<byte> source)
+    private static SpirvShaderInterface ReadCore(ReadOnlySpan<byte> source, bool allowFloat32StorageRuntimeArrays)
     {
         if (source.Length < 20 || source.Length % 4 != 0 || source.Length > 64 * 1024 * 1024)
             throw new InvalidDataException("SPIR-V byte range is invalid.");
@@ -149,8 +153,11 @@ public static class SpirvShaderInterfaceReader
                     Require(a, 2); result = new("array", ElementType: Describe(a[0]), Count: ArrayLength(a[1]), ArrayStride: One(d, 6)); break;
                 case 29:
                     Require(a,1);var element=Describe(a[0]);uint? runtimeStride=One(d,6);
-                    if(element is not{Kind:"int",Bits:32,Signed:false}||runtimeStride!=4)
-                        throw new NotSupportedException("Only explicit uint32/stride4 storage runtime arrays are supported.");
+                    if((element is not{Kind:"int",Bits:32,Signed:false}&&
+                        !(allowFloat32StorageRuntimeArrays&&element is{Kind:"float",Bits:32}))||runtimeStride!=4)
+                        throw new NotSupportedException(allowFloat32StorageRuntimeArrays
+                            ?"Only explicit uint32 or float32 storage runtime arrays with stride4 are supported."
+                            :"Only explicit uint32/stride4 storage runtime arrays are supported.");
                     result=new("runtime-array",ElementType:element,ArrayStride:runtimeStride);break;
                 case 30:
                     var members = new List<SpirvBlockMember>();

@@ -1,6 +1,7 @@
 // Original node187 alpha forward tail. Geometry/material objects are borrowed
 // from the current primary population; source DXBC and device owners prepare once.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 struct NativePrimaryForwardGpu {
     ComPtr<ID3D11VertexShader> vertex;
     ComPtr<ID3D11PixelShader> pixel;
@@ -25,7 +26,7 @@ inline ComPtr<ID3D11Buffer> createNativePrimaryForwardCb(ID3D11Device* device,UI
     ComPtr<ID3D11Buffer> cb;check(device->CreateBuffer(&desc,nullptr,&cb),"original forward sparse CB allocation");return cb;
 }
 inline std::vector<std::array<unsigned,2>> loadNativePrimaryForwardWrites(const fs::path& path,unsigned capacity) {
-    std::ifstream source(path);std::vector<std::array<unsigned,2>> writes;unsigned offset,bytes;
+    NativePreparedInputFile source(path);std::vector<std::array<unsigned,2>> writes;unsigned offset,bytes;
     while(source>>offset>>bytes) {
         if(offset>capacity||bytes>capacity-offset)throw std::runtime_error("Forward source CB write outside allocation");
         writes.push_back({offset,bytes});
@@ -61,13 +62,13 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardGpu(ID3D11Device* devi
     out.vertexConstants=createNativePrimaryForwardCb(device,480);out.pixelConstants=createNativePrimaryForwardCb(device,1360);
     out.vertexWrites=loadNativePrimaryForwardWrites(input/"vs-defined-ranges.txt",480);
     out.pixelWrites=loadNativePrimaryForwardWrites(input/"ps-defined-ranges.txt",1360);
-    unsigned templateCount{};std::ifstream count(input/"template-count.txt");count>>templateCount;
+    unsigned templateCount{};NativePreparedInputFile count(input/"template-count.txt");count>>templateCount;
     if(!count||!templateCount)throw std::runtime_error("Forward actual template catalog absent");out.layouts.resize(templateCount);
-    std::ifstream eligible(input/"templates.txt");unsigned templateIndex,admitted;std::string relative;
+    NativePreparedInputFile eligible(input/"templates.txt");unsigned templateIndex,admitted;std::string relative;
     while(eligible>>templateIndex>>admitted>>relative) {
         if(!admitted)continue;
         struct Element{std::string name;UINT index,format,slot,offset;};Element row;std::vector<Element> elements;
-        std::ifstream rows(input/relative/"layout.txt");
+        NativePreparedInputFile rows(input/relative/"layout.txt");
         while(rows>>row.name>>row.index>>row.format>>row.slot>>row.offset)elements.push_back(row);
         std::vector<D3D11_INPUT_ELEMENT_DESC> layout;
         for(auto& e:elements)layout.push_back({e.name.c_str(),e.index,DXGI_FORMAT(e.format),e.slot,e.offset,D3D11_INPUT_PER_VERTEX_DATA,0});
@@ -75,7 +76,7 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardGpu(ID3D11Device* devi
     }
     struct SparseWrite {unsigned offset{},bytes{};std::vector<char> source;};
     std::array<std::vector<SparseWrite>,2> sparseWrites;std::array<unsigned,2> sparseBytes{};
-    std::ifstream sparse(input/"sparse-cbuffers.txt");unsigned slot,bytes,offset,length;std::string sparseFile;
+    NativePreparedInputFile sparse(input/"sparse-cbuffers.txt");unsigned slot,bytes,offset,length;std::string sparseFile;
     while(sparse>>slot>>bytes>>offset>>length>>sparseFile) {
         auto source=load(input/sparseFile);
         if(offset>bytes||length>bytes-offset||source.size()!=length)throw std::runtime_error("Original point/spot sparse write absent");
@@ -88,7 +89,7 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardGpu(ID3D11Device* devi
         context->Unmap(cb.Get(),0);
     }
     if(!out.sparseConstants[0]||!out.sparseConstants[1])throw std::runtime_error("Forward actual point/spot CB owners absent");
-    std::ifstream samplerRows(input/"samplers.txt");std::string file;
+    NativePreparedInputFile samplerRows(input/"samplers.txt");std::string file;
     while(samplerRows>>slot>>file) {
         // Environment sampling belongs to the selected image wrapper, even
         // when an older input directory still lists a fixed sampler here.
@@ -106,7 +107,7 @@ inline NativePrimaryForwardGpu prepareNativePrimaryForwardGpu(ID3D11Device* devi
     volumeView.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE3D;volumeView.Texture3D.MipLevels=1;
     check(device->CreateShaderResourceView(volumeOwner.Get(),&volumeView,&out.resources[28]),"original white volume view");
     unsigned indexFormat,counterBytes,counterFormat,counterElements,subWidth,subHeight,subLayers,subResource,subSrv,subDsv;
-    std::ifstream allocation(input/"allocation.txt");
+    NativePreparedInputFile allocation(input/"allocation.txt");
     allocation>>out.clusterBytes>>indexFormat>>out.clusterElements>>counterBytes>>counterFormat>>counterElements
         >>subWidth>>subHeight>>subLayers>>subResource>>subSrv>>subDsv;
     if(!allocation)throw std::runtime_error("Original node71/Sub allocation input absent");

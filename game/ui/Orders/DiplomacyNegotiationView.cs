@@ -21,8 +21,14 @@ internal partial class DiplomacyNegotiationView : Control
 
     internal void Configure(GameResourceRepository repository, GameState candidate,
         DiplomacyNegotiationRequest request, int playerForceId, DiplomacyNegotiationPage page,
-        PreviewText text, Func<bool> admitted, Action<bool> submit, Action showForce, Action showMap)
+        PreviewText text, Func<bool> admitted, Action<bool> submit, Action showForce, Action showMap,
+        DiplomacyPeopleVisuals? people = null)
     {
+        if (request.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
+        {
+            ConfigureAdditionalReply(repository,candidate,request,playerForceId,page,text,admitted,submit,showForce,showMap,people);
+            return;
+        }
         this.admitted = admitted; this.submit = submit; canAccept = page.CanAccept;
         Name = "DiplomacyNegotiation"; ZIndex = 90; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);

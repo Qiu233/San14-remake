@@ -10,7 +10,10 @@ public sealed record NewGameForceGovernancePreview(int ForceId, bool? ForceValid
     bool? CanEdit, GovernanceRosterView Roster,
     IReadOnlyDictionary<int, NewGameGovernanceOfficer> PeopleByReference,
     IReadOnlyList<NewGameGovernancePersonnelSlot> OrderedSlots,
-    IReadOnlyList<string> UnresolvedInputs);
+    IReadOnlyList<string> UnresolvedInputs)
+{
+    public int? RulerPendingValue { get; init; }
+}
 
 /// <summary>All35 raw slots, including known empty slots, in group/ordinal order.</summary>
 public sealed record NewGameGovernancePersonnelSlot(int Group, int Ordinal, int ReferenceId, int PendingValue);

@@ -9,8 +9,9 @@ internal sealed class CurrentOrderedLists
         public int Cursor { get; } = cursor;
         public object? Payload { get; set; }
         public bool HasPayload { get; set; }
+        public LinkedListNode<Entry>? Node { get; set; }
     }
-    private readonly Dictionary<int, List<Entry>> _lists = [];
+    private readonly Dictionary<int, LinkedList<Entry>> _lists = [];
     private readonly Dictionary<int, (int List, Entry Entry)> _entries = [];
     private int _nextList;
     private int _nextCursor = 1;
@@ -33,12 +34,12 @@ internal sealed class CurrentOrderedLists
     {
         Clear(key); _lists.Remove(key);
     }
-    public int? Head(int key) => _lists.TryGetValue(key, out var list) && list.Count > 0 ? list[0].Cursor : null;
+    public int? Head(int key) => _lists.TryGetValue(key, out var list) && list.Count > 0 ? list.First!.Value.Cursor : null;
     public int Count(int key) => _lists[key].Count;
     public int Append(int key)
     {
         var entry = new Entry(_nextCursor++);
-        _lists[key].Add(entry); _entries.Add(entry.Cursor, (key, entry));
+        entry.Node = _lists[key].AddLast(entry); _entries.Add(entry.Cursor, (key, entry));
         return entry.Cursor;
     }
     public object? Read(int cursor) => _entries[cursor].Entry.HasPayload ? _entries[cursor].Entry.Payload :
@@ -49,19 +50,17 @@ internal sealed class CurrentOrderedLists
     }
     public int? Next(int cursor)
     {
-        var row = _entries[cursor]; var list = _lists[row.List]; int index = list.IndexOf(row.Entry);
-        return index + 1 < list.Count ? list[index + 1].Cursor : null;
+        return _entries[cursor].Entry.Node!.Next?.Value.Cursor;
     }
     public int? Previous(int cursor)
     {
-        var row = _entries[cursor]; var list = _lists[row.List]; int index = list.IndexOf(row.Entry);
-        return index > 0 ? list[index - 1].Cursor : null;
+        return _entries[cursor].Entry.Node!.Previous?.Value.Cursor;
     }
     public void Remove(int key, int cursor)
     {
         var row = _entries[cursor];
         if (row.List != key) throw new InvalidOperationException("A cursor belongs to another ordered list.");
-        _lists[key].Remove(row.Entry); _entries.Remove(cursor);
+        _lists[key].Remove(row.Entry.Node!); _entries.Remove(cursor);
     }
     public void Clear(int key)
     {
@@ -75,7 +74,8 @@ internal sealed class CurrentOrderedLists
             throw new InvalidOperationException("Reordering requires each current entry once.");
         var order = cursors.Select(cursor => _entries[cursor]).ToArray();
         if (order.Any(row => row.List != key)) throw new InvalidOperationException("Reordering cannot move entries between lists.");
-        list.Clear(); list.AddRange(order.Select(row => row.Entry));
+        list.Clear();
+        foreach (var row in order) list.AddLast(row.Entry.Node!);
     }
     public IReadOnlyList<object?> ReadAll(int key) => _lists[key].Select(entry => Read(entry.Cursor)).ToArray();
     public CurrentOrderedLists Copy()
@@ -83,11 +83,11 @@ internal sealed class CurrentOrderedLists
         var copy = new CurrentOrderedLists { _nextList = _nextList, _nextCursor = _nextCursor };
         foreach (var row in _lists)
         {
-            var list = new List<Entry>(); copy._lists.Add(row.Key, list);
+            var list = new LinkedList<Entry>(); copy._lists.Add(row.Key, list);
             foreach (var entry in row.Value)
             {
                 var cloned = new Entry(entry.Cursor) { Payload = entry.Payload, HasPayload = entry.HasPayload };
-                list.Add(cloned); copy._entries.Add(cloned.Cursor, (row.Key, cloned));
+                cloned.Node = list.AddLast(cloned); copy._entries.Add(cloned.Cursor, (row.Key, cloned));
             }
         }
         return copy;

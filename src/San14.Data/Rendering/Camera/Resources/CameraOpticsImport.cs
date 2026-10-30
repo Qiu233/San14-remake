@@ -122,6 +122,7 @@ internal static class CameraOpticsImport
         var settings = patch.ApplyTo(new());
         return settings with
         {
+            ReflectionProbeRsmCaptureMode = ReadReflectionProbeCaptureMode(camera),
             LensSimulation = settings.LensSimulation with { SensorAspect = BitConverter.UInt32BitsToSingle(Read(camera, 6, 0xA70685F8u, 8, 1, 0)) },
             Exposure = settings.Exposure with
             {
@@ -230,6 +231,18 @@ internal static class CameraOpticsImport
             ColorGradingNeutralBlackOut = BitConverter.UInt32BitsToSingle(Read(camera, 1079, 0x7547C33Bu, 8, 1, 0, true, false)),
         };
         return patch;
+    }
+    private static uint ReadReflectionProbeCaptureMode(San14.Data.Formats.DokObject camera)
+    {
+        // C3BF60 initializes raw12CC to0. The native descriptor's ordinal1014
+        // is not a serialized DOK index; missing named properties retain that
+        // constructor value. Validate every present authored value exactly.
+        var fields = camera.Properties.Where(property => property.NameHash == 0x01DCBC1Eu).ToArray();
+        if (fields.Length == 0) return 0;
+        if (fields.Length != 1 || fields[0].TypeCode != 5 || fields[0].ElementCount != 1 ||
+            fields[0].ElementSize != 4 || fields[0].RawValue.Length != 4)
+            throw new InvalidDataException("Camera ReflectionProbeRSMCaptureMode declaration differs from its supported scalar resource field.");
+        return BinaryPrimitives.ReadUInt32LittleEndian(fields[0].RawValue);
     }
     private static uint Read(San14.Data.Formats.DokObject camera, int ordinal, uint hash, uint type, int count, int component, bool requireFinite = false, bool requireUnique = false)
     {

@@ -439,6 +439,10 @@ public static class SimulationParameterKeys
         public const string Formation2AutomaticWaitingAdjustment = "simulation.tactics.formation2-automatic-waiting-adjustment";
         public const string Formation2CreationWaitingAdjustment = "simulation.tactics.formation2-creation-waiting-adjustment";
         public const string HealingCapacityCoefficient = "simulation.tactics.healing-capacity-coefficient";
+        public const string SpecialOfficerCommandCapacity = "simulation.tactics.special-officer-command-capacity";
+        // Independently extracted TC/SC initial data. Queries consume the saved
+        // current parameter; only fresh allocation and old-version migration use this.
+        public const int InitialSpecialOfficerCommandCapacity = 20000;
         public const string HealingMinimum = "simulation.tactics.healing-minimum";
         public const string HealthyAbilityPercent = "simulation.tactics.healthy-ability-percent";
         public const string HighDifficultyNonplayerTrialRate = "simulation.tactics.high-difficulty-nonplayer-trial-rate";

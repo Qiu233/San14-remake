@@ -8,7 +8,13 @@ public sealed partial class SourceWorldContext
     public Func<int, OfficerLifespanState?>? ConditionLifespanReader { get; set; }
     public Func<int?>? ConditionLifespanModeReader { get; set; }
 
-    public bool? ReadConditionPersonAtTerminalYear(int physical)
+    public bool? ReadConditionPersonAtTerminalYear(int physical) =>
+        ReadConditionPersonAtTerminalYear(physical, ConditionLifespanReader, ConditionLifespanModeReader, null);
+
+    // A normal command supplies its actual reached year and current Person
+    // owner without binding or rescanning the unrelated event-condition pool.
+    internal bool? ReadConditionPersonAtTerminalYear(int physical,
+        Func<int, OfficerLifespanState?>? readLifespan, Func<int?>? readMode, int? sourceYear)
     {
         if (ReadConditionPersonFlags(new(physical)) is not ushort flags) return null;
         if ((flags & 8) != 0) return false;
@@ -24,11 +30,15 @@ public sealed partial class SourceWorldContext
             if (ReadPersonFirstLocation(physical) is not ushort location) return null;
             if (location is >= 1 and <= 61 && force.PhysicalSlot is not (>= 46 and <= 50)) return false;
         }
-        if (ConditionLifespanReader?.Invoke(physical) is not { } lifespan) return null;
+        if (readLifespan?.Invoke(physical) is not { } lifespan) return null;
         if (ReadConditionPersonLifespanExtension(id) is not int extension) return null;
-        if (ConditionLifespanModeReader?.Invoke() is not int mode) return null;
-        if (ReadConditionDate() is not { } date) return null;
-        int year = unchecked((short)date.Year);
+        if (readMode?.Invoke() is not int mode) return null;
+        if (sourceYear is null)
+        {
+            if (ReadConditionDate() is not { } date) return null;
+            sourceYear = unchecked((short)date.Year);
+        }
+        int year = sourceYear.Value;
         int terminal = lifespan.TerminalYear + extension;
         return mode switch
         {

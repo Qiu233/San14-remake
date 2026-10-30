@@ -114,7 +114,10 @@ public sealed partial class CityDomesticDraft
         string parameter = duty == CityDomesticDuty.Recruiter ? "recruiterCommandCost" : "trainerCommandCost";
         if (remaining < Parameter(parameter)) return false;
         books[districtId] = Math.Clamp(unchecked(remaining - Parameter(parameter)), 0, 200);
-        if (_state.CampaignEventWorld?.CurrentUserIndex != -1) throw Missing("formal_statistics_current_user");
+        //1F22B0 has the same independent1D3840 statistics service gate as
+        //regional appointments; a tutorial controller does not create it.
+        if (_state.CampaignEventWorld?.CurrentUserIndex != -1 && _userSelectionServicePresent != false)
+            throw Missing("formal_statistics_current_user");
         int incoming = PersonAreaAppointmentSource.Resolve(_current, desired);
         if (PersonAreaAppointmentSource.Resolve(_current, RoleRaw(CityDomesticDuty.Recruiter)) == incoming)
             SetRole(CityDomesticDuty.Recruiter, 0);

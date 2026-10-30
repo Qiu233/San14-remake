@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanOpticsSettings.h"
 #include <cstdint>
 #include <filesystem>
@@ -7,7 +8,7 @@
 
 namespace San14::Render::Interop {
 inline OceanOpticsSettings readOceanOpticsSettings(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);std::uint32_t magic{};OceanOpticsSettings result;
+    NativePreparedInputFile input(path,std::ios::binary);std::uint32_t magic{};OceanOpticsSettings result;
     auto read=[&](auto& value){input.read(reinterpret_cast<char*>(&value),sizeof(value));};
     read(magic);read(result.refractionIndex);read(result.refractionTransparency);
     for(auto& value:result.albedo)read(value);

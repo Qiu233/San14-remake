@@ -18,7 +18,7 @@ public sealed partial class GameSimulation
         GameOrder order, IOrderRules rules, CommandContext context, IOrderAuthority authority,
         CampaignAppRandomState? appRandomSnapshot = null)
     {
-        if (order is not (SetGovernanceRosterOrder or CompleteGovernanceNarrationOrder) ||
+        if (order is not (SetGovernanceRosterOrder or CompleteGovernanceNarrationOrder or ExpandGovernanceDepartmentOrder) ||
             !IsForcePolicyEditorOwner(expectedOwner, batchSequence, requestIndex, order.ForceId))
             return CommandResult.Reject("The policy level-up editor no longer owns this command.", "governance.policy_scene");
         var error = GameEngine.CheckPresentationOrder(expectedOwner, order, context, authority);

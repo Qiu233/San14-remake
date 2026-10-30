@@ -29,6 +29,15 @@ public sealed record MapMarkerLayout(string Name, int CommonRow,
         return repository.LoadLayout("ScreenLayout", file);
     }
 
+    // Typed metadata is needed by consumers of source bar geometry as well
+    // as the generic UI layout. Preserve its actual Common row and declaration.
+    public static MapMarkerLayout LoadDefinition(GameResourceRepository repository,string name)
+    {
+        var (row,named,file)=ResolveNamedFile(repository,name);
+        var loaded=repository.LoadLayout("ScreenLayout",file);
+        return new(name,row,named,loaded.Source,loaded.Layout.Signature,loaded.Layout,LcskNodeReader.Read(loaded.Layout));
+    }
+
     private static (int Row, uint Named, uint File) ResolveNamedFile(
         GameResourceRepository repository, string name)
     {

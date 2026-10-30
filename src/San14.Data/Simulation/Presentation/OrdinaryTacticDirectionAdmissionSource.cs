@@ -22,14 +22,26 @@ public sealed partial class ArmyCampaignRuleAdapter
     public AreaAdministrationQuery<bool> QueryUniqueTacticDirectionAdmission(GameState state,
         UnitState actor, int tacticId, OrdinaryTacticDirectionHostSnapshot? host)
     {
-        ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(actor);
+        return actor.NativeArmyOrigin?.NativeSlotIndex is int physical
+            ? QueryUniqueTacticDirectionAdmission(state, physical, tacticId, host)
+            : AreaAdministrationQuery<bool>.Unknown(DirectionAdmissionMissing("caster_Army_slot").Message);
+    }
+
+    /// <summary>369580 takes the actual Army receiver pointer, including a
+    /// receiver reset by an earlier Full call. No Unit image is required.</summary>
+    public AreaAdministrationQuery<bool> QueryUniqueTacticDirectionAdmission(GameState state,
+        int armyPhysical, int tacticId, OrdinaryTacticDirectionHostSnapshot? host)
+    {
+        ArgumentNullException.ThrowIfNull(state);
         try
         {
             //3EB070 -> 830350 returns primary+8; its member4C is the
             //existing saved CEnvironment member54. No mode/skip surrogate.
-            int enabled = BattleRemakeCurrentSettings.ReadInt32(state, 0x54)
-                ?? throw DirectionAdmissionMissing("current_settings54");
+            int enabled = Volatile.Read(ref _applicationPresentationOptions) is { } application
+                ? application.TacticDirectionsEnabled ? 1 : 0
+                : BattleRemakeCurrentSettings.ReadInt32(state, 0x54)
+                    ?? throw DirectionAdmissionMissing("current_settings54");
             if (enabled == 0) return Known(false);
             //168C40 passes MainCameraCtrl+50, not a nullable controller.
             var facts = host ?? throw DirectionAdmissionMissing("host_snapshot");
@@ -37,8 +49,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (band >= 4) return Known(false);
 
             var current = CaptureOwnedArmyReturnWorld(state).Context;
-            int physical = actor.NativeArmyOrigin?.NativeSlotIndex
-                ?? throw DirectionAdmissionMissing("caster_Army_slot");
+            int physical = armyPhysical;
             if ((uint)physical >= 501) throw DirectionAdmissionMissing("caster_Army_slot_range");
             var army = current.ReadArmyUnitTableReference(physical)
                 ?? throw DirectionAdmissionMissing("caster_Army_pointer");

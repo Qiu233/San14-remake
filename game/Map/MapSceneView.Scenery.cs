@@ -10,6 +10,7 @@ public partial class MapSceneView
     private MainMapCameraModeOwner? _sourceMainMode;
     private Window? _sceneryWindow;
     private Vector2I? _sceneryPointer;
+    internal event Action<int,Vector2>? SceneryHexSelected;
 
     internal void SetSceneryMapBinding(MapPresentationState presentation,
         Func<GameState,SourceWorldContext?> capture)
@@ -24,9 +25,10 @@ public partial class MapSceneView
         if(_logicalWorld is not {} world||_sourceSnapshot is not {} scenario||_loadedSceneResources is null)
             throw new InvalidDataException("The actual Scenery map dependencies are not loaded.");
         var layer=new SceneryMapLayer{Name="SceneryMap",ZIndex=2};
-        var parent=_sourceMainCameraAspect as Control??_surface.GetParent() as Control??this;
+        var parent=StrategicMapOverlayParent();
         parent.AddChild(layer);layer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _sceneryMap=layer;
+        InitializeMapSummaries();
         try
         {
             layer.Configure(_repository,_loadedSceneResources,scenario.FixedDataPath,_text.SourceLocale,
@@ -81,6 +83,7 @@ public partial class MapSceneView
         ShowPickedCell(physical,new((float)point.X,
             MapGrounding.SampleHeight(TerrainMeshes!,point.X,point.Z),(float)point.Z));
         _acceptHex?.Invoke(physical);
+        if(_sceneryPointer is {} cursor)SceneryHexSelected?.Invoke(id,new(cursor.X,cursor.Y));
     }
     private bool CanPressSceneryMapEntry(int id)
     {
@@ -94,6 +97,7 @@ public partial class MapSceneView
     }
     private void ReleaseSceneryMap()
     {
+        ReleaseMapSummaries();
         if(_sceneryWindow is {} window)
         {window.WindowInput-=CaptureSceneryPointer;_sceneryWindow=null;}
         _sceneryPointer=null;

@@ -61,12 +61,13 @@ public sealed partial class ArmyCampaignRuleAdapter
     private ArmyBaseWallApplicationResult ApplyBorrowedBaseWallDamage(GameState state,
         SourceWorldContext current, TacticRemakeCurrentContext context, UnitState image,
         ArmyUnitReference actor, ObjectReference obj, int request, float? wallAttack,
-        List<CampaignEffectRequest> effects)
+        List<CampaignEffectRequest> effects, NativeMapSeasonDate? objectSourceDate = null,
+        Func<GameState, int>? readObjectCampaignDay = null)
     {
         if (!WallNeed(current.ReadObjectNativeValidity(obj), "request_Object_validity")) return new(state, false);
         if (current.ArmyReturnTransferMode is not { Present: false }) throw WallMissing("challenge570850_498020");
         int objectPhysical = WallNeed(obj.PhysicalSlot, "Object_physical");
-        if (objectPhysical is < 1 or > 61) throw WallMissing("actual_Base_Object_class");
+        if (objectPhysical is < 1 or > 3000) throw WallMissing("actual_Object_class");
         var pool = current.ReadOwnedCurrentListPool() ?? throw WallMissing("pool");
         var pending = pool.PendingObjectRetirements ?? throw WallMissing("pending_F0");
         var directory = current.CurrentMapObjectDirectory ?? throw WallMissing("Object_directory");
@@ -106,9 +107,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ? unchecked(unchecked(unchecked(request + Math.Max(1, change)) + plus) + policyPart)
                 : Math.Max(1, unchecked(unchecked(unchecked(Math.Min(-1, change) - minus) + request) + policyPart));
         }
-        //This is the generic definition-context feedback packet, not the
-        //existing trait/Hex request. Ordinary Base classes do not assume it.
-        if (effect != 0) throw WallMissing("trait103_feedback33_definition_context");
+        if (effect != 0)
+        {
+            //The source packet carries the definition identity, independently
+            //of Personality and Area operands. Preserve the Base-only boundary.
+            if (objectPhysical <= 61) throw WallMissing("trait103_feedback33_definition_context");
+            working = QueueObjectDamageAdjustmentSpeechCurrent(working, current, actor, image,
+                WallNeed(definition.PhysicalSlot, "feedback_Object_definition"),
+                objectSourceDate ?? throw WallMissing("feedback_source_date"));
+        }
         if (modified > 0)
         {
             var reward = ApplyBorrowedNormalArmyReward(working, current, context, image.OfficerId, 1, modified);
@@ -127,6 +134,28 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.WriteObjectPostLoadField14(obj, intermediate);
         ushort stored = WallNeed(current.ReadObjectRawField14(obj), "stored_HP14");
         working = PublishCurrentObjectDurability(working, current, obj, stored);
+        if (objectPhysical > 61)
+        {
+            bool destroyed = intermediate <= 0;
+            int oldObjectForce = WallNeed(current.ReadObjectForceSlot13(obj), "generic_Object13");
+            working = StructureDestructionForceResult.Apply(working, current,
+                current.ReadArmyUnitForceReference(actor), oldObjectForce, destroyed ? 0 : applied, destroyed);
+            if (destroyed)
+            {
+                void Publish(GameState reached) => working = reached;
+                var removal = ApplyDemolitionNumbers(working, current, obj, actor, Publish);
+                if (removal is not null)
+                {
+                    working = removal.State;
+                    working = AppendDemolitionEffects(working, current, actor, image, removal,
+                        () => objectSourceDate ?? throw WallMissing("remove_source_date"),
+                        readObjectCampaignDay ?? throw WallMissing("remove_source_day"), effects, Publish);
+                }
+            }
+            //29EC80's generic branch returns0;174C50 separately chooses8.
+            return new(working, false)
+            { Receipt = new(wallAttack, objectPhysical, modified, before, applied, intermediate, stored, 0, 0, null) };
+        }
         var parsed = objectPhysical <= 51 ? current.ReadCityTableReference(objectPhysical)
             : current.ReadGateTableReference(objectPhysical - 51);
         if (parsed is null) throw WallMissing("Object_class_Base_pointer");

@@ -6,7 +6,7 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private TalentAutoSearchView? _talentAutoView;
-    private TalentPersonSelectionView? _talentAutoPersons;
+    private TalentSearchPersonSelectionView? _talentAutoPersons;
     private TalentAutoSearchDraft? _talentAutoDraft;
     private GameplaySession? _talentAutoSession;
     private GameState? _talentAutoWorld;
@@ -14,6 +14,16 @@ public partial class Main
     private bool HasTalentAutoSearchPage=>_talentAutoView is not null;
     private bool IsTalentAutoSearchCurrent=>!_failed&&!_shuttingDown&&_talentAutoView is not null&&_talentAutoDraft is not null&&
         ReferenceEquals(_session,_talentAutoSession)&&ReferenceEquals(_world,_talentAutoWorld)&&_residentMap==_talentAutoMap&&_talentAutoMap is not null;
+    private void AdoptTalentAutoSearchSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // Retain the captured query and its existing preview/selection. Speech
+        // completion moves only the live owner read by the page callbacks.
+        if (_talentAutoView is null || _talentAutoDraft is null || _talentAutoSession != session ||
+            _talentAutoMap is null || _talentAutoMap != _residentMap || !ReferenceEquals(_talentAutoWorld, previous) ||
+            !_talentAutoDraft.TryAdoptPresentationWorld(previous, replacement, new(_presentationRandom.State))) return;
+        _talentAutoWorld = replacement;
+    }
+
     private bool CanEditTalentAutoSearch=>IsTalentAutoSearchCurrent&&_talentAutoPersons is null;
 
     private void OpenTalentAutoSearch()
@@ -80,20 +90,15 @@ public partial class Main
         catch(InvalidDataException error){GD.PushWarning(error.ToString());RefreshTalentAutoSearch();return;}
         finally{SynchronizeTalentAutoRandom();}
         if(!draft.CanPrepareSelection){RefreshTalentAutoSearch();return;}
-        var world=_talentAutoWorld!;
-        var rows=draft.Candidates.Select(choice=>
-        {
-            var actor=world.Officers[choice.OfficerId];var card=draft.QueryOfficerCard(choice.OfficerId);
-            int? Ability(int dimension)=>card.Available?card.Value!.Abilities.FirstOrDefault(value=>value.Dimension==dimension)?.Effective.Value:null;
-            string location=actor.LocationId is int city?world.Cities.GetValueOrDefault(city)?.Name??world.Gates.GetValueOrDefault(city)?.Name??_ui.Get("detail_unknown"):_ui.Get("detail_unknown");
-            string force=actor.ForceId is int owner?world.Forces.GetValueOrDefault(owner)?.Name??_ui.Get("detail_unknown"):_ui.Get("detail_unknown");
-            return new TalentPersonChoice(choice.OfficerId,actor.Name,location,force,Ability(2),Ability(3),Ability(4));
-        }).ToArray();
-        var selector=new TalentPersonSelectionView();_talentAutoPersons=selector;AddChild(selector);
+        TalentSearchPersonSelection model;
+        try { model=_campaignComposition!.PrepareArmyQueries(_talentAutoWorld!).PrepareTalentAutoSearchPersonSelection(draft); }
+        catch(InvalidDataException error)
+        { GD.PushWarning(error.ToString());_talentAutoView!.ApplyNotice(_ui.Get("talent_rule_unavailable"));return; }
+        var selector=new TalentSearchPersonSelectionView();_talentAutoPersons=selector;AddChild(selector);
         _talentAutoView!.SetBusy(true);_talentAutoView.Hide();
         try
         {
-            selector.Configure(_repository,_ui,rows,draft.PreviewSelectedExecutorOfficerIds,draft.MaximumExecutors,false,
+            selector.Configure(_repository,_ui,model,
                 ()=>IsTalentAutoSearchCurrent&&_talentAutoPersons==selector,selected=>RunUiAction(()=>
                 {
                     if(!IsTalentAutoSearchCurrent||_talentAutoPersons!=selector||_talentAutoDraft!=draft)return;
@@ -106,7 +111,7 @@ public partial class Main
                         RunPlayAction(ConfirmTalentAutoSearch);
                     }
                     else RefreshTalentAutoSearch();
-                }),CurrentListScrollSpeed,titleMessage:0x058F);
+                }),CurrentListScrollSpeed);
         }
         catch{_talentAutoPersons=null;selector.Abandon();selector.QueueFree();_talentAutoView!.Show();RefreshTalentAutoSearch();throw;}
     }

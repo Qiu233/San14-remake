@@ -2,10 +2,15 @@ namespace San14.Core;
 
 public enum CityMerchantMode { Sell = 0, Buy = 1 }
 
+/// <summary>Ordered selection inputs replayed by the current-world merchant
+/// rules. The limits retain signed arithmetic; no reward result is supplied.</summary>
+public sealed record CityMerchantAutomaticSelection(int GoldLimit, int FoodLimit,
+    IReadOnlyList<int> OfficerPriority);
+
 /// <summary>Amount is food, in both directions. Prices and affordability are
 /// read by the execution provider from the current city at submission.</summary>
 public sealed record CityMerchantOrder(int ForceId, int CityId, IReadOnlyList<int> OfficerIds,
-    CityMerchantMode Mode, int Amount) : GameOrder(ForceId);
+    CityMerchantMode Mode, int Amount, CityMerchantAutomaticSelection? AutomaticSelection = null) : GameOrder(ForceId);
 
 public interface ICityMerchantExecution
 {
@@ -20,6 +25,9 @@ public sealed class CityMerchantOrders(IOrderRules otherCommands, ICityMerchantE
         if (!Enum.IsDefined(trade.Mode) || trade.Amount <= 0 || trade.OfficerIds is not { Count: > 0 } ||
             trade.OfficerIds.Any(id => id <= 0) || trade.OfficerIds.Distinct().Count() != trade.OfficerIds.Count)
             return CommandResult.Reject("Merchant trade input is invalid.", "merchant.input");
+        if (trade.AutomaticSelection is { } automatic && (automatic.OfficerPriority is not { Count: > 0 } ||
+            automatic.OfficerPriority.Any(id => id is < 0 or > 6000)))
+            return CommandResult.Reject("Merchant automatic selection requires an ordered officer priority.", "merchant.automatic_selection");
         if (!state.Cities.TryGetValue(trade.CityId, out var city) || city.ForceId != force.Id)
             return CommandResult.Reject("City is not controlled by this force.", "merchant.city_control");
         if (city.DistrictId is not int districtId || !state.Districts.TryGetValue(districtId, out var district))

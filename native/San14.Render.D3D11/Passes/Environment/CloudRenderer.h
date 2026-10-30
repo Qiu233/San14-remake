@@ -1,6 +1,7 @@
 // Cloud device inputs come from the prepared renderer and target declarations.
 // The session retains animation phase, ping surfaces and camera history.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include "CloudWeatherInputs.h"
 #include "CloudProgramInputs.h"
@@ -65,7 +66,7 @@ struct NativeMainCloudImages {
 };
 static NativeMainCloudImages prepareNativeMainCloudImages(ID3D11Device* device,const fs::path& source,
     const NativeMainCloud& installed,const std::vector<AmbientNativeTextureBinding>& shared) {
-    std::ifstream targets(source/"targets.txt");std::string name,key;
+    NativePreparedInputFile targets(source/"targets.txt");std::string name,key;
     UINT width,height,resource,sampled,rendered;std::size_t targetCount=0;
     std::vector<std::string> seen;
     if(!targets)throw std::runtime_error("Cloud replacement target declarations absent");
@@ -83,7 +84,7 @@ static NativeMainCloudImages prepareNativeMainCloudImages(ID3D11Device* device,c
     NativeMainCloudImages result;
     if(!installed.draw)return result;
     const auto& draw=installed.draw.value();const auto programs=source_cloud_programs::read(source/"programs.txt");
-    std::ifstream passes(source/"passes.txt");UINT rts,dsv;std::size_t passCount=0;seen.clear();
+    NativePreparedInputFile passes(source/"passes.txt");UINT rts,dsv;std::size_t passCount=0;seen.clear();
     if(!passes)throw std::runtime_error("Cloud replacement passes absent");
     while(passes>>name>>width>>height>>rts>>dsv) {
         if(std::find(seen.begin(),seen.end(),name)!=seen.end())throw std::runtime_error("Duplicate Cloud replacement pass");
@@ -100,7 +101,7 @@ static NativeMainCloudImages prepareNativeMainCloudImages(ID3D11Device* device,c
     }
     if(!passes.eof()||passCount!=draw.passes.size())throw std::runtime_error("Cloud replacement pass list");
     result.textures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt,false,&shared);
-    std::ifstream samplers(source/"samplers.txt");std::string file,opposite;
+    NativePreparedInputFile samplers(source/"samplers.txt");std::string file,opposite;
     if(!samplers)throw std::runtime_error("Cloud replacement sampler manifest absent");
     UINT slot;
     while(samplers>>name>>slot>>file>>opposite)if(name=="pass1") {
@@ -142,7 +143,7 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     const fs::path& continuousSource,const NativeSourceHdrTarget& hdr,
     const San14::Render::NativeSkyAtmosphereResources* renderingAtmosphere) {
     NativeMainCloud result;
-    std::ifstream targets(source/"targets.txt");std::string name,key;UINT width,height,resource,sampled,rendered;
+    NativePreparedInputFile targets(source/"targets.txt");std::string name,key;UINT width,height,resource,sampled,rendered;
     if(!targets)throw std::runtime_error("Main Cloud source targets absent");
     while(targets>>name>>key>>width>>height>>resource>>sampled>>rendered) {
         NativeMainCloudSurface surface;surface.objectKey=key;surface.sampled=DXGI_FORMAT(sampled);
@@ -160,9 +161,9 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     if(renderingAtmosphere) {
     NativeMainCloudDrawResources draw;
     draw.staticTextures=ambientTextures(device,source,"pass1-textures.tsv",std::nullopt);
-    std::string geometryKind;std::ifstream geometry(source/"geometry.txt");geometry>>geometryKind>>draw.topology>>draw.first>>draw.count;
+    std::string geometryKind;NativePreparedInputFile geometry(source/"geometry.txt");geometry>>geometryKind>>draw.topology>>draw.first>>draw.count;
     if(!geometry||geometryKind!="SV_VertexID")throw std::runtime_error("Main Cloud source geometry absent");
-    std::ifstream passRows(source/"passes.txt");NativeMainCloudPass p;
+    NativePreparedInputFile passRows(source/"passes.txt");NativeMainCloudPass p;
     const auto programs=source_cloud_programs::read(source/"programs.txt");
     std::map<UINT,ComPtr<ID3D11VertexShader>> vertexPrograms;
     std::map<UINT,ComPtr<ID3D11PixelShader>> pixelPrograms;
@@ -193,10 +194,10 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
             if(p.pbytes.size()!=program.pixelConstantBytes)throw std::runtime_error("Cloud PS constants differ from selected RDEF");
             p.pcb=nativeMainCloudBuffer(device,p.pbytes);
         }
-        std::ifstream textureRows(source/"textures.txt");std::string rowPass,role,file;UINT slot;
+        NativePreparedInputFile textureRows(source/"textures.txt");std::string rowPass,role,file;UINT slot;
         while(textureRows>>rowPass>>slot>>role)if(rowPass==p.name)p.inputs.emplace_back(slot,role);
-        std::ifstream rtvRows(source/"rtvs.txt");while(rtvRows>>rowPass>>slot>>role)if(rowPass==p.name)p.outputs.emplace_back(slot,role);
-        std::ifstream samplerRows(source/"samplers.txt");std::string oppositeFile;
+        NativePreparedInputFile rtvRows(source/"rtvs.txt");while(rtvRows>>rowPass>>slot>>role)if(rowPass==p.name)p.outputs.emplace_back(slot,role);
+        NativePreparedInputFile samplerRows(source/"samplers.txt");std::string oppositeFile;
         while(samplerRows>>rowPass>>slot>>file>>oppositeFile)if(rowPass==p.name) {
             NativeMainCloudSampler sampler;sampler.slot=slot;
             sampler.sides[0]=ambientSampler(device,source/file);
@@ -207,16 +208,16 @@ static NativeMainCloud prepareNativeMainCloud(ID3D11Device* device,const fs::pat
     }
     result.draw.emplace(std::move(draw));
     }
-    std::ifstream animation(continuousSource/"animation.txt");NativeMainCloudAxis axis;
+    NativePreparedInputFile animation(continuousSource/"animation.txt");NativeMainCloudAxis axis;
     if(!animation)throw std::runtime_error("Main Cloud retained animation source absent");
     while(animation>>axis.sourcePhase>>axis.cbOffset>>axis.wind>>axis.period>>axis.position>>axis.scale){
         axis.weatherChannel=source_current_cloud_weather::decodeAnimationChannel(axis.sourcePhase);
         result.axes.push_back(axis);axis=NativeMainCloudAxis{};}
-    std::ifstream pending(continuousSource/"pending-vector.txt");
+    NativePreparedInputFile pending(continuousSource/"pending-vector.txt");
     for(UINT i=0;i<3;++i)pending>>result.baseWind[i]>>result.basePeriod[i];
     if(!pending)throw std::runtime_error("Main Cloud displacement source absent");
     if(result.draw) {
-    std::ifstream layout(continuousSource/"cb-layout.txt");std::string stage,field;UINT offset;
+    NativePreparedInputFile layout(continuousSource/"cb-layout.txt");std::string stage,field;UINT offset;
     if(!layout)throw std::runtime_error("Main Cloud CB layout source absent");
     while(layout>>stage>>field>>offset) {
         if(field=="previous_w2p")result.draw.value().previousMatrixOffset=offset;

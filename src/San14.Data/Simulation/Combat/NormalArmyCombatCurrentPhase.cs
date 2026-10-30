@@ -20,7 +20,7 @@ public sealed record NormalArmyCombatPairAutomaticSelection(
     NormalArmyCombatPairCurrentDamage Stage5,
     AutomaticTacticCurrentSelection? Selection);
 
-public enum AutomaticTacticPrefixOutcome { CurrentInputsUnresolved, NativeSkip, EffectsTailWaitingCommitted, AwaitingPlayerDecision }
+public enum AutomaticTacticPrefixOutcome { CurrentInputsUnresolved, NativeSkip, EffectsTailWaitingCommitted, AwaitingPlayerDecision, NativeStopped }
 public sealed record AutomaticTacticPrefixResult(AutomaticTacticPrefixOutcome Outcome,
     GameState State, NormalArmyCombatPairAutomaticSelection? Selection,
     PlayableNativeTacticActivationResult? Activation)
@@ -200,6 +200,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
                     createContext(definitions), selection.Stage5.Pair.Attacker.ArmyId, primary,
                     new(selected.TacticSlot, selected.Program, hexVectors), operationSampler,
                     plan.Moment.WorldThirdDate, operationEffects, plan.Moment.CalendarCycleOrdinal);
+                if (ArmyCampaignRuleAdapter.HasNativeCampaignStop(applied.State))
+                    return new(AutomaticTacticPrefixOutcome.NativeStopped, applied.State, selection, null);
                 if (applied.Continuation is { } pending)
                     return new(AutomaticTacticPrefixOutcome.AwaitingPlayerDecision, applied.State, selection, null)
                     { PendingAutomaticExecution = pending };

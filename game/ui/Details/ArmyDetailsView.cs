@@ -9,7 +9,13 @@ internal sealed record ArmyDetailsContent(IReadOnlyDictionary<int, string> Value
     string CommanderName, string? CommanderRuby, bool? NameplateVisible, DetailForceAppearance? Force,
     DeploymentFormationPresentation? Formation, IReadOnlyList<LoadedSprite>? PortraitLayers,
     bool? LandSelected, bool CanPreviewLand, bool CanPreviewNaval, int? Morale, int? MaximumMorale,
-    ArmyDetailsRadar? Radar = null);
+    ArmyDetailsRadar? Radar = null)
+{
+    internal int? CommanderId { get; init; }
+    internal bool? CaptivesAvailable { get; init; }
+    internal string? CaptivesUnresolvedOwner { get; init; }
+    internal IReadOnlyDictionary<int,int> NodePalettes { get; init; } = new Dictionary<int,int>();
+}
 
 /// <summary>The existing army's source detail page. Preview selection is local;
 /// the caller supplies current army values without creating deployment state.</summary>
@@ -27,12 +33,19 @@ internal partial class ArmyDetailsView : DetailsView
     private bool parameterPage;
     private bool? previewLand;
     private bool closed;
+    private UiSourceCommandButton commanderButton = null!, captivesButton = null!;
+    private Action<int>? inspectCommander;
+    private Action? inspectCaptives;
+    private int? currentCommander;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        Func<bool?, ArmyDetailsContent> query, Action close, Func<bool?, UnitSourceParameters>? parameters = null)
+        Func<bool?, ArmyDetailsContent> query, Action close, Func<bool?, UnitSourceParameters>? parameters = null,
+        Action<int>? inspectCommander = null, Action? inspectCaptives = null)
     {
+        this.inspectCommander = inspectCommander; this.inspectCaptives = inspectCaptives;
         this.repository = repository; this.text = text; this.query = query; queryParameters = parameters;
         assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ConfigureCommonBackdrop(repository);
         canvas = new Control { Name = "ArmyDetailsCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var header = new UiSourceHeader { Name = "ArmyDetailsTitle" }; canvas.AddChild(header);
@@ -56,9 +69,31 @@ internal partial class ArmyDetailsView : DetailsView
         var back = new UiSourceRoundButton { Name = "CloseArmyDetails", Position = footer.Rectangle(1, new(0, 904)).Position };
         canvas.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestClose, UiAudioCue.Cancel);
+        float x = footer.Rectangle(21).Position.X + 45;
+        float y = footer.Rectangle(21).Position.Y - 103;
+        commanderButton = FooterButton("ArmyOfficerDetails", 0x211, () =>
+        { if (currentCommander is int commander) this.inspectCommander?.Invoke(commander); });
+        captivesButton = FooterButton("ArmyCaptives", 0x3EC, () => this.inspectCaptives?.Invoke());
         Render(query(null));
+
+        UiSourceCommandButton FooterButton(string name, int captionId, Action action)
+        {
+            string label = Message(captionId);
+            float width = Math.Max(96, label.Length * 28 + 20);
+            var button = new UiSourceCommandButton { Name = name, Position = new(x, y), Size = new(width, 48),
+                InputAdmission = () => !closed && IsVisibleInTree() && CanProcess() };
+            canvas.AddChild(button);
+            button.Configure(repository, assets, shader, font, label, action);
+            x += width;
+            return button;
+        }
         Resized += Fit; Fit();
         SetMeta("parameter_page_available", parameters is not null);
+    }
+
+    internal void RefreshCurrent()
+    {
+        if (!closed && query is { } read) Render(read(previewLand));
     }
 
     private string Message(int id) => repository.LoadMessages(text.SourceLocale, MessageKind.Data)
@@ -67,6 +102,10 @@ internal partial class ArmyDetailsView : DetailsView
     private void Render(ArmyDetailsContent content)
     {
         previewLand = content.LandSelected;
+        currentCommander = content.CommanderId;
+        commanderButton.Disabled = inspectCommander is null || currentCommander is null;
+        captivesButton.Disabled = inspectCaptives is null || content.CaptivesAvailable != true;
+        captivesButton.SetMeta("unresolved_owner", content.CaptivesUnresolvedOwner ?? "");
         if (body is not null) { canvas.RemoveChild(body); body.QueueFree(); }
         body = new Control { Name = parameterPage ? "ArmyParameterPage" : "ArmyDefaultPage", Position = new(191, 197), Size = new(1540, 688), MouseFilter = MouseFilterEnum.Ignore };
         canvas.AddChild(body);
@@ -85,6 +124,11 @@ internal partial class ArmyDetailsView : DetailsView
             if (omitted.Contains(node.Index)) continue;
             if (node.Type is 1 or 3) source.Art(body, node.Index, source.Rectangle(node.Index), assets!, shader!);
         }
+        // These are the original authored supply/status sprites. Their
+        // actual current palette changes; their sprite and visibility do not.
+        var currentPalettes = MapSpritePalettes.Create();
+        foreach (var (node, palette) in content.NodePalettes)
+            source.Art(body, node, source.Rectangle(node), assets!, shader!, currentPalettes[palette]).Name = "ArmyPalette" + node;
         int[][] captions = [[14,0x1FD],[16,0x219],[18,0x1FE],[39,0x22B],[42,0x333],[56,600],
             [59,0x225],[65,0x20E],[68,0x226],[71,0x25E],[76,0x25C],[81,0x260],[86,0x20C],[89,0x20D]];
         foreach (var binding in captions) source.Text(body, binding[0], default, Message(binding[1]), font!, presets[13]);
@@ -104,7 +148,7 @@ internal partial class ArmyDetailsView : DetailsView
         foreach (var value in content.Values)
         {
             if (omitted.Contains(value.Key) || parameterPage && value.Key >= 110) continue;
-            source.Text(body, value.Key, default, value.Value, font!, presets[0]);
+            source.Text(body, value.Key, default, value.Value, font!, presets[0]).Name = "ArmyField" + value.Key;
         }
         if (content.Formation is { } formation)
         {
@@ -189,5 +233,5 @@ internal partial class ArmyDetailsView : DetailsView
     }
 
     public override void _ExitTree()
-    { closed = true; query = null; queryParameters = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); base._ExitTree(); }
+    { closed = true; query = null; queryParameters = null; inspectCommander = null; inspectCaptives = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); base._ExitTree(); }
 }

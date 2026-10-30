@@ -4,10 +4,14 @@ using System.Text.Json.Serialization;
 namespace San14.Core;
 
 public enum ArmyTargetKind { None, City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver, Gate }
-public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver, Gate }
+public enum ArmyTargetDestinationKind { City, ArmyReceiver, Unresolved, Hex, MapObjectReceiver, Gate, UnavailableBase, UnavailableObject }
 
 /// <summary>A destination names a campaign entity, not a source-table row.
 /// Unresolved means a selection is known to exist but has no decoded identity.</summary>
+/// <summary>UnavailableBase denotes an explicitly selected missing City/Gate
+/// receiver. Its IDs stay null; the target category retains which lookup failed.
+/// UnavailableObject retains an explicit Object lookup operand in the resource
+/// adapter while its captured lookup has no entity. Neither value is Unknown.</summary>
 public sealed record ArmyTargetDestination(ArmyTargetDestinationKind Kind, int? CityId, ArmyReceiverId? ReceiverId)
 {
     /// <summary>Campaign Gate location52..61, matching GameState.Gates.

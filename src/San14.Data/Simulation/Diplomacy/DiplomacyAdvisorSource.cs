@@ -1,8 +1,12 @@
 using San14.Core;
+using System.Collections.Immutable;
 
 namespace San14.Data;
 
-internal sealed record DiplomacyAdvisorResult(GameState State, string? Text, int? AdvisorOfficerId);
+internal sealed record DiplomacyAdvisorResult(GameState State, string? Text, int? AdvisorOfficerId)
+{
+    internal bool PositivePrediction { get; init; }
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
@@ -10,9 +14,18 @@ public sealed partial class ArmyCampaignRuleAdapter
     //drawing, card queries or submission. The borrowed current is page-owned.
     internal DiplomacyAdvisorResult ReadDiplomacyAdvisorCurrent(GameState state, SourceWorldContext current,
         int forceId, int executorId, int recipientId, DiplomaticMissionKind kind, int months,
-        int? targetCity, DiplomacyOffer offer)
+        int? targetCity, DiplomacyOffer offer,IReadOnlyList<int>? requestedCaptives=null)
+        =>ReadDiplomacyAdvisorCoreCurrent(state,current,forceId,executorId,recipientId,kind,months,targetCity,offer,requestedCaptives,out _);
+
+    private DiplomacyAdvisorResult ReadDiplomacyAdvisorCoreCurrent(GameState state, SourceWorldContext current,
+        int forceId, int executorId, int recipientId, DiplomaticMissionKind kind, int months,
+        int? targetCity, DiplomacyOffer offer,IReadOnlyList<int>? requestedCaptives,out int outcomeAtDispatch)
     {
-        if (Seed.Language != "TC") throw DiplomacyUiSource.Missing("advisor_SC_owner");
+        outcomeAtDispatch=-1;
+        if (state.NativeArmySimulation?.Parameters is not { } parameters ||
+            parameters.Language != Seed.Language ||
+            !HasDiplomacyParameterProfile(parameters.Language, parameters.RuleVersion))
+            throw DiplomacyUiSource.Missing("advisor_parameter_profile");
         var force = current.ReadForceTableReference(forceId) ?? throw Missing("Force_pointer");
         var advisor = Advisor(force);
         if (!Valid(advisor)) return new(state, null, null);
@@ -34,11 +47,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         var q = new DiplomacyQuery(this, state, current, executorId, recipientId,
             DiplomacyCommandSource.NativeKind(kind), months, targetCity);
+        if(kind==DiplomaticMissionKind.ReturnCaptives)q.RequestedCaptives=(requestedCaptives??[]).ToImmutableArray();
         TacticSourceSamplerWorld Sampler() => ReadArmyDestructionSampler(state, current) ?? throw Missing("sampler");
         bool accurate = TacticEffectSourceSamplerMath.Sample(100, 10, executorId, recipientId, 0, 0, Sampler()) < accuracy;
         int advisorId = Need(current.ReadPersonIdentity(Need(advisor.PhysicalSlot, "pointer")), "ID10");
         int ownRuler = q.Id(q.Ruler(q.Own)), otherRuler = q.Id(q.Ruler(q.Other));
         int root;
+        bool positivePrediction;
         HistoryMessageOperands operands;
         if (kind == DiplomaticMissionKind.CancelAlliance)
         {
@@ -52,6 +67,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (Need(current.ReadHexForceSlot(hex), "Army_Hex14") == q.OtherOrdinal)
                 { trespass = true; break; }
             }
+            positivePrediction = trespass;
             root = trespass ? 0x2D14 : 0x2D1A;
             operands = new(Person0: advisorId, Person1: ownRuler, Person2: otherRuler);
         }
@@ -60,7 +76,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             //The original evaluates322B80 before3254D0's shortcut gates.
             int probability = q.Probability(offer);
             var trial = ResolveDiplomacyTrialQuery(q, offer, probability, Sampler);
+            if(accuracy>=100)outcomeAtDispatch=trial.Accepted?1:0;
             bool positive = trial.Accepted == accurate;
+            positivePrediction = positive;
             operands = new(Person0: advisorId, Person1: ownRuler, Person2: executorId, Person3: otherRuler);
             if (kind == DiplomaticMissionKind.Goodwill) root = positive ? 0x2CD3 : 0x2CE3;
             else if (kind == DiplomaticMissionKind.Alliance)
@@ -72,7 +90,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             else if (kind == DiplomaticMissionKind.RequestAttack)
             {
                 if (trial.Branch == "request-attack-blocked")
-                { root = 0x3469; operands = new(Person0: advisorId, Force0: q.OtherOrdinal); }
+                { root = 0x3469; positivePrediction = false; operands = new(Person0: advisorId, Force0: q.OtherOrdinal); }
                 else
                 {
                     root = positive ? 0x2D7E : 0x2D8E;
@@ -80,10 +98,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                         Base0 = checked((ushort)(targetCity ?? throw Missing("target_Base4E"))) };
                 }
             }
+            else if(kind==DiplomaticMissionKind.ReturnCaptives)root=positive?0x2D5E:0x2D6E;
             else throw Missing("kind");
         }
         var formatted = FormatDiplomacyReportCurrent(state, current, root, operands);
-        return new(formatted.State, formatted.Text, string.IsNullOrEmpty(formatted.Text) ? null : advisorId);
+        return new(formatted.State, formatted.Text, string.IsNullOrEmpty(formatted.Text) ? null : advisorId)
+        { PositivePrediction = positivePrediction };
 
         TransferPersonReference Advisor(ForceReference f)
         {

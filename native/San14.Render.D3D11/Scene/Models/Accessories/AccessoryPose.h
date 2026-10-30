@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -136,7 +137,7 @@ inline NativeAccessoryPoseVector column(const NativeAccessoryPoseMatrix& referen
 }
 struct Reader {
     std::vector<uint8_t> bytes;size_t at=0;
-    explicit Reader(const std::filesystem::path& path){std::ifstream in(path,std::ios::binary);
+    explicit Reader(const std::filesystem::path& path){NativePreparedInputFile in(path,std::ios::binary);
         if(!in)throw std::runtime_error("accessory pose source missing");
         bytes.assign(std::istreambuf_iterator<char>(in),{});}
     void read(void* target,size_t length){if(length>bytes.size()-at)throw std::runtime_error("accessory pose source truncated");

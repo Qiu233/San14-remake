@@ -27,7 +27,7 @@ internal sealed class CityMerchantSource
     {
         State = state; Current = current; CityId = cityId; ability = readAbility;
         card = officerCard; hint = defaultHint; narration = prepareNarration;
-        if (state.NativeArmySimulation?.Parameters.Language != "TC") throw Missing("SC_rule_profile");
+        _ = CityMerchantRuleParameters.RequireProfile(state);
         if (!state.Cities.ContainsKey(cityId) || cityId is < 1 or > 51) throw Missing("city_identity");
         City = current.ReadCityTableReference(cityId) ?? throw Missing("city_pointer");
         if (!K(current.ReadBaseNativeValidity(City), "city_validity")) throw Missing("city_invalid");
@@ -54,7 +54,8 @@ internal sealed class CityMerchantSource
             var person = state.Officers.GetValueOrDefault(id) ?? throw Missing("Person_domain_identity");
             int? intelligence = readAbility(state, id, 2), politics = readAbility(state, id, 3);
             int? weight = intelligence is int a && politics is int b ? unchecked((a + b) * 100) : null;
-            var candidate = new CityMerchantCandidate(id, physical, person.Name, intelligence, politics, weight);
+            var candidate = new CityMerchantCandidate(id, physical, person.Name, intelligence, politics, weight)
+                { NameSortKey = person.CurrentNameSortKey };
             result.Add(candidate); candidates.Add(id, candidate);
         }
         Candidates = result.AsReadOnly();

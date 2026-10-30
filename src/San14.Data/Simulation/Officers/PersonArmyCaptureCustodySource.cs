@@ -45,9 +45,25 @@ public static class PersonArmyCaptureCustodySource
             byte status = Known(current.ReadPersonStatus(personPhysical), "current.Person_E6_after_prefix_callbacks");
             if (status == 1 && !allowLastCityRuler) throw Missing("branch.ruler_2F86F0_or_single_city_at_home_prefix");
             if (status is not (1 or 2 or 3 or 4)) throw Missing("branch.capture_prefix_requires_current_status2_or3_or4");
+            return BeginAfterCaptureCallbacksCurrent(state, current, personPhysical);
+        }
+        catch (InvalidDataException error) { return new(null, null, error.Message); }
+    }
+
+    /// <summary>Reached2E15B9..2E15DD stores after actual capture callbacks.
+    /// The caller owns its source admission; ordinary Army and Story Force
+    /// capture share these stores without inheriting each other's outer gate.</summary>
+    internal static PersonArmyCaptureStatusResult BeginAfterCaptureCallbacksCurrent(GameState state,
+        SourceWorldContext current, int personPhysical)
+    {
+        try
+        {
+            OfficerState person = Person(state, current, personPhysical);
+            byte status = Known(current.ReadPersonStatus(personPhysical), "current.Person_E6_after_prefix_callbacks");
             var auxiliaries = current.ReadOfficerAftermath(personPhysical)
                 ?? throw Missing("current.Person_destruction_auxiliary_owner");
             if (!state.OfficerOffices.ContainsKey(73)) throw Missing("current.Office73_projection");
+            current.SetMoraleWavePersonPostE7(personPhysical, 73);
             byte? district = status == 2
                 ? Known(current.ReadPersonDistrictSlot(personPhysical), "current.Person_E0_for_post_status_District") : null;
             current.ClearCaptureResetKnowledge(personPhysical);

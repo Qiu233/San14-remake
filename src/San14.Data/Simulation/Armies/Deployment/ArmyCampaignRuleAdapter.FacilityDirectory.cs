@@ -13,18 +13,18 @@ public sealed partial class ArmyCampaignRuleAdapter
         int? targetHexId = null, bool? tutorialRestrictsFacilities = null)
     {
         ArgumentNullException.ThrowIfNull(state);
-        const string columns = "facility.directory.original_column_descriptors";
-        const string sorting = "facility.directory.original_sort_descriptor";
         SourceWorldContext current;
         try
         {
             current = targetHexId.HasValue ? CaptureFacilityConstructionCurrent(state)
                 : CaptureWritableTransportRouteCurrent(state);
         }
-        catch (InvalidDataException error) { return new(Array.Empty<UnitFacilityDirectoryRow>(), error.Message, columns, sorting); }
+        catch (InvalidDataException error) { return new(Array.Empty<UnitFacilityDirectoryRow>(), error.Message, null, null); }
 
         var actor = ResolveActor();
-        return ReadFacilityDirectory(current, tutorialRestrictsFacilities, Eligibility);
+        return ReadFacilityDirectory(state,current,tutorialRestrictsFacilities,Eligibility,
+            actor.Allowed is null?null:[actor.Person],[state.Units.TryGetValue(unitId,out var selectedUnit)&&selectedUnit.NativeArmyOrigin?.NativeSlotIndex is int selectedSlot
+                ?current.ReadArmyReturnResourceFields(new ArmyUnitReference(selectedSlot))?.Ready16:null]);
 
         (int? Person, ForceState? Force, bool? Allowed, string? Reason, string? Missing) ResolveActor()
         {
@@ -62,10 +62,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 if (targetHexId is int target)
                 {
-                    // The existing site leaf does not model the tutorial
-                    // controller's qualification shortcut. Do not guess it.
-                    if (tutorialDefinition && tutorialRestrictsFacilities != false)
-                        throw Missing("directory_tutorial_site_predicate");
                     var site = current.ReadHexTableReference(target) ?? throw Missing("directory_site_pointer");
                     string? rejected = null;
                     bool allowed = FacilityConstructionLegality.CheckCommander(state, current,
@@ -75,20 +71,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //2C4E30's real tutorial shortcut precedes policy and trait.
                 if (tutorialDefinition && tutorialRestrictsFacilities == true) return (true, null, null);
                 if (definition is null) throw Missing("directory_definition_fields");
-                if (definition.RequiredPolicyEffect != 0)
+                if(definition.RequiredTrait!=0 && !K(TacticRemakeCurrentTraits.CommanderHasEffect(
+                    current,actor.Person!.Value,definition.RequiredTrait),"directory_intrinsic_trait"))
+                    return (false,"structure.selection.trait",null);
+                if(!FacilityConstructionQualification.PersonQualifies(state,current,actor.Person!.Value,definition))
                 {
-                    if (!state.PolicyEffects.ContainsKey(definition.RequiredPolicyEffect)) throw Missing("directory_policy_definition");
-                    int level = K(BattleRemakeCurrentForcePolicies.ReadForceLevel(state, actor.Force!,
-                        definition.RequiredPolicyEffect), "directory_policy_current_level");
-                    if (level < definition.RequiredPolicyLevel)
-                    {
-                        if (tutorialDefinition && tutorialRestrictsFacilities is null) throw Missing("directory_tutorial_owner");
-                        return (false, "structure.selection.policy", null);
-                    }
+                    if(tutorialDefinition && tutorialRestrictsFacilities is null)throw Missing("directory_tutorial_owner");
+                    return (false,"structure.selection.commander_or_policy",null);
                 }
-                //2307D0's collected personalities cannot be substituted by
-                //the current commander's nine-slot2C5830 precheck.
-                if (definition.RequiredTrait != 0) throw Missing("directory_required_trait_collector");
                 return (true, null, null);
             }
             catch (InvalidDataException error) { return (null, null, error.Message); }
@@ -96,12 +86,11 @@ public sealed partial class ArmyCampaignRuleAdapter
 
 
     }
-    private UnitFacilityDirectory ReadFacilityDirectory(SourceWorldContext current, bool? tutorialRestrictsFacilities,
+    private UnitFacilityDirectory ReadFacilityDirectory(GameState state,SourceWorldContext current, bool? tutorialRestrictsFacilities,
         Func<ObjectDefinitionReference, FacilityConstructionDefinition?, bool,
-            (bool? Allowed, string? Reason, string? Missing)> readEligibility)
+            (bool? Allowed, string? Reason, string? Missing)> readEligibility,
+        int?[]? selectionPeople=null,int?[]? selectionTroops=null)
     {
-        const string columns = "facility.directory.original_column_descriptors";
-        const string sorting = "facility.directory.original_sort_descriptor";
         // The accepted arrival-name consumer uses this same physical catalog
         // owner after resolving the definition lookup pointer.
         var catalog = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions;
@@ -132,7 +121,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 rows.Add(new(lookup, MapObjectSourceDirectory.DefinitionKey(lookup), physical, name, category,
                     included, eligibility.Allowed, eligibility.Reason,
                     Join(inclusionMissing, eligibility.Missing),
-                    IsSupported(physical) && category != 3)
+                    IsSupported(physical))
                 {
                     BaseDurability = durability,
                     BaseGoldCost = definition?.BaseGoldCost,
@@ -154,7 +143,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     name, category, included, null, null, error.Message, false));
             }
         }
-        return new(rows.AsReadOnly(), null, columns, sorting);
+        var visible=rows.Where(row=>row.OriginalIncluded!=false).ToArray();
+        return new(rows.AsReadOnly(),null,null,null)
+            {Pages=PrepareFacilitySelectionPages(state,current,catalog,visible,selectionPeople,selectionTroops)};
 
         static string? Join(string? first, string? second) => first is null ? second
             : second is null || second == first ? first : first + "; " + second;

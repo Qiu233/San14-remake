@@ -6,7 +6,8 @@ using San14.Data.Formats;
 using NVector3 = System.Numerics.Vector3;
 
 internal sealed record D3D11ArmyLabelPublication(ArmyMapUiCurrentFrame Fields,
-    IReadOnlyDictionary<int, ArmySimpleOutlineResult> SimpleStyles);
+    IReadOnlyDictionary<int, ArmySimpleOutlineResult> SimpleStyles,
+    IReadOnlyDictionary<int, int>? ArmyUnitIdsByReceiver);
 
 internal readonly record struct ArmyMapLabelHit(int UnitId, int HexId, NVector3 Position,
     ArmyMapHitGeometry Geometry);
@@ -22,6 +23,8 @@ internal partial class D3D11ArmyMapLabels : Control
     private readonly Dictionary<(int Appearance, bool Group), ShaderMaterial> _portraits = [];
     private readonly Dictionary<(int Appearance, bool Group), string> _portraitUnavailable = [];
     private GameResourceRepository _repository = null!;
+    private LocalizedUiSpriteSource _portraitSource = null!;
+    private int _portraitResourceVersion = -1;
     private UiAssets _assets = null!;
     private MapFont _font = null!;
     private MapFontProfile _numberFont = null!;
@@ -49,15 +52,26 @@ internal partial class D3D11ArmyMapLabels : Control
     private ArmyMapUiCurrentFrame? _fields;
     private readonly Dictionary<int, ArmyMapUiCurrentRow> _rows = [];
     private readonly Dictionary<int, ArmySimpleOutlineResult> _simpleStyles = [];
+    private IReadOnlyDictionary<int, int>? _armyUnitIdsByReceiver;
+    private readonly Dictionary<int, int> _armyReceiversByUnitId = [];
     private MainMapCameraFrame? _preparedHitFrame, _acceptedHitFrame;
     private ArmyMapLabelHit[] _preparedHits = [], _acceptedHits = [];
     private ArmyMapHitGeometry _normalHit, _groupHit, _singleFlagHit, _groupFlagHit;
+    private IReadOnlyDictionary<OrdinaryTacticViewIdentity, int>? directionSuppression;
+    internal void SetDirectionSuppression(IReadOnlyDictionary<OrdinaryTacticViewIdentity, int> counts)
+    {
+        directionSuppression = counts;
+        foreach (var (id, card) in _cards)
+            if (DirectionSuppressesUnit(id)) card.Visible = false;
+    }
 
     internal ArmyMapUiCurrentFrame? CurrentFields => _fields;
     internal IReadOnlyDictionary<int, ArmyMapCard> Cards => _cards;
-    internal OrdinaryTacticViewPose TacticViewPose(int unitId)
+    internal OrdinaryTacticViewPose TacticViewPose(int receiverId)
     {
-        if (!_rows.TryGetValue(unitId, out var row)) return new(false, null);
+        if (_armyUnitIdsByReceiver is null) return new(false, null, "tactic.view.Army_receiver_owner");
+        if (!_armyUnitIdsByReceiver.TryGetValue(receiverId, out int unitId)) return new(false, null);
+        if (!_rows.TryGetValue(unitId, out var row)) return new(false, null, "tactic.view.Army_current_label");
         if (row.ArmyValid is not bool valid) return new(false, null, "tactic.view.Army_native_validity");
         return valid && _cards.TryGetValue(unitId, out var card) && card.PositionReady
             ? new(true, new System.Numerics.Vector4(card.UnitPosition, 1)) : new(valid, null);
@@ -84,6 +98,7 @@ internal partial class D3D11ArmyMapLabels : Control
         ClipContents = true;
         AddChild(_root);
         _repository = repository; _assets = assets; _font = font; _queries = queries;
+        _portraitSource = new(repository);
         _colors = colors; _palettes = palettes; _bars = bars; _barPanel = barPanel;
         _source = ArmyMapMarkerSources.Load(repository);
         _ui = ArmyMapUiSources.Create();
@@ -153,7 +168,13 @@ internal partial class D3D11ArmyMapLabels : Control
                 styles.Add(row.UnitId, ArmySimpleOutlineSource.ReadOrdinaryMap(world,
                     current, current.ReadDistrictTableReference(raw <= 51 ? raw : 0)));
         }
-        return new(fields, styles);
+        // Receiver identity survives retirement/reuse; render cards use the
+        // current active Unit identity. Capture this boundary with the World,
+        // rather than searching its roster for each beam or camera request.
+        var unitsByReceiver = world.ArmyLifecycle?.Receivers.Entries
+            .Where(entry => entry.ActiveUnitId is int id && world.Units.ContainsKey(id))
+            .ToDictionary(entry => entry.ReceiverId.Value, entry => entry.ActiveUnitId!.Value);
+        return new(fields, styles, unitsByReceiver);
     }
 
     internal void RefreshTraitViews(GameState world)
@@ -162,6 +183,35 @@ internal partial class D3D11ArmyMapLabels : Control
         ApplyPublication(publication);
         _capturedWorld = world;
         _capturedLabelPublication = null;
+    }
+
+    internal bool RebuildDepartureInfo(ArmyDeparturePresentationWorld prepared, ArmyDeparturePresentationRequest request,
+        out string? missing)
+    {
+        int unitId = request.ArmyAtSource.Id;
+        var source = prepared.UiFields.Rows.FirstOrDefault(row => row.UnitId == unitId);
+        if (source is not { ArmyValid: true, PersonValid: true })
+        {
+            missing = prepared.UiFields.Unavailable.FirstOrDefault(row => row.UnitId == unitId)?.Field
+                ?? "army-departure.source_info";
+            return false;
+        }
+        // The departure owns the commander's source portrait. Later edits or
+        // a reused receiver cannot select a replacement for this command.
+        var rows = (_fields?.Rows??[]).Where(row=>row.UnitId!=unitId&&row.ArmyPhysicalSlot!=source.ArmyPhysicalSlot)
+            .Append(source with {AppearanceA6=checked((ushort)request.OfficerAppearanceAtSource)}).ToArray();
+        var fields=new ArmyMapUiCurrentFrame(rows,(_fields?.Unavailable??[]).Where(row=>row.UnitId!=unitId)
+            .Concat(prepared.UiFields.Unavailable).ToArray());
+        var styles=new Dictionary<int,ArmySimpleOutlineResult>(_simpleStyles);
+        if(prepared.Outline is {} outline)styles[unitId]=outline;
+        var receivers=prepared.World.ArmyLifecycle?.Receivers.Entries
+            .Where(row=>row.ActiveUnitId is int id&&prepared.World.Units.ContainsKey(id))
+            .ToDictionary(row=>row.ReceiverId.Value,row=>row.ActiveUnitId!.Value);
+        ApplyPublication(new(fields,styles,receivers));
+        _capturedWorld = prepared.World; _capturedLabelPublication = null;
+        RefreshDeparturePersonalities(unitId,prepared.Personalities);
+        missing = HasSpeechLayout(unitId) ? null : "army-departure.source_info_layout";
+        return missing is null;
     }
 
     internal bool HasRefreshedTraitView(GameState world, int unitId, out string? missing)
@@ -179,6 +229,10 @@ internal partial class D3D11ArmyMapLabels : Control
     private void ApplyPublication(D3D11ArmyLabelPublication publication)
     {
         _fields = publication.Fields;
+        _armyUnitIdsByReceiver = publication.ArmyUnitIdsByReceiver;
+        _armyReceiversByUnitId.Clear();
+        if (_armyUnitIdsByReceiver is not null)
+            foreach (var (receiver, unit) in _armyUnitIdsByReceiver) _armyReceiversByUnitId.Add(unit, receiver);
         _rows.Clear(); _simpleStyles.Clear();
         foreach (var row in _fields.Rows) _rows.Add(row.UnitId, row);
         foreach (var pair in publication.SimpleStyles) _simpleStyles.Add(pair.Key, pair.Value);
@@ -219,7 +273,7 @@ internal partial class D3D11ArmyMapLabels : Control
             _capturedWorld = world;
         }
         if (input.PeriodArmyLabels is null) _capturedLabelPublication = null;
-        foreach (var card in _cards.Values) card.Visible = false;
+        foreach (var card in _cards.Values) { card.Visible = false; card.ProjectedVisible = false; }
         var missing = new List<string>();
         int level = MapLabelPresentation.SettledCameraLevel(frame.ZoomSelection);
         if (level < 6)
@@ -276,7 +330,8 @@ internal partial class D3D11ArmyMapLabels : Control
                 card.Position = presentation.Display == 2 ? screen : screen +
                     ToGodot(ArmyMapMarkerSources.NormalScreenOffset(
                         frame.ControllerState.Distance90, _nearDistance, _distanceRange));
-                card.Visible = true;
+                card.Visible = !DirectionSuppressesUnit(row.UnitId);
+                card.ProjectedVisible = true;
             }
         if (_fields is not null)
             missing.AddRange(_fields.Unavailable.Select(row => row.UnitId + ":" + row.Field));
@@ -292,9 +347,11 @@ internal partial class D3D11ArmyMapLabels : Control
         var missing = new List<int>();
         //Keep the actual child paint order, including retirement/reinsertion;
         //receipt roster and Dictionary enumeration need not match that order.
-        foreach (ArmyMapCard card in _root.GetChildren())
+        foreach (Node child in _root.GetChildren())
         {
-            if (!card.Visible) continue;
+            // The shared paint root also owns speech, tactic and effect views.
+            // Only army cards contribute map hits; retain their child order.
+            if (child is not ArmyMapCard card || !card.Visible) continue;
             var unit = input.WorldState!.Units[card.Fields.UnitId];
             if (unit.ConfirmedHexId is not int hex) { missing.Add(unit.Id); continue; }
             int x = (int)card.Position.X, y = (int)card.Position.Y;
@@ -333,14 +390,20 @@ internal partial class D3D11ArmyMapLabels : Control
 
     private ShaderMaterial? Portrait(ushort appearance, List<string> missing, bool group = false)
     {
+        if (_portraitResourceVersion != _repository.PortraitResourceVersion)
+        {
+            _portraits.Clear(); _portraitUnavailable.Clear();
+            _portraitResourceVersion = _repository.PortraitResourceVersion;
+        }
         var key = ((int)appearance, group);
         if (_portraits.TryGetValue(key, out var material)) return material;
         if (_portraitUnavailable.TryGetValue(key, out string? old)) { missing.Add(old); return null; }
         try
         {
-            var names = _ui.PortraitNames(appearance);
+            var names = _repository.ResolveFacePortrait(appearance);
+            var portrait = _portraitSource.LoadTexturePackSprite(names.ResourceName, names.SpriteName);
             material = MapPortraitQuad.CreateMaterial(_repository, _portraitShader, _assets,
-                names.SpriteName, group ? _groupPortraitParts : _portraitParts);
+                portrait, group ? _groupPortraitParts : _portraitParts);
             _portraits.Add(key, material);
             return material;
         }
@@ -396,6 +459,7 @@ internal partial class D3D11ArmyMapLabels : Control
         internal ArmyMapUiCurrentRow Fields { get; private set; } = null!;
         internal NVector3 UnitPosition { get; private set; }
         internal bool PositionReady { get; private set; }
+        internal bool ProjectedVisible { get; set; }
         internal ArmyMapLabelPresentation Presentation { get; private set; }
         internal Texture2D? Icon { get; private set; }
         internal Color ForceTint { get; private set; }
@@ -443,6 +507,7 @@ internal partial class D3D11ArmyMapLabels : Control
                 _portrait.QueueRedraw();
             }
             QueueRedraw(); _details.QueueRedraw();
+            UpdatePersonalityVisibility();
         }
         public override void _Draw()
         {

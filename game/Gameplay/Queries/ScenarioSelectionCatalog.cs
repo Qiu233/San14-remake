@@ -22,8 +22,8 @@ internal sealed class ScenarioSelectionCatalog
     internal S14Entry Scenario(int id) => documents[id];
 
     internal static ScenarioSelectionCatalog Create(GameResourceRepository repository, string locale,
-        IReadOnlyDictionary<int, S14Entry> availableSources, IReadOnlyList<uint> specialUnlocks,
-        Func<int, bool> completed, Func<bool> specialScenarioEnabled, Func<S14Entry, int> resolveLegacyEdition)
+        IReadOnlyDictionary<int, S14Entry> availableSources, IReadOnlyList<uint?> specialUnlocks,
+        Func<int, bool?> completed, Func<bool?> specialScenarioEnabled, Func<S14Entry, int> resolveLegacyEdition)
     {
         ArgumentNullException.ThrowIfNull(availableSources);
         ArgumentNullException.ThrowIfNull(completed);
@@ -34,7 +34,8 @@ internal sealed class ScenarioSelectionCatalog
         string language = locale switch { "TC" => "tw", "SC" => "ch", _ => throw new ArgumentOutOfRangeException(nameof(locale)) };
         var selected = new List<S14Entry>();
         // The native ordinary call scans [0,199), requiring the actual source
-        // ID and filter0/1. Its three special unlocks omit rows, not disable them.
+        // ID and filter0/1. Known zero special unlocks omit rows. Unknown older
+        // profile history retains only that row for preview without admitting it.
         for (int id = 0; id < 199; id++)
         {
             if (!availableSources.TryGetValue(id, out var document)) continue;
@@ -77,7 +78,10 @@ internal sealed class ScenarioSelectionCatalog
             string month = string.Format(CultureInfo.InvariantCulture, "{0,2}{1}", document.StartMonth, monthSuffix);
             var content = new ScenarioSelectionButtonContent(year, month, document.Title!, badge,
                 metadata.ScenarioKindCode != 0, completed(id));
-            rows.Add(new(id, content, id != 19 || specialScenarioEnabled()));
+            int unlock = id switch { 8 => 0, 25 => 1, 63 => 2, _ => -1 };
+            bool? enabled = unlock >= 0 && specialUnlocks[unlock] is null ? null :
+                id == 19 ? specialScenarioEnabled() : true;
+            rows.Add(new(id, content, enabled));
             documents.Add(id, document);
         }
         return new(rows.ToArray(), documents);

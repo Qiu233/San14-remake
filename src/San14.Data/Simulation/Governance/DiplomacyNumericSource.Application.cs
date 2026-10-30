@@ -10,6 +10,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         PersonnelDiplomacyTask task,DiplomacyOffer offer,bool accepted,List<CampaignEffectRequest> effects,
         NativeMapSeasonDate? operationDate = null)
     {
+        if(task.NativeKind==7)return ApplyDemandSurrenderNumericCurrent(state,current,task,offer,accepted,effects,operationDate);
         RequireDiplomacyItemOfferCurrent(state,current,task,offer);
         var q=new DiplomacyQuery(this,state,current,task);
         var sourceHome=DRulerHome(q,q.Own,out int ownRuler);var targetHome=DRulerHome(q,q.Other,out int otherRuler);
@@ -47,6 +48,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             else delta=q.Parameter("goodwill-failure-adjustment"); //Current BSS, never virtual zero.
             working=ApplyDiplomacyRelationCurrent(working,current,q.OwnOrdinal,q.OtherOrdinal,delta,effects);
             if(!accepted)working=DApplyFailureCooldown(working,current,q,"goodwill-failure-cooldown-days");
+            working=RecordTutorialGoodwillResolutionCurrent(working);
         }
         else if(task.NativeKind==5)
         {
@@ -65,6 +67,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 working=ApplyDiplomacyRelationCurrent(working,current,q.OwnOrdinal,q.OtherOrdinal,q.Parameter("alliance-failure-adjustment"),effects);
                 working=DApplyFailureCooldown(working,current,q,"alliance-failure-cooldown-days");
             }
+            working=RecordTutorialAllianceResolutionCurrent(working);
         }
         else if(task.NativeKind==9)
         {
@@ -91,6 +94,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 working=DApplyFailureCooldown(working,current,q,"attack-failure-cooldown-days");
             }
         }
+        if(task.NativeKind==8)working=ApplyReturnCaptivesNumericCurrent(working,current,task,offer,accepted,effects,operationDate);
+        if(task.NativeKind==19)working=ApplyExchangeRelationCurrent(working,current,task,accepted,effects);
         if(accepted)
         {
             working=DApplyAcceptedDiplomaticItemHead(working,current,task,offer,ownRuler,otherRuler);
@@ -99,7 +104,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             working=DAddDiplomacyResource(working,current,targetHome,BaseResourceKind.Supplies,offer.Supplies);
             working=DAddDiplomacyResource(working,current,sourceHome,BaseResourceKind.Supplies,unchecked(task.InitialOffer.Supplies-offer.Supplies));
             working=DApplyAcceptedDiplomaticItemRefund(working,current,task,offer,ownRuler);
+            if(task.NativeKind==19)working=ApplyExchangeRequestedOfferSettlementCurrent(working,current,task,true,effects,operationDate);
             working=ApplyDiplomacyAreaOfferSettlementCurrent(working,current,task,offer,true,effects,operationDate);
+            if(task.NativeKind==19)working=ApplyExchangeRequestedAreaSettlementCurrent(working,current,task,true,effects,operationDate);
         }
         else
         {

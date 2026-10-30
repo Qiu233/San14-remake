@@ -32,18 +32,28 @@ public partial class PlayableForceHud : Control
     private (string Pack, string Sprite)? _shownPortrait;
     private MapAdvanceButton _advance = null!;
     private Shader? _spriteShader;
+    private MapCommandRail? _commandRail;
+    private Control? _ordinaryHeader;
+    internal void ApplyMainCommandAutomaticHide(bool? hidden) => _commandRail?.ApplyAutomaticHide(hidden);
+    internal bool? StrategyControlReady => _commandRail?.SourceControlReady;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, ForceHudView view,
         Action advance, Action openForceDetails, IReadOnlyDictionary<MapMenuCommand, Action>? mapCommands = null,
-        Action? openSystemMenu = null, Action? openInformationMenu = null)
+        Action? openSystemMenu = null, Action? openInformationMenu = null,
+        Action<int>? changeSpeed = null,int speed=1)
     {
         Name = "PlayableForceHud";
         ZIndex = 2;
         Size = new Vector2(620, 288);
         MouseFilter = MouseFilterEnum.Ignore;
+        //Attach owned controls to their final header before configuring them.
+        //Reparenting a live source sprite retires its material in _ExitTree.
+        _ordinaryHeader = new Control { Name = "OrdinaryMapHeader", MouseFilter = MouseFilterEnum.Ignore, Size = Size };
+        AddChild(_ordinaryHeader);
         _assets = new UiAssets(repository);
         _font = new MapFont(repository, text.SourceLocale);
         _repository = repository; _portraitSources = new(repository);
+        executionText=text;
         _spriteShader = UiSourceSprite.CreateShader();
         // CMainTopLayoutOffset selects the Chinese layout by its Common name.
         var header = repository.LoadLayout("ScreenLayout", 0xBB442620);
@@ -52,7 +62,9 @@ public partial class PlayableForceHud : Control
         MapTextPresets presets = MapTextPresets.Create();
 
         var commandRail = new MapCommandRail();
-        commandRail.Configure(repository, text.SourceLocale, mapCommands ?? new Dictionary<MapMenuCommand,Action>());
+        commandRail.Configure(repository, text.SourceLocale, mapCommands ?? new Dictionary<MapMenuCommand,Action>(),
+            view.MainCommandStyle, view.MainCommandPresentation, view.UnknownText);
+        _commandRail=commandRail;
         AddChild(commandRail);
         if (openSystemMenu is not null || openInformationMenu is not null)
         {
@@ -93,7 +105,7 @@ public partial class PlayableForceHud : Control
         _doctrineLevel = AddText("DoctrineLevel", "val_lv_fc001", 0);
         _doctrineGauge = new MapDoctrineGauge();
         _doctrineGauge.Configure(source, _assets, _spriteShader);
-        AddChild(_doctrineGauge);
+        _ordinaryHeader.AddChild(_doctrineGauge);
         ConfigureExperienceHeader(source, nodes, text.SourceLocale, AddText);
 
         LcskNodeRecord flagNode = nodes.Single(n => n.Name == "flag");
@@ -102,7 +114,7 @@ public partial class PlayableForceHud : Control
             Name = "ForceFlag", Position = new(flagNode.HeaderValues[0], -flagNode.HeaderValues[1]),
             Size = new(flagNode.Value44, flagNode.Value46), MouseFilter = MouseFilterEnum.Ignore
         };
-        AddChild(_flag);
+        _ordinaryHeader.AddChild(_flag);
         foreach (string suffix in new[] { "a", "b", "c" })
         {
             string sprite = "000_cmn_main_haeder_flag_" + suffix;
@@ -111,8 +123,7 @@ public partial class PlayableForceHud : Control
             layer.Name = "ForceFlag_" + suffix;
             if (suffix == "b") _flagFill = layer;
         }
-        _flagText = AddText("ForceFlagText", "val_10_fc001_0001", null);
-        _flagText.Reparent(_flag, false);
+        _flagText = AddTextTo(_flag, "ForceFlagText", "val_10_fc001_0001", null);
 
         var forceDetails = new Button
         {
@@ -123,21 +134,33 @@ public partial class PlayableForceHud : Control
             MouseFilter = MouseFilterEnum.Stop
         };
         forceDetails.Pressed += openForceDetails;
-        AddChild(forceDetails);
+        _ordinaryHeader.AddChild(forceDetails);
 
-        AddPicture("AdvanceOuterRing", "000_cmn_gauge_base_adv", new Rect2(0, 86, 256, 256));
+        var executionLayout=new UiSourceLayout(repository,0x454A1BCC);
+        Vector2 advancePosition=executionLayout.Rectangle(26).Position;
+        progressRing=new MapProgressRing {Position=advancePosition};
+        _ordinaryHeader.AddChild(progressRing);progressRing.Configure(repository,_assets,_spriteShader);
         _advance = new MapAdvanceButton
         {
             Name = "MapAdvanceTenDays",
-            Position = new Vector2(64, 150)
+            Position = advancePosition
         };
         _advance.Configure(_assets, repository);
         _advance.Pressed += advance;
-        AddChild(_advance);
+        _ordinaryHeader.AddChild(_advance);
+        executionControls=new MapExecutionControls {Position=executionLayout.Rectangle(18).Position};
+        _ordinaryHeader.AddChild(executionControls);
+        executionControls.Configure(repository,_assets,_spriteShader,_advance,changeSpeed??(_=>{}),speed);
+        //Sibling ordering changes without removing any initialized subtree.
+        MoveChild(_ordinaryHeader, -1);
+        // The command submenu does not own the advance controls in this header.
         Refresh(view);
         SetMeta("original_map_hud_layout_verified", false);
 
         UiSourceText AddText(string name, string sourceName, int? preset)
+            => AddTextTo(_ordinaryHeader!, name, sourceName, preset);
+
+        UiSourceText AddTextTo(Control parent, string name, string sourceName, int? preset)
         {
             LcskNodeRecord node = nodes.Single(n => n.Name == sourceName);
             Rect2 rectangle = Rectangle(node);
@@ -148,7 +171,7 @@ public partial class PlayableForceHud : Control
             };
             MapFontProfile profile = MapFontProfile.FromNode(node, header.Source.ResourceUri);
             label.Configure(_font, preset is int style ? profile.WithPreset(presets[style]) : profile);
-            AddChild(label);
+            parent.AddChild(label);
             return label;
         }
 
@@ -165,6 +188,8 @@ public partial class PlayableForceHud : Control
 
     internal void Refresh(ForceHudView view)
     {
+        _commandRail?.Refresh(view.MainCommandStyle);
+        _commandRail?.RefreshPresentation(view.MainCommandPresentation);
         _year.Text = view.Year;
         _month.Text = view.Month;
         _period.Text = view.Period;
@@ -202,7 +227,8 @@ public partial class PlayableForceHud : Control
         _commandBookCaption.Visible = _orders.Visible = _commandBooksVisible != false;
         if (_commandBooksVisible is null) _orders.Text = view.UnknownText;
         SetMeta("command_books_visibility", _commandBooksVisible is bool shown ? shown ? "Visible" : "Hidden" : "Unresolved");
-        _advance.Disabled = !view.CanAdvance;
+        lastCanAdvance=view.CanAdvance;
+        _advance.Disabled = executingPeriod?false:!view.CanAdvance;
         SetMeta("force_id", view.ForceId);
         SetMeta("world_period_number", view.PeriodNumber);
         SetMeta("gold", view.Figures.Gold);
@@ -233,10 +259,10 @@ public partial class PlayableForceHud : Control
         // Publish the successful resource/control pair together. A load or
         // format failure must leave the old portrait and retry key intact.
         if (_portrait is not null)
-        { RemoveChild(_portrait); _portrait.QueueFree(); _portrait = null; }
+        { _portrait.GetParent().RemoveChild(_portrait); _portrait.QueueFree(); _portrait = null; }
         _shownPortrait = key;
         _portrait = next;
-        if (next is not null) { AddChild(next); MoveChild(next, 0); }
+        if (next is not null) { (_ordinaryHeader ?? this).AddChild(next); next.GetParent().MoveChild(next, 0); }
     }
 
     internal void FitToMap(Vector2 mapSize)
@@ -256,7 +282,7 @@ public partial class PlayableForceHud : Control
             StretchMode = TextureRect.StretchModeEnum.Scale,
             MouseFilter = MouseFilterEnum.Ignore
         };
-        AddChild(picture);
+        _ordinaryHeader!.AddChild(picture);
         return picture;
     }
 

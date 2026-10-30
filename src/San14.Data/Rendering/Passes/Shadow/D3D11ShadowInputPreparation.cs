@@ -17,7 +17,8 @@ public sealed record D3D11ShadowInitialFamily(ReadOnlyMemory<byte> MainPrefix,
 public sealed class D3D11ShadowInputPreparation
 {
     private sealed record World(int Index,uint Exclusion,int Flags,float Opacity,int PrimitiveCount);
-    private sealed record Template(int Index,int Bytes,bool LocalToProjection,byte[] Vertex,string[] Layout);
+    private sealed record Template(int Index,int Bytes,bool LocalToProjection,byte[] Vertex,string[] Layout,
+        int PixelProgram=-1,byte[]? Pixel=null,byte[]? PixelConstants=null);
     private const byte SupportedDepthPixelFormat=0x4E;
     private const uint ShadowDepthProgramClass=5;
     private const float QueueShadowBiasScale=1f;
@@ -59,7 +60,16 @@ public sealed class D3D11ShadowInputPreparation
         var shaderObjects=repository.LoadObjects("system",0x718CCB8B);
         var result=new List<Template>();
         foreach(var template in field.SourceShadowTemplates)
-            Add(template.TemplateIndex,template.FinalTable,template.Matrix,template.VertexLayout);
+        {
+            MapStaticModelAsset? treeAsset=null;int treeDraw=0;
+            if(template.FinalTable.Object.ClassId==0xAB9C4087)
+            {
+                var source=field.SourcePrimitiveMappings.First(row=>row.TemplateIndex==template.TemplateIndex);
+                var placement=field.SourcePlacements.Instances.Single(row=>row.Source.Index==source.SceneInstanceIndex);
+                treeAsset=field.SourceAssets.LoadSceneInstance(placement.Source);treeDraw=source.DrawIndex;
+            }
+            Add(template.TemplateIndex,template.FinalTable,template.Matrix,template.VertexLayout,treeAsset,treeDraw);
+        }
         int fieldTemplates=result.Count;
         string[] primaryDirectories=File.ReadAllLines(Path.Combine(primary.Directory,"models.txt"));
         foreach(var profile in primary.Profiles)
@@ -82,8 +92,17 @@ public sealed class D3D11ShadowInputPreparation
             }
         }
         templates=result.OrderBy(value=>value.Index).ToArray();
-        void Add(int index,NamedModelShader final,ModelMatrixBindingInput matrix,IReadOnlyList<string> resourceLayout)
+        void Add(int index,NamedModelShader final,ModelMatrixBindingInput matrix,IReadOnlyList<string> resourceLayout,
+            MapStaticModelAsset? treeAsset=null,int treeDraw=0)
         {
+            if(final.Object.ClassId==0xAB9C4087)
+            {
+                var tree=Tree2ShadowTemplateSource.Prepare(repository,
+                    treeAsset??throw new NotSupportedException("Tree2 shadow requires its actual owned model material."),
+                    treeDraw,final,matrix,resourceLayout);
+                result.Add(new(index,272,false,tree.Vertex,tree.Layout,tree.PixelProgram,tree.Pixel,tree.PixelConstants));
+                return;
+            }
             var renderer=shadowQueue.LoadRenderer(repository,shadowQueue.ReadFinalInterface(final));
             var state=selector.CreateOwnedRenderer(renderer);var frontend=selector.ConstructFreshFrontendFields();
             frontend.ApplyPrimitiveEntry(true);
@@ -128,6 +147,11 @@ public sealed class D3D11ShadowInputPreparation
         {
             string output=Path.Combine(directory,"gpu","template-"+template.Index);Directory.CreateDirectory(output);
             File.WriteAllBytes(Path.Combine(output,"vs.dxbc"),template.Vertex);File.WriteAllLines(Path.Combine(output,"layout.txt"),template.Layout);
+            if(template.Pixel is not null)
+            {
+                File.WriteAllBytes(Path.Combine(output,"ps.dxbc"),template.Pixel);
+                File.WriteAllBytes(Path.Combine(output,"ps-b0.bin"),template.PixelConstants!);
+            }
         }
         using var admission=new BinaryWriter(File.Create(Path.Combine(directory,"admission.bin")));
         admission.Write(0x31414743u);admission.Write(2);
@@ -169,7 +193,7 @@ public sealed class D3D11ShadowInputPreparation
             {
                 writer.Write(0x31504753u);writer.Write(depth.DepthTest?1u:0u);writer.Write(depth.DepthWrite?1u:0u);writer.Write(depth.CompareCode+1);writer.Write(depth.StencilEnabled?1u:0u);
                 writer.Write(ShadowDepthProgramClass);writer.Write(sortFields.Length);foreach(int field in sortFields)writer.Write(field);
-                writer.Write(templates.Length);foreach(var template in templates){writer.Write(template.Index);writer.Write(template.Bytes);writer.Write(template.LocalToProjection?1u:0u);writer.Write(-1);}
+                writer.Write(templates.Length);foreach(var template in templates){writer.Write(template.Index);writer.Write(template.Bytes);writer.Write(template.LocalToProjection?1u:0u);writer.Write(template.PixelProgram);}
                 writer.Write(F(0x9F0));writer.Write(cascades.Far9EC);Vector(writer,direction.BasisB0);Vector(writer,direction.BasisC0);Vector(writer,direction.DirectionD0);writer.Write(Word(0xA38));
             }
             admission.Write(input.Common.ModelExclusionMask!.Value);admission.Write(1u);admission.Write(input.Lights.Count);

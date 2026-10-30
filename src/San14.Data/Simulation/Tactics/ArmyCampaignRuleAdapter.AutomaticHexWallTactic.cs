@@ -16,7 +16,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         GameState state, SourceWorldContext current, TacticRemakeCurrentContext context,
         int casterId, int nodeHex, TacticSourceRow source, S14TacticEffectInstruction instruction,
         int stageOrdinal, NativeArmyCombatCycleSampler sampler,
-        List<CampaignEffectRequest> effects, AutomaticBaseWallTacticRequest prefix)
+        List<CampaignEffectRequest> effects, AutomaticBaseWallTacticRequest prefix,
+        NativeMapSeasonDate operationDate)
     {
         ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(instruction);
@@ -37,26 +38,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return new(state, false, null, null);
 
         int physical = WallNeed(current.ReadObjectPhysicalSlot(obj), "tactic_node_Object_physical");
-        if (physical is < 1 or > 61)
-        {
-            //A valid facility underneath an Army is still a real29EC80 target.
-            //The current coarse StructureAttacks local writer cannot borrow
-            //this operation and fire's actorless writer has a different tail.
-            //Never silently skip it or turn its wall loss into Army casualties.
-            //29EC80 still has its real early challenge/pending gates before
-            //the unshared active-actor facility numeric body. A pending
-            //receiver skips that body, but177610 nevertheless records a marker.
-            if (current.ArmyReturnTransferMode is not { Present: false })
-                throw HexWallTacticMissing("nonBase_challenge570850_498020");
-            var pending = current.ReadOwnedCurrentListPool()?.PendingObjectRetirements
-                ?? throw HexWallTacticMissing("nonBase_pending_F0");
-            var directory = current.CurrentMapObjectDirectory
-                ?? throw HexWallTacticMissing("nonBase_Object_directory");
-            var receiver = directory.ReceiverAtPhysical(physical);
-            foreach (var retired in pending)
-                if (retired == receiver) return new(state, true, null, null);
-            throw HexWallTacticMissing("actual_nonBase_Object29EC80_writer");
-        }
+        if (physical is < 1 or > 3000) throw HexWallTacticMissing("actual_Object_class");
         if (physical <= 51)
         {
             var city = current.ReadCityTableReference(physical)
@@ -79,10 +61,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         var actor = current.ReadArmyUnitTableReference(actorPhysical)
             ?? throw HexWallTacticMissing("caster_pointer");
         var applied = ApplyBorrowedBaseWallDamage(state, current, context, caster, actor, obj,
-            prefix.Request, null, effects);
+            prefix.Request, null, effects, operationDate,
+            reached => sampler.Read(reached)?.Day450 ?? throw HexWallTacticMissing("report_source_day"));
         //Even a pending Object which29EC80 skipped retains the wrapper marker.
         //NativeReturn is deliberately not converted to a troop-stage skip or98.
-        return new(applied.State, true, physical, applied.Receipt);
+        return new(applied.State, true, physical <= 61 ? physical : null, applied.Receipt);
     }
 
     private static InvalidDataException HexWallTacticMissing(string owner) =>

@@ -128,7 +128,8 @@ internal sealed class FireDamageApplication
                 }
                 if (army is not null)
                     returned = armyDamage.Apply(army, loss, target => requests.Add(new(null, null)
-                        { FireDamagePresentation = new(FireDamagePresentationOperation.ArmyTargetViewRefresh, ArmyId(target), null, null) }));
+                        { FireDamagePresentation = new(FireDamagePresentationOperation.ArmyTargetViewRefresh, ArmyId(target), null, null)
+                            {SourceSnapshot=package.CaptureArmyDamagePresentationCurrent(state,current,target,false)} }));
                 else if (targetBase is not null)
                 {
                     var result = package.ApplyFireDamageBaseTarget(state, current, targetBase.Kind,
@@ -280,12 +281,14 @@ internal sealed class FireDamageApplication
     {
         foreach (var (physical, amount) in armyGross)
             requests.Add(new(null, null) { FireDamagePresentation =
-                new(FireDamagePresentationOperation.ArmyGrossDamage, ArmyId(new(physical)), null, amount) });
+                new(FireDamagePresentationOperation.ArmyGrossDamage, ArmyId(new(physical)), null, amount)
+                    {SourceSnapshot=package.CaptureArmyDamagePresentationCurrent(state,current,new(physical),true)} });
         if (baseGross.Keys.Select(key => key.Kind).Distinct().Skip(1).Any())
             throw Missing("base_gross_mixed_receiver_order:consumer_presence_unresolved");
         foreach (var (target, amount) in baseGross.OrderBy(item => item.Key.PhysicalSlot))
             requests.Add(new(null, null) { FireDamagePresentation =
-                new(FireDamagePresentationOperation.BaseGrossDamage, null, CanonicalBase(target), amount) });
+                new(FireDamagePresentationOperation.BaseGrossDamage, null, CanonicalBase(target), amount)
+                    {SourceSnapshot=package.CaptureBaseDamagePresentationCurrent(state,current,target)} });
     }
     private static SettlementBase CanonicalBase(BaseReference target) => new(
         target.Kind == BaseKind.City ? SettlementBaseKind.City : SettlementBaseKind.Gate,

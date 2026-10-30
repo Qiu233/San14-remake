@@ -14,15 +14,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC") ||
             state.NativeArmySimulation.Parameters.Language != _scenario.Snapshot.Locale)
             throw DuelMissing("fresh_campaign_boundary");
-        //Both constructors establish these gate values. The SC history helper
-        //calls are not yet independently owned, so its history stays unknown.
+        // Both fresh constructors initialize these gates and construct/clear
+        // their own pair-history container. Existing services are preserved
+        // by the caller's fresh-only ownership boundary above.
         GameState fresh = InstallFreshDuelPersonConditions(DuelCampaignAftermathParameters.InstallFresh(
             DuelAftermathPrimitiveParameters.InstallFresh(DuelNumericParameters.InstallFresh(
-                DuelOpportunityParameters.InstallFresh(state), _scenario), _scenario), _scenario));
+                DuelOpportunityParameters.InstallFresh(state, _scenario), _scenario), _scenario), _scenario));
         return fresh with { DuelOpportunityCount = 0, CampaignDuelService = new(false, false,
-            _scenario.Snapshot.Locale == "TC" ? CampaignDuelHistoryKnowledge.KnownEmpty :
-                CampaignDuelHistoryKnowledge.Unknown)
-            { HistoricalPairs = _scenario.Snapshot.Locale == "TC" ? [] : null } };
+            CampaignDuelHistoryKnowledge.KnownEmpty) { HistoricalPairs = [] } };
     }
 
     internal void RequireInactiveDuelServiceForProgress(GameState state)

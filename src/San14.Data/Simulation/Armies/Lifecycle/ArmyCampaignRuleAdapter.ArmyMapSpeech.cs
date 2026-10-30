@@ -18,29 +18,44 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         int armyId, int officerId, int hex, int scenery)
         => QueueArmyMapSpeechCurrent(state, current, armyId, officerId, 31, hex, sceneryId: scenery);
 
-    internal GameState QueueArmyMapSpeechCurrent(GameState state, SourceWorldContext current,
+    internal GameState QueueArmyMapSpeechCurrent(GameState state, SourceWorldContext? current,
         int armyId, int officerId, int actionCode, int hex, int? contextArgument = null, int? sceneryId = null,
         int? contextTraitId = null, int? contextAreaId = null,
-        int? baseSpeakerLocationId = null, int? baseSpeakerObjectId = null)
+        int? baseSpeakerLocationId = null, int? baseSpeakerObjectId = null,
+        MapObjectReceiverId? facilityReceiver = null, int? facilityArmySlot = null,
+        int? facilityDefinitionId = null,bool? fireCommandOrigin = null,
+        ArmyCommandSpeechLayoutSnapshot? commandOwnedLayout = null,
+        int? duelOpponent = null, CampaignDuelAftermath? duelAftermath = null)
     {
         //TC1B4030 / static1A490C8=100 and1A490D4=8. This is the ordinary
         //battle/scenery subset; unsupported actions retain their own intent.
-        int probability = actionCode switch { 10 or 11 or 14 or 15 or 16 or >= 19 and <= 26 or 31 => 100, 18 or 27 => 8,
+        int probability = actionCode switch { 1 or 2 or 13 or 6 or 7 or 8 or 10 or 11 or 14 or 15 or 16 or >= 19 and <= 26 or 28 or 30 or 31 or 32 or 34 or 44 or 45 or 56 or 46 or 47 or 60 or 61 => 100, 9 or 18 or 27 or 33 or 41 => 8,
             _ => throw MapSpeechMissing("admission_action_" + actionCode) };
         var owner = state.ArmyMapSpeech ?? throw MapSpeechMissing("queue_owner");
         if (owner.Entries.Length >= 100 || owner.Entries.Any(entry => entry.OfficerId == officerId && entry.TextAtSource is not null)) return state;
         if ((actionCode is 26 or 27) && NarrationResourceMessages.ArmyTraitActivationRoot(actionCode,
             contextTraitId ?? throw MapSpeechMissing("admission_trait_operand")) is null) return state;
+        //1B3DA0 admits action28 only for the actual fire-immunity
+        //Personality53. Rejection precedes the independent CRT draw.
+        if(actionCode==28&&contextTraitId!=53)return state;
         //1B4030/1B4720 call the independent CRT rand(), not3FCF40's
         //App stream used later by text/voice selection. Both are saved owners.
         uint crt = (state.CampaignCrtRandom ?? throw MapSpeechMissing("CRT_random")).State;
         bool admitted = Draw(100) < probability;
         if (!admitted) return state with { CampaignCrtRandom = new(crt) };
-        //1B3310 constructs an owned balloon at admission for Base actions.
-        //Capture its portrait and Force colour now, before the delay draw;
-        //the later Start must not borrow a changed governor appearance.
-        var baseSpeaker = baseSpeakerLocationId is not null || actionCode is 11 or 14
-            ? CaptureBaseMapSpeechSpeakerCurrent(state, current, officerId) : null;
+        //1B3310 constructs an owned balloon before the delay draw. Delayed
+        //command intents already captured that source image; direct Base
+        //callers still own their operation's current Person and Force here.
+        MapSpeechSpeakerImage? baseSpeaker;
+        if(actionCode is 46 or 47)
+        {
+            var image=commandOwnedLayout??throw MapSpeechMissing("command_source_owned_layout");
+            if((image.AppearanceIndex is null)!=(image.ForceColor is null))
+                throw MapSpeechMissing("command_source_owned_layout_shape");
+            baseSpeaker=image.AppearanceIndex is ushort appearance&&image.ForceColor is byte colour?new(appearance,colour):null;
+        }
+        else baseSpeaker = baseSpeakerLocationId is not null || actionCode is 11 or 14
+            ? CaptureBaseMapSpeechSpeakerCurrent(state, current??throw MapSpeechMissing("owned_speaker_current"), officerId) : null;
         byte delay = checked((byte)Draw(10));
         var entries = owner.Entries.ToBuilder();
         int old = -1;
@@ -52,8 +67,12 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             var retained = entries[old];
             if (actionCode < retained.ActionCode)
                 entries[old] = retained with { ArmyId = armyId, ActionCode = actionCode, HexId = hex,
-                    SceneryId = sceneryId, ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
+                    SceneryId = sceneryId, ContextBaseLocationId = actionCode is 11 or 18 or 46 ? contextArgument : null,
                     ContextTraitId = contextTraitId, ContextAreaId = contextAreaId,
+                    ContextDuelOpponentOfficerId = duelOpponent, ContextDuelAftermath = duelAftermath,
+                    ContextFacilityReceiverId = facilityReceiver, ContextFacilityArmySlot = facilityArmySlot,
+                    ContextFacilityDefinitionId = facilityDefinitionId,
+                    FireCommandOrigin=actionCode==6?fireCommandOrigin:null,
                     BaseSpeakerLocationId = baseSpeakerLocationId, BaseSpeakerObjectId = baseSpeakerObjectId,
                     BaseSpeakerAppearanceIndex = retained.BaseSpeakerAppearanceIndex ?? baseSpeaker?.AppearanceIndex,
                     BaseSpeakerForceColor = retained.BaseSpeakerForceColor ?? baseSpeaker?.ForceColor };
@@ -63,8 +82,12 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
         else
         {
             entries.Add(new(next, armyId, officerId, actionCode, hex, sceneryId, delay, 0, null)
-                { ContextBaseLocationId = actionCode is 11 or 18 ? contextArgument : null,
+                { ContextBaseLocationId = actionCode is 11 or 18 or 46 ? contextArgument : null,
                     ContextTraitId = contextTraitId, ContextAreaId = contextAreaId,
+                    ContextDuelOpponentOfficerId = duelOpponent, ContextDuelAftermath = duelAftermath,
+                    ContextFacilityReceiverId = facilityReceiver, ContextFacilityArmySlot = facilityArmySlot,
+                    ContextFacilityDefinitionId = facilityDefinitionId,
+                    FireCommandOrigin=actionCode==6?fireCommandOrigin:null,
                     BaseSpeakerLocationId = baseSpeakerLocationId, BaseSpeakerObjectId = baseSpeakerObjectId,
                     BaseSpeakerAppearanceIndex = baseSpeaker?.AppearanceIndex, BaseSpeakerForceColor = baseSpeaker?.ForceColor });
             next = checked(next + 1);
@@ -116,6 +139,17 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
             var operands = new HistoryMessageOperands(Person0: entry.OfficerId);
             switch (entry.ActionCode)
             {
+                case 1:
+                case 2:
+                    var duelSpeech = ReadDuelArmySpeechCurrent(current, entry);
+                    if (duelSpeech is null) return new(Remove(state,sequence),false);
+                    (root, operands) = duelSpeech.Value;
+                    break;
+                case 13: root = 0xC4E7; break;
+                case 6: root=(entry.FireCommandOrigin??throw MapSpeechMissing("fire_origin_operand"))?0xC453:0xC461;break;
+                case 7: root = 0xC472; break;
+                case 8: root = 0xC7EA; break;
+                case 9: root = 0xC61D; break;
                 case 10: root = 0xC47F; break;
                 case 11: root = 0xC4E8; operands = operands with
                     { Base0 = checked((ushort)MapSpeechNeed(entry.ContextBaseLocationId, "capture_Base_operand")) }; break;
@@ -142,6 +176,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
                     if (entry.ActionCode == 26 && trait == 65)
                         operands = operands with { Area0 = MapSpeechNeed(entry.ContextAreaId, "trait_activation_Area") };
                     break;
+                case 28:
+                    if(entry.ContextTraitId!=53)return new(Remove(state,sequence),false);
+                    root=0xC7AF;break;
+                case 30:
+                    root = 0xC4EA;
+                    operands = operands with { Area0 = MapSpeechNeed(entry.ContextAreaId, "occupation_Area_argument") };
+                    break;
                 case 31:
                     root = 0xC829;
                     current.MaterializeFixedScenery(_landmarkDefinitions);
@@ -152,6 +193,37 @@ public sealed partial class ArmyCampaignRuleAdapter : IArmyMapSpeechRules
                     operands = operands with { String0 = current.SceneryDefinitions?.Sceneries[physical].Name
                         ?? throw MapSpeechMissing("Scenery_name") };
                     break;
+                case 32:
+                    int trapDefinition=MapSpeechNeed(entry.ContextFacilityDefinitionId,"trap_countered_definition");
+                    root=trapDefinition is >=11 and <=13?0xC504:trapDefinition==14?0xC473:
+                        trapDefinition==17?0xC7EB:0xC503;
+                    break;
+                case 33:
+                    int damageDefinition = MapSpeechNeed(entry.ContextFacilityDefinitionId, "object_damage_definition");
+                    var damageObject = current.ReadObjectDefinitionReference(damageDefinition < 31 ? damageDefinition : 0)
+                        ?? throw MapSpeechMissing("object_damage_definition_pointer");
+                    root = 0xC7E6;
+                    operands = operands with { String0 = ReadObjectDamageDefinitionName(current, damageObject) };
+                    break;
+                case 34: root = 0xC7E2; break;
+                case 41:
+                    if(MapSpeechNeed(entry.ContextFacilityDefinitionId,"facility_attack_definition") is not (5 or 6 or 15))
+                        return new(Remove(state,sequence),false);
+                    root=0xC613;
+                    break;
+                case 44:
+                case 45:
+                    var facilityOperands=ReadFacilityArmySpeechOperands(state,current,entry);
+                    if(facilityOperands is null)return new(Remove(state,sequence),false);
+                    operands=facilityOperands;
+                    root=entry.ActionCode==44?0xC639:0xC66E;
+                    break;
+                case 46: root=0xC67E;operands=operands with
+                    {Base0=checked((ushort)MapSpeechNeed(entry.ContextBaseLocationId,"command_arrival_Base_operand"))};break;
+                case 47: root=0xC688;break;
+                case 60: root=0xC609;break;
+                case 56:
+                case 61: root=0xC5F1;break;
                 default: throw MapSpeechMissing("action_consumer_" + entry.ActionCode);
             }
             //1BC3C0 selects text only when the real Army layout is available.

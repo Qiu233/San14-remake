@@ -2,6 +2,7 @@
 // Device objects are prepared once; each accepted camera selects and rewrites
 // complete 160B/80B source CB payloads. No original files are read per request.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -24,10 +25,13 @@ struct NativeModelContinuousPrimitive {
     std::uint64_t tableOwner{};
     std::array<char,160> vertex{};
     std::array<char,80> pixel{};
+    // The ordinary rigid ABI remains 160/80. Tree2 carries its actual 272B VS.
+    std::vector<char> extendedVertex;
+    std::uint32_t queue=54,groupFlags=0;
 };
 struct NativeModelContinuous {
     std::uint32_t templateCount{},commonMode{};
-    std::vector<unsigned> sortFields;
+    std::vector<unsigned> sortFields,alphaSortFields;
     std::vector<NativeModelContinuousInstance> instances;
     std::vector<NativeModelContinuousPrimitive> primitives;
 };
@@ -36,21 +40,24 @@ struct NativeModelContinuousDraw {
     std::uint64_t distanceKey{},tableOwner{};
     std::array<char,160> vertex{};
     std::array<char,80> pixel{};
+    std::vector<char> extendedVertex;
+    std::uint32_t queue=54,groupFlags=0;
 };
 struct NativeModelContinuousPlan {
     std::vector<std::uint32_t> visibleInstances,visibleUnsupportedInstances;
     std::vector<NativeModelContinuousDraw> draws;
+    std::vector<unsigned> alphaSortFields;
 };
 
 inline NativeModelContinuous prepareNativeModelContinuous(const fs::path& source) {
     NativeModelContinuous result;std::uint32_t instanceCount,primitiveCount;
-    std::ifstream info(source/"catalog.txt");
+    NativePreparedInputFile info(source/"catalog.txt");
     info>>instanceCount>>primitiveCount>>result.templateCount>>result.commonMode;
     if(!info)throw std::runtime_error("Static Model continuous catalog metadata absent");
-    std::ifstream order(source/"sort-fields.txt");unsigned field;
+    NativePreparedInputFile order(source/"sort-fields.txt");unsigned field;
     while(order>>field)result.sortFields.push_back(field);
     if(result.sortFields!=std::vector<unsigned>{14,3})throw std::runtime_error("Unsupported static Model opaque sort fields");
-    std::ifstream instances(source/"instances.bin",std::ios::binary),primitives(source/"primitives.bin",std::ios::binary);
+    NativePreparedInputFile instances(source/"instances.bin",std::ios::binary),primitives(source/"primitives.bin",std::ios::binary);
     if(!instances||!primitives)throw std::runtime_error("Static Model complete instance/primitive source absent");
     result.instances.resize(instanceCount);result.primitives.resize(primitiveCount);
     for(auto& row:result.instances) {
@@ -66,6 +73,36 @@ inline NativeModelContinuous prepareNativeModelContinuous(const fs::path& source
         primitives.read(reinterpret_cast<char*>(&row.templateIndex),4);primitives.read(reinterpret_cast<char*>(&row.tableOwner),8);
         primitives.read(row.vertex.data(),row.vertex.size());primitives.read(row.pixel.data(),row.pixel.size());
         if(!primitives||row.templateIndex>=result.templateCount)throw std::runtime_error("Static Model primitive template index/payload incomplete");
+    }
+    // MPR1 augments the original rigid bank without changing its byte layout.
+    // Old local caches and the City bank retain their explicit 160B profile.
+    const auto profiles=source/"primitive-profiles.bin";
+    if(fs::exists(nativePreparedFilePath(profiles))) {
+        NativePreparedInputFile profile(profiles,std::ios::binary);
+        auto read=[&](){std::uint32_t value;profile.read(reinterpret_cast<char*>(&value),4);
+            if(!profile)throw std::runtime_error("Static Model MPR1 metadata incomplete");return value;};
+        if(read()!=0x3152504Du||read()!=1u||read()!=primitiveCount)
+            throw std::runtime_error("Static Model MPR1 identity/count differs");
+        bool hasAlpha=false;
+        for(auto& row:result.primitives) {
+            row.queue=read();row.groupFlags=read();const auto size=read();
+            if((row.queue!=54&&row.queue!=55)||(size!=0&&size!=272))
+                throw std::runtime_error("Static Model source queue/VS profile is unclosed");
+            if(size) {
+                row.extendedVertex.resize(size);profile.read(row.extendedVertex.data(),size);
+                if(!profile||std::memcmp(row.vertex.data(),row.extendedVertex.data(),row.vertex.size()))
+                    throw std::runtime_error("Static Model extended VS prefix differs");
+            }
+            hasAlpha|=row.queue==55;
+        }
+        if(profile.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Static Model MPR1 trailing bytes");
+        NativePreparedInputFile alpha(source/"sort-fields55.txt");
+        while(alpha>>field) {
+            if(field!=14&&field!=3)throw std::runtime_error("Static Model Alpha sort key is unclosed");
+            result.alphaSortFields.push_back(field);
+        }
+        if(hasAlpha&&(!alpha.eof()||result.alphaSortFields.empty()))
+            throw std::runtime_error("Static Model Alpha sort descriptor absent");
     }
     return result;
 }
@@ -127,7 +164,7 @@ struct NativeModelCamera {
 // Matrix packing below belongs to the model shader constant-buffer boundary.
 inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelContinuous& catalog,
     const NativeModelCamera& camera,const std::array<std::array<float,4>,6>& planes) {
-    NativeModelContinuousPlan plan;float nearValue=camera.nearPlane,farValue=camera.farPlane;
+    NativeModelContinuousPlan plan;plan.alphaSortFields=catalog.alphaSortFields;float nearValue=camera.nearPlane,farValue=camera.farPlane;
     float span=modelContinuousAdd(modelContinuousSub(farValue,nearValue),1.f);
     float doubled=modelContinuousAdd(span,span);
     float scale=float(18446744073709551616.0/double(doubled));
@@ -143,19 +180,35 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
             const auto& primitive=catalog.primitives[index];NativeModelContinuousDraw draw;
             draw.primitiveIndex=index;draw.distanceKey=key;draw.tableOwner=primitive.tableOwner;
             draw.vertex=primitive.vertex;draw.pixel=primitive.pixel;
+            draw.extendedVertex=primitive.extendedVertex;draw.queue=primitive.queue;draw.groupFlags=primitive.groupFlags;
             std::memcpy(draw.vertex.data(),camera.worldToClip.data(),64);
+            if(!draw.extendedVertex.empty())std::memcpy(draw.extendedVertex.data(),camera.worldToClip.data(),64);
             std::memcpy(draw.pixel.data()+16,worldToView.data(),48);plan.draws.push_back(draw);
         }
     }
     // Original D4B7E0: each enabled field is an ascending stable 8-byte radix;
     // the last field pass is most significant. Exact ties retain publication.
-    std::vector<NativeModelContinuousDraw> scratch(plan.draws.size());
-    for(unsigned field:catalog.sortFields)for(unsigned shift=0;shift<64;shift+=8) {
-        std::array<std::size_t,256> counts{};
-        for(const auto& draw:plan.draws){auto key=field==14?draw.distanceKey:draw.tableOwner;++counts[(key>>shift)&255];}
-        std::size_t sum=0;for(auto& count:counts){auto n=count;count=sum;sum+=n;}
-        for(const auto& draw:plan.draws){auto key=field==14?draw.distanceKey:draw.tableOwner;scratch[counts[(key>>shift)&255]++]=draw;}
-        plan.draws.swap(scratch);
+    auto sorted=[&](std::vector<NativeModelContinuousDraw>& rows,const std::vector<unsigned>& fields) {
+        std::vector<NativeModelContinuousDraw> scratch(rows.size());
+        for(unsigned field:fields)for(unsigned shift=0;shift<64;shift+=8) {
+            if(field!=14&&field!=3)throw std::runtime_error("Normal Model source sort key is unclosed");
+            std::array<std::size_t,256> counts{};
+            for(const auto& draw:rows){auto key=field==14?draw.distanceKey:draw.tableOwner;++counts[(key>>shift)&255];}
+            std::size_t sum=0;for(auto& count:counts){auto n=count;count=sum;sum+=n;}
+            for(const auto& draw:rows){auto key=field==14?draw.distanceKey:draw.tableOwner;scratch[counts[(key>>shift)&255]++]=draw;}
+            rows.swap(scratch);
+        }
+    };
+    std::vector<NativeModelContinuousDraw> alpha;
+    auto out=plan.draws.begin();
+    for(auto current=plan.draws.begin();current!=plan.draws.end();++current) {
+        if(current->queue==55)alpha.push_back(*current);
+        else {if(out!=current)*out=*current;++out;}
+    }
+    plan.draws.erase(out,plan.draws.end());sorted(plan.draws,catalog.sortFields);
+    if(!alpha.empty()) {
+        if(catalog.alphaSortFields.empty())throw std::runtime_error("Normal55 actual Alpha descriptor absent");
+        sorted(alpha,catalog.alphaSortFields);plan.draws.insert(plan.draws.end(),alpha.begin(),alpha.end());
     }
     return plan;
 }
@@ -182,7 +235,9 @@ inline NativeModelInputs prepareNativeModelContinuousGpu(ID3D11Device* device,co
     for(const auto& primitive:catalog.primitives) {
         auto draw=templates.draws.at(primitive.templateIndex);
         draw.identity="instance-"+std::to_string(primitive.instanceIndex)+"/draw-"+std::to_string(primitive.drawIndex);
-        draw.vsConstants=modelContinuousConstantBuffer(device,primitive.vertex.data(),UINT(primitive.vertex.size()));
+        draw.vsConstants=primitive.extendedVertex.empty()
+            ?modelContinuousConstantBuffer(device,primitive.vertex.data(),UINT(primitive.vertex.size()))
+            :modelContinuousConstantBuffer(device,primitive.extendedVertex.data(),UINT(primitive.extendedVertex.size()));
         draw.psConstants=modelContinuousConstantBuffer(device,primitive.pixel.data(),UINT(primitive.pixel.size()));
         result.draws.push_back(std::move(draw)); // Static mesh/texture/shader/state COM owners shared.
     }
@@ -194,7 +249,8 @@ inline NativeModelInputs updateSelectNativeModelContinuous(ID3D11DeviceContext* 
     NativeModelInputs result;result.blend=allModels.blend;result.draws.reserve(plan.draws.size());
     for(const auto& selected:plan.draws) {
         const auto& draw=allModels.draws.at(selected.primitiveIndex);
-        context->UpdateSubresource(draw.vsConstants.Get(),0,nullptr,selected.vertex.data(),0,0);
+        context->UpdateSubresource(draw.vsConstants.Get(),0,nullptr,
+            selected.extendedVertex.empty()?selected.vertex.data():selected.extendedVertex.data(),0,0);
         context->UpdateSubresource(draw.psConstants.Get(),0,nullptr,selected.pixel.data(),0,0);
         result.draws.push_back(draw);
     }

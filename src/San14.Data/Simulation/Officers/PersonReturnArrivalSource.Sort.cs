@@ -55,17 +55,7 @@ public static partial class PersonReturnArrivalSource
             return rightAge <= leftAge && Identity(left) < Identity(right);
         }
 
-        int Age(int person)
-        {
-            int mode = Known(current.ReadScenarioMode(), "sort.age_World_mode");
-            if (mode is 2 or 3) throw Unknown("sort.special_mode_age_2A62E0");
-            ushort id = Identity(person);
-            if (current.ResolveOfficerSource(id) != person || !state.Officers.TryGetValue(id, out var owner))
-                throw Unknown("sort.age_Person_owner");
-            int birth = owner.BirthYear ?? throw Unknown("sort.age_PersonAC");
-            int year = Known(current.ReadCurrentYear(), "sort.age_World34");
-            return Math.Max(0, unchecked(year - birth + 1));
-        }
+        int Age(int person) => PersonCurrentAgeSource.Read(state, current, person);
         ushort Identity(int person) => Known(current.ReadPersonIdentity(person), "sort.Person10");
         int Person(HexListNodeReference at)
         {

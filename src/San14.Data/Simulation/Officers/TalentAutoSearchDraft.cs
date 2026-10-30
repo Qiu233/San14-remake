@@ -9,6 +9,7 @@ public sealed record TalentAutoSearchCandidate(int OfficerId, int CityId, int Tr
 public sealed class TalentAutoSearchDraft
 {
     private readonly TalentAutoSearchQuerySource source;
+    internal TalentAutoSearchQuerySource Source => source;
     private int[] selected = [];
     public int? ExecutorPolicy { get; private set; }
     public int? TravelRange { get; private set; }
@@ -36,6 +37,9 @@ public sealed class TalentAutoSearchDraft
         ExecutorPolicy = preferences.ExecutorPolicy; TravelRange = preferences.TravelRange; AllocationPolicy = preferences.AllocationPolicy;
         Recompute(); //726960's final6C7500, not a view refresh.
     }
+
+    public bool TryAdoptPresentationWorld(GameState previous, GameState replacement, CampaignAppRandomState appRandom)
+        => source.Page.TryAdoptPresentationWorld(previous, replacement, appRandom);
 
     public void SetExecutorPolicy(int value)
     { if ((uint)value > 3) throw new ArgumentOutOfRangeException(nameof(value)); if (ExecutorPolicy == value) return; ExecutorPolicy = value; Recompute(); }

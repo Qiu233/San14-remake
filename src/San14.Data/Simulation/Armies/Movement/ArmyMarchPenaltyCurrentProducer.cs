@@ -40,6 +40,14 @@ public sealed class ArmyMarchPenaltyCurrentProducer
         catalog = TacticSourceParameters.Read(skills.Formations, skills.Source);
     }
 
+    internal ArmyMarchPenaltyCurrentProducer(ArmyCampaignRuleAdapter ownedPackage,
+        LoadedMap ownedMap, LoadedTerrainTypes ownedTerrain, TacticSourceCatalog ownedCatalog,
+        ArmyMarchPenaltyParameterSeed nativeSource)
+    {
+        package = ownedPackage; map = ownedMap; terrain = ownedTerrain;
+        catalog = ownedCatalog; source = nativeSource;
+    }
+
     public ArmyMarchPenaltyCurrentResolution Resolve(GameState state, UnitState army)
     {
         var definitions = package.CaptureCurrentDefinitions(state);
@@ -49,7 +57,11 @@ public sealed class ArmyMarchPenaltyCurrentProducer
 
     /// <summary>Borrows the same operation's current owners instead of
     /// capturing another initial image for each actor.</summary>
-    public ArmyMarchPenaltyCurrentResolution Resolve(GameState state, UnitState army, SourceWorldContext definitions)
+    public ArmyMarchPenaltyCurrentResolution Resolve(GameState state, UnitState army, SourceWorldContext definitions) =>
+        ResolveCurrent(state, army, definitions);
+
+    internal ArmyMarchPenaltyCurrentResolution ResolveCurrent(GameState state, UnitState army,
+        SourceWorldContext definitions, int? centerHexOverride = null)
     {
         var context = new TacticRemakeCurrentContext(definitions, catalog, map, terrain,
             new(source.Language, SimulationRuleIdentity.ForLocale(source.Language)), Revision);
@@ -61,7 +73,8 @@ public sealed class ArmyMarchPenaltyCurrentProducer
         bool? exempt = ReadActiveCommanderEffect51(definitions, commanderPhysical);
         if (exempt is null) return Missing("current.commander_activation_mask_and_nine_personalities2306D0");
         if (exempt.Value) return Result(0, null, true, 0, 0, 0, 0, "active-commander-effect51");
-        if (army.HexId is < 0 or >= 48400) return Missing("current.Army_Hex2A");
+        int centerHex = centerHexOverride ?? army.HexId;
+        if (centerHex is < 0 or >= 48400) return Missing("current.Army_Hex2A");
         var field = owners is not null ? owners.ReadArmyFields(state, army) :
             ArmySavedCommandKnowledge.ReadControl(state, army) is byte commandControl && army.NativeArmyOrigin?.NativeSlotIndex is int savedReceiver
                 ? new ArmyMarchPenaltyCurrentArmyFields(army.Id, savedReceiver, state.NativeClock!.UpdateOrdinal,
@@ -75,11 +88,11 @@ public sealed class ArmyMarchPenaltyCurrentProducer
         {
             bool? special = ResolveSavedCommandPenaltyExemption(state, definitions, army);
             if (special is null) return Missing("current.special2C4420_Hex3A_policy65_object_tactic2C");
-            if (special.Value) return Result(0, army.HexId, false, 0, 0, 0, 0, "saved-command-policy65-facility");
+            if (special.Value) return Result(0, centerHex, false, 0, 0, 0, 0, "saved-command-policy65-facility");
         }
-        var ring = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 3).Skip(1).ToArray();
-        var radiusOne = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 1).Skip(1).ToHashSet();
-        var radiusTwo = TacticRemakeCurrentContext.NativeHexOrder(army.HexId, 2).Skip(1).ToHashSet();
+        var ring = TacticRemakeCurrentContext.NativeHexOrder(centerHex, 3).Skip(1).ToArray();
+        var radiusOne = TacticRemakeCurrentContext.NativeHexOrder(centerHex, 1).Skip(1).ToHashSet();
+        var radiusTwo = TacticRemakeCurrentContext.NativeHexOrder(centerHex, 2).Skip(1).ToHashSet();
         definitions.BindArmyMapOccupancy(state);
         int[] counts = new int[3]; int hostileHexes = 0;
         var countedObjects = new[] { new HashSet<int>(), new HashSet<int>(), new HashSet<int>() };
@@ -204,7 +217,7 @@ public sealed class ArmyMarchPenaltyCurrentProducer
         //the special early return. A nonzero ordinary result requires its raw
         //current owner; missing140 never means false.
         if (field is null && value != 0) return Missing("current.Army_byte140");
-        return Result(value, army.HexId, false, counts[0], counts[1], counts[2], hostileHexes,
+        return Result(value, centerHex, false, counts[0], counts[1], counts[2], hostileHexes,
             field?.SourceProvenance ?? "all-return-values-zero-independent-of-Army140");
 
         int? ReadWeight(string key) => state.NativeArmySimulation!.Parameters.Int32Values.TryGetValue(

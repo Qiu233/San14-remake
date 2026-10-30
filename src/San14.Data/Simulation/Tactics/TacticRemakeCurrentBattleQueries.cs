@@ -7,6 +7,8 @@ namespace San14.Data;
 /// Core morale, region identity, difficulty, or selected-target count.</summary>
 public interface ITacticRemakeCurrentBattleFactors
 {
+    BattleUnitMoraleCoefficients? ReadMoraleCoefficients(GameState state, UnitState army) => null;
+    //Legacy ordinary-mode query; the common pipeline consumes the typed pair.
     bool? ReadAlternateMoraleGlobals(GameState state, UnitState army) => null;
     float? ReadRegionFactor(GameState state, UnitState army) => null;
     float? ReadNeighborFactor(GameState state, UnitState army) => null;
@@ -22,6 +24,8 @@ public sealed class TacticRemakeCurrentBattleFactors : ITacticRemakeCurrentBattl
         context = current;
         region = new(seed, current, definitions, revision);
     }
+    public BattleUnitMoraleCoefficients? ReadMoraleCoefficients(GameState state, UnitState army) =>
+        context.ArmyValid(state, army) == true ? BattleRemakeCurrentSettings.ReadCommonMoraleCoefficients(state, army) : null;
     public bool? ReadAlternateMoraleGlobals(GameState state, UnitState army) =>
         context.ArmyValid(state, army) == true ? BattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state, army) : null;
     public float? ReadRegionFactor(GameState state, UnitState army) => region.Resolve(state, army);
@@ -73,12 +77,12 @@ public sealed class TacticRemakeCurrentBattleQueries :
         if (context.ArmyValid(state, army) != true || finalDescriptorDivisor14 == 0 ||
             ArmyMoraleSourceAdapter.Read(army) is not byte morale || context.ForceMoraleMaximum(state, army.ForceId) is not int cap ||
             cap is < 0 or > byte.MaxValue ||
-            factors?.ReadAlternateMoraleGlobals(state, army) is not bool alternate ||
+            factors?.ReadMoraleCoefficients(state, army) is not { } moraleCoefficients ||
             factors.ReadRegionFactor(state, army) is not float region ||
             factors.ReadNeighborFactor(state, army) is not float neighbor ||
             definitions.ReadHexTableReference(army.HexId) is not { PhysicalSlot: int physical } hex ||
             physical != army.HexId || definitions.ReadHexSurfaceCode(hex) is not byte terrain) return null;
-        return new(finalDescriptorDivisor14, Math.Min(morale, cap), alternate, region, terrain, neighbor, Revision);
+        return new(finalDescriptorDivisor14, Math.Min(morale, cap), moraleCoefficients, region, terrain, neighbor, Revision);
     }
 
     /// <summary>1701AC stores the complete accepted count. Empty candidates
@@ -113,7 +117,11 @@ public sealed class TacticRemakeCurrentBattleQueries :
     public int? ReadForceFormationEffect(GameState state, UnitState army, int nativeEffectIndex) =>
         context.ArmyValid(state, army) == true && state.Forces.TryGetValue(army.ForceId, out ForceState? force)
             ? BattleRemakeCurrentForcePolicies.ReadForceEffect(state, force, nativeEffectIndex) : null;
-    public int? ReadCommandEffect(GameState state, UnitState army) => null;
+    public int? ReadCommandEffect(GameState state, UnitState army)
+    {
+        try { return ArmyCommandAgeEffectSource.ReadCurrent(state, definitions, army); }
+        catch (InvalidDataException) { return null; }
+    }
     public int? ReadActiveForcePolicy(GameState state, UnitState army, int nativeEffectIndex) => null;
     public bool? ReadDoctrineAttackEligibility(GameState state, UnitState army) => null;
 

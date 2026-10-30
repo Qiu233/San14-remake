@@ -14,9 +14,9 @@ public static class BaseCaptureResourceSource
 {
     public static BaseCaptureResourceReceipt ApplyCurrent(GameState state,
         SourceWorldContext current, BaseReference target,
-        TransferPersonReference commander, IEffectiveOfficerAbilities abilities)
+        TransferPersonReference? commander, IEffectiveOfficerAbilities abilities)
     {
-        int physical = commander.PhysicalSlot ?? throw Missing("Commander_pointer");
+        int? physical = commander?.PhysicalSlot;
         var writes = new List<BaseCaptureResourceWrite>();
 
         //The wall floor precedes resource scaling, with two fresh source
@@ -25,7 +25,7 @@ public static class BaseCaptureResourceSource
         int wallFloor = unchecked(wallCap1 * P(SimulationParameterKeys.BaseCapture.CapturedWallFloorPercent)) / 100;
         int wallCap2 = BasePostLoad.ReadCapacities(target, current).Field46;
         wallFloor = Math.Min(wallFloor, wallCap2);
-        bool commanderValid = Known(current.ReadPersonNativeValidity(physical), "Commander_validity");
+        bool commanderValid = physical.HasValue && Known(current.ReadPersonNativeValidity(physical.Value), "Commander_validity");
         int wall = BasePostLoad.ReadLinkedField14(target, current);
         if (!commanderValid || wall < wallFloor) BasePostLoad.WriteLinkedField14(target, wallFloor, current);
         current.SetBasePostLoadFlag66(target, BasePostLoad.ReadFlag66(target, current));
@@ -40,7 +40,7 @@ public static class BaseCaptureResourceSource
         int keep = P(SimulationParameterKeys.BaseCapture.MinimumResourceKeepPercent);
         if (commanderValid)
         {
-            int charm = Known(abilities.Resolve(state, Known(current.ReadPersonIdentity(physical), "Commander10"))?.Charm, "Commander_full_charm4");
+            int charm = Known(abilities.Resolve(state, Known(current.ReadPersonIdentity(physical!.Value), "Commander10"))?.Charm, "Commander_full_charm4");
             int divisor = P(SimulationParameterKeys.BaseCapture.CommanderCharmDivisor);
             if (divisor == 0 || charm == int.MinValue && divisor == -1) throw Missing("keep_IDIV");
             //26E097 CMP EAX,EDI;26E099 CMOVGE selects Charm/divisor.

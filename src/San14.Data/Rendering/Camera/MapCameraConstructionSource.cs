@@ -43,7 +43,7 @@ public static class MapCameraConstructionSource
     public static LoadedMapCameraConstructionSource ReadPerspective(LoadedObjects resource, uint objectId)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        if (objectId is not (0x38D04576u or 0x1F3FB203u or 0x937EEA62u))
+        if (objectId is not (0x38D04576u or 0x36C14145u or 0x1F3FB203u or 0x937EEA62u))
             throw new InvalidDataException("Source Camera construction requires one explicitly selected stock Perspective Camera.");
         var loaded = LoadedDeclarations.GetValue(resource, _ => new());
         lock (loaded.Gate)

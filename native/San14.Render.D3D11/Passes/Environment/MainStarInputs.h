@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cstdint>
@@ -35,7 +36,7 @@ inline MainStarCurrentInputs decodeMainStarInputs(std::span<const std::uint8_t> 
 }
 inline MainStarCurrentInputs readMainStarInputs(const std::filesystem::path& path) {
     std::array<std::uint8_t,MainStarInputBytes> bytes{};
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!stream||stream.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Initial Main Star input absent or malformed");

@@ -1,5 +1,6 @@
 // Original node97 and node137 inputs. Include after the native lab helpers.
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "RefractionDepth.h"
 #include "Interop/RefractionFilterInputs.h"
 
@@ -91,7 +92,7 @@ struct NativePreparedRefractionScene97 {
 static NativePreparedRefractionScene97 prepareNativeRefractionScene97(ID3D11Device* device,
     const fs::path& source,ID3D11Texture2D* hdr,DXGI_FORMAT hdrViewFormat,std::uint32_t sourceObjectId,
     const NativeRefractionTargetDeclaration& declared) {
-    UINT resource,view,target,width,height;std::ifstream rows(source/"target.txt");rows>>resource>>view>>target>>width>>height;
+    UINT resource,view,target,width,height;NativePreparedInputFile rows(source/"target.txt");rows>>resource>>view>>target>>width>>height;
     if(!rows)throw std::runtime_error("Original Scene97 target absent");
     requireNativeRefractionMedia(declared,resource,view,target,width,height,1);
     NativePreparedRefractionScene97 out;out.hdr=hdr;

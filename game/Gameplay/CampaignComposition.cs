@@ -1,5 +1,6 @@
 using San14.Core;
 using San14.Data;
+using San14.Data.AI.Original;
 
 namespace San14.Client.Gameplay;
 
@@ -19,13 +20,21 @@ public sealed partial class CampaignComposition
     private int _headerForce;
     private MapHeaderDisplayState? _headerDisplayed;
     private MapHeaderProjection? _currentHeader;
+    private long _headerCommandRevision=-1;
+    private EditedEventStore? _mainCommandEditedEvents;
+    private ManualEditedEventReadiness? _mainCommandEditedReadiness;
+    private bool _mainCommandEditedRefreshPending;
+    internal void ConfigureMainCommandEditedEvents(EditedEventStore store) => _mainCommandEditedEvents = store;
 
     private CampaignComposition(GameResourceRepository repository, LoadedScenario scenario, LoadedMap map,
-        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations)
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations,
+        OriginalAiStrategyHostConfiguration? originalAiStrategy = null)
     {
         _repository = repository;
+        _originalAiStrategy = originalAiStrategy;
         _saveCodec = new ResourceSaveCodec(repository);
         _applicationGameplay = ApplicationGameplayState.CreateNormalCampaign(retainedPersonnelGroupMoveDestinations);
+        RefreshApplicationSpecialPersonCapabilities();
         Scenario = scenario;
         Map = map;
         Overview = new MapOverviewContent(map.Map);
@@ -44,15 +53,23 @@ public sealed partial class CampaignComposition
         NewGameOptions options, GameState? restored = null, int? restoredPlayerForceId = null,
         CampaignProgressOperation? restoredProgress = null, long lastStorySequence = 0, ManualTacticProgressOperation? restoredManualTactic = null,
         NormalPeriodOperation? restoredNormalPeriod = null,
-        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null)
+        PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null,
+        Func<LoadedScenario,LoadedScenario>? loadedScenarioTransform = null,
+        Func<PlayableRuleSet, int, ICommandPlanner>? commandPlannerFactory = null,
+        OriginalAiStrategyHostConfiguration? originalAiStrategy = null)
     {
+        RequireUnambiguousPlanner(originalAiStrategy, commandPlannerFactory);
         LoadedScenario scenario = repository.LoadScenario(selection);
+        if (restored is null && loadedScenarioTransform is not null) scenario = loadedScenarioTransform(scenario);
         LoadedMap map = repository.LoadMapForScenario(selection);
-        var composition = new CampaignComposition(repository, scenario, map, retainedPersonnelGroupMoveDestinations);
+        var composition = new CampaignComposition(repository, scenario, map, retainedPersonnelGroupMoveDestinations, originalAiStrategy);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, scenario.Snapshot);
         GameState initial = ScenarioInitializer.Create(scenario, map, 1, options).State;
         if (restored is null)
+        {
+            initial = PersonalityEditorRuntime.InitializeFresh(initial, new(scenario.InitialCreatedPersonalities ?? []));
             initial = composition.PrepareArmyQueries(initial).CreateFreshScenarioMapObjects(initial);
+        }
         if (restoredPlayerForceId.HasValue && restored is null)
             throw new InvalidDataException("Restoring a local player requires the saved campaign world.");
         if (restored is not null) composition.ValidateRestoredContent(restored, initial);
@@ -61,13 +78,17 @@ public sealed partial class CampaignComposition
         GameState world = restored ?? initial;
         if (restoredPlayerForceId is int player)
         {
+            bool tutorial = world.TutorialLessonProgress is not null;
+            if (tutorial)
+                composition._applicationGameplay.Enter(TutorialLessonSession.ReadApplicationContext(world));
+            composition._applicationGameplay.SetStrategyLoadResume(true);
             PreparedRules prepared = composition.PrepareRules(world, player);
-            if (prepared.Army is { } army)
+            if (!tutorial && prepared.Army is { } army)
                 world = RequireFirstStrategy(army.TryInitializeFirstStrategy(world,
                     new(CampaignEntryKind.RestoreCampaign, null, null, null)));
             GameplaySession session = GameplaySession.Restore(world, player,
                 prepared.Rules, Calendar(prepared.Army), composition._saveCodec, restoredProgress, lastStorySequence, restoredManualTactic,
-                restoredNormalPeriod);
+                restoredNormalPeriod, commandPlannerFactory);
             composition._army = prepared.Army;
             return new(composition, territory, session, prepared.Presentation);
         }
@@ -77,46 +98,63 @@ public sealed partial class CampaignComposition
     }
 
     public CampaignStartResult Start(GameplaySession preview, int playerForceId,
-        CampaignAppRandomState? appRandomSnapshot = null, CampaignCrtRandomState? crtRandomSnapshot = null)
+        CampaignAppRandomState? appRandomSnapshot = null, CampaignCrtRandomState? crtRandomSnapshot = null,
+        Func<PlayableRuleSet, int, ICommandPlanner>? commandPlannerFactory = null)
     {
+        RequireUnambiguousPlanner(_originalAiStrategy, commandPlannerFactory);
         ValidateSelection(preview.World);
+        _applicationGameplay.SetStrategyLoadResume(false);
         int rulerId = preview.World.Forces[playerForceId].RulerId ??
             throw new InvalidDataException("The confirmed faction has no ruler.");
-        GameState started = PlayableSkeleton.Start(preview.World);
+        // The caller owns this explicit snapshot. Fresh person initialization
+        // may consume App RNG; later services continue that same stream.
+        GameState started = PlayableSkeleton.Start(preview.World) with
+            { CampaignAppRandom32 = appRandomSnapshot, CampaignCrtRandom = crtRandomSnapshot };
         ArmyCampaignRuleAdapter army = _army ?? CreateArmy(started);
         GameState world = army.CreateFreshOwnedSimulation(started);
         world = army.InstallFreshTalentRules(world);
         world = army.InstallFreshDiplomacyRules(world);
         world = TransportSetupCurrentInputs.InstallFresh(world);
-        // Only an explicitly captured host value is installed. No bootstrap or Load repair.
-        world = world with { CampaignAppRandom32 = appRandomSnapshot, CampaignCrtRandom = crtRandomSnapshot };
-        world = army.CreateFreshDuelService(world);
         world = army.ConfirmNewGamePlayerPerson(world, rulerId);
         world = MapSeasonRuntime.CreateForFreshCampaign(_repository, world,
             MapSeasonNativeSource.Load(_repository.SourceDirectory, Snapshot.Locale));
         world = army.InitializeFreshDoctrineResearch(world);
-        if (Snapshot.Locale == "TC")
+        if (Scenario.InitialScenarioDocument is not null)
+            world = army.FinalizeRegisteredOfficersCurrent(world);
+        world = army.FinalizeItemEditorsCurrent(world);
+        if (Snapshot.Locale is "TC" or "SC")
+        {
+            world = army.InitializeFreshPersonnelHire(world);
+        }
+        if (Scenario.InitialRegisteredOfficerRandom is { } registeredOfficerRandom)
+            world = world with { CampaignCrtRandom = registeredOfficerRandom };
+        if (Snapshot.Locale is "TC" or "SC")
         {
             var merchants = army.InitializeFreshCityMerchants(world);
             world = merchants.Available ? merchants.Value! : throw new InvalidDataException(
                 "The campaign's merchant initialization is unavailable: " + merchants.UnresolvedInput);
-            world = army.InitializeFreshPersonnelHire(world);
         }
         // This standalone host has neither the optional selected-user App
         // service nor an external mode. The saved world's user index remains
         // independent; it is not filled from either of these absent services.
         world = RequireFirstStrategy(army.TryInitializeFirstStrategy(world,
             new(CampaignEntryKind.NewCampaign, new(false, null), false, null)));
-        PreparedRules prepared = PrepareRules(world, playerForceId, army);
+        PreparedRules prepared = PrepareRules(world, playerForceId, army, attachOriginalPolicy: false);
+        world = AttachOriginalAiStrategy(world, army, prepared.Rules, restorePolicyOwner: false);
+        world = army.EnterStrategy(world, CampaignEntryKind.NewCampaign);
         GameplaySession session = GameplaySession.Restore(world, playerForceId,
-            prepared.Rules, Calendar(prepared.Army), _saveCodec);
+            prepared.Rules, Calendar(prepared.Army), _saveCodec, commandPlannerFactory: commandPlannerFactory);
         // No cache or UI publication occurs in rule construction. Even the
         // session's ownership/initial-state check must succeed before this cache changes.
         _army = prepared.Army;
         return new(session, prepared.Presentation);
     }
 
-    public ArmyCampaignRuleAdapter PrepareArmyQueries(GameState world) => _army ??= CreateArmy(world);
+    public ArmyCampaignRuleAdapter PrepareArmyQueries(GameState world)
+    {
+        RefreshApplicationSpecialPersonCapabilities();
+        return _army ??= CreateArmy(world);
+    }
 
     /// <summary>The application owns voice switches. Rule preparation borrows
     /// this explicit snapshot; loading a world does not invent those switches.</summary>
@@ -149,16 +187,32 @@ public sealed partial class CampaignComposition
         return PrepareArmyQueries(world).ReadForceDetailNameplate(world, _flagNames, forceId);
     }
 
-    internal MapHeaderProjection CurrentMapHeader(GameState world, int forceId, MapHeaderDisplayState? displayed)
+    internal MapHeaderProjection CurrentMapHeader(GameState world, int forceId, MapHeaderDisplayState? displayed,
+        bool refreshEditedEvents = true)
     {
-        if (ReferenceEquals(_headerWorld, world) && _headerForce == forceId && _headerDisplayed == displayed && _currentHeader is not null) return _currentHeader;
+        var rules=PrepareArmyQueries(world);
+        bool admitted = refreshEditedEvents && rules.ReadApplicationTutorialActive() is false &&
+            rules.ReadApplicationInformationRestriction(world) is false;
+        if (!admitted) _mainCommandEditedRefreshPending = true;
+        if (admitted && _mainCommandEditedEvents is { } archive &&
+            (_mainCommandEditedRefreshPending || _mainCommandEditedReadiness is not { } ready || !ReferenceEquals(ready.World, world) ||
+                !ReferenceEquals(ready.Library, archive.Current) || ready.LibraryRevision != archive.Revision))
+        {
+            var publication = rules.QueryManualEditedEventsReadiness(world, archive);
+            _mainCommandEditedReadiness = publication;
+            _mainCommandEditedRefreshPending = false;
+            rules.ConfigureMainCommandApplicationFacts(new(world, publication.Ready));
+        }
+        long commandRevision=rules.MainCommandPresentationRevision;
+        if (ReferenceEquals(_headerWorld, world) && _headerForce == forceId && _headerDisplayed == displayed &&
+            _headerCommandRevision==commandRevision && _currentHeader is not null) return _currentHeader;
         _flagNames ??= ArmyFlagPaneNames.Load(Scenario);
         // This host currently controls the player's first district. An eventual
         // district selector can supply another receiver to the same query.
         var districts = world.Districts.Values.Where(d => d.ForceId == forceId && d.Number == 1).Take(2).ToArray();
-        var header = PrepareArmyQueries(world).QueryMapHeader(world,
+        var header = rules.QueryMapHeader(world,
             districts.Length == 1 ? districts[0].Id : null, displayed, _flagNames);
-        _headerWorld = world; _headerForce = forceId; _headerDisplayed = displayed;
+        _headerWorld = world; _headerForce = forceId; _headerDisplayed = displayed; _headerCommandRevision=commandRevision;
         return _currentHeader = header;
     }
 
@@ -214,9 +268,15 @@ public sealed partial class CampaignComposition
             Scenario, Map, Snapshot.Locale, revision, presentationAdmission);
         presentationAdmission.Rules = army;
         army.ConfigureApplicationGameplay(_applicationGameplay);
+        if (Volatile.Read(ref _applicationPresentationOptions) is { } presentation)
+            army.ConfigureApplicationPresentationOptions(presentation);
         army.ConfigureArmyTraitSpeechView(_armyTraitSpeechViews is null ? null : _armyTraitSpeechViews.Read);
+        army.ConfigureArmyDepartureController(_armyTraitSpeechViews is { } traitViews ? () => traitViews.ControllerAvailable : null);
+        army.ConfigureFacilityPeriodicArmyViews(_facilityPeriodicArmyViews);
+        army.ConfigureArmyFireViews(_armyFireViews);
         if (_baseCaptureTerrainBound) army.ConfigureBaseCapturePresentationTerrain(_baseCaptureTerrain);
         if (_applicationProfile is { } profile) army.ConfigureApplicationProfile(profile);
+        if (_endingBindings is { } ending) army.ConfigureCampaignEndingBindings(ending);
         if (_personnelNarrationVoiceSettings is { } voice) army.ConfigurePersonnelNarrationVoice(voice);
         return army;
     }
@@ -225,7 +285,7 @@ public sealed partial class CampaignComposition
         CampaignPresentation Presentation);
 
     private PreparedRules PrepareRules(GameState world, int playerForceId,
-        ArmyCampaignRuleAdapter? existingArmy = null)
+        ArmyCampaignRuleAdapter? existingArmy = null, bool attachOriginalPolicy = true)
     {
         CeDifficultyIncomeRates? rates = Snapshot.WorldParameters is null ? null :
             CeDifficultyIncomeRates.LoadCurrent(_repository.SourceDirectory,
@@ -237,6 +297,8 @@ public sealed partial class CampaignComposition
         var travel = new HexTravelMap(Map);
         if (world.NativeClock is null || world.NativeArmySimulation is null)
         {
+            if (_originalAiStrategy is { Enabled: true })
+                throw new InvalidOperationException("Original Strategy policy requires an owned native campaign.");
             // Continuing a legacy session must not invent native Army records or an epoch.
             return new(PlayableSkeleton.Bind(travel, income), null,
                 new(null, null, incomePresentation));
@@ -271,6 +333,7 @@ public sealed partial class CampaignComposition
             governanceRosterRules: army,
             cityMerchantRules: army,
             cityOfficerMovementRules: army);
+        if (attachOriginalPolicy) AttachOriginalAiStrategy(world, army, rules, restorePolicyOwner: true);
         return new(rules, army, new(SimulationRuleIdentity.Version, army.Revision, incomePresentation));
     }
 

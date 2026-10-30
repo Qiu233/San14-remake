@@ -4,11 +4,11 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //293040(mode0), shared by calendar expiry and the two actual Force
-    //retirement callbacks. No monthly predicate, relation penalty or expiry
-    //announcement belongs here. The caller retains its live descriptors.
+    //293040, shared by calendar expiry, Force retirement and ordinary Story.
+    //No monthly predicate, relation penalty or expiry announcement belongs
+    //here. Only the explicit mode1 caller requests the Army logistics pass.
     internal GameState DissolveCampaignCoalitionCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool, List<CampaignEffectRequest>? effects = null)
+        WorldIndexContext pool, List<CampaignEffectRequest>? effects = null, bool refreshArmyLogistics = false)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
             throw CoalitionDissolutionMissing("shared_pool");
@@ -20,20 +20,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             NativeForceUnregisterCurrent = interaction with { OtherForce1657 = 0 }
         };
         current.EventConditions.SelectedForce = 0;
+        bool occupationChanged = false;
 
         foreach (var force in Forces())
         {
             int key = Ordinal(force);
-            foreach (var entry in current.ReadRegistryReferences(RegistryKind.Army)
-                ?? throw CoalitionDissolutionMissing("Army60"))
+            foreach (int physical in Armies(force))
             {
-                if (entry is not { Kind: RegistryKind.Army, PhysicalSlot: int physical })
-                    throw CoalitionDissolutionMissing("Army_payload");
-                //222FD0 is the current Force iterator. A saved raw Army
-                //Force byte is not its Commander/District-derived identity.
-                if (key is < 1 or > 51 ||
-                    CoalitionDissolutionNeed(current.ReadForcePhysicalSlot(
-                        current.ReadArmyUnitForceReference(new(physical))), "Army_Force") != key) continue;
                 if ((Flags(force) & 2) == 0) continue;
                 int rawHex = CoalitionDissolutionNeed(current.ReadArmyUnitRawHex2A(new(physical)), "Army2A");
                 var hex = current.ReadHexTableReference(rawHex < 48400 ? rawHex : 0)
@@ -43,12 +36,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                     CoalitionDissolutionMissing) & 127) != 0) continue;
                 state = new MonthlyCampaignMaintenanceSource(this, state, current, pool,
                     borrowedEffects: effects).ApplyCoalitionExpiryArmyOccupationCurrent(physical, key);
+                occupationChanged = true;
             }
         }
-        //Mode0 skips276DB0 even if occupation changed. Each C0 occurrence
-        //still clears both coalition bits in its original iterator order.
+        //Mode0 skips276DB0. Mode1 requires at least one reached occupation
+        //write and visits each member's live Army iterator before clearing
+        //that C0 occurrence's two coalition bits, in source order.
         foreach (var force in Forces())
         {
+            if (refreshArmyLogistics && occupationChanged && (Flags(force) & 2) != 0)
+                state = new NormalTurnTerritoryMaintenanceSource(this, state, current, pool)
+                    .ApplyStoryCoalitionLogistics(force, effects);
             native = state.NativeArmySimulation ?? throw CoalitionDissolutionMissing("flags_owner");
             int physical = CoalitionDissolutionNeed(force.PhysicalSlot, "flags_Force_pointer");
             var before = native.Forces.GetValueOrDefault(physical) ?? throw CoalitionDissolutionMissing("flags_Force");
@@ -86,6 +84,21 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw CoalitionDissolutionMissing("ForceC0"))
                 yield return entry is { Kind: RegistryKind.Force, PhysicalSlot: int at }
                     ? new(at) : throw CoalitionDissolutionMissing("Force_payload");
+        }
+        IEnumerable<int> Armies(ForceReference force)
+        {
+            int key = Ordinal(force);
+            foreach (var entry in current.ReadRegistryReferences(RegistryKind.Army)
+                ?? throw CoalitionDissolutionMissing("Army60"))
+            {
+                if (entry is not { Kind: RegistryKind.Army, PhysicalSlot: int physical })
+                    throw CoalitionDissolutionMissing("Army_payload");
+                //334740:22CD80's current Commander/District raw Force byte,
+                //then233560 exclusion, with no outer Army-validity filter.
+                if (key is < 1 or > 51 || current.ReadArmyUnitRawForceSlot(new(physical)) != key) continue;
+                if (CoalitionDissolutionNeed(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "Army233560")) continue;
+                yield return physical;
+            }
         }
         int Ordinal(ForceReference force) => CoalitionDissolutionNeed(current.ReadForcePhysicalSlot(force), "Force60");
         byte Flags(ForceReference force) => CoalitionDissolutionNeed(state.NativeArmySimulation?.Forces

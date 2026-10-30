@@ -78,13 +78,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (ClosingNeed(current.ReadForcePhysicalSlot(force), "collection_Item_holder_ordinal") != ordinal) continue;
                 if (special)
                 {
-                    var itemSource = _scenario.Snapshot.ScenarioItems?.Items.SingleOrDefault(row => row.Slot == physical)
-                        ?? throw ClosingMissing("collection_Item_definition44");
-                    //238790's immutable44..49 window is serialized at58..63.
-                    //S14ItemDefinition.RawKind names45, not this44 category.
-                    if (itemSource.RecordStride != 65 || itemSource.RawBytes.Length != 65)
-                        throw ClosingMissing("collection_Item_definition44_format");
-                    if (itemSource.RawBytes[58] != 26) continue;
+                    var saved = state.Items?.GetValueOrDefault(physical) ?? throw ClosingMissing("collection_Item_current");
+                    var appearance = state.ItemDefinitions.GetValueOrDefault(saved.DefinitionId)?.Appearance
+                        ?? throw ClosingMissing("collection_Item_current_definition44");
+                    if (appearance.Kind != 26) continue;
                 }
                 count++;
                 if (special && count > 4) break;

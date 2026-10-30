@@ -97,20 +97,24 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal int ExecutorId=>Id(Executor);
         internal DiplomacyQuery(ArmyCampaignRuleAdapter package,GameState state,SourceWorldContext current,PersonnelDiplomacyTask task)
             :this(package,state,current,task.MemberIds.FirstOrDefault(),task.TargetForceId,task.NativeKind,
-                task.AllianceMonths,task.TargetCityId) { }
+                task.AllianceMonths,task.TargetCityId) { RequestedCaptives=task.RequestedCaptiveOfficerIds; }
         internal DiplomacyQuery(ArmyCampaignRuleAdapter package,GameState state,SourceWorldContext current,
             int executorId,int targetForceId,int nativeKind,int allianceMonths,int? targetCityId)
         {
             this.package=package;State=state;Current=current;
             NativeKind=nativeKind;AllianceMonths=allianceMonths;TargetCityId=targetCityId;
-            if(package.Seed.Language!="TC")throw DiplomacyNumericMissing("SC_numeric_owner");
-            if(nativeKind is not (4 or 5 or 6 or 9))throw DiplomacyNumericMissing("mission_kind");
+            var parameters=state.NativeArmySimulation?.Parameters;
+            if(parameters is null || parameters.Language!=package.Seed.Language ||
+                !HasDiplomacyParameterProfile(parameters.Language,parameters.RuleVersion))
+                throw DiplomacyNumericMissing("numeric_owner_profile");
+            if(nativeKind is not (4 or 5 or 6 or 7 or 8 or 9 or 19))throw DiplomacyNumericMissing("mission_kind");
             Executor=P(current.ReadPersonLookupReference(executorId<=6000?executorId:0) ?? throw DiplomacyNumericMissing("executor_pointer"));
             Own=current.ReadPersonForce(Executor) ?? throw DiplomacyNumericMissing("executor_Force22CB40");
             Other=current.ReadForceTableReference(targetForceId is >=0 and <=51?targetForceId:0)
                 ?? throw DiplomacyNumericMissing("target_Force_pointer");
         }
-        internal int Parameter(string name)=>DParameter(State,name);
+        internal int Parameter(string name)=>name.StartsWith("return-captives-",StringComparison.Ordinal)
+            ?ReadExtendedDiplomacyRuleCurrent(State,name):DParameter(State,name);
         internal int Ordinal(ForceReference force)=>DNeed(Current.ReadForcePhysicalSlot(force),"Force_ordinal60");
         internal static int P(TransferPersonReference person)=>DNeed(person.PhysicalSlot,"Person_pointer");
         internal int Id(int person)=>DNeed(Current.ReadPersonIdentity(person),"Person_ID10");
@@ -197,6 +201,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal int Probability(DiplomacyOffer offer)
         {
             if(NativeKind==6)return 100;
+            if(NativeKind==8)return ReturnCaptivesProbability(offer);
+            if(NativeKind is 7 or 19)return 0; //322B80 has no percentage branch for these independent trials.
             int baseValue=OfferValue(offer),value=baseValue;
             if(NativeKind==4)value=unchecked(unchecked((Trait()+100)*baseValue)/100);
             int policy=ForcePolicyScratchCurrent.ReadBeforeFreedom(State,Current,Own,0x17,true).Value;

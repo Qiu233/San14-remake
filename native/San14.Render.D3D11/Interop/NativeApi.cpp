@@ -29,6 +29,9 @@ struct Owner {
     D3D11InteropOwner interop;
     RenderHost host;
     RenderSession session;
+    enum class ArmyPublicationRole { Campaign,StartupAbsent };
+    std::optional<ArmyPublicationRole> acceptedArmyRole;
+    bool armyResourcesEnabled{};
 #ifdef SAN14_RENDER_OUTPUT_PROBE
     ID3D11Texture2D* finalForProbe{}; // Same borrowed lifetime as RenderOutput.
 #endif
@@ -41,18 +44,38 @@ struct Owner {
         try{interop.drain();}catch(HRESULT){}
     }
     void accept(const San14RenderInput& input) {
-        std::memcpy(&host.input,&input,sizeof(input));
+        const auto role=(input.flags&static_cast<unsigned>(FrameInputFlag::StartupArmyOwnerAbsent))
+            ?ArmyPublicationRole::StartupAbsent:ArmyPublicationRole::Campaign;
+        if(role==ArmyPublicationRole::StartupAbsent) {
+            if(acceptedArmyRole==ArmyPublicationRole::Campaign)
+                throw std::runtime_error("A live campaign Army owner cannot return to Startup");
+            if(input.armyWorld||input.armyWorldBytes||host.armyWorld)
+                throw std::runtime_error("Startup has no live Army World publication owner");
+        } else if(armyResourcesEnabled&&!host.armyWorld&&(!input.armyWorld||!input.armyWorldBytes))
+            throw std::runtime_error("Campaign adoption requires its first actual Army World publication");
+
+        //Decode new immutable publications before changing the role. A format
+        //failure cannot promote a Startup owner or consume its first packet.
+        std::optional<ArmyWorldPublication> army;
+        if(input.armyWorld)army=copyArmyWorldPublication(input.armyWorld,input.armyWorldBytes);
+        else if(input.armyWorldBytes)throw std::runtime_error("Army World packet pointer is absent");
+        std::optional<source_current_season::Frame> season;
+        if(input.currentSeason)season=source_current_season::decode({input.currentSeason,input.currentSeasonBytes});
+        else if(input.currentSeasonBytes)throw std::runtime_error("Current season packet pointer is absent");
+        std::optional<CityGateWorldPublication> cities;
+        if(input.cityGateWorld)cities=copyCityGateWorldPublication(input.cityGateWorld,input.cityGateWorldBytes);
+        else if(input.cityGateWorldBytes)throw std::runtime_error("City/Gate World packet pointer is absent");
+        std::optional<AreaCapitalWorldPublication> areas;
+        if(input.areaCapitalWorld)areas=copyAreaCapitalWorldPublication(input.areaCapitalWorld,input.areaCapitalWorldBytes);
+        else if(input.areaCapitalWorldBytes)throw std::runtime_error("Area Capital World packet pointer is absent");
         host.territoryOwnership.acceptMapColors(input.ownershipMapColors,input.ownershipMapColorCount);
         host.territoryOwnership.accept(input.ownershipColors,input.ownershipCount,input.ownershipRevision);
-        if(input.armyWorld)host.armyWorld=copyArmyWorldPublication(input.armyWorld,input.armyWorldBytes);
-        else if(input.armyWorldBytes)throw std::runtime_error("Army World packet pointer is absent");
-        if(input.currentSeason)host.currentSeason=source_current_season::decode(
-            {input.currentSeason,input.currentSeasonBytes});
-        else if(input.currentSeasonBytes)throw std::runtime_error("Current season packet pointer is absent");
-        if(input.cityGateWorld)host.cityGateWorld=copyCityGateWorldPublication(input.cityGateWorld,input.cityGateWorldBytes);
-        else if(input.cityGateWorldBytes)throw std::runtime_error("City/Gate World packet pointer is absent");
-        if(input.areaCapitalWorld)host.areaCapitalWorld=copyAreaCapitalWorldPublication(input.areaCapitalWorld,input.areaCapitalWorldBytes);
-        else if(input.areaCapitalWorldBytes)throw std::runtime_error("Area Capital World packet pointer is absent");
+        std::memcpy(&host.input,&input,sizeof(input));
+        if(army)host.armyWorld=std::move(army);
+        if(season)host.currentSeason=std::move(season);
+        if(cities)host.cityGateWorld=std::move(cities);
+        if(areas)host.areaCapitalWorld=std::move(areas);
+        acceptedArmyRole=role;
         host.input.ownershipColors=nullptr;host.input.ownershipCount=0;
         host.input.ownershipMapColors=nullptr;host.input.ownershipMapColorCount=0;
         host.input.armyWorld=nullptr;host.input.armyWorldBytes=0;
@@ -96,10 +119,15 @@ void* __cdecl san14_render_create(void* device,void* queue,void* output,
         RenderConfiguration configuration{
             PreparedResourceDirectories{terrainSourceDirectory}, unsigned(width), unsigned(height),
             WorldVisuals::fromInteropFlags(worldDetails)};
-        if(configuration.world.armies&&(!input->armyWorld||!input->armyWorldBytes))
+        if(!input)throw std::runtime_error("Initial render input is absent");
+        const bool startup=(input->flags&static_cast<unsigned>(FrameInputFlag::StartupArmyOwnerAbsent))!=0;
+        if(startup&&(input->armyWorld||input->armyWorldBytes))
+            throw std::runtime_error("Startup has no live Army World publication owner");
+        if(configuration.world.armies&&!startup&&(!input->armyWorld||!input->armyWorldBytes))
             throw std::runtime_error("Actual Army population requires its initial World publication, including an empty World");
         auto owner=std::make_unique<Owner>(static_cast<ID3D12Device*>(device),static_cast<ID3D12CommandQueue*>(queue));
         auto& host=owner->host;
+        owner->armyResourcesEnabled=configuration.world.armies;
         owner->session=createRenderSession(host,std::move(configuration));
         owner->publish(static_cast<ID3D12Resource*>(output),*input,OutputUse::RenderTarget,*receipt);
         lastError.clear();return owner.release();
@@ -163,6 +191,13 @@ int __cdecl san14_render_next_map_effects_v1(void* value,void* output,const San1
         if(commandCandidate)owner.host.commandMap=std::move(*commandCandidate);
         owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
         lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_effect_retire_owner_v1(void* value,uint64_t sourceOwner) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);std::lock_guard guard(owner.contextGate);
+        if(!sourceOwner||!owner.host.retireEffectOwner)throw std::runtime_error("Story Effect retirement owner is absent");
+        owner.host.retireEffectOwner(sourceOwner);lastError.clear();return 0;
     }catch(...){recordException();return -1;}
 }
 uint64_t __cdecl san14_effect_direct_create_v1(void* value,const uint8_t* bytes,uint32_t count) {

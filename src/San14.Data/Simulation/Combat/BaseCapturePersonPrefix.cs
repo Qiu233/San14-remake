@@ -34,14 +34,14 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
     internal BaseCapturePersonPrefixResult TryApplyCurrent(GameState input, SourceWorldContext current,
         BaseReference target, ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
         TacticSourceSamplerWorld? sampler, BaseCaptureOperationContext? continuationContext = null,
-        DistrictReference? winnerDistrict = null)
-        => Apply(input, target, winnerArmy, operationThirdDate, sampler, null, current, continuationContext, winnerDistrict);
+        DistrictReference? winnerDistrict = null, bool allowNoWinner = false)
+        => Apply(input, target, winnerArmy, operationThirdDate, sampler, null, current, continuationContext, winnerDistrict, allowNoWinner);
 
     private BaseCapturePersonPrefixResult Apply(GameState input, BaseReference target,
         ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate,
         TacticSourceSamplerWorld? sampler, CaptureApplicationOwners? application,
         SourceWorldContext? operationCurrent, BaseCaptureOperationContext? continuationContext,
-        DistrictReference? winnerDistrict = null)
+        DistrictReference? winnerDistrict = null, bool allowNoWinner = false)
     {
         bool borrowed = operationCurrent is not null;
         SourceWorldContext? current = null;
@@ -66,13 +66,23 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             if (restored is null && !K(current.ReadForceNativeValidity(oldForceReference), "old Force validity")) throw Missing("branch.invalid_old_Force");
             bool winnerArmyValid = K(current.ReadArmyUnitNativeValidity(winnerArmy), "winner Army validity");
             if (!winnerArmyValid && winnerDistrict is null) throw Missing("branch.invalid_winner_Army");
+            if (allowNoWinner && (winnerArmyValid || restored is not null)) throw Missing("neutral_winner_scope");
             var targetDistrict = winnerDistrict ?? current.ReadDistrictTableReference(K(current.ReadPersonDistrictSlot(
                 Commander(current, winnerArmy)), "winner_DistrictE0")) ?? throw Missing("winner_District_pointer");
             var winningForce = winnerArmyValid ? current.ReadArmyUnitForceReference(winnerArmy)
                 : current.ReadForceTableReference(K(current.ReadDistrictForceSlot(targetDistrict), "winner_District10"))
                     ?? throw Missing("winner_District_Force_pointer");
             int newForce = K(current.ReadForcePhysicalSlot(winningForce), "winner Force physical");
-            if (newForce is < 1 or > 45 || newForce == oldForce || !K(current.ReadForceNativeValidity(winningForce), "winner Force validity"))
+            bool winningForceValid = K(current.ReadForceNativeValidity(winningForce), "winner Force validity");
+            if (allowNoWinner)
+            {
+                //The explicitly neutral operation supplies the real invalid
+                //District0/Force0 records. It never treats a null address as
+                //a readable District or admits a capture-predicate winner.
+                if (targetDistrict.PhysicalSlot != 0 || K(current.ReadDistrictNativeValidity(targetDistrict), "neutral_District_validity") ||
+                    newForce != 0 || winningForceValid) throw Missing("neutral_winner_records");
+            }
+            else if (newForce is < 1 or > 45 || newForce == oldForce || !winningForceValid)
                 throw Missing("branch.nonordinary_winner_Force");
             int winnerPerson = winnerArmyValid ? Commander(current, winnerArmy)
                 : K(current.ReadPersonLookupReference(0)?.PhysicalSlot, "winner_Person0_pointer");
@@ -116,10 +126,10 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                         var destruction = new OwnedArmyDestructionStage(package);
                         var homePool = current.ReadOwnedCurrentListPool() ?? throw Missing("HomeArmy current pool");
                         var retired = winnerArmyValid
-                            ? destruction.ApplyEmployedHomeCommanderCause4Current(working, current, homePool,
-                                armySlot, winnerArmy, sourceDate)
+                            ? destruction.ApplyEmployedHomeCommanderCause4WithinOperationCurrent(working, current, homePool,
+                                armySlot, winnerArmy, sourceDate, sourceSampler, homeFeedback)
                             : destruction.ApplyAbsorptionCommanderCause4Current(working, current, homePool,
-                                armySlot, sourceDate ?? throw Missing("HomeArmy_null_winner_date"), homeFeedback);
+                                armySlot, sourceDate ?? throw Missing("HomeArmy_null_winner_date"), homeFeedback, sourceSampler);
                         working = retired.State ?? throw Missing(retired.UnresolvedOwner ?? "HomeArmy_259360_mode0_cause4");
                         AppendFeedback(homeFeedback);
                         homeArmyCause4.Add(retired.Receipt!);
@@ -148,7 +158,7 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                             working.NativeClock?.UpdateOrdinal ?? throw Missing("existing_captive_effect_clock"), existingCaptiveEffects) };
                 current.ClearTemporaryHexList(captured);
                 noncaptured = Temporary(current); special = Temporary(current);
-                sourceSampler ??= package.ReadArmyDestructionSampler(working, current);
+                if (!allowNoWinner) sourceSampler ??= package.ReadArmyDestructionSampler(working, current);
                 foreach (int person in RegisteredPeople(current))
                 {
                     //3346B0 first testsE2 equality, then232F10(mode0).
@@ -156,9 +166,14 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     byte status = K(current.ReadPersonStatus(person), "3346B0 PersonE6");
                     if (status is < 1 or > 4) continue;
                     homes.Add(K(current.ReadPersonIdentity(person), "Home Person10"));
-                    var personForce = current.ReadPersonForce(person) ?? throw Missing("22CF60 Person Force");
-                    if (K(current.ReadForcePhysicalSlot(personForce), "22CF60 Person Force physical") == newForce) continue;
-                    bool reached = K(current.ReadPersonSecondLocation(person), "Home PersonE4") == link;
+                    //2851B0 tests recipient validity before the same-Force
+                    //filter. A neutral recipient cannot reach27E870 or its RNG.
+                    if (winningForceValid)
+                    {
+                        var personForce = current.ReadPersonForce(person) ?? throw Missing("22CF60 Person Force");
+                        if (K(current.ReadForcePhysicalSlot(personForce), "22CF60 Person Force physical") == newForce) continue;
+                    }
+                    bool reached = K(current.ReadPersonSecondLocation(person), "Home PersonE4") == link && winningForceValid;
                     PersonArmyCaptureReceipt? captureReceipt = null;
                     bool wasCaptured = false;
                     if (reached)
@@ -243,6 +258,8 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                         chosen = CapturedRulerDisposition.Execute;
                     }
                     AppendFeedback(effects);
+                    if (working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null)
+                        return StopForTerminal();
                     if (working.PersonDeathContinuation is not null) return Pause(index, null, chosen);
                     continue;
                 }
@@ -351,6 +368,19 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                 working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
                     ?? throw Missing("ruler_feedback_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
                         working.NativeClock?.UpdateOrdinal ?? throw Missing("ruler_feedback_clock"), feedback) };
+            }
+            BaseCapturePersonPrefixResult StopForTerminal()
+            {
+                //A real execute/force-retirement stop does not run the next
+                //captured person, territory or winner return. No completed
+                //occupation receipt is fabricated for this shorter branch.
+                if (changedForce is not null) { Release(current, changedForce); changedForce = null; }
+                if (special is not null) { Release(current, special); special = null; }
+                if (noncaptured is not null) { Release(current, noncaptured); noncaptured = null; }
+                if (captured is not null) { Release(current, captured); captured = null; }
+                working = WithPool(working, current, borrowed);
+                published = true;
+                return new(working, null, current, null);
             }
             BaseCapturePersonPrefixResult Pause(int index, CapturedRulerTreatmentRequest? pending,
                 CapturedRulerDisposition? chosen)

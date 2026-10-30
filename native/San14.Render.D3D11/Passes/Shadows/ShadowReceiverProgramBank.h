@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Resources/ShaderFeatureSelection.h"
 #include <algorithm>
 #include <filesystem>
@@ -22,7 +23,7 @@ struct ShadowReceiverProgramSelection {
 class ShadowReceiverProgramBank {
 public:
     static ShadowReceiverProgramBank read(const std::filesystem::path& directory) {
-        std::ifstream header(directory/"bank.txt");
+        NativePreparedInputFile header(directory/"bank.txt");
         std::size_t featureCount{},variantCount{},rowCount{},variantBytes{};std::string extra;
         if(!(header>>featureCount>>variantCount>>rowCount>>variantBytes)||header>>extra||
             !featureCount||!variantCount||variantBytes!=96||
@@ -32,7 +33,7 @@ public:
         ShadowReceiverProgramBank result;
         auto rows=[&](const char* name,auto& values,std::size_t count) {
             using Value=typename std::decay_t<decltype(values)>::value_type;
-            std::ifstream input(directory/name,std::ios::binary);values.resize(count);
+            NativePreparedInputFile input(directory/name,std::ios::binary);values.resize(count);
             input.read(reinterpret_cast<char*>(values.data()),std::streamsize(count*sizeof(Value)));
             if(!input||input.peek()!=std::char_traits<char>::eof())
                 throw std::runtime_error("Receiver program bank row extent");
@@ -40,7 +41,7 @@ public:
         static_assert(sizeof(ShaderFeatureKey)==48);
         rows("features.bin",result.features_,featureCount);rows("variants.bin",result.variants_,variantCount);
         result.programs_.resize(rowCount);std::vector<bool> seen(rowCount);
-        std::ifstream input(directory/"programs.txt");std::string line;
+        NativePreparedInputFile input(directory/"programs.txt");std::string line;
         while(std::getline(input,line)) {
             std::istringstream row(line);std::size_t feature{},variant{};
             if(!(row>>feature)) {if(row.eof())continue;throw std::runtime_error("Malformed receiver program row");}

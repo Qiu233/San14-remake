@@ -96,6 +96,7 @@ public partial class Main
         _playMessage.Text = _ui.Get("play_loaded");
         RefreshCurrentPlayWorld();
         CloseTitleMenu();
+        RestoreTutorialLessonAfterLoad();
         if(fromTitle)
         { _browserContent.ProcessMode=ProcessModeEnum.Inherit;_browserContent.Show(); }
         }

@@ -3,6 +3,8 @@ using Godot;
 using San14.Data;
 using San14.Core;
 
+internal enum D3D11ArmyPublicationRole { Campaign = 0, StartupAbsent = 1 }
+
 /// <summary>One owned camera publication and the elapsed time supplied by its caller.</summary>
 public sealed class D3D11MapInput
 {
@@ -25,7 +27,10 @@ public sealed class D3D11MapInput
     public D3D11CommandMapPublication? CommandMap { get; init; }
     public D3D11RoutePublication? Routes { get; init; }
     public G1EffectGpuPublication? Effects { get; init; }
+    public StoryEffectCommonCameraFrame? StoryEffectCamera { get; init; }
     public uint CommandMapFpsMode { get; init; }
+    //Absence belongs to the real Startup role, not an invented empty World.
+    internal D3D11ArmyPublicationRole ArmyPublicationRole { get; init; } = D3D11ArmyPublicationRole.Campaign;
     public D3D11ArmyPublication? ArmyWorld { get; init; }
     public ArmyMapGroupingFrame? ArmyGroupingWorld { get; init; }
     public D3D11CityGatePublication? CityGateWorld { get; init; }
@@ -33,6 +38,8 @@ public sealed class D3D11MapInput
     public GameState? WorldState { get; init; }
     internal NativeMapSeasonState? PeriodSeason { get; init; }
     internal D3D11ArmyLabelPublication? PeriodArmyLabels { get; init; }
+    internal FacilityMapInfoPublication? FacilityInfo { get; init; }
+    internal HexFirePresentationPublication? HexFire { get; init; }
     internal SceneryMapPresentation? SceneryPresentation {get;init;}
     internal SceneryMapCapture? SceneryWorld {get;init;}
     internal bool? SceneryCameraStable {get;init;}
@@ -63,12 +70,16 @@ public sealed class D3D11MapInput
         CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
         Routes = input.Routes;
         Effects = input.Effects;
+        StoryEffectCamera = input.StoryEffectCamera;
+        ArmyPublicationRole = input.ArmyPublicationRole;
         ArmyWorld = input.ArmyWorld;
         ArmyGroupingWorld = input.ArmyGroupingWorld;
         CityGateWorld = input.CityGateWorld;
         AreaCapitalWorld = input.AreaCapitalWorld;
         WorldState = input.WorldState;
         PeriodSeason = input.PeriodSeason; PeriodArmyLabels = input.PeriodArmyLabels;
+        FacilityInfo = input.FacilityInfo;
+        HexFire = input.HexFire;
         SceneryPresentation=input.SceneryPresentation;SceneryWorld=input.SceneryWorld;
         SceneryCameraStable=input.SceneryCameraStable;
         CurrentSeason = input.CurrentSeason; CurrentSeasonBytes = input.CurrentSeasonBytes;
@@ -105,17 +116,25 @@ public sealed class D3D11MapInput
                 ? this.ArmyWorld?.WithResourceContextGeneration(generation) : this.ArmyWorld };
     internal D3D11RenderSession.NativeInput ToNative()
     {
+        uint armyRoleFlags = ArmyPublicationRole switch
+        {
+            D3D11ArmyPublicationRole.Campaign => 0u,
+            D3D11ArmyPublicationRole.StartupAbsent when ArmyWorld is null => 0x80000u,
+            D3D11ArmyPublicationRole.StartupAbsent => throw new InvalidDataException("Startup cannot publish a live Army World."),
+            _ => throw new InvalidDataException("Native Army publication role is unsupported.")
+        };
         var sun = CurrentSeason?.Atmosphere.Controller.SunPosition ?? default;
         return new()
         {
             Camera = _camera, Controller = _controller, Band = Band, Fraction = Fraction,
             DeltaSeconds = (float)ElapsedSeconds,
             Flags = 1u | (Paused ? 2u : 0u) | (EligibleAnimationUpdate ? 4u : 0u) |
-                (TerritoryDisplayEnabled ? 0u : 8u) |
+                (TerritoryDisplayEnabled ? 0u : 8u) | armyRoleFlags |
                 (InformationTerritoryStyle is int style ? 0x40000u | (uint)style << 16 : 0u),
             CurrentRawSunPosition = [sun.X, sun.Y, sun.Z, sun.W],
             CurrentCloudGeometry40 = CurrentSeason?.Atmosphere.ControllerGeometry40 ?? 0,
-            AtmosphereResourceDirectory = AtmosphereResourceDirectory
+            AtmosphereResourceDirectory = AtmosphereResourceDirectory is { } atmosphere
+                ? D3D11RenderSession.NativeFileSystemPath(atmosphere) : null
         };
     }
     private static void ValidateElapsed(double value)
@@ -138,8 +157,10 @@ public struct D3D11AnimationState
     public float FirstBodyPhase,FirstFlagPhase;
 }
 
-/// <summary>Owns one NativeApi.h session and DLL reference. All methods, including
-/// Dispose, run on Godot's render thread. The explicit source directory is an
+/// <summary>Owns one NativeApi.h session and DLL reference. The default consumer
+/// uses Godot's render thread. A surface can explicitly own serialized native
+/// jobs; direct-device operations retain their existing gate. Godot RID work
+/// remains with the caller. The explicit source directory is an
 /// imported source resources. Actual territory/Army publications
 /// are copied synchronously and retained independently of camera requests.</summary>
 public sealed partial class D3D11RenderSession : IDisposable
@@ -252,14 +273,20 @@ public sealed partial class D3D11RenderSession : IDisposable
     private ulong _routeRequestRevision;
     private ulong _sentRouteResourceGeneration;
     private string? _sentRouteResourceDirectory;
+    private readonly bool _nativeWorker;
+    private int _nativeJobThreadId;
 
     public D3D11RenderSession(string sourceDirectory, string nativeDLLPath, uint populationMask)
+        : this(sourceDirectory,nativeDLLPath,populationMask,nativeWorker:false) { }
+
+    internal D3D11RenderSession(string sourceDirectory,string nativeDLLPath,uint populationMask,bool nativeWorker)
     {
-        RequireRenderThread();
+        _nativeWorker=nativeWorker;
+        if(!nativeWorker)RequireRenderThread();
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(nativeDLLPath);
-        _sourceDirectory = Path.GetFullPath(sourceDirectory); _populationMask = populationMask;
-        _module = NativeLibrary.Load(Path.GetFullPath(nativeDLLPath));
+        _sourceDirectory = NativeFileSystemPath(sourceDirectory); _populationMask = populationMask;
+        _module = NativeLibrary.Load(NativeFileSystemPath(nativeDLLPath));
         try
         {
             _create = Export<CreateCall>("san14_render_create");
@@ -276,7 +303,7 @@ public sealed partial class D3D11RenderSession : IDisposable
     public D3D11MapReceipt Create(ulong device, ulong queue, ulong output,
         D3D11MapInput input, int width = 1920, int height = 1080)
     {
-        RequireRenderThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
+        RequireSubmissionThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
         if (_owner != IntPtr.Zero) throw new InvalidOperationException("Native Main is already open.");
         // The command page is admitted only after the real map is ready.
         // Keep the established initial-create ABI and its first publication.
@@ -305,8 +332,14 @@ public sealed partial class D3D11RenderSession : IDisposable
     /// <summary>The output's last submitted Godot use must be Canvas sampling.
     /// Native restores SRV after its GPU copy; no clear or readback is performed.</summary>
     public D3D11MapReceipt Next(ulong output, D3D11MapInput input)
+        => Next(output, input, outputHasCanvasSampling: true);
+
+    // A new bounded output still has the actual RD clear/render-target use.
+    // After its first real Canvas submission, later requests restore SRV.
+    public D3D11MapReceipt Next(ulong output, D3D11MapInput input, bool outputHasCanvasSampling)
     {
-        RequireRenderThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
+        uint outputUse = outputHasCanvasSampling ? 1u : 0u;
+        RequireSubmissionThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
         if (_owner == IntPtr.Zero) throw new InvalidOperationException("Native Main has not been created.");
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
@@ -314,7 +347,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         try
         {
             if (input.Effects is { } effects)
-                result = NextWithEffects(output, input, in native, effects, ref pin, out receipt);
+                result = NextWithEffects(output, input, in native, effects, ref pin, outputUse, out receipt);
             else if (input.Routes is { } routes)
             {
                 _mapOverlaysNext ??= Export<MapOverlaysNextCall>("san14_render_next_map_overlays_v1");
@@ -327,7 +360,7 @@ public sealed partial class D3D11RenderSession : IDisposable
                     pin.RouteCommand = GCHandle.Alloc(new[] { commandInput }, GCHandleType.Pinned);
                     commandPointer = pin.RouteCommand.AddrOfPinnedObject();
                 }
-                result = _mapOverlaysNext(_owner, output, in native, commandPointer, in routeInput, 1u, out receipt);
+                result = _mapOverlaysNext(_owner, output, in native, commandPointer, in routeInput, outputUse, out receipt);
             }
             else if (input.CommandMap is { } command)
             {
@@ -359,7 +392,7 @@ public sealed partial class D3D11RenderSession : IDisposable
                         HoverHex = command.HoverHex, FpsMode = input.CommandMapFpsMode,
                         Count = count, Membership = membership, RawAreas = areas
                     };
-                    result = _candidateMapNext(_owner, output, in native, in extension, 1u, out receipt);
+                    result = _candidateMapNext(_owner, output, in native, in extension, outputUse, out receipt);
                 }
                 else
                 {
@@ -371,10 +404,10 @@ public sealed partial class D3D11RenderSession : IDisposable
                         HoverHex = command.HoverHex, FpsMode = input.CommandMapFpsMode,
                         Count = count, Membership = membership, RawAreas = areas
                     };
-                    result = _commandMapNext(_owner, output, in native, in extension, 1u, out receipt);
+                    result = _commandMapNext(_owner, output, in native, in extension, outputUse, out receipt);
                 }
             }
-            else result = _next(_owner, output, in native, 1u, out receipt);
+            else result = _next(_owner, output, in native, outputUse, out receipt);
         }
         finally { pin.Dispose(); }
         if (result != 0) throw NativeFailure();
@@ -402,7 +435,7 @@ public sealed partial class D3D11RenderSession : IDisposable
 
     public void UpdateAnimations(D3D11MapInput input,uint fpsMode)
     {
-        RequireRenderThread();ObjectDisposedException.ThrowIf(_module==IntPtr.Zero,this);
+        RequireSubmissionThread();ObjectDisposedException.ThrowIf(_module==IntPtr.Zero,this);
         var native=input.ToNative();var pin=PinWorld(input,ref native);int result;
         try{result=_animation(_owner,in native,fpsMode);}finally{pin.Dispose();}
         if(result!=0)throw NativeFailure();
@@ -418,7 +451,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         lock (_directGate)
         {
         if (_module == IntPtr.Zero) return;
-        RequireRenderThread();
+        RequireSubmissionThread();
         // Native Owner drains queued work before retiring its coroutine and On12 owners.
         if (_owner != IntPtr.Zero) { _destroy(_owner); _owner = IntPtr.Zero; }
         NativeLibrary.Free(_module); _module = IntPtr.Zero;
@@ -492,7 +525,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         if (routes.IsEmpty) return extension;
         if (routes.ResourceGeneration != _sentRouteResourceGeneration ||
             routes.ResourceDirectory != _sentRouteResourceDirectory)
-            extension.ResourceDirectory = routes.ResourceDirectory;
+            extension.ResourceDirectory = NativeFileSystemPath(routes.ResourceDirectory);
         extension.VertexCount = checked((uint)routes.Vertices.Length);
         extension.SpanCount = checked((uint)routes.Spans.Length);
         extension.EndpointCount = checked((uint)routes.Endpoints.Length);
@@ -556,6 +589,35 @@ public sealed partial class D3D11RenderSession : IDisposable
     }
     private Exception NativeFailure() => new InvalidOperationException(
         Marshal.PtrToStringUTF8(_error()) ?? "Native Main failed.");
+    // Native CRT readers do not inherit .NET's automatic long-path handling.
+    // Normalize once at each actual directory/library handoff; native child
+    // paths retain the same extended root for this session's whole lifetime.
+    internal static string NativeFileSystemPath(string path)
+    {
+        string absolute = Path.GetFullPath(path);
+        if (!OperatingSystem.IsWindows() || absolute.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+            absolute.StartsWith(@"\\.\", StringComparison.Ordinal)) return absolute;
+        return absolute.StartsWith(@"\\", StringComparison.Ordinal)
+            ? @"\\?\UNC\" + absolute[2..] : @"\\?\" + absolute;
+    }
+
+    // Opt-in only for the surface's serialized native-only job. Existing render
+    // thread consumers and StoryEffect retirement keep their original guard.
+    internal T RunNativeJob<T>(Func<T> action)
+    {
+        if(!_nativeWorker)throw new InvalidOperationException("This session belongs to Godot's render thread.");
+        int thread=System.Environment.CurrentManagedThreadId;
+        if(Interlocked.CompareExchange(ref _nativeJobThreadId,thread,0)!=0)
+            throw new InvalidOperationException("A native surface job is already active.");
+        try { return action(); }
+        finally { Volatile.Write(ref _nativeJobThreadId,0); }
+    }
+    private void RequireSubmissionThread()
+    {
+        if(!_nativeWorker){RequireRenderThread();return;}
+        if(Volatile.Read(ref _nativeJobThreadId)!=System.Environment.CurrentManagedThreadId)
+            throw new InvalidOperationException("Native Main submission requires its active surface job.");
+    }
     private static void RequireRenderThread()
     {
         if (!RenderingServer.IsOnRenderThread())

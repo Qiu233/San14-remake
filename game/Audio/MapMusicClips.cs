@@ -62,7 +62,8 @@ internal static class MapMusicClips
             }
         }, token).ConfigureAwait(false);
         AudioClip clip = await service.PrepareStereoRoutedStreamAsync(selected.Stream, outputs.MusicStereoRoute,
-            request.LoopPolicy, token).ConfigureAwait(false);
+            request.LoopPolicy, token, outputs.SpeakerLayout,
+            outputs.SpeakerLayout == GameAudioSpeakerLayout.Surround51 ? outputs.SurroundDeviceRoute : null).ConfigureAwait(false);
         try
         {
             var header = selected.Reference.Sample.Header;

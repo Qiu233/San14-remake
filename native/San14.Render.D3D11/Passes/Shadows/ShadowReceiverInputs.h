@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ShadowReceiverProgramBank.h"
 #include <algorithm>
 #include <filesystem>
@@ -23,12 +24,12 @@ struct OrdinaryPatternTextureInputs {
 namespace Interop {
 inline OrdinaryPatternTextureInputs readOrdinaryPatternTextureInputs(const std::filesystem::path& root) {
     OrdinaryPatternTextureInputs result;
-    std::ifstream merged(root/"merged-presence.bin",std::ios::binary);
+    NativePreparedInputFile merged(root/"merged-presence.bin",std::ios::binary);
     std::uint32_t present{};merged.read(reinterpret_cast<char*>(&present),4);
     if(!merged||present>1||merged.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Merged Pattern presence format");
     result.mergedPresent=present!=0;
-    std::ifstream rows(root/"local-textures.tsv");
+    NativePreparedInputFile rows(root/"local-textures.tsv");
     if(!rows)throw std::runtime_error("Ordinary Pattern local resource declarations are absent");
     std::string line;
     while(std::getline(rows,line)) {
@@ -42,17 +43,18 @@ inline OrdinaryPatternTextureInputs readOrdinaryPatternTextureInputs(const std::
     return result;
 }
 inline std::map<std::uint32_t,ShadowReceiverNode> readShadowReceiverNodes(const std::filesystem::path& path) {
-    std::ifstream input(path);if(!input)throw std::runtime_error("Receiver nodes declaration absent");
+    NativePreparedInputFile input(path);if(!input)throw std::runtime_error("Receiver nodes declaration absent");
     std::map<std::uint32_t,ShadowReceiverNode> result;std::string line,extra;
     while(std::getline(input,line)) {
         std::istringstream row(line);ShadowReceiverNode node;
         if(!(row>>node.index)) {if(row.eof())continue;throw std::runtime_error("Receiver node declaration format");}
         if(!(row>>node.process>>node.primary>>node.noSub>>node.lightGroup>>node.colorMask>>node.depthObject>>node.litObject>>node.overrideLitObject)||
-            row>>extra||(node.index!=68&&node.index!=119)||(node.process!=0&&node.process!=0x50)||
+            row>>extra||(node.index!=68&&node.index!=119&&node.index!=163)||
+            (node.process!=0&&node.process!=0x50&&node.process!=0x60)||
             !node.primary||!node.noSub||node.colorMask>15||!result.emplace(node.index,node).second)
             throw std::runtime_error("Receiver node declaration fields");
     }
-    if(result.size()!=2)throw std::runtime_error("Receiver requires both actual node declarations");
+    if(result.size()!=3)throw std::runtime_error("Receiver requires all three actual node declarations");
     return result;
 }
 } // namespace Interop

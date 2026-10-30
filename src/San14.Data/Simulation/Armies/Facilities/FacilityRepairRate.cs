@@ -17,12 +17,23 @@ public static class FacilityRepairRate
         var person = (id <= 6000 ? current.ReadPersonLookupReference(id) : current.ReadTransferPersonTableReference(0))
             ?? throw Missing("rate_person_pointer");
         int physical = Need(person.PhysicalSlot, "rate_person_identity");
+        int? troops = current.ReadArmyReturnResourceFields(army)?.Ready16;
+        return ReadForDefinition(state,current,definition,physical,troops,abilities,panels);
+    }
+
+    /// <summary>The same source work rate for a selected Person and the
+    /// retained row's actual troop count, before an Army has been allocated.</summary>
+    public static int ReadForDefinition(GameState state,SourceWorldContext current,
+        ObjectDefinitionReference definition,int physical,int? troops,
+        TacticRemakeCurrentAbilities abilities,OwnedBaseCapacityInputs panels)
+    {
         if (!Need(current.ReadObjectDefinitionValidity(definition), "rate_definition_validity") ||
             !Need(current.ReadPersonNativeValidity(physical), "rate_person_validity")) return 0;
+        int id = Need(current.ReadPersonIdentity(physical), "rate_person_current_identity");
         byte category = Need(current.ReadObjectDefinitionRaw2C(definition), "rate_category");
         int politics = Need(abilities.ResolveDimension(state, id, 3,
             (force, effect) => panels.ReadPanelModifier(state, force, effect)), "rate_current_politics");
-        ushort troops = Need(current.ReadArmyReturnResourceFields(army)?.Ready16, "rate_troops");
+        int selectedTroops = Need(troops, "rate_troops");
         int trait;
         var actualArmy = PersonArmyLocationSource.ReadCommanderArmy(current, physical) ?? throw Missing("rate_person_army");
         if (Need(current.ReadArmyUnitNativeValidity(actualArmy), "rate_person_army_validity"))
@@ -38,13 +49,13 @@ public static class FacilityRepairRate
             state.Forces.TryGetValue(forceId, out var owner)
                 ? Need(BattleRemakeCurrentForcePolicies.ReadForceEffect(state, owner, 42, current), "rate_policy42")
                 : throw Missing("rate_force_owner");
-        return Calculate(state, troops, politics, category, trait, policy,
+        return Calculate(state, selectedTroops, politics, category, trait, policy,
             Need(TacticRemakeCurrentBattleControl.Read(state, 51), "rate_control51"));
     }
 
     /// <summary>Each assignment preserves the source float32 instruction order.
     /// Products in the two bonuses wrap before conversion to float32.</summary>
-    public static int Calculate(GameState state, ushort troops, int politics, byte category,
+    public static int Calculate(GameState state, int troops, int politics, byte category,
         int trait28, int policy42, bool tutorialTriple)
     {
         int P(string key) => FacilityRepairParameters.Require(state, key);

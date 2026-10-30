@@ -24,6 +24,8 @@ public sealed record ArmyReceiverSourceSlot(int PhysicalSlot, ushort? Commander1
     public byte? CommandControl140 { get; init; }
     public byte? RouteHold56 { get; init; }
     public ushort? RouteGoal1F8 { get; init; }
+    public ushort? AiActionFlags { get; init; }
+    public uint? AiEvaluation { get; init; }
 }
 
 /// <summary>Resource compatibility knowledge, independent of the simulation's

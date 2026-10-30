@@ -12,9 +12,21 @@ public sealed partial class ArmyCampaignRuleAdapter
     //chronology entries are independent of the report notification queue.
     private GameState ApplyNormalTurnRankPromotionReportsCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, ForceReference force,
-        int rank, int emperor, bool selfProclaimed)
+        int rank, int emperor, bool selfProclaimed, bool playerBranch = false)
     {
-        int speaker = KingPromotionLookup(current, 5012); //Actual World9DF8 lookup.
+        int speaker;
+        if (playerBranch)
+        {
+            var currentPlayer = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
+                ?? throw KingPromotionMissing("history_player_Force");
+            var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
+                SimulationRuleIdentity.ForLocale(Seed.Language));
+            var selected = new PersonDeathHistorySelection(state, current, pool, abilities, _governorInputs,
+                (owner, effect) => _baseCapacityInputs.ReadPanelModifier(state, owner, effect))
+                .Select(ForcePrimaryDistrictSource.Resolve(current, currentPlayer));
+            speaker = KingPromotionNeed(selected.PhysicalSlot, "history_player_speaker_pointer");
+        }
+        else speaker = KingPromotionLookup(current, 5012); //Actual World9DF8 lookup.
         if (!KingPromotionNeed(current.ReadPersonNativeValidity(speaker), "history_speaker_validity")) return state;
         int speakerId = Identity(speaker);
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
@@ -41,7 +53,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             ? new HistoryMessageOperands(Person0: Identity(emperor), Force0: forceId, Force1: forceId)
             : new HistoryMessageOperands(Force0: forceId, Force1: forceId);
         var main = FormatNormalTurnReport(state, current, mainRoot, mainOperands); state = main.State;
-        int detailRoot = rank == 1 ? selfProclaimed ? 0x539C : 0x538C : selfProclaimed ? 0x537C : 0x5376;
+        int detailRoot = rank == 1
+            ? selfProclaimed ? playerBranch ? 0x5391 : 0x539C : playerBranch ? 0x5382 : 0x538C
+            : selfProclaimed ? playerBranch ? 0x5379 : 0x537C : playerBranch ? 0x5373 : 0x5376;
         var detailOperands = selfProclaimed && rank != 1
             ? new HistoryMessageOperands(Person0: speakerId, Person1: playerRuler,
                 Person2: rulerId, Force0: forceId)
@@ -52,8 +66,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (rank != 1)
         {
             //The native left operand reads+C before its second player test.
-            //NPCs then skip the player-only rank chronology entry.
-            _ = Suppression();
+            if (Suppression() == 0 && playerBranch) Chronicle(selfProclaimed ? 7 : 6, selfProclaimed ? 5u : 4u);
         }
         int day = Day();
         int district = KingPromotionNeed(current.ReadDistrictPhysicalSlot(
@@ -81,11 +94,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             var country = rankPromotionNames.CustomNames.Definitions[nameIndex <= 100 ? nameIndex : 0];
             string rulerName = Name(state.Officers.GetValueOrDefault(rulerId)
                 ?? throw KingPromotionMissing("chronicle_ruler_owner"), true);
+            string second = string.Empty;
+            string third = country.ShortName;
+            if (eventCode is 6 or 7)
+            {
+                third = state.ForceRanks.GetValueOrDefault(rank)?.Name ?? throw KingPromotionMissing("chronicle_Rank_name");
+                if (eventCode == 6)
+                    second = Name(state.Officers.GetValueOrDefault(Identity(emperor))
+                        ?? throw KingPromotionMissing("chronicle_emperor_owner"), true);
+            }
             string forceName = HistoryWriter.CustomFirstName(state, current, force, Name);
             state = new CampaignChronicleWriter(HistoryWriter).Write(state, current,
                 new(eventCode, 1, day, forceName,
                     KingPromotionNeed(current.ReadForceReportColor(force), "chronicle_Force49"), entryKind,
-                    ImmutableArray.Create(rulerName, string.Empty, country.ShortName),
+                    ImmutableArray.Create(rulerName, second, third),
                     ImmutableArray.Create(48400, 48400, 48400, 48400)),
                 ReadApplicationGameplay()?.UserSelectionServicePresent);
         }

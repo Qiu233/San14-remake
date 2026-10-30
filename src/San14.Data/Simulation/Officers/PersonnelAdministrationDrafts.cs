@@ -29,10 +29,10 @@ public sealed class PersonnelRewardDraft
 
     internal PersonnelRewardDraft(int forceId, int districtId, IEnumerable<PersonnelRewardCard> people,
         Func<IReadOnlyList<int>, PersonnelRewardBudget> quote,
-        Func<IReadOnlyList<int>> automatic)
+        Func<IReadOnlyList<int>> automatic, PersonnelAdministrationSelectionSource selectionSource)
     {
         this.forceId = forceId; this.districtId = districtId; this.people = people.ToImmutableArray();
-        this.quote = quote; this.automatic = automatic;
+        this.quote = quote; this.automatic = automatic; SelectionSource = selectionSource;
         rows = this.people; budget = quote(selected);
         ApplyRecommended();
     }
@@ -44,6 +44,7 @@ public sealed class PersonnelRewardDraft
         budget = new(0, null, null, null, null, null, null, null, missing);
     }
 
+    internal PersonnelAdministrationSelectionSource? SelectionSource { get; }
     public int ForceId => forceId;
     public int DistrictId => districtId;
     public IReadOnlyList<PersonnelRewardCard> Rows => rows;
@@ -66,7 +67,12 @@ public sealed class PersonnelRewardDraft
     {
         if (quote is null || officerIds.Count != officerIds.Distinct().Count() ||
             officerIds.Any(id => !people.Any(person => person.OfficerId == id && person.Eligible == true))) return false;
-        var chosen = officerIds.ToImmutableArray();
+        //753870 sorts accepted output by raw loyalty again before publishing.
+        //Equal loyalties retain the selector's actual current-body order.
+        var chosenPeople = officerIds.Select(id => people.First(person => person.OfficerId == id)).ToArray();
+        if (chosenPeople.Any(person => person.LoyaltyBefore is null)) return false;
+        var chosen = chosenPeople.OrderBy(person => person.LoyaltyBefore)
+            .Select(person => person.OfficerId).ToImmutableArray();
         var next = quote(chosen);
         if (next.MaximumSelection is not int maximum || chosen.Length > maximum) return false;
         selected = chosen; budget = next;
@@ -88,10 +94,14 @@ public sealed class PersonnelBanishDraft
     private ImmutableArray<int> selected = [];
     private AreaAdministrationQuery<string>? confirmedText;
     internal PersonnelBanishDraft(int forceId, IReadOnlyList<BanishOfficerCandidate> candidates,
-        Func<IReadOnlyList<int>, AreaAdministrationQuery<string>> confirmation)
-    { this.forceId = forceId; Rows = candidates.ToImmutableArray(); this.confirmation = confirmation; }
+        Func<IReadOnlyList<int>, AreaAdministrationQuery<string>> confirmation,
+        PersonnelAdministrationSelectionSource selectionSource)
+    { this.forceId = forceId; Rows = candidates.ToImmutableArray(); this.confirmation = confirmation;
+        SelectionSource = selectionSource; }
     internal PersonnelBanishDraft(int forceId, string missing)
     { this.forceId = forceId; Rows = []; UnresolvedOwner = missing; }
+    internal PersonnelAdministrationSelectionSource? SelectionSource { get; }
+    internal int ForceId => forceId;
     public IReadOnlyList<BanishOfficerCandidate> Rows { get; }
     public IReadOnlyList<int> SelectedOfficerIds => selected;
     public string? UnresolvedOwner { get; }

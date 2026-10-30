@@ -10,7 +10,8 @@ public sealed record DeploymentNarrationQuery(int? SpeakerOfficerId, string? Spe
     public DeploymentNarrationPortraitRoute? PortraitRoute { get; init; }
     public bool Available => UnresolvedInput is null;
     public int RequestedVoiceId { get; init; } = 37;
-    public bool VoiceAvailabilityKnown => false;
+    public bool VoiceAvailabilityKnown { get; init; }
+    public IReadOnlyList<NarrationVoiceRequest> Voices { get; init; } = [];
 }
 
 public sealed partial class ArmyCampaignRuleAdapter
@@ -20,6 +21,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// World random state and deployment creation are not changed by this query.</summary>
     public DeploymentNarrationQuery QueryDeploymentNarration(GameState state,
         IReadOnlyList<DeploymentDraftRow> rows, string locale, Func<int,int> appPresentationRandom)
+        => QueryDeploymentNarrationCurrent(state,rows,locale,appPresentationRandom,false);
+
+    private DeploymentNarrationQuery QueryDeploymentNarrationCurrent(GameState state,
+        IReadOnlyList<DeploymentDraftRow> rows, string locale, Func<int,int> appPresentationRandom,
+        bool generalUnitTarget)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(appPresentationRandom);
@@ -57,9 +63,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             //The existing repository owns resource caching and invalidation.
             //A preparation owns this finite decoded program only for its call.
             var messages = new DeploymentNarrationMessages(_repository.LoadMessages(locale, MessageKind.Game).Messages);
-            var text = messages.Resolve(new DeploymentNarrationCurrentPeople(state, current, abilities, speaker, ruler), appPresentationRandom);
+            var voices = new NarrationVoiceRequests(_personnelNarrationVoice ?? throw NarrationMissing("voice_settings"),
+                appPresentationRandom);
+            var people = new DeploymentNarrationCurrentPeople(state,current,abilities,speaker,ruler,voiceRequests:voices);
+            var text = generalUnitTarget ? messages.ResolveGeneralUnitTarget(people,appPresentationRandom,true) :
+                messages.Resolve(people,appPresentationRandom,true);
             return new(speaker, person.Name, portrait, text.MessageId, text.VariantIndex, text.Text, text.Pages, null)
-                { PortraitRoute = portraitRoute };
+                { PortraitRoute = portraitRoute, VoiceAvailabilityKnown = true, Voices = voices.Pending.ToArray() };
 
             int Physical(int id)
             {
@@ -98,10 +108,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, ArmyOperationContext definitions, int id, ushort appearance,
         bool requireCurrentAppearance = true)
     {
-        //The animation dispatch occurs before the common stock eligibility
-        //and naming path. These are appearance identities, not officer IDs.
-        ReadOnlySpan<int> animated = [1,2,3,9,36,45,60,64,91,566,2193,2194,2192,2196,2195,2190,2184,2182];
-        if (animated.Contains(appearance)) throw NarrationMissing("animated_portrait");
         //931830 bank9 and the existing bank10 query share the same current
         //availability gates. Only their resource and sprite naming differ.
         int physical = current.ReadPersonLookupReference(id)?.PhysicalSlot ?? throw NarrationMissing("current_person_identity");
@@ -110,15 +116,71 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (requireCurrentAppearance &&
             (!state.Officers.TryGetValue(id, out var owner) || owner.PortraitAppearanceIndex != appearance ||
              current.ReadPersonPortraitAppearance(physical) != appearance)) throw NarrationMissing("current_appearance_binding");
+        // This source dispatch precedes bank 9's stock/DLC/edit gates. Bank
+        // 12 owns its own original frame resources, including the b aliases.
+        if (DeploymentNarrationPortraitRoute.IsAnimatedAppearance(appearance))
+            return DeploymentNarrationPortraitRoute.Animated(appearance);
+        if (DlcPortraitDescriptor.ForAppearance(appearance) is not null)
+        {
+            var repository = definitions.PortraitResources;
+            var available = repository.ReadDlcPortraitAvailability(appearance);
+            if (!available.Available) throw new InvalidDataException(available.UnresolvedInput);
+            return available.Value ? repository.ResolveDlcStandingPortrait(appearance)
+                : RegisteredOfficerPortraitCatalog.StandingPortrait(2000) with { CurrentAppearanceIndex = appearance };
+        }
+        if (appearance is >= 7000 and <= 7999)
+        {
+            var repository = definitions.PortraitResources;
+            if (repository.LoadUserPortraits().IsRegistered(appearance)
+                && repository.LoadUserPortraits().HasResource(appearance, 9))
+                return repository.ResolveUserStandingPortrait(appearance);
+            return RegisteredOfficerPortraitCatalog.StandingPortrait(2000) with { CurrentAppearanceIndex = appearance };
+        }
         var eligibility = ReadOfficerPortraitAppearance(state, current, definitions, id, appearance, ArmyMapUiSources.Create());
         if (eligibility.Kind != OfficerPortraitRouteKind.StockNamed || eligibility.ResolvedAppearanceIndex is not int resolved)
             throw new InvalidDataException(eligibility.UnresolvedInput ?? "deployment.narration.portrait_route");
-        bool remapped = appearance != resolved;
+        bool remapped = eligibility.SpriteName?.EndsWith("b_ctr", StringComparison.Ordinal) == true;
         string number = resolved.ToString("D4", System.Globalization.CultureInfo.InvariantCulture) + (remapped ? "b" : "");
         string stem = "face_" + number;
-        return new(appearance,resolved,"texture_chara_anime_"+number,stem+"_b",stem+"_a",stem+"_c");
+        return new(appearance,resolved,"texture_chara_anime_"+number,[stem+"_b",stem+"_a",stem+"_c"]);
     }
 }
 
+public enum StandingPortraitKind { ThreePart, AnimatedFrames }
+
 public sealed record DeploymentNarrationPortraitRoute(ushort CurrentAppearanceIndex,
-    int ResolvedAppearanceIndex, string ResourceName, string SpriteB, string SpriteA, string SpriteC);
+    int ResolvedAppearanceIndex, string ResourceName, IReadOnlyList<string> SpriteNames)
+{
+    public StandingPortraitKind Kind { get; init; }
+    public static bool IsAnimatedAppearance(ushort appearance) => appearance is
+        1 or 2 or 3 or 9 or 36 or 45 or 60 or 64 or 91 or 566 or
+        2193 or 2194 or 2192 or 2196 or 2195 or 2190 or 2184 or 2182;
+
+    public static DeploymentNarrationPortraitRoute Animated(ushort appearance)
+    {
+        if (!IsAnimatedAppearance(appearance)) throw new ArgumentOutOfRangeException(nameof(appearance));
+        int resolved=appearance;
+        foreach(var row in PersonPortraitTransitionCatalog.Rules)
+            if(row.PortraitWhenTrue==appearance){resolved=row.PortraitWhenFalse;break;}
+        string number=resolved.ToString("D4",System.Globalization.CultureInfo.InvariantCulture)+(resolved!=appearance?"b":"");
+        // Original bank12 binds all thirty stand_NNN slots to this atlas.
+        // Playback selects their real authored texture-pattern curve.
+        var frames = Enumerable.Range(0, StandingPortraitFrameAnimation.FrameCount)
+            .Select(index => number + "_" + index.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        return new(appearance,resolved,"texture_chara_spine_"+number,Array.AsReadOnly(frames))
+            {Kind=StandingPortraitKind.AnimatedFrames};
+    }
+
+    public LoadedStandingPortraitSprites LoadSprites(Func<string,string,LoadedSprite> load) =>
+        new(Kind,SpriteNames.Select(name=>load(ResourceName,name)).ToArray(),CurrentAppearanceIndex);
+}
+
+/// <summary>Retains the resource publication's rendering kind through existing
+/// read-only participant lists, without changing the caller's input lifetime.</summary>
+public sealed class LoadedStandingPortraitSprites(StandingPortraitKind kind,IReadOnlyList<LoadedSprite> sprites,
+    ushort? currentAppearanceIndex = null)
+    : System.Collections.ObjectModel.ReadOnlyCollection<LoadedSprite>(sprites.ToArray())
+{
+    public StandingPortraitKind Kind { get; } = kind;
+    public ushort? CurrentAppearanceIndex { get; } = currentAppearanceIndex;
+}

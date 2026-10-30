@@ -13,12 +13,18 @@ public sealed class SceneViewNativeMapShadowPopulationSourceOwner
         MapStaticModelCurrentOwnedFrame actualPopulation,string viewIdentity)
     {
         var inputs=new Dictionary<string,DeferredEarlyShadowCurrentStaticModelInputs>(StringComparer.Ordinal);
+        var facilities = actualPopulation.FacilitySceneModels?.Rows.ToDictionary(row => row.Identity, StringComparer.Ordinal);
         foreach(var instance in actualPopulation.Population.Instances)
         {
             var node=staticSource.BorrowCurrentSourceNode(actualPopulation,instance);
             var provider=ModelWorldGeometryFallbackSource.LoadStatic(instance.Asset);
+            var caller = provider.World.CaptureRetainedFresh();
+            if (facilities?.TryGetValue(instance.InstanceKey, out var facility) == true &&
+                !CeFacilityModels.UsesProjectedShadow(facility.Category))
+                caller = caller with { WorldCasterFlags10C = int.MinValue,
+                    CurrentWriterEvidence = caller.CurrentWriterEvidence + "; actual facility category projected-shadow0" };
             inputs.Add(instance.InstanceKey,new(provider.CaptureRetainedCurrentModelCpu(instance.CurrentSourceIdentity!),
-                node.Words,provider.World.CaptureRetainedFresh(),node.BoundsPublication));
+                node.Words,caller,node.BoundsPublication));
         }
         return DeferredEarlyShadowCompleteModelCandidates.PrepareCurrentStatic(actualPopulation,viewIdentity,0,inputs,
             actualPopulation.SourceRevision+"/complete-shadow-static-models/"+actualPopulation.FrameNumber);

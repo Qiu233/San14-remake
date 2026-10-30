@@ -1,5 +1,6 @@
 // Original normal FrameSync scalar producer. CPU only, no D3D dependency.
 #pragma once
+#include "PreparedFileInput.h"
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -18,7 +19,7 @@ struct NativeFrameClockPublication {
 
 inline NativeFrameClock prepareNativeFrameClock(const std::filesystem::path& source) {
     NativeFrameClock owner;
-    std::ifstream input(source/"frame-clock-profile.txt");
+    NativePreparedInputFile input(source/"frame-clock-profile.txt");
     input>>std::hex>>owner.settingsFlags10>>std::dec>>owner.current3348>>owner.initialApply1E4
         >>owner.wrapSeconds>>owner.scalar3354>>owner.pauseMask;
     if(!input||!std::isfinite(owner.current3348)||!std::isfinite(owner.initialApply1E4)

@@ -47,7 +47,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ControlStartHex=details.ControlStartHex,ControlGoalHex=details.ControlGoalHex,
                 ControlStartSurfaceCode=details.ControlStartSurfaceCode,ControlGoalSurfaceCode=details.ControlGoalSurfaceCode,
                 PresentationUnresolvedInput=details.PresentationUnresolvedInput};
-        });
+        },etaPath=>ReadTransportDraftEta(state,sourceCityId,officerId,troops,navalFormationId,etaPath,()=>current.Value));
     }
 
     private static DeploymentDraftRouteSegment AttachUnitRoutePresentation(DeploymentDraftRouteSegment segment,SourceWorldContext current,int start,int goal)

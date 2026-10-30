@@ -109,6 +109,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                         break; //4F8560 is literally return1, with no state or random writer.
                     case 12:
                         state = ApplyNormalTurnForceAbsorptionEventsCurrent(state, current, pool);
+                        if (HasPendingForceAbsorptionCurrent(state))
+                        {
+                            var checkpoint = new CampaignGroupingCheckpoint(groups?.Export() ?? grouping?.Roots
+                                ?? throw AppearanceTurnMissing("absorption_grouping_owner"), groups is not null || grouping!.Changed);
+                            state = state with { NativeNormalTurnContinuation = new(12, restoreApp, [], null, checkpoint) };
+                            return new(PublishNormalTurnCurrent(state, current, pool), false);
+                        }
                         break;
                     case 13:
                         state = ApplyNormalTurnSpecialForceRelationsCurrent(state, current, pool);

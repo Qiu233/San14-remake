@@ -102,6 +102,9 @@ internal partial class DeploymentCalculatorDialog : Control
     public override void _Input(InputEvent inputEvent)
     {
         if(close is null||!IsVisibleInTree())return;
+        // A decision callback may detach this dialog immediately. The input
+        // still belongs to the viewport which dispatched it.
+        var viewport=GetViewport();
         if(inputEvent is InputEventMouseButton {ButtonIndex:MouseButton.Right,Pressed:true})RequestCancel();
         else if(inputEvent is InputEventKey key)
         {
@@ -116,7 +119,7 @@ internal partial class DeploymentCalculatorDialog : Control
             }
         }
         else return;
-        GetViewport().SetInputAsHandled();
+        viewport.SetInputAsHandled();
     }
     private void Fit()
     {

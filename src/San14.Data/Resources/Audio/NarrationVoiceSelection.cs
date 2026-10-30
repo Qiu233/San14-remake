@@ -12,15 +12,10 @@ public static class NarrationVoiceSelection
         _ => throw new ArgumentOutOfRangeException(nameof(language))
     };
 
-    /// <summary>Army VoicePlayer families2..5 and14..27 are memory sounds in their
-    /// installed bank. Ordinary narration keeps its separate stream binding.</summary>
+    /// <summary>Memory and stream registries retain their actual event bank.
+    /// Some Army families dispatch a selector key to a default memory cue.</summary>
     public static AudioCueBank Bank(NarrationVoiceLanguage language, int voiceId) => IsArmySpatialVoice(voiceId)
-        ? language switch
-        {
-            NarrationVoiceLanguage.Japanese => new(0x7572622E, null),
-            NarrationVoiceLanguage.Chinese => new(0x68957B84, null),
-            _ => throw new ArgumentOutOfRangeException(nameof(language))
-        } : Bank(language);
+        ? PersonVoiceResourceBinding.Bank(language, voiceId) : Bank(language);
 
     public static AudioSampleRequest Resolve(NarrationVoiceRequest request, AudioSelectionBank bank)
     {
@@ -34,12 +29,13 @@ public static class NarrationVoiceSelection
         if (bank.Source.ResourceUri != GameResourceId.Rdb("RRPreview", binding.SelectionBankId).ToString())
             throw new InvalidDataException("Narration voice bank differs from the selected voice language.");
         bool spatial = IsArmySpatialVoice(request.VoiceId);
-        var matches = bank.Samples.Where(sample => sample.SampleId == request.SoundId &&
+        var cue = PersonVoiceResourceBinding.ResolveCue(bank, request.SoundId, spatial);
+        var matches = bank.Samples.Where(sample => sample.SampleId == cue.CueId &&
             ((sample.Flags & 0x10000) == 0) == spatial).Take(2).ToArray();
         if (matches.Length != 1 || matches[0].Name is not { Length: > 0 } name ||
             spatial && (matches[0].Headers.Count != 1 || matches[0].Headers[0].IsExternal))
             throw new InvalidDataException($"Narration voice {request.SoundId:X8} has no unique source sample.");
-        return new(binding.SelectionBankId, binding.StreamBankId, name,
+        return new(binding.SelectionBankId, spatial ? null : binding.StreamBankId, name,
             spatial ? AudioSampleStorage.Internal : AudioSampleStorage.External, AudioLoopPolicy.Disabled);
     }
 
@@ -56,15 +52,21 @@ public static class NarrationVoiceSelection
         var sample = Resolve(request, bank);
         if (categories.ResourceUri != GameResourceId.Rdb("RRPreview", OutputResourceId).ToString())
             throw new InvalidDataException("Spatial narration has a different output resource.");
-        var playback = AudioCueGraphResources.ReadSingleStaticSpatialReference(bank, sample.ExactSampleName);
-        if (playback.Sound.SoundId != request.SoundId)
+        var cue = PersonVoiceResourceBinding.ResolveCue(bank, request.SoundId, true);
+        var playback = AudioCueGraphResources.ReadSingleStaticSpatialReference(bank, cue.Name!, AudioSampleStorage.Internal);
+        if (playback.Sound.SoundId != bank.Samples.Single(row => row.Name == sample.ExactSampleName &&
+            (row.Flags & 0x10000) == 0).SampleId)
             throw new InvalidDataException("Spatial narration cue differs from its selected sound.");
         var outputs = AudioMusicOutputResources.Read(categories, playback.Group.ClassificationId);
-        return new(sample, playback.LinearGain, playback.PlaybackRate, outputs, playback.Group);
+        return new(sample, playback.LinearGain, playback.PlaybackRate, outputs, playback.Group)
+            { SourceChannelMask = playback.SourceChannelMask };
     }
 
-    internal static bool IsArmySpatialVoice(int voiceId) => voiceId is 2 or 3 or 4 or 5 or >= 14 and <= 27;
+    internal static bool IsArmySpatialVoice(int voiceId) => voiceId is >=2 and <=7 or 9 or >=14 and <=27;
 }
 
 public sealed record NarrationSpatialVoicePlayback(AudioSampleRequest NamedSample, float Gain,
-    float PlaybackRate, AudioMusicOutputGraph Outputs, AudioCueStaticGroupParameters Group);
+    float PlaybackRate, AudioMusicOutputGraph Outputs, AudioCueStaticGroupParameters Group)
+{
+    public uint? SourceChannelMask { get; init; }
+}

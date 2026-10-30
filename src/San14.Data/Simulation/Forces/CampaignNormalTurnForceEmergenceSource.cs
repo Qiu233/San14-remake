@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //TC2A4980: source priority identities, followed only if necessary by
+    //TC2A4980 / SC2A47D0: source priority identities, followed only if necessary by
     //the live Person100 order. These are source rules, not scenario patches.
     private static readonly int[] ForceEmergencePriorityPeople =
         [521,952,551,557,35,32,736,987,607,553,262,166,239,266,925,666,771,893,526,601,625,147,656];
@@ -13,11 +13,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner,current)) throw ForceEmergenceMissing("shared_pool");
-        if (Seed.Language != "TC") throw ForceEmergenceMissing("locale_rules");
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw ForceEmergenceMissing("parameter_owner");
+        if (Seed.Language is not ("TC" or "SC") || parameters.Language != Seed.Language ||
+            parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
+            throw ForceEmergenceMissing("rule_owner");
         var season = state.NativeMapSeason ?? throw ForceEmergenceMissing("calendar");
         int elapsed = unchecked((state.CampaignEventWorld ?? throw ForceEmergenceMissing("World454_owner")).ElapsedPeriodOffset + (int)season.AdvancedPeriods);
-        //File-backed TC1A4A690=18 and1A4A6B4=10.
-        if (elapsed <= StrategicParameter(state,"normal-force-emergence.minimum-elapsed-periods",18)) return state;
+        //Each edition reads its own file-backed elapsed/ambition rules.
+        if (elapsed <= NormalTurnForceEmergenceParameters.Read(state,"normal-force-emergence.minimum-elapsed-periods",18)) return state;
         if ((current.ReadRegistryReferences(RegistryKind.Force) ?? throw ForceEmergenceMissing("Force_C0")).Count() > 50) return state;
         bool neutral = false;
         foreach (var entry in current.ReadRegistryReferences(RegistryKind.City) ?? throw ForceEmergenceMissing("City90"))
@@ -62,7 +65,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     int person = E(entry,"Person100_payload");
                     if (Contains(exclusions,person)) continue;
                     int ambition = E(RulerCaptureReleaseInputs.ReadCurrentWord(state,person,0x17C),"Person17C");
-                    if (ambition < StrategicParameter(state,"normal-force-emergence.minimum-ambition",10)) continue;
+                    if (ambition < NormalTurnForceEmergenceParameters.Read(state,"normal-force-emergence.minimum-ambition",10)) continue;
                     current.ClearNearbyTemporary(scratch,false);
                     //The trial's sampler/App reads still occur for a valid
                     //candidate whose ambition does not beat the retained one.

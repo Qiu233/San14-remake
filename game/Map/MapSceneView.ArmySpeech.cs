@@ -23,7 +23,8 @@ public partial class MapSceneView
         entry.ActionCode is 11 or 14 or 15 or 16 || entry.BaseSpeakerAppearanceIndex is not null;
 
     internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureArmyTraitSpeechViews()
-        => IsPlayableMapReady && UseD3D11Map ? _d3d11Markers?.CaptureArmySpeechViews() : null;
+        => !IsPlayableMapReady ? null : UseD3D11Map ? _d3d11Markers?.CaptureArmySpeechViews()
+            : San14.Client.Gameplay.ArmyTraitSpeechViews.WithoutController;
 
     internal void SetArmyMapSpeechDriver(Action<double>? update,
         Func<ArmyMapSpeechEntry, AreaAdministrationQuery<BaseMapSpeechSpeakerPublication>>? baseSpeaker = null)
@@ -36,7 +37,11 @@ public partial class MapSceneView
         }
         if (_armySpeechLayer is null)
         {
-            var layer = new ArmyMapSpeechLayer { Name = "ArmyMapSpeech", ZIndex = 40 };
+            // Retained dialogs suspend the browser and its map children.
+            // Existing balloons still own their hold/departure clock;
+            // Main separately pauses new starts and guards session commits.
+            var layer = new ArmyMapSpeechLayer { Name = "ArmyMapSpeech", ZIndex = 40,
+                ProcessMode = ProcessModeEnum.Always };
             _armySpeechLayer = layer; AddChild(layer);
             layer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
             layer.Configure(_repository, _text.SourceLocale, this);

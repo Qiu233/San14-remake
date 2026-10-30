@@ -29,11 +29,14 @@ internal static class BaseCaptureContinuationValidation
     internal static void Validate(GameState state)
     {
         if (state.BaseCaptureContinuation is not { } value) return;
-        if (state.NativePeriodContinuation?.Cursor is not { StageIndex: 25 } ||
-            state.ArmyDefeatContinuation is not null || value.SettlementIndex < 0 ||
-            state.PendingCombatSettlements?.Requests is not { } queue || value.SettlementIndex >= queue.Count ||
-            queue[value.SettlementIndex] is not BaseCaptureRequest request || value.Operation is not { } operation ||
-            operation.Request != request || request.Target is null || !Enum.IsDefined(request.Target.Kind) ||
+        bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } && state.NormalCombatImmediateContinuation is not null ||
+            state.ManualTacticExecutionContinuation is not null && state.NativePeriodContinuation?.Cursor is null or { StageIndex: 6 };
+        if (state.ArmyDefeatContinuation is not null || value.Operation is not { } operation ||
+            operation.Request is not { } request ||
+            (immediate ? value.SettlementIndex != -1 || !MatchesImmediateTarget(state, request.Target) :
+                state.NativePeriodContinuation?.Cursor is not { StageIndex: 25 } || value.SettlementIndex < 0 ||
+                state.PendingCombatSettlements?.Requests is not { } queue || value.SettlementIndex >= queue.Count ||
+                queue[value.SettlementIndex] != request) || request.Target is null || !Enum.IsDefined(request.Target.Kind) ||
             request.Target.Id <= 0 || request.WinnerUnitId is <= 0 ||
             operation.PreviousForceId is < 0 or > 51 || operation.WinnerForceId is < 0 or > 51 ||
             operation.WinnerDistrictId is < 0 or > 51 || operation.CommanderOfficerId is < 0 or > 6000 ||
@@ -48,5 +51,21 @@ internal static class BaseCaptureContinuationValidation
             (pending.CapturingForceId != operation.WinnerForceId || pending.OfficerId is < 1 or > 6000 ||
              pending.CapturingRulerId is < 1 or > 6000 || pending.TextAtSource is null || value.ChosenDisposition is not null))
             throw new InvalidDataException("The Base capture has an invalid captive ruler decision.");
+    }
+
+    private static bool MatchesImmediateTarget(GameState state, SettlementBase target)
+    {
+        if (state.ManualTacticExecutionContinuation is { } manual) return manual.Execution.TargetBase == target;
+        if (state.NormalCombatImmediateContinuation is not { } combat) return false;
+        if (combat.AutomaticExecution is { } army) return army.TargetBase == target;
+        if (combat.BaseAutomaticExecution is { } governor) return governor.TargetBase == target;
+        if (combat.PairIndex < 0 || combat.PairIndex >= combat.OrderedPairs.Length) return false;
+        var victim = combat.OrderedPairs[combat.PairIndex].Target;
+        return victim.Kind switch
+        {
+            5 => target == new SettlementBase(SettlementBaseKind.City, victim.PhysicalSlot),
+            6 => target == new SettlementBase(SettlementBaseKind.Gate, victim.PhysicalSlot + 51),
+            _ => false
+        };
     }
 }

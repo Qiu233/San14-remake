@@ -19,7 +19,8 @@ public static class D3D11OwnCameraInputPreparation
         D3D11CameraContinuousInputs camera,D3D11CameraDirectProfileInputs direct,
         MapStaticModelGroundHeightSource currentField,string inputRoot,
         D3D11ModelInputPreparation? preparedModels = null,
-        D3D11TerrainInputPreparation? preparedTerrain = null)
+        D3D11TerrainInputPreparation? preparedTerrain = null,
+        MapMainCameraPostSelectionPacket? preparedPostSelection = null)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(direct);
@@ -35,15 +36,54 @@ public static class D3D11OwnCameraInputPreparation
         if(models.BoundaryCount!=0)
             throw new NotSupportedException("Fresh FieldScene model camera bindings are unresolved: "+
                 string.Join("; ",models.Boundaries.Select(boundary=>$"{boundary.InstanceIndex}: {boundary.Reason}")));
-        var registry=ReadFieldRegistry(scene,models.SourceModelMappings);
+        var registry=ReadFieldRegistry(scene,models);
         preparation.WriteContinuousInputs(Path.Combine(inputRoot,"camera-continuous-input"),camera);
-        preparation.WriteRenderModePrefixInputs(Path.Combine(inputRoot,"camera-continuous-input"),direct);
+        if(preparedPostSelection is {} actualPost)
+        {
+            if(actualPost.QualityOption18!=direct.Quality||actualPost.MainMode288!=direct.MainMode288||
+                actualPost.AppFlags!=direct.AppFlags||actualPost.PriorCloudy430Bits!=direct.PriorCloudy430Bits||
+                actualPost.SelectedCloudy430Bits!=direct.SelectedCloudy430Bits)
+                throw new InvalidDataException("Camera source metadata and prepared Main post-selection have different actual owners.");
+            preparation.WriteRenderModePrefixInputs(Path.Combine(inputRoot,"camera-continuous-input"),actualPost,main.Camera);
+        }
+        else preparation.WriteRenderModePrefixInputs(Path.Combine(inputRoot,"camera-continuous-input"),direct);
         preparation.WriteMotionInputs(Path.Combine(inputRoot,"camera-motion-input"));
         D3D11CameraInputPreparation.WriteGroundHeightInputs(
             Path.Combine(inputRoot,"camera-continuous-input","ground-height-current"),currentField);
         WriteFarMainInputs(Path.Combine(inputRoot,"far-main-source-input"),direct,preparation.DirectSource,
             MapSeasonMainCameraPhaseSource.CreateDefaults(main.Camera.ExecutableLocale),registry);
         return new(scene.Instances.Count,models.InstanceCount,models.PrimitiveCount);
+    }
+
+    /// <summary>Project the actual same-generation complete Root bank onto the
+    /// FieldScene VisibilitySet registry. Root-only models retain their bank
+    /// ordinals and separate Scene registration; they are not FieldScene rows.</summary>
+    public static IReadOnlyList<D3D11FieldCameraRegistryEntry> ReadFieldRegistry(
+        LoadedSceneResources scene,D3D11ModelInputPreparation models)
+    {
+        ArgumentNullException.ThrowIfNull(scene);ArgumentNullException.ThrowIfNull(models);
+        if(!ReferenceEquals(scene,models.Scene)||!ReferenceEquals(scene,models.SourcePlacements.Scene))
+            throw new InvalidDataException("FieldScene camera registry requires the actual same-generation Model bank.");
+        var placements=models.SourcePlacements.Instances.ToDictionary(placement=>placement.Source.Index);
+        var fieldModels=new List<D3D11SourceModelMapping>();
+        foreach(var model in models.SourceModelMappings)
+        {
+            if(!placements.TryGetValue(model.SceneInstanceIndex,out var placement)||placement.Model is null)
+                throw new InvalidDataException("Model-bank mapping lacks its actual source placement.");
+            if(model.SceneInstanceIndex<0)
+                throw new InvalidDataException("Model-bank source index is negative.");
+            if(model.SceneInstanceIndex>=scene.Instances.Count)continue;
+            var actual=scene.Instances[model.SceneInstanceIndex];
+            var source=placement.Source;
+            if(actual.Object.ObjectId!=source.Object.ObjectId||actual.Definition.ObjectId!=source.Definition.ObjectId||
+                actual.InstanceDocument.Source.ResourceUri!=source.InstanceDocument.Source.ResourceUri||
+                actual.InstanceDocument.Source.DecodedSha256!=source.InstanceDocument.Source.DecodedSha256||
+                actual.DefinitionDocument.Source.ResourceUri!=source.DefinitionDocument.Source.ResourceUri||
+                actual.DefinitionDocument.Source.DecodedSha256!=source.DefinitionDocument.Source.DecodedSha256)
+                throw new InvalidDataException("Model-bank source index does not identify its actual FieldScene instance.");
+            fieldModels.Add(model);
+        }
+        return ReadFieldRegistry(scene,fieldModels);
     }
 
     /// <summary>Join declared VisibilitySet ordering to this actual prepared Model bank.

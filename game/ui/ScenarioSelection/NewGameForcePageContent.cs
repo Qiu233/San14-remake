@@ -13,7 +13,7 @@ internal sealed class NewGameForcePageContent
     internal IReadOnlyList<NewGameForceFaceContent> Faces { get; }
 
     internal NewGameForcePageContent(GameResourceRepository repository, ArmyCampaignRuleAdapter army,
-        GameState world, NewGameForceSelectionPreview publication)
+        GameState world, NewGameForceSelectionPreview publication, CancellationToken cancellationToken = default)
     {
         sprites = new(repository);
         routes = army.QueryOfficerPortraitRoutes(world, publication.Rows.Concat(publication.ByForceId.Values)
@@ -21,11 +21,18 @@ internal sealed class NewGameForcePageContent
             .Select(row => row.RulerId!.Value).Distinct().ToArray());
         Faces = publication.Rows.Select(row =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (row.RulerId is not int ruler)
                 throw new InvalidDataException("Force avatar lacks its actual ruler identity.");
             LoadedSprite? portrait = row.RulerValid == false ? null : LoadFace(RequireRoute(row));
             return new NewGameForceFaceContent(row.ForceId, ruler, row.RulerForceId, portrait);
         }).ToArray();
+    }
+
+    internal void PrepareRulers(IEnumerable<NewGameForcePreview> rows, CancellationToken cancellationToken)
+    {
+        foreach (var row in rows.Where(row => row.RulerValid == true))
+        { cancellationToken.ThrowIfCancellationRequested(); _ = ResolveRuler(row); }
     }
 
     internal LoadedSprite? ResolveRuler(NewGameForcePreview row)
@@ -38,6 +45,16 @@ internal sealed class NewGameForcePageContent
         string alias = resolved != current ? "b" : "";
         // Bank11 has no bank10 appearance55 extra-b exception.
         return Load("texture_chara_unique_otomo_" + index + alias, "face_" + index + alias + "_unique");
+    }
+
+    internal LoadedSprite ResolveConfirmationRuler(NewGameForcePreview row)
+    {
+        if (row.RulerValid == false)
+        {
+            var fallback = ArmyMapUiSources.Create().PortraitNames(2198);
+            return Load(fallback.ResourceName, fallback.SpriteName);
+        }
+        return LoadFace(RequireRoute(row));
     }
 
     private OfficerPortraitRoute RequireRoute(NewGameForcePreview row)

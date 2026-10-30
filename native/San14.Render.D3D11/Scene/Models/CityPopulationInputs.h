@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "CityModelAdmission.h"
 #include <array>
 #include <cstdint>
@@ -58,19 +59,19 @@ inline std::vector<NativePrimaryUpdate> readNativeCityPopulationUpdate(std::istr
 }
 inline NativeCityTemplateBank readNativeCityTemplateBank(const std::filesystem::path& directory) {
     NativeCityTemplateBank result;unsigned templateCount{};
-    std::ifstream catalog(directory/"template-catalog.txt");
+    NativePreparedInputFile catalog(directory/"template-catalog.txt");
     if(!(catalog>>templateCount>>result.commonMode))throw std::runtime_error("Primary template catalog absent");
     std::string extra;if(catalog>>extra)throw std::runtime_error("Primary template catalog tail");
-    std::ifstream order(directory/"sort-fields.txt");unsigned field;
+    NativePreparedInputFile order(directory/"sort-fields.txt");unsigned field;
     if(!order)throw std::runtime_error("Primary opaque sort fields absent");
     while(order>>field)result.sortFields.push_back(field);
     if(!order.eof()||result.sortFields!=std::vector<unsigned>{14,3})
         throw std::runtime_error("Unsupported primary opaque sort fields");
-    std::ifstream records(directory/"record-count.txt");
+    NativePreparedInputFile records(directory/"record-count.txt");
     if(!(records>>result.recordCount)||result.recordCount>32)
         throw std::runtime_error("Primary ordered kind1 record count absent");
     if(records>>extra)throw std::runtime_error("Primary record count tail");
-    std::ifstream assets(directory/"asset-profiles.bin",std::ios::binary);
+    NativePreparedInputFile assets(directory/"asset-profiles.bin",std::ios::binary);
     if(primaryRead<unsigned>(assets)!=0x31505343u)throw std::runtime_error("Primary CSP1 resource schema");
     const auto count=primaryRead<unsigned>(assets);result.maxDraws=primaryRead<unsigned>(assets);
     result.assets.resize(count);result.templates.resize(templateCount);

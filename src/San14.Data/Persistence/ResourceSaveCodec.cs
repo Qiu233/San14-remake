@@ -34,6 +34,7 @@ public sealed class ResourceSaveCodec : ICampaignOperationSaveCodec
         var state = new JsonGzipSaveCodec(_repository is null ? null : new LegacyOfficerAbilitySource(_repository),
             resourceCodec, context).Decode(bytes);
         state = CityDistrictSourceAdapter.MigrateLegacy(state, resourceCodec.DecodedVersion);
+        state = OriginalAiArmyEvaluationMigration.Apply(state, resourceCodec.DecodedVersion);
         ArmyTargetSourceKnowledgeValidation.Validate(state);
         ArmyOverrideSourceKnowledgeValidation.Validate(state);
         ArmyPositionSourceKnowledge.Validate(state);

@@ -39,6 +39,7 @@ public sealed class D3D11CityGateWorldSource
     readonly CityGateAccessoryResources accessoryResources;
     GameState? lastWorld;object? lastNodes,lastGates;uint lastMode;
     object? lastCities,lastGateStates,lastForces,lastDistricts,lastOfficers,lastTerritory,lastAreas,lastParameters,lastNativeForces,lastStructures;
+    bool lastScenarioPreview;
     D3D11CityGateWorldFrame? current;
     public D3D11CityGatePrimarySource Primaries{get;}
 
@@ -56,13 +57,30 @@ public sealed class D3D11CityGateWorldSource
     public D3D11CityGateWorldFrame Capture(GameState world,uint commonFrustumMode,
         IReadOnlyDictionary<string,MapStaticModelPublication>? actualNodes=null,
         IReadOnlyDictionary<int,D3D11GateDefinition>? actualGateDefinitions=null)
+        => CaptureCore(world,commonFrustumMode,actualNodes,actualGateDefinitions,scenarioPreview:false);
+
+    /// <summary>Read the original static post-load source through this opening's
+    /// actual preview context. Core has not started, so its raw scenario HP is
+    /// not the writer of the post-load clamp/66 used by the created map units.</summary>
+    public D3D11CityGateWorldFrame CaptureScenarioPreview(GameState world,uint commonFrustumMode,
+        IReadOnlyDictionary<string,MapStaticModelPublication>? actualNodes=null,
+        IReadOnlyDictionary<int,D3D11GateDefinition>? actualGateDefinitions=null)
+    {
+        if(!ArmyOperationContext.IsNewGamePreview(world))
+            throw new InvalidDataException("new-game.city-gate.requires-initializing-world-without-simulation");
+        return CaptureCore(world,commonFrustumMode,actualNodes,actualGateDefinitions,scenarioPreview:true);
+    }
+
+    private D3D11CityGateWorldFrame CaptureCore(GameState world,uint commonFrustumMode,
+        IReadOnlyDictionary<string,MapStaticModelPublication>? actualNodes,
+        IReadOnlyDictionary<int,D3D11GateDefinition>? actualGateDefinitions,bool scenarioPreview)
     {
         bool sameWorld=ReferenceEquals(world,lastWorld)||ReferenceEquals(world.Cities,lastCities)&&ReferenceEquals(world.Gates,lastGateStates)&&
             ReferenceEquals(world.Forces,lastForces)&&ReferenceEquals(world.Districts,lastDistricts)&&ReferenceEquals(world.Officers,lastOfficers)&&
             ReferenceEquals(world.Territory,lastTerritory)&&ReferenceEquals(world.Areas,lastAreas)&&ReferenceEquals(world.NativeArmySimulation?.Parameters,lastParameters)&&
             ReferenceEquals(world.NativeArmySimulation?.Forces,lastNativeForces)&&ReferenceEquals(world.Structures,lastStructures);
         if(sameWorld&&ReferenceEquals(actualNodes,lastNodes)&&ReferenceEquals(actualGateDefinitions,lastGates)&&
-            commonFrustumMode==lastMode&&current is not null){lastWorld=world;return current;}
+            commonFrustumMode==lastMode&&scenarioPreview==lastScenarioPreview&&current is not null){lastWorld=world;return current;}
         if(!world.Cities.Keys.Order().SequenceEqual(Enumerable.Range(1,51))||!world.Gates.Keys.Order().SequenceEqual(Enumerable.Range(52,10)))
             throw new InvalidDataException("Current source51/10 Base identities incomplete; Core absence is not a retirement writer.");
         var native=capture(world)??throw new InvalidDataException("Formal current Base Object/policy/settings queries unavailable.");
@@ -73,7 +91,9 @@ public sealed class D3D11CityGateWorldSource
         foreach(var city in world.Cities.Values.OrderBy(c=>c.Id)){
             var row=Read("city:"+city.Id,new(BaseKind.City,city.Id),city.Durability,true);
             if(row is not null)city66.Add(city.Id,CityVisualDamageInput.FromTier(row.Flag66,new(CityVisualEvidence.CurrentDamageUri,
-                world.MapSha256,"Actual current size/HP/district/policy32/settings; no retained opening tier")));
+                world.MapSha256,scenarioPreview
+                    ? "Actual scenario static post-load Object14/City66/policy/settings; no simulation World writer"
+                    : "Actual current size/HP/district/policy32/settings; no retained opening tier")));
         }
         foreach(var gate in world.Gates.Values.OrderBy(g=>g.Id)){
             var definition=actualGateDefinitions?.GetValueOrDefault(gate.Id)??Primaries.GateDefinitions[gate.Id];
@@ -106,12 +126,20 @@ public sealed class D3D11CityGateWorldSource
         byte[] primary=frame.Unavailable.Count==0&&required.Length==0?bank.Encode(frame,commonFrustumMode):[];
         byte[] accessories=units.Count==61&&placements.Count==224&&missing.Count==0?EncodeAccessories():[];
         current=new(frame,damage.AsReadOnly(),units.AsReadOnly(),Array.AsReadOnly(required),missing.AsReadOnly(),primary,accessories);
-        lastWorld=world;lastNodes=actualNodes;lastGates=actualGateDefinitions;lastMode=commonFrustumMode;
+        lastWorld=world;lastNodes=actualNodes;lastGates=actualGateDefinitions;lastMode=commonFrustumMode;lastScenarioPreview=scenarioPreview;
         lastCities=world.Cities;lastGateStates=world.Gates;lastForces=world.Forces;lastDistricts=world.Districts;lastOfficers=world.Officers;
         lastTerritory=world.Territory;lastAreas=world.Areas;lastParameters=world.NativeArmySimulation?.Parameters;
         lastNativeForces=world.NativeArmySimulation?.Forces;lastStructures=world.Structures;return current;
         D3D11CityGateDamage? Read(string id,BaseReference reference,int? hp,bool city){try{
-            if(hp is null||BasePostLoad.ReadLinkedField14(reference,native)!=hp.Value)throw new InvalidDataException("Current Object14/World HP unavailable or inconsistent.");
+            if(scenarioPreview)
+            {
+                var visual=native.ReadNewGameBaseVisualPostLoad(reference);
+                var created=new D3D11CityGateDamage(id,visual.Durability,visual.Capacity,visual.Flag66,visual.Force)
+                { Morale44=visual.Morale44,MoraleCapacity=visual.MoraleCapacity };
+                damage.Add(created);return created;
+            }
+            if(hp is null||BasePostLoad.ReadLinkedField14(reference,native)!=hp.Value)
+                throw new InvalidDataException("Current Object14/World HP unavailable or inconsistent.");
             int capacity=BasePostLoad.ReadCapacities(reference,native).Field46;byte flag=BasePostLoad.ReadFlag66(reference,native);
             int force=city?native.ReadBaseForceSlot(reference)??throw new InvalidDataException("Current City District force unavailable."):CurrentGateMapQueries.ReadForceSlot(reference,native);
             var morale=native.ReadBaseMorale44(reference);

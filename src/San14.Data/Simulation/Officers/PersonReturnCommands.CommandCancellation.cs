@@ -4,11 +4,11 @@ namespace San14.Data;
 
 public static partial class PersonReturnCommands
 {
-    /// <summary>335CD0: complete the actual personnel command first, then
-    /// enqueue its receiver for manager retirement. Its association remains
-    /// live until that queue is consumed at the end of the current manager cut.</summary>
+    /// <summary>Complete the actual personnel command, retaining deferred
+    /// retirement for existing manager cuts. Source335CD0 callers additionally
+    /// consume its virtual110(...,1) with RetireAssociatedCommandImmediatelyCurrent.</summary>
     internal static GameState CancelAssociatedCommandCurrent(GameState state, SourceWorldContext current,
-        int commandId, NativeMapSeasonDate date)
+        int commandId, NativeMapSeasonDate date, ArmyCampaignRuleAdapter? package = null)
     {
         var owner = CurrentCommandOwner(state, current);
         int[] members;
@@ -29,6 +29,14 @@ public static partial class PersonReturnCommands
         }
         else if (owner.Independences?.TryGetValue(commandId, out var independence) == true)
         { members = independence.MemberIds; districtId = independence.SourceDistrictId; }
+        else if (owner.Caravans?.TryGetValue(commandId, out var caravan) == true)
+        {
+            if (caravan.IsRetiring) return state;
+            if (package is null) throw Missing("cancel caravan execution owner");
+            return package.CancelForeignTradeAssociatedCurrent(state, current, caravan, date);
+        }
+        else if (owner.Intelligences?.TryGetValue(commandId, out var intelligence) == true)
+        { if (intelligence.IsRetiring) return state; members = intelligence.MemberIds; districtId = intelligence.SourceDistrictId; }
         else throw Missing("cancel associated command virtual90 owner");
 
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("cancel current player");
@@ -74,9 +82,53 @@ public static partial class PersonReturnCommands
             if (independence.IsRetiring) return owner;
             owner = owner with { Independences = new(owner.Independences) { [commandId] = independence with { IsRetiring = true } } };
         }
+        else if (owner.Caravans?.TryGetValue(commandId, out var caravan) == true)
+        {
+            if (caravan.IsRetiring) return owner;
+            owner = owner with { Caravans = new(owner.Caravans) { [commandId] = caravan with { IsRetiring = true } } };
+        }
+        else if (owner.Intelligences?.TryGetValue(commandId, out var intelligence) == true)
+        {
+            if (intelligence.IsRetiring) return owner;
+            owner = owner with { Intelligences = new(owner.Intelligences) { [commandId] = intelligence with { IsRetiring = true } } };
+        }
         else throw Missing("retiring personnel command owner");
         owner = owner with { PendingRetirements = [.. owner.PendingRetirements, commandId] };
         current.SetOwnedPersonCommandManager(owner);
         return owner;
+    }
+
+    //228B50 ->32AC90 ->1F2450(param3=1): release this receiver now,
+    //before22AC00 is queried again. Other manager cuts retain deferred order.
+    internal static GameState RetireAssociatedCommandImmediatelyCurrent(GameState state,
+        SourceWorldContext current, int commandId)
+    {
+        var owner = CurrentCommandOwner(state, current);
+        var entry = owner.DispatchOrder().FirstOrDefault(entry => entry.Id == commandId)
+            ?? throw Missing("immediate retirement dispatch receiver");
+        owner = entry.Kind switch
+        {
+            PersonnelCommandKind.Return => owner with { Returns = Remove(owner.Returns) },
+            PersonnelCommandKind.Disappear => owner with { Disappearances = Remove(owner.Disappearances!) },
+            PersonnelCommandKind.Talent => owner with { Talents = Remove(owner.Talents!) },
+            PersonnelCommandKind.Diplomacy => owner with { Diplomacies = Remove(owner.Diplomacies!) },
+            PersonnelCommandKind.Strategic => owner with { Strategies = Remove(owner.Strategies!) },
+            PersonnelCommandKind.Independence => owner with { Independences = Remove(owner.Independences!) },
+            PersonnelCommandKind.Caravan => owner with { Caravans = Remove(owner.Caravans!) },
+            PersonnelCommandKind.Intelligence => owner with { Intelligences = Remove(owner.Intelligences!) },
+            _ => throw Missing("immediate retirement command kind")
+        };
+        var associated = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("immediate retirement association index");
+        current.RemovePersonReturnAssociated(new(associated.Identity), commandId);
+        current.SetLinkedEntityRawState58(commandId, -1);
+        current.SetLinkedEntityMemberIds(commandId, []);
+        owner = owner with { PendingRetirements = owner.PendingRetirements.Where(id => id != commandId).ToArray(),
+            AvailableDispatchSlots = [entry.Slot, .. owner.AvailableDispatchSlots] };
+        state = state with { PersonnelCommands = owner };
+        BindCurrent(state, current);
+        return state;
+
+        Dictionary<int, T> Remove<T>(Dictionary<int, T> source)
+        { var result = new Dictionary<int, T>(source); result.Remove(commandId); return result; }
     }
 }

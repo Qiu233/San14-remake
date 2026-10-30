@@ -65,6 +65,7 @@ public sealed class NormalArmyAftermathInputs
             scenario.Snapshot.Locale != language || scenario.Metadata.FormatMarker != 0x66 ||
             state.ContentHashes.GetValueOrDefault(scenario.ScenarioSource.ResourceUri) != scenario.ScenarioSource.Sha256 ||
             state.NativeArmySimulation!.Parameters.Int32Values.ContainsKey(VersionKey) ||
+            state.PlaceholderAreaDevelopment is not null ||
             state.NativeArmySimulation.Forces.Values.Any(f => f.NormalAftermath is not null) ||
             state.Areas.Values.Any(a => a.NativeNormalAftermath is not null))
             throw new InvalidDataException("Normal aftermath requires the unused own ctor/static allocation.");
@@ -84,6 +85,9 @@ public sealed class NormalArmyAftermathInputs
             //qword3A=BD10 makes3C/3E/40 all0; static235800 skips these
             //three runtime-only words. Later source writers own changes.
             Development = new(0, 0, 0),
+            //220900's fresh DWORD70 clear includes the independent Area73.
+            //This constructor/static installation is never invoked on restore.
+            OccupationClaimForceSlot = 0,
             NativeNormalAftermath = new(sourceAreas[row.Key].Amount0)
         }); //235800 first transferred word.
         var integers = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [VersionKey] = 1 };
@@ -94,7 +98,10 @@ public sealed class NormalArmyAftermathInputs
                 throw new InvalidDataException("Fresh normal aftermath parameter conflicts with another source seed.");
             integers[key] = initial[i];
         }
-        GameState result = state with { Areas = areas, NativeArmySimulation = simulation with { Forces = forces,
+        //226950 resets all501 receivers, including the independent table-zero
+        //receiver. Static235800 skips these three runtime progress words.
+        GameState result = state with { Areas = areas, PlaceholderAreaDevelopment = new(0, 0, 0),
+            NativeArmySimulation = simulation with { Forces = forces,
             Parameters = simulation.Parameters with { Int32Values = integers } } };
         NativeNormalArmyAftermathStateValidation.Validate(result); return result;
     }

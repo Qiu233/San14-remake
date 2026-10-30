@@ -48,7 +48,8 @@ internal static class BaseTacticPresentationSaveFields
     {
         foreach (var node in new[] { state["TacticReports"], state["NativePeriodContinuation"]?["Preparation"]?["TacticReports"],
                      state["NormalCombatImmediateContinuation"]?["AutomaticExecution"]?["Details"],
-                     state["NormalCombatImmediateContinuation"]?["BaseAutomaticExecution"]?["Details"] })
+                     state["NormalCombatImmediateContinuation"]?["BaseAutomaticExecution"]?["Details"],
+                     state["ManualTacticExecutionContinuation"]?["Execution"]?["Details"] })
             if (node is JsonArray reports)
                 foreach (var report in reports.OfType<JsonObject>()) yield return report;
     }

@@ -9,6 +9,7 @@ public sealed record MapStaticModelAsset(string CategoryIdentity, SceneModelRefe
     IReadOnlyList<G1DrawRecord> Draws, Vector3 LocalMinimum, Vector3 LocalMaximum,
     string SceneUri, string SceneSha256)
 {
+    public D3D11SdfModelRegistration? SdfRegistration { get; init; }
     public string SourceKey => $"{CategoryIdentity}|{Reference.Dictionary.Source.ResourceUri}|{Reference.Dictionary.Source.DecodedSha256}|{Reference.ModelObject.ObjectId:X8}|{RawTransforms.Source.ResourceUri}|{RawTransforms.Source.DecodedSha256}";
 }
 
@@ -18,15 +19,17 @@ public sealed record MapStaticModelAsset(string CategoryIdentity, SceneModelRefe
 public sealed class MapStaticModelAssetCatalog
 {
     private readonly GameResourceRepository _repository;
+    private readonly D3D11SdfModelDeclarationPreparation? _sdfDeclarations;
     public LoadedSceneResources Scene { get; }
     private readonly Dictionary<string, MapStaticModelAsset> _assets = new(StringComparer.Ordinal);
     public int LoadedAssetCount => _assets.Count;
     public GameResourceRepository Repository => _repository;
 
-    public MapStaticModelAssetCatalog(GameResourceRepository repository, LoadedSceneResources scene)
+    public MapStaticModelAssetCatalog(GameResourceRepository repository, LoadedSceneResources scene,
+        D3D11SdfModelDeclarationPreparation? sdfDeclarations = null)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(scene);
-        (_repository, Scene) = (repository, scene);
+        (_repository, Scene, _sdfDeclarations) = (repository, scene, sdfDeclarations);
     }
 
     public MapStaticModelAsset LoadCity(CityVisualAssetCatalog catalog, CityVisualSelection selection)
@@ -71,12 +74,19 @@ public sealed class MapStaticModelAssetCatalog
     public MapStaticModelAsset LoadSceneInstance(int instanceIndex)
     {
         if ((uint)instanceIndex >= Scene.Instances.Count) throw new ArgumentOutOfRangeException(nameof(instanceIndex));
-        SceneInstance instance = Scene.Instances[instanceIndex];
+        return LoadSceneInstance(Scene.Instances[instanceIndex]);
+    }
+
+    /// <summary>Same scene-owned definition cache for an actual current Root
+    /// child, including children outside the separate VisibilitySet.</summary>
+    public MapStaticModelAsset LoadSceneInstance(SceneInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
         // Asset identity belongs to the definition, so repeated source instances
         // share every immutable source load while retaining separate placements.
         string key = $"scene-definition:{instance.DefinitionDocument.Source.ResourceUri}/{instance.DefinitionDocument.Source.DecodedSha256}/{instance.Definition.ObjectId:X8}";
         if (_assets.TryGetValue(key, out var cached)) return cached;
-        LoadedModelTextureResources textures = ModelTextureResources.LoadForInstance(_repository, Scene, instanceIndex);
+        LoadedModelTextureResources textures = ModelTextureResources.LoadForInstance(_repository, Scene, instance);
         return Add(key, new(textures.Dictionary, textures.ModelObject, textures.Model.Source.FileId),
             LoadRaw(textures), textures);
     }
@@ -127,6 +137,15 @@ public sealed class MapStaticModelAssetCatalog
             LoadRaw(resources), resources);
     }
 
+    public MapStaticModelAsset LoadFacilityCategory(int category)
+    {
+        string key = "facility-category:" + category;
+        if (_assets.TryGetValue(key, out var cached)) return cached;
+        var resources = CeFacilityModels.LoadTextureResourcesByCategory(_repository, Scene, category);
+        return Add(key, new(resources.Dictionary, resources.ModelObject, resources.Model.Source.FileId),
+            LoadRaw(resources), resources);
+    }
+
     public void Invalidate() => _assets.Clear();
 
     private static LoadedModelTransforms LoadRaw(LoadedModelTextureResources textures)
@@ -146,7 +165,8 @@ public sealed class MapStaticModelAssetCatalog
             BinaryPrimitives.ReadSingleLittleEndian(header[36..]), BinaryPrimitives.ReadSingleLittleEndian(header[40..]));
         MapStaticModelTransforms.ValidateBounds(minimum, maximum);
         var asset = new MapStaticModelAsset(key, reference, raw, textures, Array.AsReadOnly(draws),
-            minimum, maximum, Scene.Scene.Source.ResourceUri, Scene.Scene.Source.DecodedSha256);
+            minimum, maximum, Scene.Scene.Source.ResourceUri, Scene.Scene.Source.DecodedSha256)
+        { SdfRegistration = _sdfDeclarations?.RegisterFreshOwnedModel(reference) };
         _assets.Add(key, asset); return asset;
     }
 }

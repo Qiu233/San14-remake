@@ -9,6 +9,7 @@ public readonly record struct HdrLightModifier(bool Present, bool AdjustsLightin
     Vector4 DirectionalFactors, float AmbientFactor, float HemisphereFactor)
 {
     public Vector2 OcclusionRates { get; init; } = Vector2.One;
+    public HdrMaterialModifierSettings? Material { get; init; }
     public bool RequiresAdjustment(bool suppressAmbient) => suppressAmbient || Present && AdjustsLighting;
 
     public float DirectionalFactor(int index) => index switch

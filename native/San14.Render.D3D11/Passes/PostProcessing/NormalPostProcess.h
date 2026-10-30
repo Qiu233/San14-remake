@@ -103,6 +103,7 @@ public:
         return result;
 
     }
+    float mapExposureLuminance() const {return mapExposure_.current.luminance;}
     ID3D11ShaderResourceView* mapExposureView() const {return mapExposure_.view.Get();}
     ID3D11SamplerState* mapExposureSampler() const {return mapExposure_.outputSampler.Get();}
     ID3D11RenderTargetView* outputTarget() const {return output_.targets[0].Get();}

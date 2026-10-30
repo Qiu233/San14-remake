@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ArmyWorldPopulation.h"
 #include "ArmyDefaultActions.h"
 #include <filesystem>
@@ -43,7 +44,7 @@ inline NativeArmyCategoryInputs readNativeArmyCategoryInputs(const std::filesyst
     }
     end(in);
     if(r.category==2||r.category==3){
-        std::ifstream flags(directory/"flag-draws.txt");unsigned draw;int manager;
+        NativePreparedInputFile flags(directory/"flag-draws.txt");unsigned draw;int manager;
         if(!flags)throw std::runtime_error("Army category material bindings absent");
         while(flags>>draw>>manager){
             auto found=std::find_if(r.primitives.begin(),r.primitives.end(),[&](const auto& row){return row.binding.draw==draw;});
@@ -70,12 +71,12 @@ inline NativeArmyCategoryInputs readNativeArmyCategoryInputs(const std::filesyst
     if(pool.get<uint32_t>()!=1||pool.get<uint32_t>()!=r.category)throw std::runtime_error("Army category pool declaration");
     r.capacity=pool.get<uint32_t>();const auto kind=pool.get<uint32_t>(),flags=pool.get<uint32_t>();end(pool);
     if(!r.capacity||kind!=1||flags!=0)throw std::runtime_error("Army category pool kind/flags unsupported");
-    std::ifstream tables(directory/"base-table-owners.txt");uint32_t table;uint64_t owner;
+    NativePreparedInputFile tables(directory/"base-table-owners.txt");uint32_t table;uint64_t owner;
     if(!tables)throw std::runtime_error("Army category table owners absent");
     while(tables>>table>>owner)if(!table||!owner||!r.tableOwners.emplace(table,owner).second)
         throw std::runtime_error("Army category table owner duplicate");
     if(!tables.eof()||r.tableOwners.empty())throw std::runtime_error("Army category table owners incomplete");
-    std::ifstream identities(directory/"table-identities.txt");std::string uri;
+    NativePreparedInputFile identities(directory/"table-identities.txt");std::string uri;
     if(!identities)throw std::runtime_error("Army category full table identities absent");
     while(identities>>owner>>uri>>table)if(!owner||!table||!r.tableIdentities.emplace(owner,std::pair{uri,table}).second)
         throw std::runtime_error("Army category full table identity duplicate");
@@ -88,7 +89,7 @@ inline std::vector<NativeArmyCategoryDeclaration> readNativeArmyCategoryDeclarat
     native_accessory_pose_detail::Reader in(root/"resource-bank.bin");
     if(in.get<uint32_t>()!=0x31425241||in.get<uint32_t>()!=10||in.at!=in.bytes.size())
         throw std::runtime_error("Army resource bank declaration");
-    std::ifstream list(root/"categories.txt");std::vector<NativeArmyCategoryDeclaration> rows;
+    NativePreparedInputFile list(root/"categories.txt");std::vector<NativeArmyCategoryDeclaration> rows;
     unsigned category,borrow;std::string relative;
     while(list>>category>>relative>>borrow){
         if(category!=rows.size()||borrow!=(category==2?1u:0u))throw std::runtime_error("Army resource category ordering/borrow");

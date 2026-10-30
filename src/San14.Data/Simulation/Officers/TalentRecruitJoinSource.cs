@@ -49,7 +49,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         HexListHandle? followerList = null)
     {
         T Need<T>(T? value, string field) where T : struct => value ?? throw RecruitMissing("join_" + field);
-        if (Seed.Language != "TC") throw RecruitMissing("join_SC_owner");
+        if (Seed.Language is not ("TC" or "SC")) throw RecruitMissing("join_edition_owner");
         if (!Need(current.ReadPersonNativeValidity(personPhysical), "Person_validity")) return new(input, 0);
         byte originalStatus = Need(current.ReadPersonStatus(personPhysical), "PersonE6");
         if (originalStatus == 1 && !absorption) return new(input, 0);

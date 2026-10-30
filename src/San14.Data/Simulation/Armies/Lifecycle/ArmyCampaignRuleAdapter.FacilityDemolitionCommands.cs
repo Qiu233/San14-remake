@@ -29,7 +29,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFacilityWorkC
             waypointHexIds.Any(hex => hex is < 0 or >= 48400))
             return CommandResult.Reject("The current army or facility target is invalid.", "structure.target");
         if (state.Structures is not { } structures || !structures.TryGetValue(structureId, out var structure) ||
-            action != 6 && structure.ForceId != army.ForceId)
+            action == 10 && structure.ForceId != army.ForceId)
             return CommandResult.Reject("The selected facility does not belong to this army's force.", "structure.control");
         try
         {
@@ -67,29 +67,30 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFacilityWorkC
                     DemolitionKnown(current.ReadObjectDefinitionRaw2C(definition), "command_definition_category") is not (2 or 3))
                     return CommandResult.Reject("This object is not an ordinary attack target.", "structure.attack_target");
             }
-            else if (faction != current.ReadArmyUnitRawForceSlot(actor))
-                return CommandResult.Reject("The selected facility does not belong to this army's force.", "structure.control");
-            if (action == 9)
+            else
             {
-                _baseCapacityInputs.BindCurrent(state, current);
-                int capacity = DemolitionKnown(FacilityRepairCapacity.ReadCapacity(state, current, obj, _baseCapacityInputs),
-                    "command_repair_capacity");
-                int before = DemolitionKnown(current.ReadObjectRawField14(obj), "command_repair_durability");
-                if (before >= capacity)
-                    return CommandResult.Reject("The selected facility is already at its current durability capacity.", "structure.repair");
+                var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+                if (!DemolitionKnown(current.ReadObjectDefinitionValidity(definition), "command_definition_validity"))
+                    return CommandResult.Reject("The selected object is not a facility.", "structure.target");
+                int category = DemolitionKnown(current.ReadObjectDefinitionRaw2C(definition), "command_definition_category");
+                //The ordinary repair item admits neutral obstacles. Facilities
+                //and traps retain their actual own-force gate; demolition does too.
+                if (!(action == 9 && category == 3))
+                {
+                    if (category is not (2 or 4) || faction != current.ReadArmyUnitRawForceSlot(actor))
+                        return CommandResult.Reject("The selected facility does not belong to this army's force.", "structure.control");
+                }
+                //7EB310 does not reject a full facility. The actual stage16
+                //predicate skips it and command maintenance completes it.
             }
             bool adjacent = false;
             for (int direction = 1; direction <= 6; direction++)
                 if (DemolitionNeighbor(targetHex, direction) == approachHexId) { adjacent = true; break; }
             if (!adjacent)
                 return CommandResult.Reject("A facility order must approach an adjacent cell.", "structure.destination");
-            var targetCell = current.ReadHexTableReference(targetHex) ?? throw DemolitionMissing("command_target_Hex");
-            //7EB310's Attack packet reads22DFF0 from the actual Object.
-            //Do not substitute the Hex's potentially different lookup alias.
-            ushort lookup = action == 6 ? checked((ushort)objectPhysical) :
-                DemolitionKnown(current.ReadHexObjectLink(targetCell), "command_Object_lookup");
-            if (directory.Lookup(lookup) != selected.Id)
-                throw DemolitionMissing("command_Object_lookup_identity");
+            //All Object commands use22DFF0's physical identity, independently
+            //of the Hex lookup alias used when discovering its current Object.
+            ushort lookup = checked((ushort)objectPhysical);
 
             byte formerAction = DemolitionKnown(ArmyConfigurationSourceAdapter.ReadAction(state, army), "command_previous_action");
             var march = army.March ?? throw DemolitionMissing("command_march");
@@ -112,7 +113,11 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFacilityWorkC
             receiver = receiver with
             {
                 FalseReportDestination = formerAction == 17 ? ArmyMarchDestination.None : receiver.FalseReportDestination,
-                OverrideTarget = changed.OverrideTarget
+                OverrideTarget = changed.OverrideTarget,
+                FacilityConstruction = action == 9
+                    ? (receiver.FacilityConstruction ?? FacilityConstructionIntent.None) with
+                        { ContinuationSite = ArmyMarchDestination.None }
+                    : receiver.FacilityConstruction
             };
             // The selected construction definition remains independent. A later
             // move/stay command can still retain it, as the existing submitter does.

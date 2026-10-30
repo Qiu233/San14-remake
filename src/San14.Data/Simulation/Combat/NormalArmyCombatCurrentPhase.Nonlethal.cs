@@ -2,7 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-public enum NormalArmyNonlethalPairOutcome { CurrentInputsUnresolved, NativeSkip, Committed, DestructionRequired, AwaitingPlayerDecision }
+public enum NormalArmyNonlethalPairOutcome { CurrentInputsUnresolved, NativeSkip, Committed, DestructionRequired, AwaitingPlayerDecision, NativeStopped }
 public sealed record NormalArmyNonlethalPairResult(NormalArmyNonlethalPairOutcome Outcome,
     GameState State, NormalArmyPairApplicationPrefixResult? Prefix,
     NormalArmyPairAftermathResult? Aftermath, string? MissingOwner)
@@ -30,6 +30,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
     private NormalArmyNonlethalPairResult CompleteNonlethalPrefix(GameState current, int pairIndex,
         NormalArmyPairApplicationPrefixResult prefix)
     {
+        if (prefix.Outcome == NormalArmyPairApplicationPrefixOutcome.NativeStopped)
+            return new(NormalArmyNonlethalPairOutcome.NativeStopped, prefix.State, prefix, null, null);
         if (prefix.Outcome == NormalArmyPairApplicationPrefixOutcome.AwaitingPlayerDecision)
             return new(NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision, prefix.State, prefix, null, null)
             { PendingAutomaticExecution = prefix.PendingAutomaticExecution,
@@ -78,6 +80,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 or NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision)
                 return new(false, current, [], index, next.MissingOwner);
             working = next.State; pairs.Add(next);
+            if (next.Outcome == NormalArmyNonlethalPairOutcome.NativeStopped)
+                return new(true, working, pairs.ToArray(), null, null);
         }
         return new(true, working, pairs.ToArray(), null, null);
     }

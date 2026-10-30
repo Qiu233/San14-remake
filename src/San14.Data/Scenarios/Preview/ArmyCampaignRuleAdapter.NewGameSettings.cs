@@ -18,6 +18,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         return NewGameOrdinarySettingsSource.Publish(draft,
             _scenario.Snapshot.WorldParameters?.SourceBoundary?.Settings,
             _scenario.Snapshot.WorldParameters?.RawModeValue,
-            tables[1].Records, tables[0].Records);
+            tables[1].Records, tables[0].Records,
+            _scenario.Snapshot.WorldParameters?.RawField48,
+            _scenario.Snapshot.WorldParameters?.RawHistoricalEventControl);
     }
 }

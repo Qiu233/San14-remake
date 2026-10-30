@@ -53,6 +53,12 @@ public sealed class TransferServiceState : ITransferServiceState
 {
     private readonly bool?[] _primary = new bool?[64], _secondary = new bool?[64];
     private readonly bool?[] _events = new bool?[1024];
+    //Independent application discovery bits, not achievements or campaign history.
+    private readonly bool?[] _mainCommandSeen = new bool?[13];
+    private readonly bool?[] _completedScenarios = new bool?[200];
+    private readonly uint?[] _endingCompletion = new uint?[3];
+    private readonly bool?[] _bonusOfficers = new bool?[61];
+    private readonly bool?[] _tutorialCompleted = new bool?[20];
     private readonly TransferServiceDate[] _dates = Enumerable.Range(0, 57)
         .Select(_ => new TransferServiceDate(null, null, null, null, null)).ToArray();
 
@@ -72,6 +78,11 @@ public sealed class TransferServiceState : ITransferServiceState
         Array.Copy(_primary, copy._primary, _primary.Length);
         Array.Copy(_secondary, copy._secondary, _secondary.Length);
         Array.Copy(_events, copy._events, _events.Length);
+        Array.Copy(_mainCommandSeen, copy._mainCommandSeen, _mainCommandSeen.Length);
+        Array.Copy(_completedScenarios, copy._completedScenarios, _completedScenarios.Length);
+        Array.Copy(_endingCompletion, copy._endingCompletion, _endingCompletion.Length);
+        Array.Copy(_bonusOfficers, copy._bonusOfficers, _bonusOfficers.Length);
+        Array.Copy(_tutorialCompleted, copy._tutorialCompleted, _tutorialCompleted.Length);
         Array.Copy(_dates, copy._dates, _dates.Length);
         copy.DirtyFlag = DirtyFlag;
         return copy;
@@ -89,14 +100,36 @@ public sealed class TransferServiceState : ITransferServiceState
         Array.Fill(_primary, false);
         Array.Fill(_secondary, false);
         Array.Fill(_events, false);
+        Array.Fill(_mainCommandSeen, false);
+        //Current3EC350 reset clears the200 scenario bits and three uint tracks.
+        Array.Fill(_completedScenarios, false);
+        Array.Fill(_endingCompletion, 0u);
+        Array.Fill(_bonusOfficers, false);
+        //3EC350 clears the profile's tutorial completion word at byte24.
+        Array.Fill(_tutorialCompleted, false);
         for (int index = 0; index < _dates.Length; index++)
             _dates[index] = new(0, 1, 1, 0, _dates[index].RawByte5);
         WriteDirtyFlag(1);
     }
 
     public bool? ReadPrimaryFlag(int index) { Check(index, 64, "primary bitmap bit"); return _primary[index]; }
+    public bool? ReadMainCommandSeen(int index) { Check(index, 13, "main command discovery"); return _mainCommandSeen[index]; }
+    public void SetMainCommandSeen(int index, bool? value) { Check(index, 13, "main command discovery"); _mainCommandSeen[index] = value; }
     public bool? ReadSecondaryFlag(int index) { Check(index, 64, "secondary bitmap bit"); return _secondary[index]; }
     public bool? ReadEventFlag(int index) { Check(index, 1024, "event history bit"); return _events[index]; }
+    public bool? ReadScenarioCompleted(int index) { Check(index, 200, "scenario completion bit"); return _completedScenarios[index]; }
+    public void SetScenarioCompleted(int index, bool? value) { Check(index, 200, "scenario completion bit"); _completedScenarios[index] = value; }
+    public uint? ReadEndingTrack(int index) { Check(index, 3, "Ending completion track"); return _endingCompletion[index]; }
+    public void SetEndingTrack(int index, uint? value)
+    {
+        Check(index, 3, "Ending completion track");
+        if (value is > 2) throw new InvalidDataException("Ending completion track is outside its source range.");
+        _endingCompletion[index] = value;
+    }
+    public bool? ReadBonusOfficerUnlocked(int index) { Check(index, 61, "bonus officer unlock"); return _bonusOfficers[index]; }
+    public void SetBonusOfficerUnlocked(int index, bool? value) { Check(index, 61, "bonus officer unlock"); _bonusOfficers[index] = value; }
+    public bool? ReadTutorialCompleted(int index) { Check(index, 20, "tutorial completion bit"); return _tutorialCompleted[index]; }
+    public void SetTutorialCompleted(int index, bool? value) { Check(index, 20, "tutorial completion bit"); _tutorialCompleted[index] = value; }
     public void SetEventFlag(int index, bool? value) { Check(index, 1024, "event history bit"); _events[index] = value; }
     public void SetPrimaryFlag(int index, bool? value) { Check(index, 64, "primary bitmap bit"); _primary[index] = value; }
     public void SetSecondaryFlag(int index, bool? value) { Check(index, 64, "secondary bitmap bit"); _secondary[index] = value; }

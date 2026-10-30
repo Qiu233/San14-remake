@@ -19,14 +19,43 @@ public abstract partial class DetailsView : Control
     private MapFont? _sourceFont;
     private Shader? _sourceShader;
     private UiSourceHeader? _sourceHeader;
+    private UiSourceCommonBlur? _commonBackdrop;
+    private bool _configurationStarted;
     private readonly List<string> _unbound = [];
     private UiAssets Assets => _assets ??
         throw new InvalidOperationException("Detail assets have not been initialized.");
+
+    // A retained browser supplies its actual background before configuring
+    // a child. Only source-backed consumers request one; other detail pages
+    // keep their existing rendering and do not create a new modal policy.
+    internal void BorrowCommonBackdrop(UiSourceCommonBlur provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        if (_configurationStarted || _commonBackdrop is not null)
+            throw new InvalidOperationException("A detail background must be supplied before page configuration.");
+        _commonBackdrop = provider;
+    }
+
+    private protected UiSourceCommonBlur ConfigureCommonBackdrop(GameResourceRepository repository)
+    {
+        if (_commonBackdrop is { } provider)
+        {
+            if (!GodotObject.IsInstanceValid(provider) || provider.IsQueuedForDeletion() || !provider.IsInsideTree())
+                throw new InvalidOperationException("The supplied detail background has retired.");
+            return provider;
+        }
+        var backdrop = new UiSourceCommonBlur();
+        _commonBackdrop = backdrop;
+        AddChild(backdrop);
+        backdrop.Configure(repository);
+        return backdrop;
+    }
 
     // Dedicated source pages can compose their own layouts while retaining
     // the same close and header lifetime as profile-based details.
     private protected void ConfigureSourcePage(string name, UiSourceHeader? header, Action close)
     {
+        _configurationStarted = true;
         Name = name;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
@@ -43,6 +72,7 @@ public abstract partial class DetailsView : Control
         DetailMiniMapValues? miniMap = null, DetailForceNameplate? rulerNameplate = null,
         bool showReturnButton = true, bool showHeader = true)
     {
+        _configurationStarted = true;
         Name = viewName;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
@@ -500,10 +530,13 @@ public abstract partial class DetailsView : Control
         close();
     }
 
-    internal void RegisterHeader(UiSourceHeaderStack owner) => _sourceHeader?.Publish(owner);
+    internal virtual void RegisterHeader(UiSourceHeaderStack owner) => _sourceHeader?.Publish(owner);
 
     public override void _ExitTree()
     {
+        // Borrowers release their reference without hiding or freeing the
+        // browser's provider. Owned backgrounds retire with this subtree.
+        _commonBackdrop = null;
         _sourceFont?.Dispose(); _sourceFont = null;
         _sourceShader?.Dispose(); _sourceShader = null;
         _assets?.Dispose();

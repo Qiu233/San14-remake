@@ -98,18 +98,7 @@ public static class RulerCaptureReleaseSource
             for (int i = 0; i < 8; i++) if (R(a, offset + i * 2) == other) return true;
             return false;
         }
-        bool Related276C30(int a, int b)
-        {
-            if (!Valid(a) || !Valid(b)) return false;
-            bool Serves(int p) => K(current.ReadPersonStatus(p), "current.Lord_related_PersonE6") is >= 1 and <= 4;
-            if (Serves(a) && Serves(b) && K(current.ReadPersonOldForceSlot(a), "current.Lord_related_first_Force_ordinal") !=
-                K(current.ReadPersonOldForceSlot(b), "current.Lord_related_second_Force_ordinal")) return false;
-            if (Kin(a, b, 0xB4) || Kin(a, b, 0xB6) || Kin(b, a, 0xB4) || Kin(b, a, 0xB6) || Kin(a, b, 0xBA)) return true;
-            if (Valid(a) && Valid(b) && Id(a) != Id(b) &&
-                (R(a, 0xB4) != 0 && R(a, 0xB4) == R(b, 0xB4) || R(a, 0xB6) != 0 && R(a, 0xB6) == R(b, 0xB6))) return true;
-            if (Kin(a, b, 0xBC)) return true;
-            return R(a, 0xB2) != 0 && R(a, 0xB2) == R(b, 0xB2);
-        }
+        bool Related276C30(int a, int b) => PersonKinshipCurrent.Read(state, current, a, b);
     }
 
     public static RulerCaptureReleaseResult Release(GameState state, SourceWorldContext current,

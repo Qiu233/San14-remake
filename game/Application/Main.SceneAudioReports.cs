@@ -21,7 +21,10 @@ public partial class Main
     {
         if (_sceneAudioBinding is { } binding)
         {
-            if (_collectionCatalog?.HasPoemEvent == true)
+            if (HasEndingPresentation) { UpdateSceneAudioStatus(); return; }
+            if (_collectionEventPlayback is { AudioEntered: true })
+            { UpdateSceneAudioStatus(); return; }
+            if (_collectionCatalog?.HasPoemEvent == true || _collectionItems?.HasPoemEvent == true)
             {
                 binding.BeginPoemEvent(_ui.SourceLocale, _preferences.MusicSelection);
                 UpdateSceneAudioStatus(); return;
@@ -38,7 +41,9 @@ public partial class Main
             SetMeta("scene_audio_active_channels", state.ChannelCount);
             if (_session is { PlayerForceId: not null } campaign &&
                 _residentMap is { IsPlayableMapReady: true } view && view.IsInsideTree() && !view.IsQueuedForDeletion())
-                binding.EnterPlayableMap(campaign, _campaignComposition!.Snapshot.Locale, _preferences.MusicSelection);
+                binding.EnterPlayableMap(campaign, _campaignComposition!.Snapshot.Locale, _preferences.MusicSelection,
+                    resumeNormalStory: StoryPlayback(campaign) is
+                        { IsReturningCamera: false, AudioReturn: not null });
             SetMeta("scene_audio_selection_resolved", binding.MapMusicSelection is not null);
         }
         UpdateSceneAudioStatus();

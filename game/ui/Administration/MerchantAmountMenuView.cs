@@ -42,6 +42,7 @@ internal partial class MerchantAmountMenuView : Control
         ZIndex = 6;
         MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new AdministrationPageChrome { Name = "MerchantAmountChrome" };
         AddChild(chrome);
         chrome.Configure(repository, text, titleMessage, RequestCancel, static () => { }, returnOnly: true);

@@ -1,4 +1,5 @@
 using San14.Core;
+using System.Collections.Immutable;
 
 namespace San14.Data;
 
@@ -43,6 +44,11 @@ public sealed partial class DiplomacyUiDraft
         RefreshGiftAdmission();
     }
 
+    /// <summary>Retains this page and its selected quotes across an exact
+    /// presentation-only successor established by the owning client.</summary>
+    public bool TryAdoptPresentationWorld(GameState previous, GameState replacement, CampaignAppRandomState appRandom)
+        => source.TryAdoptPresentationWorld(previous, replacement, appRandom);
+
     public void SelectExecutor(int officerId)
     {
         if (!ExecutorOfficerIds.Contains(officerId)) throw new ArgumentOutOfRangeException(nameof(officerId));
@@ -67,7 +73,7 @@ public sealed partial class DiplomacyUiDraft
             SelectedTargetCityId = null; SelectedExecutorOfficerId = null; SourceCityId = null;
         }
         if (resetArea) ResetGiftCore();
-        RefreshGiftAdmission(); RefreshTravel(); RefreshSubmission(); RefreshAdvice();
+        RequestedOffer=new(0,0); RefreshCaptiveChoices(); RefreshGiftAdmission(); RefreshTravel(); RefreshSubmission(); RefreshAdvice();
     }
 
     public void SelectTargetCity(int cityId)
@@ -124,11 +130,13 @@ public sealed partial class DiplomacyUiDraft
         AdviceText = null; AdviceUnresolvedInput = null; AdvisorOfficerId = null;
         if (SelectedExecutorOfficerId is not int actor || SelectedTargetForceId is not int target ||
             Kind == DiplomaticMissionKind.RequestAttack && SelectedTargetCityId is null ||
-            Kind != DiplomaticMissionKind.CancelAlliance && GiftGold == 0 && GiftSupplies == 0 && GiftItemId is not > 0 && GiftAreaId is not > 0)
+            Kind is not (DiplomaticMissionKind.CancelAlliance or DiplomaticMissionKind.DemandSurrender) && GiftGold == 0 && GiftSupplies == 0 && GiftItemId is not > 0 && GiftAreaId is not > 0)
             return;
         try
         {
-            var result = source.Advice(actor, target, AllianceMonths, SelectedTargetCityId, new(GiftGold, GiftSupplies, GiftItemId, GiftAreaId));
+            var result = Kind==DiplomaticMissionKind.Exchange
+                ?source.ExchangeAdvice(actor,target,new(GiftGold,GiftSupplies,GiftItemId,GiftAreaId),RequestedOffer)
+                :source.Advice(actor, target, AllianceMonths, SelectedTargetCityId, new(GiftGold, GiftSupplies, GiftItemId, GiftAreaId),SelectedCaptiveOfficerIds);
             AdviceText = result.Text; AdvisorOfficerId = result.AdvisorOfficerId;
         }
         catch (InvalidDataException missing) { AdviceUnresolvedInput = missing.Message; }
@@ -136,11 +144,12 @@ public sealed partial class DiplomacyUiDraft
 
     private PrepareDiplomaticOrder CreateOrder() => new(ForceId, SourceCityId!.Value,
         SelectedExecutorOfficerId!.Value, SelectedTargetForceId!.Value, Kind, AllianceMonths, SelectedTargetCityId)
-        { GiftGold = GiftGold, GiftSupplies = GiftSupplies, GiftItemId = GiftItemId, GiftAreaId = GiftAreaId };
+        { GiftGold = GiftGold, GiftSupplies = GiftSupplies, GiftItemId = GiftItemId, GiftAreaId = GiftAreaId,
+            RequestedCaptiveOfficerIds=SelectedCaptiveOfficerIds.ToImmutableArray(),RequestedOffer=RequestedOffer };
 
     private void RefreshSubmission()
     {
-        CanSubmit = false; UnresolvedInput = null;
+        RefreshRequestedAdmission(); CanSubmit = false; UnresolvedInput = null;
         if (SourceCityId is null || SelectedExecutorOfficerId is null || SelectedTargetForceId is null ||
             Kind == DiplomaticMissionKind.RequestAttack && SelectedTargetCityId is null) return;
         try { source.RequireSubmission(CreateOrder()); CanSubmit = true; }
@@ -160,6 +169,7 @@ public sealed partial class DiplomacyUiDraft
 internal sealed partial class DiplomacyUiSource
 {
     internal GameState State { get; private set; }
+    private GameState presentationWorld;
     internal int ForceId { get; }
     internal int DistrictId { get; }
     internal DiplomaticMissionKind Kind { get; }
@@ -179,9 +189,9 @@ internal sealed partial class DiplomacyUiSource
 
     internal DiplomacyUiSource(ArmyCampaignRuleAdapter adapter, GameState state, SourceWorldContext current,
         LoadedScenario scenario, int forceId, int districtId, DiplomaticMissionKind kind,
-        Func<int, AreaAdministrationQuery<AreaAdministrationOfficerCard>> card)
+        Func<int, AreaAdministrationQuery<AreaAdministrationOfficerCard>> card, GameState? presentationWorld = null)
     {
-        this.adapter = adapter; State = state; this.current = current; ForceId = forceId;
+        this.adapter = adapter; State = state; this.presentationWorld = presentationWorld ?? state; this.current = current; ForceId = forceId;
         foreach (var area in scenario.Snapshot.Areas) areaNames[area.Slot] = area.Name;
         DistrictId = districtId; Kind = kind; this.card = card;
         if (state.Phase != TurnPhase.Strategy || !state.Districts.TryGetValue(districtId, out var district) ||
@@ -225,9 +235,10 @@ internal sealed partial class DiplomacyUiSource
             if (other == forceId || !state.Forces.TryGetValue(other, out var force) || !force.IsActive) continue;
             try
             {
-                qualification.RequireInteraction(forceId, other);
+                qualification.RequireInteraction(forceId, other,requireIndependentRecipient:kind is not (DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.ReturnCaptives));
                 var relation = Relation(other);
-                if (kind == DiplomaticMissionKind.Goodwill && (relation.Relation >= 200 || other is >= 46 and <= 50) ||
+                if (kind == DiplomaticMissionKind.Goodwill && (relation.Relation >= 200 ||
+                        other is >= 46 and <= 50 && !adapter.ReadSpecialGoodwillEligibilityCurrent(state, current, forceId, other)) ||
                     kind == DiplomaticMissionKind.Alliance && (other is >= 46 and <= 50 || relation.Level < 3 || relation.AllianceMonths > 42) ||
                     kind == DiplomaticMissionKind.CancelAlliance && qualification.TreatyMonths(other, forceId) == 0 ||
                     kind == DiplomaticMissionKind.RequestAttack && (relation.AllianceMonths == 0 || relation.Level < 4 ||
@@ -238,7 +249,27 @@ internal sealed partial class DiplomacyUiSource
             }
             catch (ArgumentException) { }
         }
+        if(kind==DiplomaticMissionKind.ReturnCaptives)
+        {recipients.RemoveAll(target=>CaptiveCount(target)==0);
+         recipients=adapter.SortReturnCaptivesTargetsCurrent(State,current,ForceId,recipients,CaptiveCount).ToList();}
+        if(kind==DiplomaticMissionKind.DemandSurrender)
+        { recipients.RemoveAll(target=>!adapter.IsDemandSurrenderTargetCurrent(State,current,ForceId,target));
+          recipients=adapter.SortDemandSurrenderTargetsCurrent(State,current,ForceId,recipients).ToList(); }
+        if(kind==DiplomaticMissionKind.Exchange)
+        { recipients.RemoveAll(target=>!adapter.IsExchangeTargetCurrent(State,current,ForceId,target));
+          recipients=adapter.SortExchangeTargetsCurrent(State,current,ForceId,recipients).ToList(); }
         Targets = recipients.AsReadOnly();
+    }
+
+    internal bool TryAdoptPresentationWorld(GameState previous, GameState replacement, CampaignAppRandomState appRandom)
+    {
+        if (ReferenceEquals(previous, replacement) || !ReferenceEquals(presentationWorld, previous)) return false;
+        // Keep advice and quote caches. The host cursor includes both page
+        // advice and any speech-start draws; finish/voice receipts alone may
+        // retain an older saved-world App cursor. Do not rewind either stream.
+        State = replacement with { CampaignAppRandom32 = appRandom };
+        presentationWorld = replacement;
+        return true;
     }
 
     internal int Home(int officer) => homes[officer];
@@ -246,9 +277,11 @@ internal sealed partial class DiplomacyUiSource
     internal DiplomacyRelationCurrent Relation(int force) => adapter.ReadDiplomacyRelationCurrent(State, current, ForceId, force);
     internal int DisplayRelationLevel(int force) => adapter.ReadDiplomacyRelationCurrent(State, current, force, ForceId).Level;
     internal AreaAdministrationQuery<AreaAdministrationOfficerCard> Card(int officer) => card(officer);
-    internal DiplomacyAdvisorResult Advice(int actor, int target, int months, int? targetCity, DiplomacyOffer offer)
+    internal DiplomacyAdvisorResult Advice(int actor, int target, int months, int? targetCity, DiplomacyOffer offer,IReadOnlyList<int>? captives=null)
     {
-        var result = adapter.ReadDiplomacyAdvisorCurrent(State, current, ForceId, actor, target, Kind, months, targetCity, offer);
+        var result = Kind==DiplomaticMissionKind.DemandSurrender
+            ?adapter.ReadDemandSurrenderAdvisorCurrent(State,current,ForceId,actor,target)
+            :adapter.ReadDiplomacyAdvisorCurrent(State, current, ForceId, actor, target, Kind, months, targetCity, offer,captives);
         State = result.State;
         return result;
     }
@@ -259,7 +292,7 @@ internal sealed partial class DiplomacyUiSource
     {
         foreach (var task in State.PersonnelCommands?.Diplomacies?.Values ?? throw Missing("saved_Diplomacies"))
             if (!task.IsRetiring && task.ForceId == ForceId && task.TargetForceId == recipient &&
-                task.NativeKind is >= 4 and <= 9 && task.MemberIds.Length != 0 &&
+                (task.NativeKind is >= 4 and <= 9 or 19) && task.MemberIds.Length != 0 &&
                 adapter.DiplomacyContinuationAllowedCurrent(State, current, task).Allowed) return true;
         return false;
     }

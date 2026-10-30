@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Current selected programs and actual F103/retained-L80 radiance are imported
 // once. Only source named weather fields are written into the retained full CBs.
 #include "WeatherFogFrame.h"
@@ -8,7 +9,7 @@ struct Write {std::string name;unsigned offset{},size{};};
 struct Route {std::string family,identity;bool vertex{};unsigned slot{};source_camera::V3 actualRgb{};std::vector<Write> writes;};
 using Profile=std::vector<Route>;
 inline Profile readProfile(const std::filesystem::path& source){
-    std::ifstream input(source/"routes.txt");if(!input)throw std::runtime_error("Weather Fog actual consumer routes absent");
+    NativePreparedInputFile input(source/"routes.txt");if(!input)throw std::runtime_error("Weather Fog actual consumer routes absent");
     Profile result;std::string family,identity,stage;unsigned slot,r,g,b,count;
     while(input>>family>>identity>>stage>>slot>>std::hex>>r>>g>>b>>std::dec>>count){
         Route route{family,identity,stage=="VS",slot,{source_weather_fog::F(r),source_weather_fog::F(g),source_weather_fog::F(b)}, {}};

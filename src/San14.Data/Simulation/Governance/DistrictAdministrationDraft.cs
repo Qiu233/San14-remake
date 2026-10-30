@@ -13,7 +13,7 @@ public sealed record DistrictMilitaryIntelligenceAmountOptions(int Current, int?
 
 /// <summary>One captured new/edit district page. Map picks, list picks and four
 /// settings tabs edit this same local packet; only BuildOrder publishes intent.</summary>
-public sealed class DistrictAdministrationDraft
+public sealed partial class DistrictAdministrationDraft
 {
     private readonly DistrictAdministrationRules? rules;
     private readonly Func<int?, IReadOnlyList<int>, DistrictSettings, DistrictAdministrationSelection>? query;
@@ -47,6 +47,25 @@ public sealed class DistrictAdministrationDraft
     }
     internal DistrictAdministrationDraft(int forceId, bool reorganize, string missing)
     { ForceId = forceId; Reorganize = reorganize; UnresolvedOwner = missing; }
+
+    internal DistrictAdministrationSelectionSource? SelectionSource { get; init; }
+    internal DistrictCitySelectionAdmission QueryCityListSelection(IReadOnlyList<int> selected)
+    {
+        if (rules is null || query is null || Settings is null)
+            return new(false, UnresolvedOwner ?? "district.selection.owner");
+        if (selected.Distinct().Count() != selected.Count ||
+            selected.Any(id => !rules.Cities.Any(row => row.Id == id && (row.Available == true || IsLockedCity(row)))) ||
+            rules.Cities.Any(row => IsLockedCity(row) && !selected.Contains(row.Id)))
+            return new(false, "district.selection.City_membership");
+        try
+        {
+            //The child owns its tentative checkboxes. This is the existing
+            //captured query only: no Refresh, defaults, Next or draft write.
+            var result = query(DistrictId, selected, Settings);
+            return new(result.CanConfirmCities == true, result.UnresolvedOwner);
+        }
+        catch (InvalidDataException error) { return new(false, error.Message); }
+    }
 
     public int ForceId { get; }
     public bool Reorganize { get; }

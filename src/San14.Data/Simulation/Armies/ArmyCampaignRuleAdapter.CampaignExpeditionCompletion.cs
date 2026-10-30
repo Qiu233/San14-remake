@@ -39,7 +39,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             leastTroops = troops;
         }
         if (selected == 0)
-            return ApplyAutomaticArmyWithdrawal(state, current, image, operation, reportReason: false);
+            return ApplyCampaignFieldWithdrawalCurrent(state, current, image, operation);
 
         var oldTarget = current.ReadArmyLifecycleTargetFields(physical)
             ?? throw ExpeditionCompletionMissing("previous_target");

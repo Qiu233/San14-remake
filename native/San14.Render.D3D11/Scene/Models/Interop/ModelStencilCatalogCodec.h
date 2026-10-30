@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../ModelStencilRules.h"
 #include <filesystem>
 #include <fstream>
@@ -9,7 +10,7 @@ inline ModelStencilTarget decodeModelStencilTarget(std::uint32_t hostFlags) {
     return (hostFlags&3)==1?ModelStencilTarget::ClassOne:ModelStencilTarget::Other;
 }
 inline std::vector<ModelStencilBinding> readModelStencilCatalog(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary|std::ios::ate);
+    NativePreparedInputFile input(path,std::ios::binary|std::ios::ate);
     auto bytes=static_cast<std::streamoff>(input.tellg());
     if(!input||bytes<0||bytes%16)
         throw std::runtime_error("Ordinary54 source primitive descriptor extent");

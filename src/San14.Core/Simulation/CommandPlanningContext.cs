@@ -17,6 +17,18 @@ public sealed class CommandPlanningContext
 {
     internal CommandPlanningContext(GameState state) => Current = state;
 
+    /// <summary>Runs a planner on the caller's actual transaction candidate.
+    /// Commands retain their ordinary candidate/authority boundary; a failed
+    /// planner does not publish a partially accepted world to the caller.</summary>
+    public static GameState PlanOwned(GameState candidate, ICommandPlanner planner)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(planner);
+        var context = new CommandPlanningContext(candidate);
+        planner.Plan(context);
+        return context.Current;
+    }
+
     /// <summary>Borrowed current world; changes go through Apply.</summary>
     public GameState Current { get; private set; }
 

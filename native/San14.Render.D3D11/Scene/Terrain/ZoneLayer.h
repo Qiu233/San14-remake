@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // CE189AD0 region colours and CE18D930 first-dirty-layer publication.
 // Source input is imported once; no frame number, shader replacement or grid
 // line construction. All seven buffers remain actual PB2SM R8_UINT layers.
@@ -53,7 +54,7 @@ inline void buildRegionColors(Profile& profile) {
         }
 }
 inline Profile load(const std::filesystem::path& directory) {
-    Profile p;std::ifstream f(directory/"profile.bin",std::ios::binary);std::uint32_t magic=0;
+    Profile p;NativePreparedInputFile f(directory/"profile.bin",std::ios::binary);std::uint32_t magic=0;
     auto read=[&](void* data,size_t bytes){f.read(static_cast<char*>(data),bytes);if(!f)throw std::runtime_error("Source seven-layer input absent/incomplete");};
     // ZSV2 contains static map inputs only. Current ownership is published by
     // the live World owner before the first overlay draw.
@@ -113,11 +114,14 @@ inline int updateOne(const Profile& p,Owner& owner,const Current& current) {
         break;
     case 5:
         if(current.selector1==-1)std::fill(output,output+cells,0);
-        else if(current.selector1==2||current.selector1==3||current.selector1==4) {
+        else if(current.selector1==2||current.selector1==3||current.selector1==4||current.selector1==5||current.selector1==1||current.selector1==6) {
             if(!current.areaFocusSlots||current.areaFocusSlots->size()!=cells)
                 throw std::runtime_error("Actual area-focus raw Hex12 inputs required");
-            for(unsigned cell=0;cell<cells;++cell)output[cell]=current.areaFocus!=0&&
-                (*current.areaFocusSlots)[cell]==current.areaFocus?std::uint8_t(current.areaFocusPalette):0;
+            for(unsigned cell=0;cell<cells;++cell) {
+                unsigned group=(*current.areaFocusSlots)[cell];
+                bool matches=current.selector1==6?((group&255)==current.areaFocus||(group>>8)==current.areaFocus):group==current.areaFocus;
+                output[cell]=current.areaFocus!=0&&matches?std::uint8_t(current.areaFocusPalette):0;
+            }
         } else throw std::runtime_error("Actual layer5 provider required");
         break;
     case 6:for(unsigned cell=0;cell<cells;cell++)output[cell]=p.area[cell]>=1&&p.area[cell]<=500?std::uint8_t(p.regionColors[p.area[cell]]+19):18;break;

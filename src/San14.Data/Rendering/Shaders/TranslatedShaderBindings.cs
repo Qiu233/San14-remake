@@ -14,6 +14,13 @@ public sealed record TranslatedShaderBindings(SpirvShaderInterface Interface,
 public static class TranslatedShaderBindingReader
 {
     public static TranslatedShaderBindings Read(DxbcResourceDefinitions original, ReadOnlySpan<byte> spirv)
+        => Read(original,spirv,false);
+
+    /// <summary>Explicit admission of a compiler-elided unused RDEF tail.
+    /// Full source CB allocation is retained; every used source variable must
+    /// end within the exact translated size. Default callers remain strict.</summary>
+    public static TranslatedShaderBindings Read(DxbcResourceDefinitions original, ReadOnlySpan<byte> spirv,
+        bool allowUnusedConstantBufferTail)
     {
         ArgumentNullException.ThrowIfNull(original);
         SpirvShaderInterface module = SpirvShaderInterfaceReader.Read(spirv);
@@ -48,7 +55,8 @@ public static class TranslatedShaderBindingReader
             {
                 DxbcRdefBuffer[] buffers = original.Buffers.Where(b => b.Name.Text == source.Name.Text).ToArray();
                 if (variable.StorageClass != 2 || type.Kind != "struct" || !type.Block || buffers.Length != 1 ||
-                    variable.RequiredBufferBytes != buffers[0].ByteSize)
+                    (variable.RequiredBufferBytes != buffers[0].ByteSize &&
+                     (!allowUnusedConstantBufferTail || !UnusedTail(buffers[0],variable.RequiredBufferBytes))))
                     throw new InvalidDataException("Translated constant buffer byte layout differs from original RDEF.");
                 buffer = buffers[0]; kind = "UniformBuffer";
             }
@@ -84,4 +92,14 @@ public static class TranslatedShaderBindingReader
             throw new InvalidDataException("Original RDEF contains declarations not resolved by the translated interface.");
         return new(module, original, rows.AsReadOnly());
     }
+    private static bool UnusedTail(DxbcRdefBuffer buffer,long? translatedBytes)
+    {
+        if(translatedBytes is not {} actual || actual<=0 || actual>=buffer.ByteSize || actual%16!=0)return false;
+        var used=buffer.Variables.Where(value=>(value.Flags&2)!=0).ToArray();
+        if(used.Length==0)return false;
+        long end=used.Max(value=>(long)value.StartOffset+value.ByteSize);
+        return ((end+15)&~15L)==actual && buffer.Variables.Where(value=>value.StartOffset+value.ByteSize>actual)
+            .All(value=>(value.Flags&2)==0);
+    }
+
 }

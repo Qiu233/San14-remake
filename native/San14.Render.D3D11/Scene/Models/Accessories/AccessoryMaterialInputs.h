@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../CityGateWorldPublication.h"
 #include <array>
 #include <filesystem>
@@ -25,7 +26,7 @@ inline std::filesystem::path nativeAccessoryMaterialDirectory(const NativeAccess
 }
 inline NativeAccessoryMaterialInput readNativeAccessoryMaterialInput(const std::filesystem::path& directory,
     const NativeAccessoryMaterialKey& expected) {
-    std::ifstream input(directory/"material.bin",std::ios::binary);std::array<unsigned,8> words{};
+    NativePreparedInputFile input(directory/"material.bin",std::ios::binary);std::array<unsigned,8> words{};
     input.read(reinterpret_cast<char*>(words.data()),sizeof(words));
     if(!input||input.peek()!=std::char_traits<char>::eof()||words[0]!=0x314d4641u)
         throw std::runtime_error("Accessory material requires AFM1 declaration");

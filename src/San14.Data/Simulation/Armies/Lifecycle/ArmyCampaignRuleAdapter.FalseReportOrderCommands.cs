@@ -24,7 +24,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var targetArmy = new ArmyUnitReference(target.NativeArmyOrigin?.NativeSlotIndex
                 ?? throw FalseReportDestinationMissing("command_target_receiver"));
             var own = new ForceReference(actors[0].ForceId);
-            if (!FalseReportTargetAllowed(state, current, own, targetArmy) ||
+            if (!TutorialFifthLessonTargets.AllowsFalseReportDestination(ReadTutorialControlState(state), destinationHexId) ||
+                !FalseReportTargetAllowed(state, current, own, targetArmy) ||
                 !ReadFalseReportDestinations(current, own, targetArmy).Any(value => value.HexId == destinationHexId))
                 return CommandResult.Reject("The false-report target or inducement destination is no longer available.", "army.false_report_target");
             var slots = (state.ReadArmyLifecycle() ?? throw FalseReportDestinationMissing("command_lifecycle")).ReceiverSlots();

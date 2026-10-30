@@ -23,6 +23,9 @@ public sealed record ApplicationGameplayContext(ApplicationGameplayMode Mode,
     bool? SpecialModeSuppressesAssociationReport)
 {
     public ApplicationSpecialPersonAvailability? SpecialPersons { get; init; }
+    public bool? TutorialBlocksAssociationReports { get; init; }
+    public bool? TutorialAllowsForeignTrade { get; init; }
+    public bool? TutorialAllowsSpecialGoodwill { get; init; }
 }
 
 /// <summary>The attached application's lifetime. Loading a world never edits
@@ -31,6 +34,7 @@ public sealed class ApplicationGameplayState
 {
     public ApplicationGameplayContext? Context { get; private set; }
     public bool? ReturnToTitlePending { get; private set; }
+    public bool StrategyLoadResume { get; private set; }
     public PersonnelGroupMoveDestinations PersonnelGroupMoveDestinations { get; }
 
     public ApplicationGameplayState(ApplicationGameplayContext context,
@@ -45,7 +49,8 @@ public sealed class ApplicationGameplayState
     //guess from a scenario, saved App.BC or a missing old-save field.
     public static ApplicationGameplayState CreateNormalCampaign(
         PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null) => new(new(
-        ApplicationGameplayMode.Campaign, false, false, false, false, false, false, false, false),
+        ApplicationGameplayMode.Campaign, false, false, false, false, false, false, false, false)
+        { TutorialBlocksAssociationReports = false },
         retainedPersonnelGroupMoveDestinations);
 
     public void Enter(ApplicationGameplayContext context)
@@ -56,10 +61,24 @@ public sealed class ApplicationGameplayState
         ReturnToTitlePending = false;
     }
 
+    public void UpdateContext(ApplicationGameplayContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (Context is null || context.Mode != Context.Mode)
+            throw new InvalidOperationException("Refreshing application facts requires the same attached game mode.");
+        Context = context;
+    }
+
     public void RequestReturnToTitle()
     {
         if (Context is null) throw new InvalidOperationException("No application gameplay context is attached.");
         ReturnToTitlePending = true;
+    }
+
+    public void SetStrategyLoadResume(bool loaded)
+    {
+        if (Context is null) throw new InvalidOperationException("No application gameplay context is attached.");
+        StrategyLoadResume = loaded;
     }
 
     public void BeginLoad() => ReturnToTitlePending = null;

@@ -20,6 +20,9 @@ public sealed record BaseCaptureRequest(SettlementBase Target, int? WinnerUnitId
     : CombatSettlementRequest
 {
     public int? WinnerDistrictId { get; init; }
+    /// <summary>The source had no receiving Army or District. False retains
+    /// the legacy unknown interpretation when both nullable identities are absent.</summary>
+    public bool HasNoWinner { get; init; }
 }
 // Old saves can contain a request whose receiver has already been retired.
 // Keep its place until settlement, without attaching it to a reused entity.

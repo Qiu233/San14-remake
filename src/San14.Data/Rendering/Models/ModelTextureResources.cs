@@ -61,7 +61,17 @@ public static class ModelTextureResources
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(scene);
         if ((uint)instanceIndex >= scene.Instances.Count) throw new ArgumentOutOfRangeException(nameof(instanceIndex));
-        SceneInstance instance = scene.Instances[instanceIndex];
+        return LoadForInstance(repository,scene,scene.Instances[instanceIndex]);
+    }
+
+    /// <summary>Resolve one actual resource-owned instance independently of
+    /// VisibilitySet membership. Definition/material/texture resolution is the
+    /// same original path used by the indexed API.</summary>
+    public static LoadedModelTextureResources LoadForInstance(GameResourceRepository repository,
+        LoadedSceneResources scene,SceneInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(instance);
         DokObject definition = Object(instance.DefinitionDocument, instance.Definition.ObjectId,
             CatalogClass, $"scene {scene.Scene.Source.ResourceUri} instance {instance.Index} definition");
         uint modelId = Scalar(definition, 0x0B6E1578, 5, instance.DefinitionDocument.Source.ResourceUri);

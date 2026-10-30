@@ -11,7 +11,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal DiplomacyContinuationCheck DiplomacyContinuationAllowedCurrent(GameState state,
         SourceWorldContext current, PersonnelDiplomacyTask task)
     {
-        if (task.NativeKind is not (4 or 5 or 6 or 9)) throw DiplomacyReportMissing("continuation_kind");
+        if (task.NativeKind is not (4 or 5 or 6 or 7 or 8 or 9 or 19)) throw DiplomacyReportMissing("continuation_kind");
         if (task.MemberIds.Length == 0) return new(false, false);
         int actor = DiplomacyLookupPerson(current, task.MemberIds[0]);
         var own = current.ReadPersonForce(actor) ?? throw DiplomacyReportMissing("continuation_executor_Force");
@@ -41,6 +41,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (months == 0 || queries.HasTreaty(task.TargetForceId, victim) || queries.HasTreaty(task.ForceId, victim))
                 return new(false, true);
         }
+        if(task.NativeKind==8 && RetainReturnCaptivesCurrent(current,task).RequestedCaptiveOfficerIds.IsEmpty)return new(false,true);
+        if(task.NativeKind==19 && (months==0 || !IsExchangeRequestedOfferStillQualifiedCurrent(state,current,task,true)))return new(false,true);
         //The initial Area remains owned by its giver until accepted settlement.
         if (!IsDiplomacyInitialAreaStillQualifiedCurrent(state, current, task))
             return new(false, true);

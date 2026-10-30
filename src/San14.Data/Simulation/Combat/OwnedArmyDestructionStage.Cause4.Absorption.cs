@@ -9,22 +9,24 @@ public sealed partial class OwnedArmyDestructionStage
     /// the original friendly Home and final phase26 retirement.</summary>
     internal ArmyCause4Result ApplyAbsorptionCommanderCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
-        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback)
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback,
+        TacticSourceSamplerWorld? sourceSampler = null)
         => ApplyEmployedNullWinnerCause4Current(state, current, pool, physical,
-            operationDate, feedback, allowSpecialForce: false);
+            operationDate, feedback, allowSpecialForce: false, sourceSampler: sourceSampler);
 
     /// <summary>2CD1C0's actual259360(Army,null,null,0,4) call, before
     /// detaching the special Person. Its current Force can be ordinary or46..50.</summary>
     internal ArmyCause4Result ApplySpecialPersonnelRecallCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
-        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback)
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback,
+        TacticSourceSamplerWorld? sourceSampler = null)
         => ApplyEmployedNullWinnerCause4Current(state, current, pool, physical,
-            operationDate, feedback, allowSpecialForce: true);
+            operationDate, feedback, allowSpecialForce: true, sourceSampler: sourceSampler);
 
     private ArmyCause4Result ApplyEmployedNullWinnerCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
         NativeMapSeasonDate operationDate, List<CampaignEffectRequest> feedback,
-        bool allowSpecialForce)
+        bool allowSpecialForce, TacticSourceSamplerWorld? sourceSampler, bool allowBanditForce = false)
     {
         try
         {
@@ -44,7 +46,7 @@ public sealed partial class OwnedArmyDestructionStage
                 throw Missing("branch.absorption_cause4_employed_Commander");
             var force = current.ReadArmyUnitForceReference(victim);
             if (force.PhysicalSlot is not int forceSlot || forceSlot < 1 ||
-                forceSlot > (allowSpecialForce ? 50 : 45) ||
+                forceSlot > (allowBanditForce ? 51 : allowSpecialForce ? 50 : 45) ||
                 !Known(current.ReadForceNativeValidity(force), "absorption_cause4_Force_validity"))
                 throw Missing(allowSpecialForce ? "branch.special_recall_cause4_Force" :
                     "branch.absorption_cause4_ordinary_Force");
@@ -73,13 +75,13 @@ public sealed partial class OwnedArmyDestructionStage
 
             //Cause4 omits injury/death/capture/morale waves and kind14, but
             //still executes the employed Person's real2EA9A0 before pending70.
-            state = ReturnAbsorptionCommander(state, current, pool, commander, operationDate, feedback);
+            state = ReturnAbsorptionCommander(state, current, pool, commander, operationDate, feedback, sourceSampler);
             effects.Add("25B7CE.232460_then2EA9A0_current_Return");
-            state = ReleaseCaptives(state, current, physical, operationDate, null, feedback);
+            state = ReleaseCaptives(state, current, physical, operationDate, sourceSampler, feedback);
             effects.Add("25B89x.230C70_actual_captive_iterator_and2E7890");
             var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);
             state = tracking.State;
-            NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce);
+            state = NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce, operationDate, feedback, sourceSampler);
             effects.Add("25B9xx.manager60_tracking_and_current_Force_nearby_tail");
             var originalHex = current.ReadHexTableReference(hex < 48400 ? hex : 0)
                 ?? throw Missing("current.absorption_cause4_Hex_pointer");
@@ -114,7 +116,7 @@ public sealed partial class OwnedArmyDestructionStage
 
     private GameState ReturnAbsorptionCommander(GameState state, SourceWorldContext current,
         WorldIndexContext pool, int commander, NativeMapSeasonDate operationDate,
-        List<CampaignEffectRequest> feedback)
+        List<CampaignEffectRequest> feedback, TacticSourceSamplerWorld? sourceSampler = null)
     {
         var force = current.ReadPersonForce(commander) ?? throw Missing("current.absorption_return_Person_Force");
         bool free = !Known(current.ReadForceNativeValidity(force), "absorption_return_Force_validity");
@@ -129,7 +131,7 @@ public sealed partial class OwnedArmyDestructionStage
         }
         if (free)
         {
-            TacticSourceSamplerWorld Sampler() => package.ReadArmyDestructionSampler(state, current)
+            TacticSourceSamplerWorld Sampler() => sourceSampler ?? package.ReadArmyDestructionSampler(state, current)
                 ?? throw Missing("current.absorption_return_freedom_World450_45C");
             return package.ApplyCaptiveFreedomCurrent(state, current, pool, commander, operationDate,
                 () => Sampler().Day450, Sampler, feedback);

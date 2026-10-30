@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -58,7 +58,7 @@ public sealed partial class AreaAdministrationDraft : IDisposable
     {
         if (_child is not null) throw Missing("child_already_open");
         if (!_held.Contains(areaId)) throw Missing("area_outside_held_list");
-        _child = Capture(); _area = areaId;
+        _child = Capture(); _area = areaId; _personSelection = null; _replacementArea = null;
     });
 
     public AreaAdministrationQuery<AreaAdministrationPanel> QueryPanel()
@@ -106,8 +106,12 @@ public sealed partial class AreaAdministrationDraft : IDisposable
         catch (InvalidDataException unknown) { return AreaAdministrationQuery<AreaAdministrationPanel>.Unknown(unknown.Message); }
     }
 
-    public AreaAdministrationQuery<IReadOnlyList<int>> QueryPersonCandidates() =>
-        AreaAdministrationQuery<IReadOnlyList<int>>.Unknown("area-draft.initial_sort_ability4_weight_and_seven_page_contract");
+    public AreaAdministrationQuery<IReadOnlyList<int>> QueryPersonCandidates()
+    {
+        var query = QueryPersonSelection();
+        return query.Available ? new(query.Value!.Candidates.Select(c => (int)c.RawIdentity).ToArray(), null)
+            : new(null, query.UnresolvedInput);
+    }
 
     public AreaAdministrationDraftResult StageFocus(AreaDevelopmentFocus focus) => Atomic(() =>
     {
@@ -121,7 +125,8 @@ public sealed partial class AreaAdministrationDraft : IDisposable
         _current.SetAssignmentArea72(area, EncodeFocus(focus)); //7546B0 identity-equal path only.
     });
 
-    public AreaAdministrationDraftResult Dismiss() => Atomic(() => StageIdentity(Active(), 0, 0, true), activeVector: true);
+    public AreaAdministrationDraftResult Dismiss() => Atomic(() =>
+    { StageIdentity(Active(), 0, 0, true); _replacementArea = null; }, activeVector: true);
 
     //6B7820 acts on the complete parent held chain, independently of the
     //display selection. It neither restores the parent nor opens a child.
@@ -134,13 +139,15 @@ public sealed partial class AreaAdministrationDraft : IDisposable
     public AreaAdministrationDraftResult CancelArea() => Atomic(() =>
     {
         _ = Active(); RestoreSource(_child!); _child = null; _area = null;
+        _personSelection = null; _replacementArea = null;
     }, allVectors: true);
 
     public AreaAdministrationDraftResult AcceptArea() => Atomic(() =>
     {
         int area = Active(); ushort person = Person(area); byte focus = Focus(area);
-        RestoreSource(_child!); StageIdentity(area, person, focus, false);
+        RestoreSource(_child!); StageIdentity(area, person, focus, false, _replacementArea);
         _child = null; _area = null;
+        _personSelection = null; _replacementArea = null;
     }, allVectors: true);
 
     public AreaAdministrationDraftResult CancelParent() => Atomic(() =>
@@ -159,9 +166,9 @@ public sealed partial class AreaAdministrationDraft : IDisposable
         catch (InvalidDataException unknown) { return AreaAdministrationQuery<IReadOnlyList<AreaAdministrationChange>>.Unknown(unknown.Message); }
     }
 
-    //7546B0 child stage /754B70 parent stage. New officer selection is deliberately
-    //not public until its actual source sorting and all selector pages are closed.
-    private void StageIdentity(int area, ushort desired, byte focus, bool childStage)
+    // The selected replacement is removed in the same source pass as other
+    // appointments, before city-duty and association changes.
+    private void StageIdentity(int area, ushort desired, byte focus, bool childStage, int? replacementArea = null)
     {
         ushort old = Person(area);
         if (old != desired)
@@ -175,8 +182,7 @@ public sealed partial class AreaAdministrationDraft : IDisposable
                 else
                 {
                     int capacity = unchecked(PersonAreaAppointmentSource.AdditionalCount(_state, _current, incoming) + 1);
-                    if (_vectors.Count(incoming) >= capacity)
-                        throw Missing("replacement_selected_old_area_current");
+                    if (_vectors.Count(incoming) >= capacity && other == replacementArea) Clear(other);
                 }
             }
             var snapshot = childStage ? _child! : _parent;
@@ -184,9 +190,10 @@ public sealed partial class AreaAdministrationDraft : IDisposable
             if (snapshot.Trainer == desired) _current.SetAssignmentCityCC(_cityId, 0);
             if (_forceValid)
             {
-                var clear = PersonAssignmentPrecallSource.Apply2783B0ForCapture(_current, new(_forceId), incoming);
+                //7546B0/754B70 pass R9=0: the private draft clears the
+                //association for preview/cancel without producing a report.
+                var clear = PersonAssignmentPrecallSource.Apply2783B0ForDraft(_current, new(_forceId), incoming);
                 if (!clear.NativeReturn.HasValue) throw new InvalidDataException(clear.UnresolvedOwner);
-                if (clear.Reports.Count != 0) throw Missing("association_report_consumer");
             }
             if (_parent.Recruiter == old) _current.SetAssignmentCityCA(_cityId, ClampPerson(_parent.Recruiter));
             if (_parent.Trainer == old) _current.SetAssignmentCityCC(_cityId, ClampPerson(_parent.Trainer));
@@ -254,6 +261,7 @@ public sealed partial class AreaAdministrationDraft : IDisposable
     {
         SourceWorldContext.AreaAdministrationCheckpoint? checkpoint = null;
         var beforeVectors = _vectors.Fork(); var child = _child; var area = _area; bool closed = _closed;
+        var selection = _personSelection; var replacement = _replacementArea;
         bool completed = false;
         try
         {
@@ -288,7 +296,8 @@ public sealed partial class AreaAdministrationDraft : IDisposable
                 else _current.RestoreAreaAdministrationCheckpoint(checkpoint);
             }
             if (!completed)
-            { _vectors = beforeVectors; _child = child; _area = area; _closed = closed; }
+            { _vectors = beforeVectors; _child = child; _area = area; _closed = closed;
+                _personSelection = selection; _replacementArea = replacement; }
         }
     }
     private int Active() { EnsureOpen(); return _area ?? throw Missing("no_active_child"); }

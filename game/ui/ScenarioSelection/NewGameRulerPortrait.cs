@@ -7,10 +7,13 @@ using San14.Data.Formats;
 internal partial class NewGameRulerPortrait : Control
 {
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedSprite portrait)
+        => ConfigureAuthored(repository, assets, shader, portrait, new UiSourceLayout(repository, 0xB468AE65), 3, false);
+
+    internal void ConfigureAuthored(GameResourceRepository repository, UiAssets assets, Shader shader,
+        LoadedSprite portrait, UiSourceLayout source, int nodeIndex, bool localCoordinates = true)
     {
         MouseFilter = MouseFilterEnum.Ignore;
-        var source = new UiSourceLayout(repository, 0xB468AE65);
-        var node = LcskSpriteNodeReader.Read(source.Source.Layout, source.Nodes[3]);
+        var node = LcskSpriteNodeReader.Read(source.Source.Layout, source.Nodes[nodeIndex]);
         var group = node.Groups.Single();
         if (group.ComponentCount != 2 || group.Parts.Count != 2)
             throw new InvalidDataException("Startup ruler portrait requires its two declared components.");
@@ -18,9 +21,9 @@ internal partial class NewGameRulerPortrait : Control
         if (imagePart.RawBytes[6] != 0 || imagePart.RawBytes[7] != 0 || imagePart.RawBytes[8] != 0 ||
             maskPart.RawBytes[6] != 13 || maskPart.RawBytes[7] != 0 || maskPart.RawBytes[8] != 0)
             throw new InvalidDataException("Startup ruler portrait component modes differ from the source pane.");
-        Rect2 rectangle = source.Rectangle(3);
-        Position = rectangle.Position - source.Rectangle(2).Position;
-        Size = rectangle.Size;
+        Rect2 rectangle = source.Rectangle(nodeIndex);
+        Position = localCoordinates ? Vector2.Zero : rectangle.Position - source.Rectangle(2).Position;
+        Size = localCoordinates ? new(source.Nodes[nodeIndex].Value44, source.Nodes[nodeIndex].Value46) : rectangle.Size;
         Texture2D texture = MapPortraitQuad.UsesSrgbView(repository, assets, portrait.Definition.Name, portrait)
             ? assets.SrgbSpritePart(portrait.Definition.Name, imagePart.Uv, portrait)
             : assets.SpritePart(portrait.Definition.Name, imagePart.Uv, portrait);
@@ -32,7 +35,7 @@ internal partial class NewGameRulerPortrait : Control
         image.Configure(shader, texture, UiSourceSprite.Blend.UniqueRulerPortrait);
         image.SetClipping(texture, mask, new(Vector2.Zero, Size));
         SetMeta("source_layout", source.Source.Source.ResourceUri);
-        SetMeta("source_node_index", 3);
+        SetMeta("source_node_index", nodeIndex);
         SetMeta("portrait_sprite", portrait.Definition.Name);
         SetMeta("mask_sprite", maskPart.SpriteName);
     }

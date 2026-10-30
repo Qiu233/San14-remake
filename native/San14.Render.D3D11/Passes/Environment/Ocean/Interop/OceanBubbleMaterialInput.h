@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanBubbleMaterialSettings.h"
 #include <cstring>
 #include <filesystem>
@@ -29,7 +30,7 @@ inline OceanBubbleMaterialSettings decodeOceanBubbleMaterialSettings(std::span<c
     return result;
 }
 inline OceanBubbleMaterialSettings readOceanBubbleMaterialSettings(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     std::array<std::uint8_t,OceanBubbleMaterialInputBytes> bytes;
     stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if (!stream || stream.peek()!=std::char_traits<char>::eof()) throw std::runtime_error("Ocean bubble material OBM1 absent");

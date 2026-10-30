@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -31,14 +32,14 @@ struct NativeRenderResourceSnapshot {
 class NativeRenderResourceSnapshots {
 public:
     explicit NativeRenderResourceSnapshots(const std::filesystem::path& directory) {
-        std::ifstream locator(directory/"context-directory.txt");std::string component,extra;
+        NativePreparedInputFile locator(directory/"context-directory.txt");std::string component,extra;
         if(!(locator>>component)||(locator>>extra)||component=="."||component==".."||
                 component.find_first_of("/\\:")!=std::string::npos)
             throw std::runtime_error("Army resource Context snapshot directory absent or invalid");
         root_=directory/component;
     }
     NativeRenderResourceSnapshot read(uint64_t generation)const {
-        std::ifstream input(root_/std::to_string(generation)/"descriptors.bin",std::ios::binary);
+        NativePreparedInputFile input(root_/std::to_string(generation)/"descriptors.bin",std::ios::binary);
         if(!input)throw std::runtime_error("Army resource Context descriptors absent");
         std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
         if(input.bad())throw std::runtime_error("Army resource Context descriptors could not be read");

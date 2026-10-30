@@ -4,14 +4,33 @@ using San14.Data;
 public partial class MapSceneView
 {
     private readonly MapHoverSelection _mapHover=new();
+    private bool _mapPointerBlocked;
+
+    // The GUI's actual hit owner decides whether this point belongs to map
+    // input. Map labels remain map targets; HUD and command panels do not.
+    private bool MapPointerOverSurface()
+    {
+        Control? hovered = GetViewport().GuiGetHoveredControl();
+        if (hovered is null) return false;
+        return Contains(_surface) || Contains(_d3d11Map) ||
+            Contains(_nativeMapOwner?.Package.Surface) || Contains(_sceneryMap) || Contains(_d3d11Markers);
+
+        bool Contains(Control? owner) => owner is not null &&
+            (ReferenceEquals(hovered, owner) || owner.IsAncestorOf(hovered));
+    }
 
     private SceneryMapHexSelection ReadMapHover(SourceWorldContext current)
     {
         if(_detailsOpen||!IsVisibleInTree())return new(false,null);
         bool? frozen=_sourceMainCamera is null?null:_sourceCameraActiveButton==-1?false:
             _sourceCameraCurrentCursorKnown?SourceDragThreshold(_sourceCameraCurrentCursor):null;
-        var selection = _mapHover.Update(current,frozen,_sceneryMap?.Controller.AuxiliaryHexLookup,
-            ReadSourceHoverRay,AllowsMapHover);
+        bool blocked = !MapPointerOverSurface();
+        if (blocked && !_mapPointerBlocked) _d3d11Markers?.ClearPointer();
+        _mapPointerBlocked = blocked;
+        var selection = blocked ? _mapHover.Clear() :
+            _mapHover.Update(current,frozen,_sceneryMap?.Controller.AuxiliaryHexLookup,
+                ReadSourceHoverRay,AllowsMapHover);
+        UpdateSceneryMapSummary(current,selection);
         if (selection.Known)
         {
             if (selection.Hex?.PhysicalSlot is int hex) _commandTargetHoverHex = hex;
@@ -24,6 +43,10 @@ public partial class MapSceneView
     {
         bool? scene=_mapPresentation?.SelectionPolicy.Allows(candidate);
         if(scene!=true)return scene;
+        // Source Scene eligibility precedes the provider; this project's
+        // additional command-candidate filter does not constrain territory.
+        HoverDiplomacyTerritory(candidate?.PhysicalSlot);
+        HoverStrategicTargetTerritory(candidate?.PhysicalSlot);
         // This project's active command owns its additional eligibility test.
         // A missing AllowPointer rejects command targets; it is not a native
         // known-absent Scene filter and cannot be bypassed through a label.
@@ -38,6 +61,16 @@ public partial class MapSceneView
             return new(MapHoverRayStatus.Unavailable);
         var status=ReadSourceCameraRay(_sourceCameraCurrentCursor,out var camera,out var picker,out var ray);
         if(status!=MapHoverRayStatus.Ready)return new(status);
+        if(_d3d11Markers is {} markers&&ReferenceEquals(camera,_d3d11PresentedInput?.SourceFrame))
+        {
+            // County names share the source hit pane with their flag. Resolve
+            // that accepted UI control before the terrain ray, just as the
+            // original label writes its representative Hex to Map+2F4B8.
+            var point=new Vector2(_sourceCameraCurrentCursor.X34*markers.Size.X/1920f,
+                _sourceCameraCurrentCursor.Y38*markers.Size.Y/1080f);
+            if(markers.TryReadHoverPointer(point,camera!,out int? markerHex))
+                return new(MapHoverRayStatus.Ready,markerHex);
+        }
         var o=ray.Origin;var d=ray.Direction;
         if(!picker!.TryPick(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),camera!.Camera.Lens.Far,out var hit))
             return new(MapHoverRayStatus.Ready);
@@ -50,11 +83,12 @@ public partial class MapSceneView
     {
         if(!_embedded||_detailsOpen||_sourceMainCamera is null)return;
         _sourceCameraCurrentCursor=cursor;_sourceCameraCurrentCursorKnown=true;
-        // WindowInput precedes GUI consumption. Feed the existing sampled
-        // camera owner, so labels and terrain share its one held/drag counter.
+        // WindowInput precedes GUI consumption. It observes movement and
+        // releases, including release over HUD, but cannot arm a map drag.
+        // Only Surface.GuiInput admits a new press to the camera owner.
         if(input is InputEventMouse mouse)
         {sourceCameraShiftHeld=mouse.ShiftPressed;sourceCameraControlHeld=mouse.CtrlPressed;}
         if(input is not InputEventMouseButton button)return;
-        SetSourceCameraLogicalButton(button.ButtonIndex,button.Pressed);
+        if (!button.Pressed) SetSourceCameraLogicalButton(button.ButtonIndex, false);
     }
 }

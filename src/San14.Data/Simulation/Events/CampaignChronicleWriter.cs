@@ -13,6 +13,10 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
 {
     internal GameState Write(GameState state, SourceWorldContext current, CampaignChronicleCommand command,
         bool? userSelectionServicePresent = null)
+        => WriteTracked(state, current, command, captureSnapshot: true, userSelectionServicePresent).State;
+
+    internal CampaignChronicleWriteResult WriteTracked(GameState state, SourceWorldContext current,
+        CampaignChronicleCommand command, bool captureSnapshot, bool? userSelectionServicePresent)
     {
         //8C8D50 reads BC only when the independent selection service exists.
         //Legacy callers can still close the conjunction with a known -1.
@@ -20,12 +24,23 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
         {
             var selection = state.CampaignEventWorld?.CurrentUserIndex
                 ?? throw Missing("current_user");
-            if (selection != -1) return state;
+            if (selection != -1) return new(state, null);
         }
         else if (userSelectionServicePresent is null && state.CampaignEventWorld?.CurrentUserIndex != -1)
             throw Missing("task_scene_presence_for_current_user");
-        if (command.AdditionalEvent != -1) throw Missing("recursive_additional_event");
-        if (command.EntryKind == 0) return state;
+        CampaignChronicleEntryReference? written = null;
+        //The recursive event row precedes even a main command with kind zero.
+        //The same selection gate and the caller's snapshot timing apply to both.
+        if (command.AdditionalEvent != -1)
+        {
+            var additional = new CampaignChronicleCommand(2001, command.Family, command.CampaignDay,
+                "", 0, unchecked((uint)command.AdditionalEvent), ["", "", ""], command.HexIds,
+                command.Primary);
+            var appended = WriteTracked(state, current, additional, captureSnapshot, userSelectionServicePresent);
+            state = appended.State;
+            written = appended.Entry;
+        }
+        if (command.EntryKind == 0) return new(state, written);
 
         var chronology = state.CampaignChronicle ?? throw Missing("saved_chronology");
         var entries = command.Primary ? chronology.PrimaryEntries : chronology.ImportantEntries;
@@ -61,11 +76,11 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
         //A local pending record makes its new subtype visible to the scan
         //while retaining its old sequence. Current snapshot getters do not
         //read the chronology. A late failure never publishes a partial entry.
-        record = Snapshot(state, current, record);
+        if (captureSnapshot) record = Snapshot(state, current, record);
         chronology = command.Primary
             ? chronology with { PrimaryEntries = entries.SetItem(selected, record) }
             : chronology with { ImportantEntries = entries.SetItem(selected, record) };
-        return state with { CampaignChronicle = chronology };
+        return new(state with { CampaignChronicle = chronology }, new(command.Primary, selected));
 
         void Scan(ImmutableArray<CampaignChronicleRecord> table, bool primary)
         {
@@ -78,6 +93,25 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
         }
     }
 
+    //83C100 retains the actual table slot across business execution. Other
+    //business writers may reuse that slot; its identity is not a copied record.
+    internal GameState RefreshStorySnapshots(GameState state, SourceWorldContext current,
+        CampaignChronicleEntryReference entry)
+    {
+        var chronology = state.CampaignChronicle ?? throw Missing("saved_chronology");
+        var entries = entry.Primary ? chronology.PrimaryEntries : chronology.ImportantEntries;
+        if ((uint)entry.Slot >= (uint)entries.Length) throw Missing("story_entry_slot");
+        if (entries[entry.Slot].EntryKind == 0) return state;
+        entries = entries.SetItem(entry.Slot, Snapshot(state, current, entries[entry.Slot]));
+        //8CE8B0 returns the previous physical slot, including table wraparound.
+        int previous = entry.Slot == 0 ? entries.Length - 1 : entry.Slot - 1;
+        if (entries[previous].EntryKind != 0 && entries[previous].EventCode == 2001)
+            entries = entries.SetItem(previous, Snapshot(state, current, entries[previous]));
+        return state with { CampaignChronicle = entry.Primary
+            ? chronology with { PrimaryEntries = entries }
+            : chronology with { ImportantEntries = entries } };
+    }
+
     private static int Select(ImmutableArray<CampaignChronicleRecord> records)
     {
         if (records.IsDefaultOrEmpty) throw Missing("writable_entries");
@@ -87,7 +121,7 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
         return 0;
     }
 
-    private CampaignChronicleRecord Snapshot(GameState state, SourceWorldContext current, CampaignChronicleRecord record)
+    internal CampaignChronicleRecord Snapshot(GameState state, SourceWorldContext current, CampaignChronicleRecord record)
     {
         var colors = record.AreaColors.ToBuilder();
         foreach (var area in current.ReadRegistryReferences(RegistryKind.Area) ?? throw Missing("Area_registry"))
@@ -130,3 +164,5 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("campaign-chronicle." + field);
 }
+
+internal sealed record CampaignChronicleWriteResult(GameState State, CampaignChronicleEntryReference? Entry);

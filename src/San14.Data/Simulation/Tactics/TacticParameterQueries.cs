@@ -40,6 +40,9 @@ public static class TacticParameterQueries
     public static byte ReadRaw68(TacticReference receiver, int index,
         ITacticParameterQueryState state) => Read(receiver, index, state, 0x68, 7, 5);
 
+    public static byte ReadTargetMode(TacticReference receiver, ITacticParameterQueryState state)
+        => Read(receiver, 0, state, 0x6A, 9, 7);
+
     private static byte Read(TacticReference receiver, int index,
         ITacticParameterQueryState state, int nativeOffset, int ordinalBase, byte rotation)
     {

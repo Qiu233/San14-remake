@@ -1,7 +1,8 @@
 namespace San14.Data;
 
 /// <summary>Main10CF0 reset and17BD0 current288 writer for the ordinary
-/// primary controller selected after CTitleState clears optional owner280.
+/// active primary or optional controller. Title selects optional owner280;
+/// ordinary play returns to the primary controller.
 /// This owner consumes an accepted capture; it never advances the camera.</summary>
 public sealed class MainMapCameraModeOwner
 {
@@ -15,7 +16,7 @@ public sealed class MainMapCameraModeOwner
     public string OwnedMainIdentity{get;}
     public int CurrentOverride28C=>override28C;
     public int CurrentMode288{get;private set;} //10D22 reset0; subsequently17D3D.
-    public string SourceProvenance=>$"{RenderRuleIdentity.For("main-camera-mode",Locale)};owner={OwnedMainIdentity};optional280-cleared-by-title;primary-ECb0-mode288";
+    public string SourceProvenance=>$"{RenderRuleIdentity.For("main-camera-mode",Locale)};owner={OwnedMainIdentity};Main28C-override-or-active-controller-ECb0-mode288";
     public static MainMapCameraModeOwner CreateFresh(string locale,string ownedMainIdentity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownedMainIdentity);
@@ -24,7 +25,8 @@ public sealed class MainMapCameraModeOwner
     }
     /// <summary>Explicit remake edit of the override read by17D0B. Negative
     /// values select the source automatic branch; nonnegative values are copied
-    /// verbatim by the source. No original UI setter is inferred.</summary>
+    /// verbatim by the source. Title installs4 with its Startup controller;
+    /// its exit restores-1 before the primary controller resumes.</summary>
     public void SetCurrentOverride28C(int value)
     {override28C=value;revision=checked(revision+1);current=null;}
     public MainMapCameraModePacket PrepareCurrent(MainMapCameraFrame mainFrame)
@@ -32,7 +34,7 @@ public sealed class MainMapCameraModeOwner
         ArgumentNullException.ThrowIfNull(mainFrame);
         if(mainFrame.Camera.ExecutableLocale!=Locale||mainFrame.Camera.FrameNumber<1||
             mainFrame.Camera.Source.Camera.ObjectId!=MainMapCameraAdapter.MainCameraObjectId)
-            throw new InvalidDataException("Current mode requires this locale's accepted ordinary primary Main38D frame.");
+            throw new InvalidDataException("Current mode requires this locale's accepted active Main38D frame.");
         float index=MapSeasonMainCameraPhase.FromOwnerZoomFields(mainFrame.ZoomSelection.Band1E0,mainFrame.ZoomSelection.Fraction1E4);
         //17D17/17D2C/17E5B/17E75 use strict less-than thresholds.
         CurrentMode288=override28C>=0?override28C:index<2.5f?0:index<3.5f?1:index<4.5f?2:index<5.5f?3:4;

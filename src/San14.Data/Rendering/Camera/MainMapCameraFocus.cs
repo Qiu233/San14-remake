@@ -3,11 +3,16 @@ using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>The owned inputs selected by CTitleState's initial Main-camera
-/// focus path. RequestedWorldFocus is before the native controller's clamps.</summary>
-public sealed record MainMapCameraFocus(int PlayerForcePhysicalSlot,
-    int RulerPersonSourceId, int AffiliationLocationId, int PhysicalHexId,
-    Vector4 RequestedWorldFocus, string OwnedWorldProvenance);
+public enum MainMapCameraFocusOrigin { CurrentRuler, ControllerDefault }
+
+/// <summary>The actual entry that initialized this Main controller. A fresh
+/// controller has no ruler, affiliation or Hex selection.</summary>
+public sealed record MainMapCameraFocus(int? PlayerForcePhysicalSlot,
+    int? RulerPersonSourceId, int? AffiliationLocationId, int? PhysicalHexId,
+    Vector4 RequestedWorldFocus, string OwnedWorldProvenance)
+{
+    public MainMapCameraFocusOrigin Origin { get; init; } = MainMapCameraFocusOrigin.CurrentRuler;
+}
 
 /// <summary>SC4FA710 / TC4FA790 selects the current player Force's ruler and
 /// first affiliation place, resolves its physical Hex, and forces focus Y=0.

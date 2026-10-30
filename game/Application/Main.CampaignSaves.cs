@@ -40,7 +40,7 @@ public partial class Main
         catch { CloseCampaignSaves(); throw; }
 
         bool Current() => !_failed && !_shuttingDown && _campaignSaveView == view &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session?.World, world) && ReferenceEquals(_world, world);
+            ReferenceEquals(_session, session) && ReferenceEquals(session?.World, _campaignSaveWorld) && ReferenceEquals(_world, _campaignSaveWorld);
 
         void RequestCampaignFileAction(int slot)
         {

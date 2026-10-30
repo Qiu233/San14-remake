@@ -28,6 +28,12 @@ internal partial class DoctrineResearchView : Control
     private bool busy, abandoned;
     private GameResourceRepository repository = null!;
     private string noCost = "";
+    internal DoctrineResearchPageValues? CurrentPublication => publication;
+    internal Func<int, bool>? PanelAdmission { get; set; }
+    internal Func<int, bool>? ResearchAdmission { get; set; }
+    internal Func<bool>? DecisionAdmission { get; set; }
+    internal Func<bool>? AuxiliaryAdmission { get; set; }
+    internal Func<bool>? ReturnAdmission { get; set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
         Action returned, Action accepted, Action<int> selected, Action research,
@@ -36,8 +42,10 @@ internal partial class DoctrineResearchView : Control
         this.repository = repository; this.admitted = admitted; this.returned = returned; this.selected = selected;
         Name = "DoctrineResearch"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0xA3, RequestBack, () => { if (ReadAdmission() && publication?.CanConfirm == true) accepted(); });
+        chrome.Configure(repository, text, 0xA3, RequestBack, () =>
+        { if (ReadAdmission() && publication?.CanConfirm == true && (DecisionAdmission?.Invoke() ?? true)) accepted(); });
         content = new() { Name = "DoctrineResearchContent", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
         chrome.Canvas.AddChild(content); chrome.Canvas.MoveChild(content, 0);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
@@ -58,7 +66,11 @@ internal partial class DoctrineResearchView : Control
             chains.Add((DoctrineResearchGraphSlots.ChainPanels[index], chain));
         }
         var points = new UiSourceLayout(repository, 0xA508DFAD); Vector2 pointMount = shell.Rectangle(5).Position;
-        DrawArt(points, content, pointMount, new HashSet<int> { 25, 27, 29, 31, 33, 35, 37, 40, 43, 46, 49, 52 });
+        DrawArt(points, content, pointMount, new HashSet<int> { 6, 25, 27, 29, 31, 33, 35, 37, 40, 43, 46, 49, 52 });
+        var circle = LcskAnimationReader.Read(points.Source.Layout, new HashSet<string> { "Loop_circle" }).Single();
+        var rotation = circle.Sample(circle.StartFrame).Single(value => value.NodeId == 6 && value.Channel == 0x2D);
+        points.AlphaMaskedArt(content, 6, points.Rectangle(6, pointMount), chrome.Assets, chrome.SpriteShader,
+            maskRotationDegrees: (float)rotation.Value);
         int[] pointCaptions = [8, 11, 14, 17, 20, 23], captionIds = [0x831, 0x832, 0x833, 0x834, 0x82F, 0x830];
         for (int index = 0; index < 6; index++) Text(points, content, pointCaptions[index], pointMount, Message(captionIds[index]));
         int[] pointNodes = [21, 9, 18, 15, 12, 24];
@@ -100,7 +112,8 @@ internal partial class DoctrineResearchView : Control
             Size = selectedDetail.Rectangle(22).Size, InputAdmission = ReadAdmission };
         detail.AddChild(this.research);
         this.research.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, Message(0xA3),
-            () => { if (ReadAdmission() && publication?.Selected?.CanResearch == true) research(); });
+            () => { if (ReadAdmission() && publication?.Selected is { CanResearch: true } current &&
+                (ResearchAdmission?.Invoke(current.PanelId) ?? true)) research(); });
 
         cursor = new() { Size = new(128, 128), MouseFilter = MouseFilterEnum.Ignore, Visible = false };
         content.AddChild(cursor);
@@ -135,10 +148,10 @@ internal partial class DoctrineResearchView : Control
                 tile = new() { Position = graph.Rectangle(node, graphMount).Position, InputAdmission = ReadAdmission };
                 content.AddChild(tile); tile.Configure(repository, chrome.Assets, chrome.SpriteShader, row);
                 int panelId = row.PanelId;
-                tile.Pressed += () => { if (ReadAdmission()) selected?.Invoke(panelId); };
+                tile.Pressed += () => { if (ReadAdmission() && (PanelAdmission?.Invoke(panelId) ?? true)) selected?.Invoke(panelId); };
                 tiles.Add(panelId, tile);
             }
-            tile.Apply(row); tile.Disabled = busy;
+            tile.Apply(row); tile.Disabled = busy || !(PanelAdmission?.Invoke(row.PanelId) ?? true);
         }
         foreach (var point in value.Points)
             if (pointText.TryGetValue(point.DoctrineId, out var field))
@@ -146,7 +159,7 @@ internal partial class DoctrineResearchView : Control
                     ? point.After + "(^02+" + (point.After - point.Before) + "^00)"
                     : point.After + "(^03-" + (point.Before - point.After) + "^00)");
         foreach (var pair in rulerText) pair.Value.Text = value.RulerText.GetValueOrDefault(pair.Key, "");
-        foreach (var chain in chains) chain.View.Visible = value.Rows.Any(row => row.PanelId == chain.Panel && row.Researched);
+        foreach (var chain in chains) chain.View.Visible = value.Rows.Any(row => row.PanelId == chain.Panel && !row.Researched);
         if (value.Budget is { } budget)
         {
             budgetText[5].Text = budget.BooksBefore.ToString(); budgetText[7].Text = budget.BooksAfter.ToString();
@@ -169,21 +182,26 @@ internal partial class DoctrineResearchView : Control
                 detailText[delta].SetKnownColourLine(cost is null ? index == 0 ? noCost : "" : cost.Amount != cost.OriginalAmount
                     ? "(^03" + (cost.Amount - cost.OriginalAmount) + "^00)" : cost.Amount.ToString());
             }
-            research.Disabled = busy || current.CanResearch != true;
+            research.Disabled = busy || current.CanResearch != true || !(ResearchAdmission?.Invoke(current.PanelId) ?? true);
             research.Caption = value.ActionCaption;
             if (tiles.TryGetValue(current.PanelId, out var tile))
             { cursor.Position = tile.Position; cursor.Show(); content.MoveChild(cursor, content.GetChildCount() - 1); }
         }
         else cursor.Hide();
-        chrome.ApplyDecision(!busy && value.CanConfirm, true); chrome.ApplyReturn(!busy);
-        redefine.Disabled = busy || !value.CanRedefine; automatic.Disabled = busy || !value.CanAutoResearch; effects.Disabled = busy;
+        chrome.ApplyDecision(!busy && value.CanConfirm && (DecisionAdmission?.Invoke() ?? true), true);
+        chrome.ApplyReturn(!busy && (ReturnAdmission?.Invoke() ?? true));
+        bool auxiliaryAllowed = AuxiliaryAdmission?.Invoke() ?? true;
+        redefine.Disabled = busy || !value.CanRedefine || !auxiliaryAllowed;
+        automatic.Disabled = busy || !value.CanAutoResearch || !auxiliaryAllowed; effects.Disabled = busy || !auxiliaryAllowed;
         chrome.ApplyDefaultHint(value.Guide);
     }
 
     internal void SetBusy(bool value) { busy = value; if (publication is { } current) Apply(current); }
-    internal void RequestBack() { if (ReadAdmission()) returned?.Invoke(); }
+    internal void RefreshTutorialAdmission() { if (publication is { } current) Apply(current); }
+    internal void RequestBack() { if (ReadAdmission() && (ReturnAdmission?.Invoke() ?? true)) returned?.Invoke(); }
     internal void Abandon()
-    { abandoned = true; admitted = null; returned = null; selected = null; publication = null; chrome.Abandon(); Hide(); }
+    { abandoned = true; admitted = null; returned = null; selected = null; publication = null;
+        PanelAdmission = ResearchAdmission = null; DecisionAdmission = AuxiliaryAdmission = ReturnAdmission = null; chrome.Abandon(); Hide(); }
     private bool ReadAdmission() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
 
     private UiSourceText Text(UiSourceLayout layout, Control parent, int node, Vector2 mount, string value)

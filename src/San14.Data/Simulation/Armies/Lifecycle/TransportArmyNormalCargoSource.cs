@@ -13,7 +13,7 @@ public sealed record TransportArmyNormalCargoResult(GameState? State,
     TransportArmyNormalCargoReceipt? Receipt, string? UnresolvedOwner);
 
 /// <summary>Only TC179034..17913C: type2 proportional cargo loss and the
-/// attacker's real Base loot. The enclosing178EC0 operation owns reward,
+/// real Army-Home or source-Base loot. The enclosing178EC0 operation owns reward,
 /// ready/wounded writes, Force/personality and death admission.</summary>
 public static class TransportArmyNormalCargoSource
 {
@@ -32,9 +32,22 @@ public static class TransportArmyNormalCargoSource
         SourceWorldContext current, UnitState target, int appliedLoss) =>
         ApplyCore(state, current, null, target, appliedLoss, true);
 
+    //Ordinary178EC0 with an actually invalid source Army still loses the
+    //target cargo. Neither the Army nor Base loot recipient gate succeeds.
+    internal static TransportArmyNormalCargoResult ApplyWithoutValidSource(GameState state,
+        SourceWorldContext current, UnitState target, int appliedLoss) =>
+        ApplyCore(state, current, null, target, appliedLoss, true);
+
+    /// <summary>179078..1790F2's actual Base-source alternative. The
+    /// source remains a Base, including a Gate's repeated22A940 currency
+    /// routing. Native-invalid source Base skips loot, never target cargo loss.</summary>
+    internal static TransportArmyNormalCargoResult ApplyBaseOrigin(GameState state,
+        SourceWorldContext current, BaseReference source, UnitState target, int appliedLoss) =>
+        ApplyCore(state, current, null, target, appliedLoss, true, source);
+
     private static TransportArmyNormalCargoResult ApplyCore(GameState state,
         SourceWorldContext current, UnitState? attacker, UnitState target, int appliedLoss,
-        bool preserveCurrentBindings)
+        bool preserveCurrentBindings, BaseReference? baseOrigin = null)
     {
         try
         {
@@ -58,7 +71,7 @@ public static class TransportArmyNormalCargoSource
             int afterGold = loss.Remaining.Gold, afterSupplies = loss.Remaining.Food;
             var writes = new List<TransportArmyNormalLootWrite>();
             var cityChanges = new Dictionary<int, CityState>(state.Cities);
-            int? winnerPhysical = attacker is null ? null : Bind(attacker);
+            int? winnerPhysical = attacker is null ? null : Bind(attacker, allowPendingSource: preserveCurrentBindings);
             var winner = new ArmyUnitReference(winnerPhysical);
             if (Need(current.ReadArmyUnitNativeValidity(winner), "attacker native validity"))
             {
@@ -77,6 +90,14 @@ public static class TransportArmyNormalCargoSource
                     }
                 }
             }
+            else if (baseOrigin is not null && Need(current.ReadBaseNativeValidity(baseOrigin), "source Base validity"))
+            {
+                //The Army-source Force/category restrictions do not belong
+                //to this alternative. Each add independently resolves the
+                //Base's currency receiver and its caller/setter capacities.
+                Add(baseOrigin, BaseResourceKind.Gold, lostGold);
+                Add(baseOrigin, BaseResourceKind.Supplies, lostSupplies);
+            }
             //All reached reads succeeded before the first business write.
             foreach (var write in writes) current.SetBaseResource(write.CurrencyCity, write.Kind, write.After);
             current.BindArmyReturnResourceFields(physical, new((ushort)target.Troops,
@@ -91,13 +112,16 @@ public static class TransportArmyNormalCargoSource
             return new(result, new(physical, target.Troops, appliedLoss, ratio, gold, supplies,
                 lostGold, lostSupplies, afterGold, afterSupplies, writes.ToArray()), null);
 
-            int Bind(UnitState army)
+            int Bind(UnitState army, bool allowPendingSource = false)
             {
-                if (state.Units.GetValueOrDefault(army.Id) != army ||
-                    army.NativeArmyOrigin?.NativeSlotIndex is not int index || index is < 1 or > 500 ||
-                    state.ReadArmyLifecycle()?.ReceiverSlots() is not { Length: 501 } rows || rows[index].ActiveUnitId != army.Id ||
+                if (army.NativeArmyOrigin?.NativeSlotIndex is not int index || index is < 1 or > 500 ||
+                    state.ReadArmyLifecycle()?.ReceiverSlots() is not { Length: 501 } rows ||
                     rows[index].Commander12 is not ushort commander || rows[index].Status10 is not byte status)
                     throw Missing("current.normal_cargo_Army_receiver");
+                bool active = rows[index].ActiveUnitId == army.Id && state.Units.GetValueOrDefault(army.Id) == army;
+                bool pending = allowPendingSource && preserveCurrentBindings && rows[index].ActiveUnitId is null &&
+                    rows[index].PendingImage == army;
+                if (!active && !pending) throw Missing("current.normal_cargo_Army_receiver");
                 if (!preserveCurrentBindings)
                 {
                     current.SetArmyUnitTablePointer(index, index);

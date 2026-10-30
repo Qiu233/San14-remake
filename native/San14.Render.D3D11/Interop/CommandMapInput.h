@@ -16,7 +16,8 @@ static_assert(sizeof(San14CommandMapInputV1)==64);
 // overloading Present. Fixed candidates have membership but no raw Area data.
 enum class San14CommandMapDisplayKind : uint32_t {
     None=0, AreaAdministration=1, FixedCandidateGray=2,
-    CampaignProvinceFocus=3,CampaignDistrictFocus=4
+    CampaignProvinceFocus=3,CampaignDistrictFocus=4,SummaryCityFocus=5,SummaryAreaFocus=6,
+    DiplomacyForceFocus=7,DiplomacyFootholdFocus=8
 };
 struct San14CommandMapInputV2 {
     uint32_t size,version;

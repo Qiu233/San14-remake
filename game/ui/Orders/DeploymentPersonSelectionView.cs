@@ -9,6 +9,8 @@ internal sealed record DeploymentPersonListEntry(int OfficerId, bool Disabled,
 /// Only ordinary column directions and the active header belong to each page.</summary>
 internal partial class DeploymentPersonSelectionView : Control
 {
+    internal bool IsSelectionActive => _close is not null && !IsQueuedForDeletion() &&
+        IsInsideTree() && IsVisibleInTree() && CanProcess();
     private sealed class PersonPage(IReadOnlyList<DeploymentPersonColumn> columns)
     {
         internal IReadOnlyList<DeploymentPersonColumn> Columns { get; } = columns;
@@ -50,7 +52,11 @@ internal partial class DeploymentPersonSelectionView : Control
     private Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? _traitOrder;
     private bool _linkageDirty=true;
     private Action<string>? _unavailable;
+    private UiSourceRoundButton? _accept;
+    private Func<IReadOnlyList<int>,bool>? _selectionAdmission;
+    private UiSourceCommonBlur? _commonBackdrop;
     internal IReadOnlyList<int> SelectedOfficerIds => _selected.ToArray();
+    internal long SelectionChangedSequence {get;private set;}
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<DeploymentPersonListEntry> entries, int maximum, IEnumerable<int> selected,
@@ -66,7 +72,9 @@ internal partial class DeploymentPersonSelectionView : Control
         Func<int,string?>? tacticName = null,
         Func<IReadOnlyList<int>,DeploymentPersonTraitQuery>? traits = null,
         Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? traitOrder = null,
-        Func<int>? currentScrollSpeed = null)
+        Func<int>? currentScrollSpeed = null,
+        Func<IReadOnlyList<int>,bool>? selectionAdmission = null,
+        UiSourceCommonBlur? commonBackdrop = null)
     {
         if (maximum is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(maximum));
         _repository=repository; _text=text; _basicEntries=entries;
@@ -75,12 +83,23 @@ internal partial class DeploymentPersonSelectionView : Control
         _linkage=linkage; _linkageOrder=linkageOrder;
         _tactics=tactics; _tacticOrder=tacticOrder; _tacticName=tacticName;
         _traits=traits; _traitOrder=traitOrder;
+        _selectionAdmission=selectionAdmission;
         _orderedIds.AddRange(entries.Select(entry=>entry.OfficerId));
         _selected.AddRange(selected);
         if (_selected.Count > maximum || _selected.Any(id => !_orderedIds.Contains(id)))
             throw new InvalidDataException("Initial person selection does not fit its current publication.");
         Name="DeploymentPersonSelection"; ZIndex=4; MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        if (commonBackdrop is not null)
+        {
+            if (!GodotObject.IsInstanceValid(commonBackdrop) || commonBackdrop.IsQueuedForDeletion() || !commonBackdrop.IsInsideTree())
+                throw new InvalidOperationException("The supplied deployment selection background has retired.");
+            _commonBackdrop = commonBackdrop;
+        }
+        else
+        {
+            _commonBackdrop = new UiSourceCommonBlur(); AddChild(_commonBackdrop); _commonBackdrop.Configure(repository);
+        }
         _assets=new(repository); _font=new(repository,text.SourceLocale); _shader=UiSourceSprite.CreateShader();
         _selectCaption=Message(0x003A); _clearCaption=Message(0x003B); _checkGlyph=Message(0x0628);
         _canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};
@@ -112,7 +131,7 @@ internal partial class DeploymentPersonSelectionView : Control
             foreach(var column in _pages[i].Columns)
                 _pages[i].NextAscending[column.Id]=column.InitialAscending;
         BuildPage(0,entries);
-        var accept=new UiSourceRoundButton {Name="AcceptPersonSelection",Position=new(827,955)};
+        var accept=new UiSourceRoundButton {Name="AcceptPersonSelection",Position=new(827,955)};_accept=accept;
         var cancel=new UiSourceRoundButton {Name="CancelPersonSelection",Position=new(965,955)};
         _canvas.AddChild(accept); _canvas.AddChild(cancel);
         accept.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_kettei",()=>Close(_selected.ToArray()));
@@ -154,8 +173,9 @@ internal partial class DeploymentPersonSelectionView : Control
             row.Pressed+=()=>
             {
                 if(_close is null || index!=_activePage || row.Disabled)return;
-                if(!_selected.Remove(id) && _selected.Count<_maximum)_selected.Add(id);
-                RefreshSelection(selectedChanged:true);
+                bool changed=_selected.Remove(id);
+                if(!changed&&_selected.Count<_maximum){_selected.Add(id);changed=true;}
+                RefreshSelection(selectedChanged:changed);
             };
         }
         PositionRows(); ApplyArrows(page);
@@ -238,16 +258,25 @@ internal partial class DeploymentPersonSelectionView : Control
     }
 
     internal void RequestCancel()=>Close(null);
-    internal void Abandon(){_close=null;Hide();}
+    internal void Abandon(){_close=null;_selectionAdmission=null;RefreshAdmission();Hide();}
     public override void _Input(InputEvent input)
     {
         if(IsVisibleInTree()&&!IsQueuedForDeletion()&&input is InputEventMouseButton {ButtonIndex:MouseButton.Right,Pressed:true})
         {GetViewport().SetInputAsHandled();RequestCancel();}
     }
-    private void Close(IReadOnlyList<int>? result){var callback=_close;_close=null;callback?.Invoke(result);}
+    internal void RefreshAdmission()
+    {
+        if(_accept is not null)_accept.Disabled=_close is null||_selectionAdmission?.Invoke(_selected)==false;
+    }
+    private void Close(IReadOnlyList<int>? result)
+    {
+        if(_close is null)return;
+        if(result is not null&&_selectionAdmission?.Invoke(result)==false){RefreshAdmission();return;}
+        var callback=_close;_close=null;RefreshAdmission();callback(result);
+    }
     private void RefreshSelection(bool selectedChanged=false)
     {
-        if(selectedChanged)_linkageDirty=true;
+        if(selectedChanged){_linkageDirty=true;SelectionChangedSequence++;}
         foreach(var page in _pages)
             foreach(var (entry,row) in page.Rows)
             {
@@ -258,10 +287,12 @@ internal partial class DeploymentPersonSelectionView : Control
         int enabledCount=_basicEntries.Count(entry=>!entry.Disabled);
         _selectAll.Disabled=enabledCount==0;
         _selectAll.ApplyCaption(enabledCount==0 || _selected.Count<_maximum && _selected.Count<enabledCount ? _selectCaption : _clearCaption);
+        RefreshAdmission();
     }
     private void SelectOrClearAll()
     {
         if(_close is null || _selectAll.Disabled)return;
+        int previousCount=_selected.Count;
         int enabledCount=_basicEntries.Count(entry=>!entry.Disabled);
         if(_selected.Count>=_maximum || _selected.Count>=enabledCount)_selected.Clear();
         else
@@ -273,7 +304,7 @@ internal partial class DeploymentPersonSelectionView : Control
                 if(!byId[id].Disabled && !_selected.Contains(id))_selected.Add(id);
             }
         }
-        RefreshSelection(selectedChanged:true);
+        RefreshSelection(selectedChanged:_selected.Count!=previousCount);
     }
     private void Sort(int columnId)
     {
@@ -334,5 +365,5 @@ internal partial class DeploymentPersonSelectionView : Control
         _canvas.Scale=Vector2.One*factor;
         _canvas.Position=(Size-new Vector2(1920,1080)*factor)/2;
     }
-    public override void _ExitTree(){_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}
+    public override void _ExitTree(){_commonBackdrop=null;_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}
 }

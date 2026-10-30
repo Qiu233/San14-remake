@@ -8,12 +8,15 @@ namespace San14.Data;
 public sealed class MainCameraView19B8Projection
 {
     private readonly MainCameraView19B8Owner owner;
+    private readonly Lazy<string> cameraPrefixSha256;
     internal MainCameraView19B8Projection(MainCameraView19B8Owner owner,
         MapCameraConstructionPacket camera, uint result, string provenance)
     {
         this.owner = owner; Camera = camera.CopyAcceptedSnapshot();
         CurrentView19B8 = result; CurrentProducerProvenance = provenance;
-        CameraPrefixSha256 = Convert.ToHexString(SHA256.HashData(Camera.Prefix.Span));
+        // Retained for explicit diagnostic consumers. Ordinary current-owner
+        // admission uses the immutable encoded allocation, not a byte scan.
+        cameraPrefixSha256 = new(() => Convert.ToHexString(SHA256.HashData(Camera.Prefix.Span)));
     }
     public MapCameraConstructionPacket Camera { get; }
     public long FrameNumber => Camera.FrameNumber;
@@ -21,11 +24,11 @@ public sealed class MainCameraView19B8Projection
     public uint CurrentView19B8 { get; }
     public string CameraOwnerIdentity => owner.CameraOwnerIdentity;
     public string SourceIdentity => owner.SourceIdentity;
-    public string CameraPrefixSha256 { get; }
+    public string CameraPrefixSha256 => cameraPrefixSha256.Value;
     public string CurrentProducerProvenance { get; }
 
     /// <summary>Accepted Camera snapshots may be copied by shader selection.
-    /// The complete prefix, optics, pose, source and frame must still agree.</summary>
+    /// The encoded output owner, optics, pose, source and frame must still agree.</summary>
     public void ValidateCurrent(MapCameraConstructionPacket camera, long frameNumber,
         int actualViewSlot, string actualCameraOwnerIdentity)
         => owner.Validate(this, camera, frameNumber, actualViewSlot, actualCameraOwnerIdentity);
@@ -102,8 +105,7 @@ public sealed class MainCameraView19B8Owner
                 camera.ExecutableLocale != accepted.ExecutableLocale ||
                 camera.FrameProvenance != accepted.FrameProvenance || camera.CurrentPose != accepted.CurrentPose ||
                 camera.Lens != accepted.Lens || camera.Matrices != accepted.Matrices ||
-                Convert.ToHexString(SHA256.HashData(camera.Prefix.Span)) != projection.CameraPrefixSha256 ||
-                Convert.ToHexString(SHA256.HashData(accepted.Prefix.Span)) != projection.CameraPrefixSha256)
+                !camera.SharesEncodedOutputWith(accepted))
                 throw new InvalidDataException("Main Camera19B8 differs from its current owned header, Camera, View0 or accepted frame.");
         }
     }

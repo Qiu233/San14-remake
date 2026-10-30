@@ -585,7 +585,12 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     /// ID lookup, links, bitmaps, manager presence/results and availability are
     /// not inferred from the source file or automatically reset here.
     /// </summary>
-    public void MaterializeStaticSource(LoadedScenario loaded)
+    public void MaterializeStaticSource(LoadedScenario loaded) => MaterializeStaticSource(loaded, null);
+
+    // The normal fresh-context factory may retain its already initialized
+    // skill definitions. The public source loader still performs raw writes.
+    internal void MaterializeStaticSource(LoadedScenario loaded, PersonSkillInitialValues? initialSkills, bool materializePersonalities = true,
+        InitialPersonAttributeValues? initialAttributes = null)
     {
         if (loaded is null || loaded.Metadata.FormatMarker != 0x66 || loaded.Metadata.LeadingRecordCount != 1852)
             throw new InvalidDataException("Event source materialization requires the inspected CE scenario profile.");
@@ -595,6 +600,18 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             source.ObjectSourceRecords.SourceSha256 != loaded.Metadata.DecodedSha256 ||
             source.WorldParameters.DecodedSha256 != loaded.Metadata.DecodedSha256)
             throw new InvalidDataException("Event source materialization has missing or contradictory source tables/hashes.");
+        if (initialSkills is not null)
+        {
+            if (!initialSkills.BelongsTo(loaded))
+                throw new InvalidDataException("Initialized Person skill values belong to another loaded definition owner.");
+            BindInitialPersonSkills(initialSkills);
+        }
+        if (initialAttributes is not null)
+        {
+            if (!initialAttributes.BelongsTo(loaded))
+                throw new InvalidDataException("Initial Person attributes belong to another loaded definition owner.");
+            _initialPersonAttributes = initialAttributes;
+        }
         int reportTime = ReadStaticReportWorldTime(source.WorldParameters);
         for (int slot = 0; slot < source.Characters.Count; slot++)
         {
@@ -607,13 +624,16 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             SetPersonDistrictSlot(slot, person.DistrictSlot);
             SetPersonFirstLocation(slot, person.CitySlot);
             SetTransferPersonTablePointer(slot, slot);
-            SetPersonPostLoadByte(slot, 0x124, person.Leadership);
-            SetPersonPostLoadByte(slot, 0x125, person.Strength);
-            SetPersonPostLoadByte(slot, 0x126, person.Intelligence);
-            SetPersonPostLoadByte(slot, 0x127, person.Politics);
-            SetPersonPostLoadByte(slot, 0x128, person.Charm);
-            SetPersonPostLoadByte(slot, 0x1BA, person.RawPolicyBaseCost);
-            MaterializePersonSkillSource(person);
+            if (initialAttributes is null)
+            {
+                SetPersonPostLoadByte(slot, 0x124, person.Leadership);
+                SetPersonPostLoadByte(slot, 0x125, person.Strength);
+                SetPersonPostLoadByte(slot, 0x126, person.Intelligence);
+                SetPersonPostLoadByte(slot, 0x127, person.Politics);
+                SetPersonPostLoadByte(slot, 0x128, person.Charm);
+                SetPersonPostLoadByte(slot, 0x1BA, person.RawPolicyBaseCost);
+            }
+            if (initialSkills is null) MaterializePersonSkillSource(person);
         }
         SetBasePersonPointer(0);
         for (int slot = 0; slot < source.Areas.Count; slot++)
@@ -690,7 +710,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         EventConditions.EmperorPersonId = source.WorldParameters.RawEmperorPersonId;
         RawWorldField450 = reportTime;
         MaterializeStaticSceneryState(loaded);
-        MaterializeStaticPersonalityState(loaded);
+        if (materializePersonalities) MaterializeStaticPersonalityState(loaded);
         StaticSource = loaded.ScenarioSource;
     }
 

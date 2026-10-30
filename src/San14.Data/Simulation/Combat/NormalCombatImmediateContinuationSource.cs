@@ -5,6 +5,15 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    private GameState ResumeImmediateCombatSettlementCurrent(GameState state, SourceWorldContext current,
+        NativeMapSeasonDate date, long revision, List<CampaignEffectRequest> effects)
+    {
+        if (state.BaseCaptureContinuation is { SettlementIndex: -1 } ||
+            state.CityCaptureEmperorTail is { SettlementIndex: -1 } || state.BaseWinnerEmperorTail is { SettlementIndex: -1 })
+            return ResumeImmediateBaseCaptureCurrent(state, current, date, revision, effects).State;
+        return ResumeNormalCombatImmediateDefeatCurrent(state, current, date, revision);
+    }
+
     private static NormalCombatImmediateContinuation CaptureImmediateCombatContinuation(
         GameState phaseEntry, NormalCombatMixedProjection projection,
         IReadOnlyDictionary<int, NormalArmyCombatDescriptor> descriptors,

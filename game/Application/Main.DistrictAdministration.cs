@@ -6,25 +6,42 @@ using San14.Data;
 public partial class Main
 {
     private sealed class DistrictAdministrationWorkspace(GameplaySession session, GameState world,
-        MapSceneView map, DistrictAdministrationDraft draft)
+        MapSceneView map, DistrictAdministrationDraft draft, ArmyCampaignRuleAdapter rules)
     {
         internal GameplaySession Session { get; } = session;
-        internal GameState World { get; } = world;
+        internal GameState World { get; set; } = world;
         internal MapSceneView Map { get; } = map;
         internal DistrictAdministrationDraft Draft { get; } = draft;
+        internal ArmyCampaignRuleAdapter Rules { get; } = rules;
+        internal Dictionary<int, string> Guides { get; } = [];
+        internal DistrictCityHints? CityHints { get; set; }
+        internal int? CityHintDistrict { get; set; }
+        internal bool CityHintsPrepared { get; set; }
+        internal string? CityHintsMissing { get; set; }
         internal DistrictSetupView Setup { get; set; } = null!;
         internal DistrictMapSelectionView MapView { get; set; } = null!;
         internal DistrictAdministrationStage? BoundMapStage { get; set; }
-        internal CommandSelectionView? List { get; set; }
+        internal int? HoveredMapIdentity { get; set; }
+        internal DistrictAdministrationListView? List { get; set; }
         internal DeploymentTargetConfirmation? Question { get; set; }
         internal MerchantAmountMenuView? Amount { get; set; }
         internal DistrictTarget? PendingTarget { get; set; }
         internal bool? MapCovered { get; set; }
     }
+    private sealed record DistrictAdministrationListView(Control View, Action RequestCancel, Action Abandon);
     private sealed record DistrictAdministrationContinuation(GameplaySession Session, MapSceneView Map, bool Editing, int? DistrictId);
     private DistrictAdministrationWorkspace? _districtAdministration;
     private DistrictAdministrationContinuation? _districtAdministrationContinuation;
     private bool HasDistrictAdministrationPage => _districtAdministration is not null;
+    private void AdoptDistrictAdministrationSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The caller admits only a committed speech transition. Retain the
+        // same draft and child callbacks with their captured business baseline.
+        if (_districtAdministration is not { } owner || owner.Session != session ||
+            owner.Map != _residentMap || !ReferenceEquals(owner.World, previous)) return;
+        owner.World = replacement;
+    }
+
     private bool IsDistrictAdministrationCurrent(DistrictAdministrationWorkspace owner) => !_failed && !_shuttingDown &&
         ReferenceEquals(_districtAdministration, owner) && ReferenceEquals(_session, owner.Session) &&
         ReferenceEquals(_world, owner.World) && ReferenceEquals(owner.Session.World, owner.World) && _residentMap == owner.Map;
@@ -39,10 +56,11 @@ public partial class Main
             _residentMap is not { IsPlayableMapReady: true } map ||
             _session is not { PlayerForceId: int player } session || session.HasPendingOperation ||
             session.World is not { Phase: TurnPhase.Strategy } world || PlayableOutcome.Evaluate(world, player) != PlayableResult.Ongoing) return;
-        var draft = composition.PrepareArmyQueries(world).OpenDistrictAdministrationDraft(world, player, editing);
+        var rules = composition.PrepareArmyQueries(world);
+        var draft = rules.OpenDistrictAdministrationDraft(world, player, editing);
         if (draft.UnresolvedOwner is { } missing) { DistrictAdministrationUnavailable(missing); return; }
         if (editing && retainedDistrict is int retained) draft.SelectDistrict(retained);
-        var owner = new DistrictAdministrationWorkspace(session, world, map, draft);
+        var owner = new DistrictAdministrationWorkspace(session, world, map, draft, rules);
         _districtAdministration = owner; _districtAdministrationContinuation = null;
         owner.Setup = new(); owner.MapView = new(); AddChild(owner.MapView); AddChild(owner.Setup);
         try
@@ -56,7 +74,8 @@ public partial class Main
                 () => RunUiAction(() => { if (CanEditDistrictAdministration(owner) && draft.BeginCitySelection()) RefreshDistrictAdministration(owner); }),
                 () => RunUiAction(() => ChooseDistrictLeader(owner)),
                 () => RunUiAction(() => BeginDistrictTargetSelection(owner)),
-                (field, value) => RunUiAction(() => ChangeDistrictSetting(owner, field, value)));
+                (field, value) => RunUiAction(() => ChangeDistrictSetting(owner, field, value)),
+                root => DistrictAdministrationGuide(owner, root));
             map.CloseCityCommandMenu(); SetMapFocus(true); RefreshDistrictAdministration(owner); HideDeploymentHud();
         }
         catch { CloseDistrictAdministration(); throw; }
@@ -66,21 +85,40 @@ public partial class Main
     {
         if (!IsDistrictAdministrationCurrent(owner)) return;
         var draft = owner.Draft;
+        owner.Map.SetMapSummaryMode(draft.Stage switch
+        {
+            DistrictAdministrationStage.SelectCities => MapSummarySelectionMode.NewDistrictCities,
+            DistrictAdministrationStage.SelectTarget => draft.Settings?.PolicyId switch
+            {
+                3 => MapSummarySelectionMode.Foothold,
+                2 => MapSummarySelectionMode.Force,
+                5 => MapSummarySelectionMode.District,
+                _ => MapSummarySelectionMode.Normal
+            },
+            _ => MapSummarySelectionMode.Normal
+        });
         bool mapStage = draft.Stage is DistrictAdministrationStage.SelectDistrict or DistrictAdministrationStage.SelectCities or DistrictAdministrationStage.SelectTarget;
-        owner.MapView.Visible = mapStage; owner.Setup.Visible = !mapStage;
+        owner.MapView.Visible = owner.List is null && mapStage;
+        owner.Setup.Visible = owner.List is null && !mapStage;
         SetDistrictMapCovered(owner, !mapStage || !CanEditDistrictAdministration(owner));
         if (mapStage)
         {
             if (owner.BoundMapStage != draft.Stage)
             {
                 owner.Map.EndDistrictCommandMapPick(owner); owner.MapView.CloseDistrictActions();
+                owner.HoveredMapIdentity=null;
                 var points = DistrictMapPoints(draft);
                 owner.Map.BeginDistrictCommandMapPick(owner, points, hex => draft.Stage switch
                 {
                     DistrictAdministrationStage.SelectDistrict => draft.ResolveDistrictAtHex(hex),
                     DistrictAdministrationStage.SelectCities => draft.ResolveCityAtHex(hex),
                     _ => draft.ResolveTargetAtHex(hex)?.Id
-                }, () => CanEditDistrictAdministration(owner), id => RunUiAction(() => PickDistrictMapIdentity(owner, id)));
+                }, () => CanEditDistrictAdministration(owner), id => RunUiAction(() => PickDistrictMapIdentity(owner, id)),
+                    id =>
+                    {
+                        if(!IsDistrictAdministrationCurrent(owner))return;
+                        owner.HoveredMapIdentity=id;ApplyDistrictMapHover(owner);
+                    });
                 owner.BoundMapStage = draft.Stage;
             }
             IReadOnlyList<int> selected = draft.Stage switch
@@ -93,10 +131,11 @@ public partial class Main
             bool cities = draft.Stage == DistrictAdministrationStage.SelectCities;
             bool targetStage = draft.Stage == DistrictAdministrationStage.SelectTarget;
             owner.MapView.Apply(new(PersonnelDataText(targetStage ? 0x39E : draft.Reorganize ? 0x3A8 : 0x3A7),
-                DistrictAdministrationGuide(draft), cities && draft.SelectedDistrict?.IsPrimary == true && draft.Districts.Count > 1,
+                DistrictAdministrationGuide(owner), cities && draft.SelectedDistrict?.IsPrimary == true && draft.Districts.Count > 1,
                 cities || targetStage, cities ? draft.CanConfirmCities : targetStage && owner.PendingTarget is { } pending && draft.Targets.Any(row => row.Target == pending && row.Available == true),
                 cities && draft.CanContinueCities, cities, cities,
-                draft.Cities.Any(city => city.Available == true), PersonnelDataText(draft.AnyEditableSelected ? 0x3B : 0x3A)));
+                draft.Cities.Any(city => city.Available == true), PersonnelDataText(draft.AnyEditableSelected ? 0x3B : 0x3A)) { Hints=DistrictMapHints(owner) });
+            ApplyDistrictMapHover(owner);
         }
         else
         {
@@ -165,12 +204,21 @@ public partial class Main
 
     private void ChooseDistrictLeader(DistrictAdministrationWorkspace owner)
     {
-        if (!CanEditDistrictAdministration(owner) || !owner.Draft.BeginLeaderSelection()) return;
-        var draft = owner.Draft;
-        OpenDistrictSelection(owner, 0x32E, draft.Leaders.Select(person => new CommandSelectionRow(person.OfficerId,
-            [new(person.Name, SortKey: person.NameSortKey)], person.Enabled == true, person.DisabledReason)).ToArray(),
-            draft.LeaderId is int id ? [id] : [], true, selection =>
-            { if (selection is { Count: > 0 }) draft.SelectLeader(selection[0]); else draft.Back(); });
+        if (!CanEditDistrictAdministration(owner)) return;
+        var selection = owner.Rules.PrepareDistrictLeaderSelection(owner.Draft);
+        if (!selection.Available)
+        { DistrictAdministrationUnavailable(selection.UnresolvedInput ?? "district.leader.selection"); return; }
+        if (!owner.Draft.BeginLeaderSelection()) return;
+        var view = new DistrictLeaderSelectionView();
+        MountDistrictAdministrationList(owner, view, () => view.Configure(_repository!, _ui, selection.Value!,
+            () => IsDistrictAdministrationCurrent(owner) && owner.List?.View == view,
+            person => RunUiAction(() =>
+            {
+                if (!IsDistrictAdministrationCurrent(owner) || owner.List?.View != view) return;
+                CloseDistrictAdministrationList(owner);
+                if (person is not int id || !owner.Draft.SelectLeaderFromList(id)) owner.Draft.Back();
+                RefreshDistrictAdministration(owner);
+            }), CurrentListScrollSpeed), view.Abandon, view.RequestCancel);
     }
     private void BeginDistrictTargetSelection(DistrictAdministrationWorkspace owner)
     {
@@ -179,36 +227,56 @@ public partial class Main
     }
     private void OpenDistrictMapList(DistrictAdministrationWorkspace owner)
     {
-        if (!CanEditDistrictAdministration(owner)) return;
-        var draft = owner.Draft;
-        if (draft.Stage != DistrictAdministrationStage.SelectCities) return;
-        var locked = draft.LockedSelectedCityIds.ToHashSet();
-        var rows = draft.Cities.Select(city => new CommandSelectionRow(city.Id, [new(city.Name)], city.Available == true, city.UnresolvedOwner,
-            locked.Contains(city.Id))).ToArray();
-        OpenDistrictSelection(owner, 0x39A, rows, draft.SelectedCityIds, false, selection =>
+        if (!CanEditDistrictAdministration(owner) || owner.Draft.Stage != DistrictAdministrationStage.SelectCities) return;
+        var selection = owner.Rules.PrepareDistrictCitySelection(owner.Draft);
+        if (!selection.Available)
+        { DistrictAdministrationUnavailable(selection.UnresolvedInput ?? "district.city.selection"); return; }
+        var hints = DistrictCityHintPublication(owner);
+        if (hints is null)
+        { DistrictAdministrationUnavailable(owner.CityHintsMissing ?? "district.city.hints"); return; }
+        var view = new DistrictCitySelectionView();
+        MountDistrictAdministrationList(owner, view, () => view.Configure(_repository!, _ui, selection.Value!, hints,
+            () => IsDistrictAdministrationCurrent(owner) && owner.List?.View == view,
+            result =>
             {
-                if (selection is null) return;
-                draft.SelectCities(selection);
-            });
+                void ApplyResult()
+                {
+                    if (!IsDistrictAdministrationCurrent(owner) || owner.List?.View != view) return;
+                    CloseDistrictAdministrationList(owner);
+                    if (result.Action == DistrictCitySelectionAction.CancelStage)
+                    {
+                        if (!owner.Draft.Back()) CloseDistrictAdministration(); else RefreshDistrictAdministration(owner);
+                        return;
+                    }
+                    if (!owner.Draft.SelectCities(result.CityIds)) { RefreshDistrictAdministration(owner); return; }
+                    if (result.Action == DistrictCitySelectionAction.Confirm)
+                        ConfirmDistrictCitySelection(owner, false);
+                    else RefreshDistrictAdministration(owner);
+                }
+                if (result.Action == DistrictCitySelectionAction.Confirm) RunPlayAction(ApplyResult);
+                else RunUiAction(ApplyResult);
+            }, CurrentListScrollSpeed, id =>
+            {
+                if (GodotObject.IsInstanceValid(owner.Map) && (id is null || IsDistrictAdministrationCurrent(owner)))
+                    owner.Map.SetMapSummaryHover(owner, id is int city ? new(MapSummaryHoverKind.Foothold, city) : null);
+            }), view.Abandon, view.RequestCancel);
     }
-    private void OpenDistrictSelection(DistrictAdministrationWorkspace owner, int title,
-        IReadOnlyList<CommandSelectionRow> rows, IReadOnlyList<int> selected, bool single, Action<IReadOnlyList<int>?> apply)
+    private void MountDistrictAdministrationList(DistrictAdministrationWorkspace owner, Control view,
+        Action configure, Action abandon, Action cancel)
     {
         if (_repository is null || !CanEditDistrictAdministration(owner)) return;
-        var list = new CommandSelectionView(); owner.List = list; AddChild(list);
+        owner.List = new(view, cancel, abandon); AddChild(view);
         SetDistrictMapCovered(owner, true);
         owner.Setup.SetBusy(true); owner.MapView.SetBusy(true);
-        try
-        {
-            list.Configure(_repository, _ui, title, [new("name", PersonnelDataText(title == 0x39A ? 0x478 : 0x211), 1416)],
-                rows, selected, single ? 1 : rows.Count, () => IsDistrictAdministrationCurrent(owner) && owner.List == list,
-                result => RunUiAction(() =>
-                {
-                    if (!IsDistrictAdministrationCurrent(owner) || owner.List != list) return;
-                    owner.List = null; list.Abandon(); list.QueueFree(); apply(result); RefreshDistrictAdministration(owner);
-                }), CurrentListScrollSpeed, requireSelection: single, singleSelection: single);
-        }
-        catch { owner.List = null; list.Abandon(); list.QueueFree(); RefreshDistrictAdministration(owner); throw; }
+        owner.Setup.Hide(); owner.MapView.Hide();
+        try { configure(); }
+        catch { CloseDistrictAdministrationList(owner); RefreshDistrictAdministration(owner); throw; }
+    }
+    private static void CloseDistrictAdministrationList(DistrictAdministrationWorkspace owner)
+    {
+        var list = owner.List; owner.List = null;
+        if (list is null) return;
+        list.Abandon(); list.View.GetParent()?.RemoveChild(list.View); list.View.QueueFree();
     }
 
     private void ConfirmDistrictDissolution(DistrictAdministrationWorkspace owner)
@@ -272,24 +340,106 @@ public partial class Main
     {
         var owner = _districtAdministration; _districtAdministration = null;
         if (owner is null) return;
-        owner.Question?.Abandon(); owner.Question?.QueueFree(); owner.List?.Abandon(); owner.List?.QueueFree();
+        owner.Question?.Abandon(); owner.Question?.QueueFree(); CloseDistrictAdministrationList(owner);
         owner.Amount?.Abandon(); owner.Amount?.QueueFree(); owner.Setup.Abandon(); owner.MapView.Abandon();
         owner.Setup.GetParent()?.RemoveChild(owner.Setup); owner.MapView.GetParent()?.RemoveChild(owner.MapView);
         owner.Setup.QueueFree(); owner.MapView.QueueFree();
         if (GodotObject.IsInstanceValid(owner.Map))
         {
             owner.Map.EndDistrictCommandMapPick(owner);
+            owner.Map.SetMapSummaryMode(MapSummarySelectionMode.Normal);
+            owner.Map.SetMapSummaryHover(owner,null);
             if (!_failed && !_shuttingDown && _residentMap == owner.Map) { owner.Map.SetDetailsOpen(false); SetMapFocus(true); }
         }
     }
     private void DistrictAdministrationUnavailable(string missing)
     { _playMessage.Text = _ui.Get("information_partial"); GD.PushWarning(missing); }
-    private string DistrictAdministrationGuide(DistrictAdministrationDraft draft) => draft.UnresolvedOwner is not null || draft.LastError is not null
-        ? _ui.Get("information_partial") : PersonnelDataText(draft.Stage switch
+    private void ApplyDistrictMapHover(DistrictAdministrationWorkspace owner)
+    {
+        if(!IsDistrictAdministrationCurrent(owner))return;
+        var draft=owner.Draft;string? value=null;
+        if(owner.HoveredMapIdentity is int id)
         {
-            DistrictAdministrationStage.SelectDistrict => 0x3A9,
-            DistrictAdministrationStage.SelectCities => 0x39A,
-            DistrictAdministrationStage.SelectTarget => 0x39F,
-            _ => 0x3A6
+            if(draft.Stage==DistrictAdministrationStage.SelectCities)
+            {
+                var query=DistrictCityHintPublication(owner)?.QueryHint(DistrictCityHintKind.City,id,draft.SelectedCityIds);
+                value=query is {Available:true,Value:{} message}?message:_ui.Get("information_partial");
+            }
+            else if(draft.Stage==DistrictAdministrationStage.SelectTarget&&draft.Targets.Any(row=>row.Target.Id==id&&row.Available==true))
+            {
+                int root=draft.Settings?.PolicyId switch
+                {
+                    3=>draft.Reorganize?0x5960:0x5921,
+                    2=>draft.Reorganize?0x5961:0x5922,
+                    5=>draft.Reorganize?0x5962:0x5923,
+                    _=>0x595F
+                };
+                value=DistrictAdministrationGuide(owner,root);
+            }
+        }
+        owner.MapView.ApplyHoverHint(value);
+    }
+    private DistrictCityHints? DistrictCityHintPublication(DistrictAdministrationWorkspace owner)
+    {
+        if(!owner.CityHintsPrepared||owner.CityHintDistrict!=owner.Draft.DistrictId)
+        {
+            var query=owner.Rules.PrepareDistrictCityHints(owner.Draft);
+            owner.CityHintsPrepared=true;owner.CityHintDistrict=owner.Draft.DistrictId;
+            owner.CityHints=query.Available?query.Value:null;owner.CityHintsMissing=query.UnresolvedInput;
+        }
+        return owner.CityHints;
+    }
+    private IReadOnlyDictionary<DistrictMapHint,string> DistrictMapHints(DistrictAdministrationWorkspace owner)
+    {
+        var draft=owner.Draft;
+        var result=new Dictionary<DistrictMapHint,string>();
+        string Guide(int root)=>DistrictAdministrationGuide(owner,root);
+        if(draft.Stage==DistrictAdministrationStage.SelectCities)
+        {
+            var cityHints=DistrictCityHintPublication(owner);
+            string CityHint(DistrictCityHintKind kind)
+            {
+                var query=cityHints?.QueryHint(kind,null,draft.SelectedCityIds);
+                return query is {Available:true,Value:{} value}?value:_ui.Get("information_partial");
+            }
+            result[DistrictMapHint.Return]=CityHint(DistrictCityHintKind.CancelStage);
+            result[DistrictMapHint.Decide]=CityHint(DistrictCityHintKind.Decide);
+            result[DistrictMapHint.ShowList]=Guide(0x594E);
+            result[DistrictMapHint.SelectAll]=CityHint(DistrictCityHintKind.SelectAll);
+            if(draft.SelectedDistrict?.IsPrimary==true&&draft.Districts.Count>1)
+                result[DistrictMapHint.Continue]=Guide(0x5948);
+        }
+        else if(draft.Stage==DistrictAdministrationStage.SelectTarget)
+        {
+            result[DistrictMapHint.Return]=Guide(draft.Reorganize?0x2733:0x591D);
+            result[DistrictMapHint.Decide]=Guide(0x5924);
+        }
+        else
+        {
+            result[DistrictMapHint.Return]=Guide(0x2733);
+            result[DistrictMapHint.Edit]=Guide(0x593D);
+            result[DistrictMapHint.Dissolve]=Guide(0x593E);
+        }
+        return result;
+    }
+    private string DistrictAdministrationGuide(DistrictAdministrationWorkspace owner)
+    {
+        var draft=owner.Draft;
+        if(draft.UnresolvedOwner is not null||draft.LastError is not null)return _ui.Get("information_partial");
+        return DistrictAdministrationGuide(owner,draft.Stage switch
+        {
+            DistrictAdministrationStage.SelectDistrict=>0x5939,
+            DistrictAdministrationStage.SelectCities=>draft.Reorganize?0x593F:0x590E,
+            DistrictAdministrationStage.SelectTarget=>0x595F,
+            _=>draft.Reorganize?0x594A:0x5916
         });
+    }
+    private string DistrictAdministrationGuide(DistrictAdministrationWorkspace owner,int root)
+    {
+        if(owner.Guides.TryGetValue(root,out var saved))return saved;
+        var query=owner.Rules.ResolveDistrictAdministrationGuide(root);
+        if(!query.Available||query.Value is not {} value)
+            throw new InvalidDataException(query.UnresolvedInput??"district.guide.owner");
+        return owner.Guides[root]=value;
+    }
 }

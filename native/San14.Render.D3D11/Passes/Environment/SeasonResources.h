@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Loaded season declarations -> immutable HDR views. This bank contains no
 // Main/Cloud/Ocean/Ambient/Post history. Bind before normal Post Begin.
 #include "SeasonFrame.h"
@@ -18,7 +19,7 @@ struct LutRow {
 };
 struct Catalog {std::vector<LutRow> luts;};
 inline Catalog readCatalog(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"season-luts.txt");
+    NativePreparedInputFile input(directory/"season-luts.txt");
     if(!input)throw std::runtime_error("Actual season LUT catalog absent");
     Catalog out;std::string line;
     while(std::getline(input,line)){
@@ -49,7 +50,7 @@ struct HdrImage {
     std::vector<Mip> levels;
 };
 inline HdrImage readHdrImage(const LutRow& row) {
-    std::ifstream input(row.path,std::ios::binary);
+    NativePreparedInputFile input(row.path,std::ios::binary);
     if(!input)throw std::runtime_error("Actual season HDR volume absent");
     auto word=[&](){uint32_t v{};input.read(reinterpret_cast<char*>(&v),4);
         if(!input)throw std::runtime_error("Actual season HDR volume truncated");return v;};

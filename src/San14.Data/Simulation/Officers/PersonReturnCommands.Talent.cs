@@ -24,8 +24,8 @@ public static partial class PersonReturnCommands
             if (!Enum.IsDefined(prepared.Kind) || (prepared.Kind == TalentOrderKind.Search ? prepared.RecruitMode != 0 :
                 prepared.RecruitMode is not (0 or 10 or 30)))
                 throw TalentMissing("recruit_mode");
-            if (state.NativeArmySimulation?.Parameters.Language != "TC")
-                throw TalentMissing("TC_creation_contract");
+            if (state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
+                throw TalentMissing("edition_creation_contract");
             var before = CurrentCommandOwner(state, current);
             if (before.Talents is null) throw TalentMissing("saved_talent_owner");
             if (before.AvailableDispatchSlots.Length == 0) throw TalentMissing("dispatch_allocation1DE290");

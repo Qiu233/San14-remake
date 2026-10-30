@@ -40,9 +40,13 @@ public sealed partial class OwnedArmyDestructionStage
         finally { current.ClearNearbyTemporary(temporary, true); }
     }
 
-    private static void NearbyPersonalityTail(GameState state, SourceWorldContext current,
-        ArmyUnitReference victim, ForceReference victimForce, ForceReference winnerForce)
+    private GameState NearbyPersonalityTail(GameState state, SourceWorldContext current,
+        ArmyUnitReference victim, ForceReference victimForce, ForceReference winnerForce,
+        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest>? feedback,
+        TacticSourceSamplerWorld? sourceSampler)
     {
+        var requests = feedback ?? new List<CampaignEffectRequest>();
+        ArmyTraitFeedback? presentation = null;
         var temporary = current.CreateNearbyTemporary();
         try
         {
@@ -55,18 +59,19 @@ public sealed partial class OwnedArmyDestructionStage
                 if (pointer.Kind != RegistryKind.Army) throw Missing("current.personality_tail_pointer_type");
                 var army = new ArmyUnitReference(pointer.PhysicalSlot);
                 int person = CommanderPhysical(current, army);
+                bool positiveFeedback = false, negativeFeedback = false;
                 if (Known(current.ReadPersonNativeValidity(person), "tail_Commander_validity"))
                 {
                     var force = current.ReadArmyUnitForceReference(army);
                     if (Known(current.ReadForceNativeValidity(victimForce), "tail_victimForce_validity") &&
                         force.PhysicalSlot == victimForce.PhysicalSlot)
-                        ApplyCategory(army, person, 0x27, false);
+                        ApplyCategory(army, person, 0x27, false, ref positiveFeedback, ref negativeFeedback);
                     if (Known(current.ReadForceNativeValidity(winnerForce), "tail_winnerForce_validity") && force.PhysicalSlot == winnerForce.PhysicalSlot)
                     {
                         bool hostile = ArmyLogisticsPreparation.ReadNativeRelationGate(state,
                             Known(force.PhysicalSlot, "tail_Force"), Known(victimForce.PhysicalSlot, "tail_victimForce"))
                             ?? throw Missing("current.tail_2CA650");
-                        if (hostile) ApplyCategory(army, person, 0x28, true);
+                        if (hostile) ApplyCategory(army, person, 0x28, true, ref positiveFeedback, ref negativeFeedback);
                     }
                 }
                 node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.personality_tail_next");
@@ -74,7 +79,26 @@ public sealed partial class OwnedArmyDestructionStage
         }
         finally { current.ClearNearbyTemporary(temporary, true); }
 
-        void ApplyCategory(ArmyUnitReference army, int person, uint category, bool winnerCategory)
+        state = presentation?.Publish(state) ?? state;
+        if (feedback is null && requests.Count != 0)
+            state = state with { CampaignEffectRequests = (state.CampaignEffectRequests
+                ?? throw Missing("current.nearby_effect_owner"))
+                .Append(CampaignEffectSource.ArmyBattleDefeat,
+                    state.NativeClock?.UpdateOrdinal ?? throw Missing("current.nearby_effect_revision"), requests) };
+        return state;
+
+        void RefreshOnce(ArmyUnitReference army, PersonalityReference trait, ref bool refreshed)
+        {
+            if (refreshed) return;
+            presentation ??= new ArmyTraitFeedback(state, current,
+                sourceDate ?? throw Missing("current.nearby_feedback_source_date"), requests,
+                currentState: () => state);
+            presentation.RefreshAndFeedback(army, trait);
+            refreshed = true;
+        }
+
+        void ApplyCategory(ArmyUnitReference army, int person, uint category, bool winnerCategory,
+            ref bool positiveFeedback, ref bool negativeFeedback)
         {
             var list = current.CreatePersonInjuryTemporary();
             try
@@ -96,15 +120,26 @@ public sealed partial class OwnedArmyDestructionStage
                             int cap = BasePostLoad.ReadMoraleUpper(current.ReadArmyUnitForceReference(army), current);
                             if (winnerCategory || Math.Min(Known(fields.Morale1A, "tail_Army1A"), cap) > 0)
                             {
-                                var result = ArmyMoraleNonzeroCurrent.Apply(state, current, army, value);
-                                if (result.NativeReturn is null) throw Missing(result.UnresolvedOwner ?? "current.tail_2709A0");
+                                state = ApplyNearbyMoraleWithRouting(state, current, army, value,
+                                    sourceDate, sourceSampler, requests);
+                                RefreshOnce(army, trait, ref negativeFeedback);
                             }
                         }
                         else if (value > 0)
                         {
                             byte kind = winnerCategory ? Known(current.ReadPersonalityByte(trait, 0xAC), "tail_Personality_AC") : (byte)1;
-                            if (kind == 1) AddMorale(current, army, value);
-                            if (kind == 0xB) throw Missing("branch.tail_Personality_AC11_223990_neighbors");
+                            if (kind == 1)
+                            {
+                                AddMorale(current, army, value);
+                                RefreshOnce(army, trait, ref positiveFeedback);
+                            }
+                            if (kind == 0xB)
+                            {
+                                //The source feedback precedes the second ring,
+                                //even when that ring contains no recipient.
+                                RefreshOnce(army, trait, ref positiveFeedback);
+                                AddWinnerNearbyMorale(state, current, army, trait, winnerForce, value);
+                            }
                         }
                     }
                     at = current.ReadHexListNodeNext(at) ?? throw Missing("current.tail_Personality_next");
@@ -112,6 +147,35 @@ public sealed partial class OwnedArmyDestructionStage
             }
             finally { current.ClearPersonInjuryTemporary(list, true); }
         }
+    }
+
+    //259360's category40/AC11 tail: a new ring around this winner-side
+    //Army, not the defeated Army. Native trait identities27/170 alone own
+    //the extra allied morale. Preserve duplicate pointers and pool order.
+    private static void AddWinnerNearbyMorale(GameState state, SourceWorldContext current,
+        ArmyUnitReference source, PersonalityReference trait, ForceReference winnerForce, int amount)
+    {
+        var temporary = current.CreateNearbyTemporary();
+        try
+        {
+            NearbyArmyTemporarySource.FillNearbyArmyTemporary(current, source,
+                Known(ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.PersonalityDefaultRadius),
+                    "winner_nearby_radius"), temporary);
+            var node = current.ReadRegistryHead(new(temporary.Identity)) ?? throw Missing("current.winner_nearby_head");
+            while (node.Identity.HasValue)
+            {
+                var pointer = current.ReadRegistryNodePayload(node) ?? throw Missing("current.winner_nearby_Army");
+                if (pointer.Kind != RegistryKind.Army) throw Missing("current.winner_nearby_pointer_type");
+                var recipient = new ArmyUnitReference(pointer.PhysicalSlot);
+                //22E040 is the actual Personality physical identity; no
+                //effect79 selector or UI row ordinal substitutes for it.
+                if (Known(current.ReadPersonalityPhysicalSlot(trait), "winner_nearby_Personality_identity") is 27 or 170 &&
+                    current.ReadArmyUnitForceReference(recipient).PhysicalSlot == winnerForce.PhysicalSlot)
+                    AddMorale(current, recipient, amount);
+                node = current.ReadRegistryNodeNext(node) ?? throw Missing("current.winner_nearby_next");
+            }
+        }
+        finally { current.ClearNearbyTemporary(temporary, true); }
     }
 
     private static void AddMorale(SourceWorldContext current, ArmyUnitReference army, int amount)

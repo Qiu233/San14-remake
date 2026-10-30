@@ -40,13 +40,18 @@ public static class ArmySavedCommandKnowledge
         if (value is null) return;
         if (value.Kind == ArmySavedCommandKind.Cleared && value.Command is null) return;
         if (value.Kind != ArmySavedCommandKind.Stored || value.Command is not { Action.Id: >= 1 and <= 17 } command ||
-            !CompleteTarget(command.Target, mapSize, receivers))
+            !CompleteTarget(command.Target, mapSize, receivers, command.Action.Id))
             throw new InvalidDataException("Saved replaced Army command is incomplete or contradictory.");
     }
 
-    private static bool CompleteTarget(ArmyTargetState? target, long mapSize, IReadOnlySet<ArmyReceiverId> receivers) =>
+    private static bool CompleteTarget(ArmyTargetState? target, long mapSize, IReadOnlySet<ArmyReceiverId> receivers, int action) =>
         target switch
         {
+            { Kind: ArmyTargetKind.City or ArmyTargetKind.Gate, Destination: { Kind: ArmyTargetDestinationKind.UnavailableBase,
+                CityId: null, GateId: null, ReceiverId: null, HexId: null, MapObjectReceiverId: null } }
+                => target.Kind == ArmyTargetKind.City ? action == 11 : action == 12,
+            { Kind: ArmyTargetKind.MapObjectReceiver, Destination: { Kind: ArmyTargetDestinationKind.UnavailableObject,
+                CityId: null, GateId: null, ReceiverId: null, HexId: null, MapObjectReceiverId: null } } => true,
             { Kind: ArmyTargetKind.Hex, Destination: { Kind: ArmyTargetDestinationKind.Hex, HexId: int hex, CityId: null, GateId: null, ReceiverId: null, MapObjectReceiverId: null } }
                 => hex >= 0 && hex < mapSize,
             { Kind: ArmyTargetKind.City, Destination: { Kind: ArmyTargetDestinationKind.City, CityId: >= 1 and <= 51, GateId: null, HexId: null, ReceiverId: null, MapObjectReceiverId: null } } => true,

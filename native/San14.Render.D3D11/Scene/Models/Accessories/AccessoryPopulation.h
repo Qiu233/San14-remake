@@ -1,6 +1,7 @@
 // Fixed source-created61 City/Gate World scope; camera requests are current.
 // Include after model-continuous-native.h for its original OBB kernel.
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 namespace source_accessory_population {
 struct Unit {std::uint32_t index{},requested{};std::int32_t force{};std::array<float,3> position{};};
 struct Placement {std::uint32_t unitIndex{},ordinal{};std::array<float,12> root{};std::array<float,20> obb{};};
@@ -8,7 +9,7 @@ struct Profile {std::vector<Unit> units;std::vector<Placement> placements;};
 struct Request {std::uint32_t placementIndex{},unitIndex{},ordinal{};bool mainVisible{},animateNear{};};
 struct Frame {std::vector<Request> requests;std::vector<std::uint32_t> admittedUnits;};
 inline Profile loadProfile(const fs::path& path){
-    std::ifstream file(path,std::ios::binary);if(!file)throw std::runtime_error("Accessory population source profile absent");
+    NativePreparedInputFile file(path,std::ios::binary);if(!file)throw std::runtime_error("Accessory population source profile absent");
     std::uint32_t unitCount{},placementCount{};file.read(reinterpret_cast<char*>(&unitCount),4);file.read(reinterpret_cast<char*>(&placementCount),4);
     Profile p;p.units.resize(unitCount);p.placements.resize(placementCount);
     for(auto& u:p.units){file.read(reinterpret_cast<char*>(&u.index),4);file.read(reinterpret_cast<char*>(&u.force),4);

@@ -3,11 +3,12 @@
 #include "StaticModelResources.h"
 #include "AreaCapitalAccessories.h"
 #include "AreaPrimaryPopulation.h"
+#include "FacilityPrimaryPopulation.h"
 #include "CityGateFlagImports.h"
 #include "ArmyRenderWorld.h"
 
 namespace San14::Render {
-// Session-owned City/Gate and Area presentation. The Army render world owns
+// Session-owned City/Gate, Area and facility presentation. The Army render world owns
 // the single shared accessory pool; it borrows these device objects only inside
 // synchronous operations. World publications and pass targets are never held.
 class BaseRenderWorld {
@@ -28,7 +29,10 @@ public:
             prepareNativeAreaPrimarySource(cityModels.source,
                 readNativeBaseVisualPrimary(initialAreas.models.primary.data(),initialAreas.models.primary.size()),
                 initialAreas.identities,cityModels.source.caller));
-        publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels);
+        auto facilities=cityWorld->facilities.empty()?std::vector<NativePrimaryUpdate>{}:
+            readNativeBaseVisualPrimary(cityWorld->facilities.data(),cityWorld->facilities.size());
+        facilityModels=prepareNativeFacilityPrimaryPopulation(device,cityModels,facilities);
+        publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels,&facilityModels);
     }
 
     void prepareAccessories(ID3D11Device* device,ID3D11DeviceContext* context,
@@ -58,6 +62,8 @@ public:
             if(sourceAccessoryVisuals)prepareCurrentCityGateFlagMaterials(device,context,cityAccessories,bases.flags);
             auto primaries=readNativeBaseVisualPrimary(bases.primary.data(),bases.primary.size());
             updateNativeCityPopulation(cityModels,primaries);
+            if(!bases.facilities.empty())publishNativeFacilityPrimaryPopulation(device,facilityModels,cityModels,
+                readNativeBaseVisualPrimary(bases.facilities.data(),bases.facilities.size()));
             if(sourceAccessoryVisuals){
                 auto current=readNativeBaseVisualAccessories(bases.accessories.data(),bases.accessories.size());
                 armies.observeCityAccessories(cityAccessories.population,current);
@@ -80,7 +86,7 @@ public:
             appliedAreaCapitalRevision=capitals.models.revision;primaryPopulationChanged=true;
         }
         if(primaryPopulationChanged) {
-            publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels);
+            publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels,&facilityModels);
 
         }
     }
@@ -91,7 +97,7 @@ public:
     }
 
     void publishCollectionCaller(const NativeModelCollectionCaller& caller) {
-        cityModels.source.caller=caller;areaModels.source.caller=caller;primaryModels.source.caller=caller;
+        cityModels.source.caller=caller;areaModels.source.caller=caller;facilityModels.source.caller=caller;primaryModels.source.caller=caller;
     }
     void selectCamera(const source_camera::Frame& staticCamera) {
         cityPlan=selectNativeCityPopulation(primaryModels.source,staticCamera);
@@ -119,7 +125,7 @@ public:
 private:
     const bool sourceAccessoryVisuals;
     NativeCityPopulation cityModels;NativeCityPopulationPlan cityPlan;
-    NativeCityPopulation areaModels;NativeCityAreaPrimary primaryModels;
+    NativeCityPopulation areaModels,facilityModels;NativeCityAreaPrimary primaryModels;
     bool primaryPopulationChanged=false;
     NativeCityAccessoryGpu cityAccessories;
     NativeCityAccessoryGpu areaAccessories;

@@ -39,7 +39,7 @@ public static class OwnedArmyLifecycleCurrent
                 { ReceiverId = receiverId,
                     AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
                     Direction36 = ArmyDirectionSource.ResetDirection36,
-                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
+                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10, AiActionFlags = 0, AiEvaluation = 0 };
             current.SetArmyUnitTablePointer(physical, physical);
             current.SetArmyUnitCommanderId(physical, 0); current.SetArmyUnitStatusFlag10(physical, 0);
         }
@@ -81,6 +81,15 @@ public static class OwnedArmyLifecycleCurrent
         result = OwnedArmyDestructorFlags.InstallFresh(result);
         result = OwnedArmyLifecycleTargets.InstallFresh(result);
         result = ArmyDestructionQueue.InstallFreshOwned(result);
+        //2269E0 constructed these receivers with no saved command. Do not
+        //carry a previous resource owner through this actual fresh reset.
+        if (result.ResourceState is CampaignSourceKnowledge resetKnowledge)
+        {
+            foreach (var receiver in result.ReadArmyLifecycle()!.Receivers.Entries)
+                if (resetKnowledge.FindArmySavedTargetLookupAlias(receiver.ReceiverId).HasValue)
+                    resetKnowledge = resetKnowledge.WithArmySavedTargetLookupAlias(receiver.ReceiverId, null);
+            result = result with { ResourceState = resetKnowledge };
+        }
         return result;
     }
 
@@ -133,8 +142,7 @@ public static class OwnedArmyLifecycleCurrent
         pool.TraitHandles(physical);
         current.SetArmyUnitCommanderId(physical, (ushort)created.OfficerId); current.SetArmyUnitStatusFlag10(physical, status);
         var pointer = new RegistryObjectReference(RegistryKind.Army, physical);
-        if (!ArmyMovementManagerLifecycle.Register(pointer, current) ||
-            !ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current).Contains(pointer)) return null;
+        if (!ArmyMovementManagerLifecycle.Register(pointer, current)) return null;
         var slots = arena.ReceiverSlots().ToArray();
         slots[physical] = old with { Commander12 = (ushort)created.OfficerId, Status10 = status,
             //Ordinary uses packet+4; type2 creator independently writes0.
@@ -144,7 +152,7 @@ public static class OwnedArmyLifecycleCurrent
             OverrideTarget = created.OverrideTarget, Direction36 = created.NativeDirection36,
             MapUiByte13C = created.NativeMapUiByte13C,
             CommandControl140 = created.NativeCommandControl140,
-            RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8,
+            RouteHold56 = created.NativeRouteHold56, RouteGoal1F8 = created.NativeRouteGoal1F8, AiActionFlags = created.AiActionFlags,
             StoredResources = new(resources.Gold, resources.Food) };
         var registered = arena.WithReceiverSlots(slots) with { Indexes = pool.ExportOwnedState() };
         var targetState = OwnedArmyLifecycleTargets.PublishCreation(state.WithArmyLifecycle(registered), physical, packetTargetKind38, packetTargetIdentity3A);

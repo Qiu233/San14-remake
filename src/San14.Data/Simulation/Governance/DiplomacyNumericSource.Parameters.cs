@@ -3,7 +3,7 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //These two TC scalars are loader-zero initialized. The original program
+    //These two scalars have independently qualified TC and SC loader-zero owners. The original program
     //only reads them, with no store or address escape in their scalar block.
     //They are immutable rule defaults, not observed current-process values.
     private static readonly IReadOnlyDictionary<string, int> DiplomacyNumericLoaderDefaults = new Dictionary<string, int>
@@ -12,13 +12,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         ["alliance-success-extra-relation"] = 0,
     };
 
-    //TC rule data from file-backed constants and proved loader-zero scalars.
+    //TC and SC independently read the same values from their own reached
+    //file-backed constants and qualified loader-zero owners.
     //Loaded integer values retain priority; no current globals are sampled.
     public GameState InstallFreshDiplomacyNumericParameters(GameState state)
     {
-        if (Seed.Language != "TC") return state;
+        if (Seed.Language is not ("TC" or "SC")) return state;
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
-            state.NativeArmySimulation is not { } native || native.Parameters.Int32Values.ContainsKey("diplomacy:parameter-version"))
+            state.NativeArmySimulation is not { } native || native.Parameters.Language != Seed.Language ||
+            !HasDiplomacyParameterProfile(native.Parameters.Language, native.Parameters.RuleVersion) ||
+            native.Parameters.Int32Values.ContainsKey("diplomacy:parameter-version"))
             throw DiplomacyNumericMissing("fresh_parameter_lifecycle");
         var values = new Dictionary<string,int>(native.Parameters.Int32Values);
         foreach (var (name,value) in new (string,int)[]
@@ -107,11 +110,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         values.Add("diplomacy:parameter-version",1);
         return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
     }
+    //Both profiles are qualified by their own source consumers and data;
+    //accepting a locale never admits a bank belonging to another rule version.
+    private static bool HasDiplomacyParameterProfile(string language,string ruleVersion) => language switch
+    {
+        "TC" => ruleVersion == SimulationRuleIdentity.ForLocale("TC"),
+        "SC" => ruleVersion == SimulationRuleIdentity.ForLocale("SC"),
+        _ => false,
+    };
+
     private static int DParameter(GameState state,string name)
     {
         string key="diplomacy:"+name;
         var p=state.NativeArmySimulation?.Parameters;
-        if(p is null || p.Language!="TC" || p.RuleVersion!=SimulationRuleIdentity.ForLocale("TC") ||
+        if(p is null || !HasDiplomacyParameterProfile(p.Language,p.RuleVersion) ||
             p.Float32Values.ContainsKey(key)) throw DiplomacyNumericMissing("parameter_"+name);
         if (p.Int32Values.TryGetValue(key, out int value)) return value;
         //Older saves may predate these proved defaults. Only these exact

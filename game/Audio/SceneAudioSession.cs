@@ -61,6 +61,7 @@ public partial class SceneAudioSession : Node
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _streams = streamRepository ?? throw new ArgumentNullException(nameof(streamRepository));
         _service.ChannelStopped += VoiceStopped;
+        _service.Retiring += Retire;
     }
 
     public void BeginScene(string sceneKey)
@@ -289,10 +290,17 @@ public partial class SceneAudioSession : Node
     private bool IsCurrent(ChannelState state) => !_retired && SceneRevision == state.Snapshot.SceneRevision &&
         _channels.TryGetValue(state.Snapshot.Channel, out ChannelState? current) && ReferenceEquals(state, current);
 
-    public override void _ExitTree()
+    public override void _ExitTree() => Retire();
+
+    private void Retire()
     {
+        if (_retired) return;
         LeaveScene();
-        if (_service is not null) _service.ChannelStopped -= VoiceStopped;
+        if (_service is not null)
+        {
+            _service.ChannelStopped -= VoiceStopped;
+            _service.Retiring -= Retire;
+        }
         _retired = true;
         _engineThread = 0;
     }

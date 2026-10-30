@@ -13,6 +13,11 @@ public static class GameStateCopy
         Disappearances = value.Disappearances?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Diplomacies = value.Diplomacies?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Strategies = value.Strategies?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Intelligences = value.Intelligences?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
+        Caravans = value.Caravans?.ToDictionary(pair => pair.Key, pair => pair.Value with
+        {
+            MemberIds = pair.Value.MemberIds.ToArray()
+        }),
         Independences = value.Independences?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Talents = value.Talents?.ToDictionary(pair => pair.Key, pair => pair.Value with { MemberIds = pair.Value.MemberIds.ToArray() }),
         Returns = value.Returns.ToDictionary(pair => pair.Key, pair => pair.Value with
@@ -36,16 +41,51 @@ public static class GameStateCopy
         CampaignExpeditions = value.CampaignExpeditions?.Copy(),
         // Both the reserve dictionary and its six-point vectors are immutable.
         ForceCreditReserves = value.ForceCreditReserves,
+        // Planning quantities, dictionaries and ordered classifications are immutable.
+        OriginalAiStrategyMemory = value.OriginalAiStrategyMemory,
+        // Created definitions and their ordered collection are immutable.
+        CreatedPersonalities = value.CreatedPersonalities,
+        // The placeholder development owner contains only immutable scalar stocks.
+        PlaceholderAreaDevelopment = value.PlaceholderAreaDevelopment,
+        PlaceholderForceAdministrationFlags = value.PlaceholderForceAdministrationFlags,
+        // Both policy sets are immutable and expose detached persistence arrays.
+        UnassignedForcePolicyEffects = value.UnassignedForcePolicyEffects,
         // The template catalogue is owned read-only. Hiring detaches only the
         // selected template's mutable lists when it creates a world officer.
         PersonnelHire = value.PersonnelHire,
         // Decision continuations contain immutable operands and immutable candidate lists.
         ArmyDefeatContinuation = value.ArmyDefeatContinuation,
         BaseCaptureContinuation = value.BaseCaptureContinuation,
+        AutomaticEmperorCapture = value.AutomaticEmperorCapture,
+        StoryForceTransferContinuation = value.StoryForceTransferContinuation,
+        ForceAbsorptionContinuation = value.ForceAbsorptionContinuation,
+        DemandSurrenderAbsorptionTail = value.DemandSurrenderAbsorptionTail is not { } demand ? null : demand with
+            { Task = demand.Task with { MemberIds = demand.Task.MemberIds.ToArray() } },
+        DemandSurrenderCompletionTail = value.DemandSurrenderCompletionTail is not { } demandCompletion ? null : demandCompletion with
+            { Task = demandCompletion.Task with { MemberIds = demandCompletion.Task.MemberIds.ToArray() } },
+        PlayerCoalitionAbsorptionTail = value.PlayerCoalitionAbsorptionTail,
+        NpcForceAbsorptionTail = value.NpcForceAbsorptionTail,
+        StoryForceAbsorptionTail = value.StoryForceAbsorptionTail,
+        StrategicPoisonEmperorContinuation = value.StrategicPoisonEmperorContinuation,
+        EditedEventForceAbsorptionTail = value.EditedEventForceAbsorptionTail,
+        EditedEventResultCursor = value.EditedEventResultCursor,
+        CityCaptureEmperorTail = value.CityCaptureEmperorTail,
+        BaseWinnerEmperorTail = value.BaseWinnerEmperorTail,
+        ForceTransferEmperorTail = value.ForceTransferEmperorTail,
         //All descriptors and both ordered collections are immutable snapshots.
         // Retained combat descriptors, automatic instruction vectors and all
         // accumulated report/presentation leaves are immutable and shared.
         NormalCombatImmediateContinuation = value.NormalCombatImmediateContinuation,
+        ManualTacticExecutionContinuation = value.ManualTacticExecutionContinuation,
+        NativePeriodStop = value.NativePeriodStop,
+        EndingProgress = value.EndingProgress is not { } ending ? null : ending with { Story = ending.Story?.Copy() },
+        EditedEventPlayback = value.EditedEventPlayback?.Copy(),
+        CampaignEventCommandPlayback = value.CampaignEventCommandPlayback?.Copy(),
+        // The restoration entries and their ordered collection are immutable.
+        CampaignTemporaryHexRestoreEntries = value.CampaignTemporaryHexRestoreEntries,
+        TutorialLessonProgress = value.TutorialLessonProgress is not { } tutorial ? null : tutorial with
+            { Story = tutorial.Story?.Copy(), MessageContext = tutorial.MessageContext?.Copy() },
+        Proposals = value.Proposals?.Copy(),
         //The duel tail retains only immutable injury notices and its registered sequence.
         DuelAftermathContinuation = value.DuelAftermathContinuation,
         CoalitionCameraPresentation = value.CoalitionCameraPresentation,

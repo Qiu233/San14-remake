@@ -39,7 +39,8 @@ public static partial class CityCaptureTerritorySource
                 if (original == 0) continue; //Source raw34!=0, not native validity1..51.
                 byte associated = K(current.ReadAreaCitySlot(area), "related_Area35");
                 bool oldMatch = associated == cityId && K(current.ReadAreaCurrentForceSlot(area), "related_old_Area_Hex14") == oldForce;
-                bool newMatch = original == cityId && K(current.ReadAreaCurrentForceSlot(area), "related_new_Area_Hex14") == newForce;
+                bool newMatch = newForce is >= 1 and <= 51 && original == cityId &&
+                    K(current.ReadAreaCurrentForceSlot(area), "related_new_Area_Hex14") == newForce;
                 if (!oldMatch && !newMatch) continue;
                 var node = current.AllocateRegistryNode(new(temporary.Identity))!;
                 if (node.Identity.HasValue) current.WriteRegistryNodePayload(node, new(RegistryKind.Area, area.PhysicalSlot));
@@ -134,6 +135,11 @@ public static partial class CityCaptureTerritorySource
     public static CityCaptureTerritoryReceipt ApplyTerritoryAfterResources(GameState state,
         SourceWorldContext current, CityCaptureAreaScope scope, int newDistrictPhysical,
         IEffectiveOfficerAbilities abilities)
+        => ApplyTerritoryAfterResources(state, current, scope, newDistrictPhysical, abilities, null);
+
+    internal static CityCaptureTerritoryReceipt ApplyTerritoryAfterResources(GameState state,
+        SourceWorldContext current, CityCaptureAreaScope scope, int newDistrictPhysical,
+        IEffectiveOfficerAbilities abilities, ArmyReturnDistrictOperationQueries? operation)
     {
         _ = CheckCity(current, scope.City); CheckForce(scope.NewForcePhysical);
         var center = CurrentGateMapQueries.FindHex(scope.City, current);
@@ -151,7 +157,13 @@ public static partial class CityCaptureTerritorySource
                 int areaId = K(area.PhysicalSlot, "transfer_Area_identity");
                 var representative = AreaHex(current, area);
                 if (K(current.ReadHexSurfaceCode(representative), "transfer_Area_Hex10") == 17)
-                    throw Missing($"branch.related_Gate_Area[{areaId}]_26E83B_26F3E0");
+                {
+                    var owned = operation ?? throw Missing("related_Gate_current_operation");
+                    var neighborhoods = (owned.Package ?? throw Missing("related_Gate_neighborhood_owner"))
+                        .CityCaptureNeighborhoodsCurrent();
+                    receipts.Add(ApplyRelatedGateAreaCurrent(current, scope, area, districts, owned, neighborhoods));
+                    continue;
+                }
                 var assignments = new List<AreaCityAssignmentResult>
                     { current.AssignAreaCity(area, K(scope.City.PhysicalSlot, "captured_City22DC80")) };
                 int original = K(current.ReadAreaValidityCode(area), "transfer_Area34");
@@ -160,9 +172,10 @@ public static partial class CityCaptureTerritorySource
                     K(current.ReadBaseForceSlot(originalCity), "transfer_original_City_B0") == scope.NewForcePhysical)
                     assignments.Add(current.AssignAreaCity(area, K(originalCity.PhysicalSlot, "transfer_original_City22DC80")));
                 GateCaptureHexTransfer? territory = scope.OldForcePhysical == 0 ? null :
-                    Rings(state, current, AreaHex(current, area), areaRadius, scope.NewForcePhysical);
+                    Rings(operation?.Latest() ?? state, current, AreaHex(current, area), areaRadius, scope.NewForcePhysical);
                 receipts.Add(new(areaId, assignments.ToArray(), territory));
             }
+            if (operation is not null) CompleteRelatedGateDistrictsCurrent(current, districts, operation);
         }
         finally { current.ClearNearbyTemporary(districts, true); }
         return new(areaRadius, central, receipts.ToArray());
@@ -229,7 +242,8 @@ public static partial class CityCaptureTerritorySource
     /// type4 candidate requires the actual current2336B0 membership; no
     /// generic Core IsActive substitutes for that list.</summary>
     public static int RequireNoReachedAreaObjectService(SourceWorldContext current,
-        CityCaptureAreaScope scope, Func<ObjectReference, bool?>? pending2336B0 = null)
+        CityCaptureAreaScope scope, Func<ObjectReference, bool?>? pending2336B0 = null,
+        Action<ObjectReference>? remove = null)
     {
         int inspected = 0;
         foreach (var entry in current.ReadRegisteredObjectReferences() ?? throw Missing("Object_managerE0"))
@@ -250,16 +264,18 @@ public static partial class CityCaptureTerritorySource
                 var area = current.ReadAreaTableReference(areaId <= 500 ? areaId : 0) ?? throw Missing("Object_Area_pointer");
                 bool inScope = Areas(current, scope.Areas).Any(at => at == area);
                 if (inScope && K(current.ReadObjectForceSlot13(obj), "Object13") != scope.NewForcePhysical)
-                    throw Missing($"branch.related_Area_Object[{physical}]_294FD0");
+                {
+                    if (remove is null) throw Missing($"branch.related_Area_Object[{physical}]_294FD0");
+                    remove(obj);
+                }
             }
         }
         return inspected;
     }
 
     /// <summary>Mode0 City tail's State threshold, on the operation's current
-    /// City Districts after territory transfer. Pure display without a native
-    /// receiver has no numeric writer. Reached kind1/2/5 services remain
-    /// explicit until their actual saved/current leaf is composed.</summary>
+    /// City Districts after territory transfer. Applies the reached world qualification
+    /// flags and personnel journey refreshes in this same current draft.</summary>
     public static CityCaptureStateTransition? RequireNoSpecialStateAdvantageTransition(GameState state,
         SourceWorldContext current, CityCaptureAreaScope scope)
     {
@@ -276,7 +292,8 @@ public static partial class CityCaptureTerritorySource
         if (advantageId == 0) return null;
         int required = G(PersonGrowthCurrentQueries.RequirementKey(advantageId));
         byte[] effects = [B(PersonGrowthCurrentQueries.EffectKey(advantageId, 0)), B(PersonGrowthCurrentQueries.EffectKey(advantageId, 1))];
-        int newCount = Count(scope.NewForcePhysical), oldCount = Count(scope.OldForcePhysical);
+        int newCount = Count(scope.NewForcePhysical, requireNativeValidity: true);
+        int oldCount = Count(scope.OldForcePhysical, requireNativeValidity: false);
         bool gained = newCount == required, lost = unchecked(oldCount + 1) == required;
         var result = new CityCaptureStateTransition(stateId, advantageId, required, newCount, oldCount, gained, lost, effects);
         if (gained) AdviceForForce(current, scope.NewForcePhysical);
@@ -285,23 +302,24 @@ public static partial class CityCaptureTerritorySource
             var old = current.ReadForceTableReference(scope.OldForcePhysical <= 51 ? scope.OldForcePhysical : 0) ?? throw Missing("State_old_Force_pointer");
             if (K(current.ReadForceNativeValidity(old), "State_old_Force_validity")) AdviceForForce(current, scope.OldForcePhysical);
         }
-        if (gained || lost)
-            foreach (byte effect in effects)
-                if (effect is 1 or 2 or 5)
-                    throw Missing($"branch.State_advantage[{stateId}]_effect{effect}_26F95B_266D60");
+        ApplyStateAdvantageTransition(state, current, scope, result);
         return result;
 
-        int Count(int forceId)
+        int Count(int forceId, bool requireNativeValidity)
         {
             var force = current.ReadForceTableReference(forceId is >= 0 and <= 51 ? forceId : 0) ?? throw Missing("State_Force_pointer");
-            if (!K(current.ReadForceNativeValidity(force), "State_Force_validity")) return 0;
+            //26DA10 checks native validity only for the new Force. The old
+            //Force still participates in2AAEE0 when its identity is ordinary.
+            if (requireNativeValidity && !K(current.ReadForceNativeValidity(force), "State_Force_validity")) return 0;
+            int identity = K(current.ReadForcePhysicalSlot(force), "State_Force_identity");
+            if (identity == 51 || identity is >= 46 and <= 50) return 0;
             int total = 0;
             foreach (var row in current.ReadRegistryReferences(RegistryKind.City) ?? throw Missing("State_City_manager90"))
             {
                 int id = (row ?? throw Missing("State_City_pointer")).PhysicalSlot ?? throw Missing("State_City_null");
                 var city = new BaseReference(BaseKind.City, id);
                 if (!K(current.ReadBaseNativeValidity(city), "State_City_validity") || G(PersonGrowthCurrentQueries.CityStateKey(id)) != stateId) continue;
-                if (K(current.ReadBaseForceSlot(city), "State_current_CityB0") == forceId) total++;
+                if (K(current.ReadBaseForceSlot(city), "State_current_CityB0") == identity) total++;
             }
             return total;
         }
@@ -458,7 +476,7 @@ public static partial class CityCaptureTerritorySource
         if (city.Kind != BaseKind.City || city.PhysicalSlot is not (>= 1 and <= 51) || K(current.ReadBaseObjectLink(city), "City4E") is not (>= 1 and <= 51))
             throw Missing("branch.ordinary_City_receiver"); return city.PhysicalSlot.Value;
     }
-    private static void CheckForce(int force) { if (force is < 1 or > 45) throw Missing("branch.ordinary_Force_scope"); }
+    private static void CheckForce(int force) { if (force is < 0 or > 45) throw Missing("branch.ordinary_Force_scope"); }
     private static int Physical(HexReference hex) => K(hex.PhysicalSlot, "Hex_identity");
     private static T K<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("current.City_capture_territory." + field);

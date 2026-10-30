@@ -21,7 +21,14 @@ public sealed record UnitSourceDetails(int UnitId, bool? Exists, UnitSourceIdent
     UnitSourceAbnormalCounts? AbnormalCounts, UnitSourceCargo Cargo,
     DeploymentNarrationPortraitRoute? PortraitRoute,
     DeploymentCombatAxes? WithoutConditionalModifiers, DeploymentCombatAxes? WithConditionalModifiers,
-    IReadOnlyDictionary<string, string> Missing);
+    IReadOnlyDictionary<string, string> Missing)
+{
+    /// <summary>Original shared/body text nodes. Missing entries retain the
+    /// page's unknown label; an entry containing empty text is a known result.</summary>
+    public IReadOnlyDictionary<int, string> FormattedValues { get; init; } = new Dictionary<int, string>();
+    /// <summary>Palette for the existing authored sprite, not a new image ID.</summary>
+    public IReadOnlyDictionary<int, int> NodePalettes { get; init; } = new Dictionary<int, int>();
+}
 
 /// <summary>Selected existing armies in caller row order. All rows borrow one
 /// current source capture; missing groups remain attached to their own row.</summary>

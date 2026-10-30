@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ArmyWorldMaterialImport.h"
 #include "Accessories/AccessoryMaterials.h"
 #include "ArmyMaterialResourceContext.h"
@@ -12,7 +13,7 @@ public:
             const NativeArmyMaterialResourceContext::ManagerInitialization& initialization,
             const NativeRenderResourceSnapshot& initialSnapshot):root_(root),resources_(resources),
                 assignments_(resources.initializeManagerRows(initialization,initialSnapshot)){
-        std::ifstream defaults(root_/"defaults.txt");unsigned category,draw,material;std::string relative;
+        NativePreparedInputFile defaults(root_/"defaults.txt");unsigned category,draw,material;std::string relative;
         if(!defaults)throw std::runtime_error("Army default material declarations absent");
         while(defaults>>category>>draw>>material>>relative){
             const auto& rows=library.primitives.at(category);

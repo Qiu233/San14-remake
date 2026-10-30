@@ -34,7 +34,7 @@ internal sealed class LandmarkDevelopmentRules
     }
 
     internal LandmarkDevelopmentState Initialize(GameState state, int id, ushort hex,
-        IEnumerable<LandmarkDevelopmentState> enabled, TacticSourceSamplerWorld sampler)
+        IEnumerable<LandmarkDevelopmentState> enabled, TacticSourceSamplerWorld sampler, byte? effectKindOverride = null)
     {
         var counts = new int[3];
         foreach (var entry in enabled) if (entry.EffectKind is >= 1 and <= 3) counts[entry.EffectKind - 1]++;
@@ -45,7 +45,7 @@ internal sealed class LandmarkDevelopmentRules
         int salt = unchecked(id + sampler.Day450 + hex);
         Shuffle(kinds, salt, sampler);
         if (kinds.Count == 0) throw Missing("empty_type_candidates");
-        byte kind = unchecked((byte)kinds[0]);
+        byte kind = effectKindOverride ?? unchecked((byte)kinds[0]);
         var values = new List<int>();
         int range = Parameter(state, SimulationParameterKeys.Landmark.InitialRandomRange);
         for (int i = 0; i < range; i++) values.Add(i);

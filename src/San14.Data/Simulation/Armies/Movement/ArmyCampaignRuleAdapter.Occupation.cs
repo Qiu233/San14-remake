@@ -11,9 +11,9 @@ public sealed record OrdinaryArmyOccupationResult(GameState? State,
 public sealed partial class ArmyCampaignRuleAdapter
 {
     /// <summary>Stage11 consumes the actual movement flag in manager order.
-    /// Neutral ordinary terrain and player-owned capture of neutral centers
-    /// include commander rewards. Other sites, enemy-force callbacks and active objectives remain explicit
-    /// unresolved branches. Any failure discards the entire private batch.</summary>
+    /// Territory, active objectives, center and scenery notifications, source-time
+    /// history, commander rewards and former-force callbacks share one batch.
+    /// Any unresolved required input discards the entire private batch.</summary>
     public OrdinaryArmyOccupationResult TryAdvanceOrdinaryOccupation(GameState state,
         NativeArmyProgressStageMoment moment)
     {
@@ -24,12 +24,20 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             var current = CaptureWritableTransportRouteCurrent(state);
+            GameState currentOwner = state;
             var order = ArmyMovementManagerLifecycle.ReadCurrentPointerOrder(current);
-            var working = state;
+            var working = ConsumeLegacyRegionAnnouncementsCurrent(state, current);
             var receipts = new List<OrdinaryArmyOccupationReceipt>();
             foreach (var entry in order)
             {
-                current = CaptureWritableTransportRouteCurrent(working);
+                // Rejected/idle entries only read this stage's current view.
+                // Every writer below publishes a different World owner, so the
+                // next receiver then captures its actual post-writer fields.
+                if (!ReferenceEquals(currentOwner, working))
+                {
+                    current = CaptureWritableTransportRouteCurrent(working);
+                    currentOwner = working;
+                }
                 if (entry.PhysicalSlot is not int physical) continue;
                 var receiver = new ArmyUnitReference(physical);
                 if (!OccupationKnown(current.ReadArmyUnitNativeValidity(receiver), "Army_validity") ||
@@ -41,7 +49,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (OccupationKnown(current.ReadArmyReturnUnitStatus10(receiver), "Army_status") != 1) continue;
                 int id = OccupationKnown(arena.ReceiverSlots()[physical].ActiveUnitId, "active_Army");
                 if (!working.Units.TryGetValue(id, out var army)) throw OccupationMissing("active_Army_owner");
-                var result = OccupyOrdinaryNeutralTerrain(working, current, army, physical);
+                var result = OccupyOrdinaryNeutralTerrain(working, current, army, physical, moment.PreWriterThirdDate);
                 working = result.State; receipts.Add(result.Receipt);
             }
             return new(working, receipts.ToArray(), null);
@@ -50,11 +58,15 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private (GameState State, OrdinaryArmyOccupationReceipt Receipt) OccupyOrdinaryNeutralTerrain(
-        GameState state, SourceWorldContext current, UnitState army, int physical)
+        GameState state, SourceWorldContext current, UnitState army, int physical, NativeMapSeasonDate date)
     {
         var receiver = new ArmyUnitReference(physical);
-        int force = OccupationKnown(current.ReadForcePhysicalSlot(current.ReadArmyUnitForceReference(receiver)), "Army_force");
-        if (force is < 1 or > 45 || force != army.ForceId) throw OccupationMissing("ordinary_force_scope");
+        var actorForce = current.ReadArmyUnitForceReference(receiver);
+        int actorForcePhysical = OccupationKnown(current.ReadForcePhysicalSlot(actorForce), "Army_Force_receiver");
+        bool specialActor = actorForcePhysical is >= 46 and <= 51;
+        //22CD80 is the current District's raw Force operand. It is not
+        //22C990's lookup result or that Force receiver's physical identity.
+        int force = current.ReadArmyUnitRawForceSlot(receiver);
         var home = current.FindArmyUnitCurrentBase(receiver);
         var city = CurrentGateMapQueries.FindCity(home, current);
         int occupationCity = OccupationKnown(city.PhysicalSlot, "home_City");
@@ -70,14 +82,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             candidates = ReadOccupationFootprint(state, current, army, center, force, width,
                 excludeSideArmies: true);
         }
+        BindOccupationSceneryCurrent(state, current);
+        var working = ConsumeLegacyRegionAnnouncementsCurrent(state, current);
+        var centerReports = new List<int>(); var sceneryReports = new List<int>();
         foreach (var hex in candidates)
         {
-            //257670(...,0,FF,0,0) has no state write when the objective is
-            //inactive or complete. Its ignored selected-force result is immaterial.
-            var objective = state.Forces.GetValueOrDefault(force)?.CombatObjective ?? throw OccupationMissing("Force_objective");
-            if (objective.Enabled != false && !(objective.Enabled == true && objective.Progress is >= 60000))
-                throw OccupationMissing("active_or_unknown_Hex_objective");
-            if (OccupationKnown(current.ReadHexSurfaceCode(hex), "candidate_surface") is >= 15 and <= 18)
+            //The Hex objective callback precedes every transfer and observes
+            //the former Hex owner and its current Area City owner.
+            working = ApplyOccupationObjectiveCurrent(working, current, actorForcePhysical, hex);
+            CollectOccupationReportsCurrent(working, current, army, hex, centerReports, sceneryReports);
+            //2FFC30 changes the selected receiving City only inside its
+            //non-special center branch. Special actors retain their Home City.
+            if (!specialActor &&
+                OccupationKnown(current.ReadHexSurfaceCode(hex), "candidate_surface") is >= 15 and <= 18)
             {
                 int areaId = OccupationKnown(current.ReadHexAreaSlot(hex), "candidate_Area");
                 int original = OccupationKnown(current.ReadAreaValidityCode(new(areaId)), "candidate_original_City");
@@ -86,10 +103,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (OccupationKnown(current.ReadBaseForceSlot(originalCity), "candidate_original_City_force") == force)
                     occupationCity = OccupationKnown(originalCity.PhysicalSlot, "candidate_original_City_identity");
             }
-            //The complete fixed scenery placement map proves absence. Any
-            //actual site remains unsupported instead of inventing flags47.
-            if (_occupationSceneryHexes.Contains(hex.PhysicalSlot!.Value))
-                throw OccupationMissing("scenery_callbacks");
             int formerRaw = OccupationKnown(current.ReadHexForceSlot(hex), "former_force");
             var former = current.ReadForceTableReference(formerRaw <= 51 ? formerRaw : 0)
                 ?? throw OccupationMissing("former_Force_pointer");
@@ -102,8 +115,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                     formerForces.Add(previous);
             }
         }
-        //Numeric campaign has no native scenery renderer; the special scenery
-        //branch above was nevertheless read and qualified from actual resources.
+        //The application consumes ordinary territory intents through the
+        //existing real4/5 visual and AD/AE sound owner.
         current.CurrentSceneryLayout = new(null);
         //Same ordinary application lifetime as CaptureOwnedArmyReturnWorld:
         //this client has no original tutorial-mode receiver or its counter.
@@ -113,35 +126,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         OwnedArmyReturnServiceInputs.BindCurrent(state, current);
         current.TransferService = new();
         var transferred = new List<int>(); var dirty = new List<int>();
-        var centers = new List<int>();
-        var working = state;
+        var effects = new List<CampaignEffectRequest>();
         foreach (var hex in candidates)
         {
-            if (!GateCaptureTerritorySource.Eligible(state, current, hex, force, false) ||
-                OccupationKnown(current.ReadHexForceSlot(hex), "wrapper_force") == force) continue;
-            if (OccupationKnown(current.ReadHexSurfaceCode(hex), "wrapper_surface") is >= 15 and <= 18)
-            {
-                if (OwnedCurrentPlayerForce.ReadRawForce3A(state) != force)
-                    throw OccupationMissing("nonplayer_center_log_advisor");
-                working = PrepareRegionCenterTransfer(working, current, hex, force, occupationCity, enqueueEncirclement: true);
-                centers.Add(hex.PhysicalSlot!.Value);
-            }
-            current.AssignHexForce(hex, force);
-            var mode = current.ArmyReturnTransferMode ?? throw OccupationMissing("transfer_mode");
-            if (mode.Present && OccupationKnown(mode.Value, "transfer_mode_value") != 0)
-                throw OccupationMissing("transfer_mode_counter");
-            transferred.Add(hex.PhysicalSlot!.Value);
+            var result = TransferTerritoryHexCurrent(working, current, hex, force, occupationCity,
+                enqueueEncirclement: true, allowType3Override: false, showAppearance: true,
+                date: date, borrowedEffects: effects);
+            working = result.State;
+            //186290 counts185D00's return, not a guessed change to actor
+            //ownership. Special51 can clear0 and a partner can keep the old
+            //owner while this native return is still1. The shared writer has
+            //already projected the actual Hex/Area/City/Person values.
+            if (!result.Accepted) continue;
+            transferred.Add(OccupationKnown(hex.PhysicalSlot, "transferred_Hex"));
             dirty.Add(OccupationKnown(current.ReadHexAreaSlot(hex), "dirty_area"));
         }
-        var territory = new Dictionary<int, TerritoryState>(state.Territory);
-        foreach (int hex in transferred)
-        {
-            if (!territory.TryGetValue(hex, out var before)) throw OccupationMissing("territory_owner");
-            territory[hex] = before with { ForceId = force };
-        }
-        if (transferred.Count != 0) working = working with { Territory = territory };
-        var regions = PublishOccupiedRegions(working, current, army, centers);
-        working = regions.State;
         PersonGrowthReceipt? growth = null; PersonPendingMeritReceipt? merit = null;
         int commander = OccupationKnown(current.ResolveOfficerSource(army.OfficerId), "Commander_pointer");
         if (transferred.Count > 0 && OccupationKnown(current.ReadPersonNativeValidity(commander), "Commander_validity"))
@@ -169,15 +168,23 @@ public sealed partial class ArmyCampaignRuleAdapter
                 working = rewarded.State; merit = rewarded.Receipt;
             }
         }
-        if (regions.Logs.Length != 0)
-            working = working with { PendingCommandReports = [.. working.PendingCommandReports, .. regions.Logs] };
+        working = AppendOrdinaryOccupationHistoryCurrent(working, current, army, centerReports, sceneryReports, effects);
+        working = AppendOccupationEffectsCurrent(working, effects);
         //The ordinary occupation tail follows the complete transfer, commander
         //reward and region reports. Each distinct former Force is visited once,
         //in its first candidate order, with the original changed-only notice.
-        foreach (int previous in formerForces)
-            working = ForceRelationChangeCurrent.Apply(working, current, force, previous,
-                ReadOrdinaryOccupationRelationAdjustment,
-                key => OccupationParameter(working, key));
+        //2FFC30's diplomacy suffix excludes the actual special actor
+        //Force46..51 after all transfer/reward/report work has completed.
+        var reachedForce = current.ReadArmyUnitForceReference(receiver);
+        if (OccupationKnown(current.ReadForceNativeValidity(reachedForce), "relation_actor_Force_validity"))
+        {
+            int reachedPhysical = OccupationKnown(current.ReadForcePhysicalSlot(reachedForce), "relation_actor_Force_receiver");
+            if (reachedPhysical is not (>= 46 and <= 51))
+                foreach (int previous in formerForces)
+                    working = ForceRelationChangeCurrent.Apply(working, current, reachedPhysical, previous,
+                        ReadOrdinaryOccupationRelationAdjustment,
+                        key => OccupationParameter(working, key));
+        }
         return (working, new(army.Id, physical, width, candidates.Select(h => h.PhysicalSlot!.Value).ToArray(),
             transferred.ToArray(), dirty.ToArray(), growth, merit));
     }
@@ -253,7 +260,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     //Fixed ordinary occupation diplomacy delta. Offline typed data and its
     //complete reference ledger identify a read-only signed constant, not a
     //fresh-session option or a missing saved parameter default.
-    private int ReadOrdinaryOccupationRelationAdjustment() => Seed.Language == "TC"
+    //CE_TC and CE_SC independently load the same signed rule value.
+    private int ReadOrdinaryOccupationRelationAdjustment() => Seed.Language is "TC" or "SC"
         ? -1 : throw OccupationMissing("former_Force_relation_adjustment_" + Seed.Language);
 
     private static int OccupationParameter(GameState state, string key) =>

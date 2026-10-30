@@ -38,8 +38,24 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     int link=StrategyNeed(current.ReadHexObjectLink(center),"poison_neutral_Hex1A");
                     var target=BaseLookup.Find(link<62?link:0,current);
+                    //Poison history belongs to the real strategic source;
+                    //flush it before the nested MonthlyMaintenance service.
+                    if (Effects.Count != 0)
+                    {
+                        State = State with { CampaignEffectRequests = (State.CampaignEffectRequests
+                            ?? throw StrategyMissing("poison_prefix_effect_owner")).Append(CampaignEffectSource.StrategicCommands,
+                                State.NativeMapSeason?.AdvancedCalendarSteps ?? throw StrategyMissing("poison_prefix_calendar"), Effects.ToArray()) };
+                        Effects.Clear();
+                    }
+                    var operationDate = State.NativeMapSeason?.ThirdDate ?? throw StrategyMissing("poison_neutral_source_date");
                     State=package.ApplyStrategicPoisonNeutralBaseTransferCurrent(State,current,target,own,executor,
-                        State.NativeMapSeason?.ThirdDate ?? throw StrategyMissing("poison_neutral_source_date"),Effects);
+                        operationDate,Effects);
+                    if (State.ForceTransferEmperorTail is { } emperorTail)
+                    {
+                        State = State with { StrategicPoisonEmperorContinuation = new(task.Id,
+                            emperorTail.CityPhysicalSlot, executor, ForceId(own), ForceId(other), operationDate, result) };
+                        return result; //Relation, rewards and return follow the real wait.
+                    }
                 }
                 else
                 {

@@ -9,7 +9,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal DistrictReference CreateDistrictAdministrationCurrent(SourceWorldContext current,
         WorldIndexContext pool, ForceReference force, int leaderPhysical,
         IReadOnlyList<BaseReference> orderedBases, ArmyReturnDistrictOperationQueries operation,
-        int number = -1)
+        int number = -1, Action<BaseReference, DistrictReference>? transferForeignBase = null)
     {
         if (!ReferenceEquals(current.ReadOwnedCurrentListPool(), pool)) throw DistrictCreationMissing("current_pool");
         int forceSlot = DistrictCreationKnown(current.ReadForcePhysicalSlot(force), "Force60");
@@ -44,9 +44,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         int? ruler = null;
         foreach (var at in orderedBases)
         {
-            if (DistrictCreationKnown(current.ReadBaseForceSlot(at), "BaseB0") != forceSlot)
-                throw DistrictCreationMissing("player_Base_requires_same_Force_26DA10_capture");
-            TransferDistrictAdministrationBaseCurrent(current, at, created, operation);
+            if (DistrictCreationKnown(current.ReadBaseForceSlot(at), "BaseB0") == forceSlot)
+                TransferDistrictAdministrationBaseCurrent(current, at, created, operation);
+            else if (transferForeignBase is not null) transferForeignBase(at, created);
+            else throw DistrictCreationMissing("player_Base_requires_same_Force_26DA10_capture");
             foreach (int person in DistrictCreationHomePeople(current, at))
             {
                 if (DistrictCreationKnown(current.ReadPersonStatus(person), "resident_E6") == 1) ruler = person;
@@ -69,9 +70,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         foreach (var at in orderedBases) MaintainDistrictAdministrationAppointmentsCurrent(current, at);
         ObjectRegistration.Register(new(RegistryKind.District, district), current);
-        //0D2E30 is the original map presentation receiver; current UI reads the
-        //published District identity and its retained governor/status writes.
-        var state = operation.Latest();
+        //D2E30 registers this actual new District with the policy manager.
+        //It is not a map-presentation notification or a full roster rebuild.
+        var state = RegisterOriginalAiDistrictContextCurrent(operation.Latest(), district);
         var districts = new Dictionary<int, DistrictState>(state.Districts)
         {
             [district] = new(district, forceSlot,
@@ -87,7 +88,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// by both player creation and editing. The old District is maintained
     /// after residents and related Gate ownership have really changed.</summary>
     internal static void TransferDistrictAdministrationBaseCurrent(SourceWorldContext current,
-        BaseReference target, DistrictReference destination, ArmyReturnDistrictOperationQueries operation)
+        BaseReference target, DistrictReference destination, ArmyReturnDistrictOperationQueries operation,
+        TransferPersonReference? executor = null)
     {
         int district = DistrictCreationKnown(destination.PhysicalSlot, "transfer_District");
         int force = DistrictCreationKnown(current.ReadDistrictForceSlot(destination), "transfer_District10");
@@ -101,7 +103,16 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.SetCityDistrictSlot(DistrictCreationKnown(target.PhysicalSlot, "City_physical"), (byte)district);
         else if (DistrictCreationKnown(current.ReadBaseDistrictSlot(originalCity), "original_City78") == district)
             AssignGate(target, DistrictCreationKnown(originalCity.PhysicalSlot, "original_City_physical"));
-        //The original third argument is null: no fallback leader-Home City.
+        else if (executor?.PhysicalSlot is int executorPhysical &&
+            DistrictCreationKnown(current.ReadPersonNativeValidity(executorPhysical), "executor_validity"))
+        {
+            var home = BaseLookup.Find(DistrictCreationKnown(current.ReadPersonFirstLocation(executorPhysical), "executor_E2"), current);
+            int homeId = DistrictCreationKnown(current.ReadBaseObjectLink(home), "executor_Home4E");
+            if (homeId > 51) homeId = DistrictCreationKnown(CurrentGateMapQueries.FindCity(home, current).PhysicalSlot, "executor_HomeCity");
+            if (homeId is >= 1 and <= 51) AssignGate(target, homeId);
+        }
+        // Existing administration callers pass a null executor;149 supplies
+        // its actual selected Person, preserving26D2E0's Gate fallback.
         int commanderCount = DistrictCreationKnown(operation.Latest().CommanderSelection?.ActiveCount, "World165D");
         var affected = current.CreateTemporaryHexList() ?? throw DistrictCreationMissing("affected_temporary");
         try

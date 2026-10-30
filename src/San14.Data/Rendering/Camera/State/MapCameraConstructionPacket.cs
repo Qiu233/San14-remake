@@ -26,7 +26,9 @@ public sealed class MapCameraConstructionPacket
         Optics = optics ?? CameraOpticsSettings.FromSource(source);
         CameraGeometryEncoding.Write(prefix, geometry);
         CameraOpticsEncoding.WritePrefix(Optics, prefix);
-        this.prefix = prefix; Source = source;
+        // Own the encoded output once. Accepted snapshots share this private
+        // immutable allocation, never a caller's mutable construction buffer.
+        this.prefix = prefix.ToArray(); Source = source;
         ExecutableLocale = executableLocale;
         FrameNumber = frameNumber; FrameProvenance = frameProvenance;
         CurrentSeasonPostEffectScalars=currentSeasonPostEffectScalars;
@@ -37,6 +39,8 @@ public sealed class MapCameraConstructionPacket
         currentSeasonPostEffectScalars?.ValidateForCamera(this);
     }
     public ReadOnlyMemory<byte> Prefix => prefix;
+    internal bool SharesEncodedOutputWith(MapCameraConstructionPacket other)
+        => ReferenceEquals(prefix, other.prefix);
     public LoadedMapCameraConstructionSource Source { get; }
     public MapCameraGeometry Geometry { get; }
     public CameraOpticsSettings Optics { get; }
@@ -89,6 +93,7 @@ public sealed class MapCameraConstructionPacket
     /// <summary>Separate exact source-to-prepared copies outside the returned3C0 prefix.</summary>
     public uint SourceSpecularOcclusionType3C0 => Optics.Surface.SpecularOcclusionType;
     public uint SourceTemporalAaEnable133C => Optics.TemporalAa.Enable;
+    public uint SourceReflectionProbeRsmCaptureMode15A0 => Optics.ReflectionProbeRsmCaptureMode;
     public uint SourceSpecialRectangleFlag1510 =>
         CurrentSeasonPostEffectWriteIdentity?.PreparedSpecialRectangleFlag1510??CameraDeclarationDefaults.InitialExposureRectangleFlags;
 }

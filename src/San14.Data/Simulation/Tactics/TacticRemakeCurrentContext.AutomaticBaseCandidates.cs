@@ -28,7 +28,6 @@ public sealed partial class TacticRemakeCurrentContext
             caster.NativeArmyOrigin?.NativeSlotIndex != pair.Actor.PhysicalSlot || ArmyValid(state, caster) != true ||
             _definitions.ReadBaseNativeValidity(new(pair.Target.Kind == 5 ? BaseKind.City : BaseKind.Gate,
                 pair.Target.PhysicalSlot)) != true ||
-            _definitions.ArmyReturnTransferMode is not { Present: false } ||
             EffectiveFormation(state, caster) is not int formation ||
             AvailableTactics(state, caster, formation) is not int[] available) return null;
         //Both descriptor Hex pointers are resolved/validated before candidate
@@ -45,6 +44,9 @@ public sealed partial class TacticRemakeCurrentContext
             }
             if (ReadCurrentProgram(state, row) is not { } program || program.Instructions.Count != 2 ||
                 !program.Instructions.Select(i => i.Index).SequenceEqual([0, 1])) return null;
+            bool? tutorialAllowed = TutorialTacticEligibilitySource.AllowsCurrent(state, program);
+            if (tutorialAllowed is null) return null;
+            if (!tutorialAllowed.Value) continue;
             var vectors = new TacticInstructionHexTargetsSource[2];
             foreach (var instruction in program.Instructions)
             {

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Minimal native PB2SM consumer shared by the actual Main graph stages.
 // Owns the stock5 pre-copy and PB2SM programs, complete CB, typed zone buffer,
 // EditAB/RS/NS targets and source EditEM0 copy. Main/depth/Exposure are borrowed.
@@ -50,7 +51,7 @@ inline void require(HRESULT result,const char* operation) {
     if(FAILED(result))throw std::runtime_error(operation);
 }
 inline std::vector<std::uint8_t> read(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary|std::ios::ate);
+    NativePreparedInputFile input(path,std::ios::binary|std::ios::ate);
     if(!input)throw std::runtime_error("Original PB2SM input is absent");
     std::vector<std::uint8_t> result(static_cast<std::size_t>(input.tellg()));input.seekg(0);
     input.read(reinterpret_cast<char*>(result.data()),result.size());

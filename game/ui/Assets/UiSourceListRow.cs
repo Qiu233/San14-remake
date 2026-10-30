@@ -4,8 +4,12 @@ using San14.Data;
 /// <summary>A current object row from the original common list, borrowing view assets.</summary>
 internal partial class UiSourceListRow : UiSourceButton
 {
+    internal event Action<int>? TextVisualStateChanged;
+    private Action<string,string?>? applyContents;
+    internal void ApplyContents(string caption, string? icon = null) => applyContents?.Invoke(caption, icon);
+
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
-        MapFont font, string caption, float columnWidth, bool leadingCell, string? icon = null)
+        MapFont font, string caption, float columnWidth, bool leadingCell, string? icon = null, bool inlineIcon = false)
     {
         var source = new UiSourceLayout(repository, 0xF2C06161);
         var presets = MapTextPresets.Create();
@@ -36,19 +40,39 @@ internal partial class UiSourceListRow : UiSourceButton
         label.Configure(font, profile.WithPreset(presets[Selected ? 10 : 8]));
         label.Text = caption;
         UiSourceSprite? placeIcon = null;
+        var labelBounds=new Rect2(label.Position,label.Size);
+        string? currentIcon=null;
         var palettes = MapSpritePalettes.Create();
-        if (leadingCell && icon is not null)
+        void SetIcon(string? name)
         {
-            placeIcon = new UiSourceSprite { Name = "PlaceIcon", Position = new(8, 8), Size = new(32, 32) };
-            AddChild(placeIcon);
-            placeIcon.Configure(shader, assets.SrgbSprite(icon), UiSourceSprite.Blend.Ordinary);
-            placeIcon.SetMeta("source_sprite", icon);
+            if (!leadingCell && !inlineIcon) return;
+            currentIcon=name;
+            label.Position=labelBounds.Position;label.Size=labelBounds.Size;
+            if (inlineIcon) label.Configure(font,profile.WithPreset(presets[8+Math.Min(VisualState,3)]));
+            if (name is null) { placeIcon?.Hide(); return; }
+            if (placeIcon is null)
+            {
+                placeIcon = new UiSourceSprite { Name = "PlaceIcon", Position = new(8, 8), Size = new(32, 32) };
+                AddChild(placeIcon);
+                placeIcon.Configure(shader,assets.SrgbSprite(name),UiSourceSprite.Blend.Ordinary);
+            }
+            else placeIcon.SetSource(assets.SrgbSprite(name));
+            placeIcon.SetMeta("source_sprite", name);
+            if (inlineIcon)
+                UiSourceInlineIconLayout.Apply(label,placeIcon,labelBounds,font,
+                    profile.WithPreset(presets[8+Math.Min(VisualState,3)]),assets.Sprite(name).Texture.Region.Size);
+            else placeIcon.SetColors(palettes[36 + VisualState]);
+            placeIcon.Show();
         }
+        SetIcon(icon);
+        applyContents = (value, nextIcon) => { label.Text = value; SetIcon(nextIcon); };
         ConfigureStates(states, state =>
         {
             label.Configure(font, profile.WithPreset(presets[8 + Math.Min(state, 3)]));
             label.QueueRedraw();
-            placeIcon?.SetColors(palettes[36 + state]);
+            if (inlineIcon && currentIcon is not null) SetIcon(currentIcon);
+            else placeIcon?.SetColors(palettes[36 + state]);
+            TextVisualStateChanged?.Invoke(state);
         });
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }

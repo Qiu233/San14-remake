@@ -6,7 +6,16 @@ public sealed record CollectionSortValue(string? Text = null, int? Number = null
     string? UnresolvedOwner = null);
 
 public sealed record CollectionColumn(int Id, string Caption, int Width, bool CanSort);
-public sealed record CollectionImageRoute(string TexturePack, string SpriteName, int Kind, int Index);
+public sealed record CollectionImageRoute(string TexturePack, string SpriteName, int Kind, int Index)
+{
+    public static CollectionImageRoute ForItem(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        string suffix = index.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
+        // The installed empty-image atlas retains this distinct authored name.
+        return new("texture_stl_item_" + suffix, index == 999 ? "stl_item_999" : "sti_item" + suffix, 17, index);
+    }
+}
 
 public sealed record CollectionPoemRow(int ItemId, string Name, string Author, string Era,
     CollectionSortValue NameSortKey);

@@ -39,7 +39,8 @@ public sealed class ArmyMobilityParameterSeed
             new(SimulationParameterKeys.ArmyMobility.ForceTerrainPercent, ForceTerrainPercent),
             new(SimulationParameterKeys.ArmyMobility.EnvironmentTerrainPercent, EnvironmentTerrainPercent),
             new(SimulationParameterKeys.ArmyMobility.FormationTerrainPercent, FormationTerrainPercent),
-            new(SimulationParameterKeys.ArmyMobility.FormationSixTerrainPercent, FormationSixTerrainPercent)
+            new(SimulationParameterKeys.ArmyMobility.FormationSixTerrainPercent, FormationSixTerrainPercent),
+            new(TutorialArmyMobilitySource.OverrideParameterKey, TutorialArmyMobilitySource.FreshOverrideParameter)
         ];
         return new(language, source, fields, TerrainNormalization, PercentDenominator, MultiplicativeIdentity);
     }

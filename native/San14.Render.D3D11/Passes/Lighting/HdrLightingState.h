@@ -5,11 +5,18 @@
 
 namespace San14::Render {
 using HdrVector = source_camera::V4;
+struct HdrMaterialModifier {
+    float rampScale{}, rampStart{}, rampFadeDistance{}, indexedRampScale{};
+    float occlusionScale{}, occlusionStart{}, occlusionFadeDistance{};
+    std::array<float,2> repeat{}, velocity{};
+    float rotationDegrees{}, updateInterval{}, shadowMaskFade{};
+};
 struct HdrLightModifier {
     bool present{}, adjustsLighting{};
     std::array<float, 4> directionalFactors{};
     float ambientFactor{}, hemisphereFactor{};
     std::optional<std::array<float, 2>> occlusionRates;
+    std::optional<HdrMaterialModifier> material;
 };
 struct HdrDirectionalLight {
     HdrVector direction{}, color{};

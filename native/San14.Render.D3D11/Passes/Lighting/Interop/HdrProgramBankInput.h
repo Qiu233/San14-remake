@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../HdrProgramBank.h"
 #include <filesystem>
 #include <fstream>
@@ -17,7 +18,7 @@ struct ImportedHdrProgramBank {
     std::vector<std::uint32_t> recipes;
 };
 inline ImportedHdrProgramBank readHdrProgramBank(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    NativePreparedInputFile input(path, std::ios::binary);
     auto word = [&] {
         std::uint32_t value{};
         input.read(reinterpret_cast<char*>(&value), sizeof(value));

@@ -109,10 +109,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         string key;
         if (actionKind == 2) { dimension = 4; key = outcomeKind == 2 ? "employ-failure-growth" : "employ-success-growth"; }
         else if (actionKind == 3) { dimension = 3; key = outcomeKind == 2 ? "search-failure-growth" : "search-success-growth"; }
-        else if (actionKind is 4 or 5 or 6 or 9)
+        else if (actionKind is 4 or 5 or 6 or 7 or 8 or 9 or 19)
         {
             dimension = 3;
-            string prefix = actionKind switch { 4 => "goodwill", 5 => "alliance", 6 => "cancel", _ => "attack" };
+            string prefix = actionKind switch { 4 => "goodwill", 5 => "alliance", 6 => "cancel",7=>"surrender",8=>"return-captives",19=>"exchange", _ => "attack" };
             key = prefix + (outcomeKind == 2 ? "-failure-growth" : "-success-growth");
         }
         else throw TalentCommandMissing("reward_action_" + actionKind);
@@ -123,6 +123,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             4 when outcomeKind != 2 => unchecked(ReadDiplomacyCommandRewardParameter(state, "goodwill-success-merit") * 10),
             5 when outcomeKind != 2 => unchecked(ReadDiplomacyCommandRewardParameter(state, "alliance-success-merit") * 10),
             6 => unchecked(ReadDiplomacyCommandRewardParameter(state, "cancel-command-merit") * 10),
+            7 when outcomeKind != 2=>unchecked(ReadDiplomacyCommandRewardParameter(state,"surrender-success-merit")*10),
+            8 when outcomeKind != 2=>unchecked(ReadDiplomacyCommandRewardParameter(state,"return-captives-success-merit")*10),
+            19 when outcomeKind != 2=>unchecked(ReadDiplomacyCommandRewardParameter(state,"exchange-success-merit")*10),
             9 when outcomeKind != 2 => unchecked(ReadDiplomacyCommandRewardParameter(state, "attack-success-merit") * 10),
             _ => 0
         };

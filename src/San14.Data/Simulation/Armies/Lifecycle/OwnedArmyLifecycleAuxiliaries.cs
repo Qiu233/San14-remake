@@ -22,7 +22,7 @@ public static class OwnedArmyLifecycleAuxiliaries
         pool.CreateAssociatedTaskIndex();
         return arena with { Indexes = pool.ExportOwnedState(),
             ArmyGroups = new() { ResetLeader = ArmyGroupSourceAdapter.Officer(current, 0) },
-            ArmyCautions = new() };
+            ArmyCautions = ArmyCautionGroupPlanningSource.Fresh() };
     }
 
     internal static ArmyLifecycleSourceView? PrepareCreation(ArmyLifecycleSourceView arena,
@@ -123,7 +123,7 @@ public static class OwnedArmyLifecycleAuxiliaries
                     PendingImage = null, StoredResources = ArmyStoreKnowledge.Empty, AuxiliaryAC = new ushort[36], AuxiliaryF4 = new ushort[36],
                     OverrideTarget = ArmyOverrideTargetState.Cleared, Direction36 = ArmyDirectionSource.ResetDirection36,
                     FalseReportDestination = ArmyMarchDestination.None, FacilityConstruction = FacilityConstructionIntent.None,
-                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10 };
+                    MapUiByte13C = 0, CommandControl140 = 0, RouteHold56 = 0, RouteGoal1F8 = 0xBD10, AiActionFlags = 0 };
                 current.ReleaseArmyOccupancyReceiver(army);
                 current.SetArmyUnitCommanderId(army, 0); current.SetArmyUnitStatusFlag10(army, 0);
                 if (armyFlags150 is not null) armyFlags150[army] = 0; //2269E0 byte150 explicit reset.
@@ -155,6 +155,8 @@ public static class OwnedArmyLifecycleAuxiliaries
             {
                 var resetReceivers = pendingOrder.Select(receiver => arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].ReceiverId).ToHashSet();
                 var retiredUnits = pendingOrder.Select(receiver => arena.ReceiverSlots()[receiver.PhysicalSlot!.Value].PendingImage!.Id).ToHashSet();
+                foreach (var resetReceiver in resetReceivers)
+                    knowledge = knowledge.WithArmySavedTargetLookupAlias(resetReceiver, null);
                 result = result with { ResourceState = knowledge.ReplaceArmyOverrides(knowledge.ArmyOverrides
                     .Where(row => row.Owner.ReceiverId is not { } id || !resetReceivers.Contains(id)))
                     .ReplaceTransportRoutes(knowledge.TransportRoutes.Where(row => row.Owner.DefeatedForceId is not null || !retiredUnits.Contains(row.Owner.UnitId)))

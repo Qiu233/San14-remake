@@ -14,9 +14,9 @@ internal partial class AreaAdministrationOfficerChart : Control
     private string unknown="";
     private uint increase,decrease;
     private static readonly int[] Maximums=[105,105,105,105,105];
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,PreviewText text)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,PreviewText text, uint layoutId = 0x27119CFA)
     {
-        var source=new UiSourceLayout(repository,0x27119CFA);Size=source.Rectangle(0).Size;MouseFilter=MouseFilterEnum.Ignore;
+        var source=new UiSourceLayout(repository,layoutId);Size=source.Rectangle(0).Size;MouseFilter=MouseFilterEnum.Ignore;
         var presets=MapTextPresets.Create();var palettes=MapSpritePalettes.Create();
         unknown=text.Get("detail_unknown");increase=presets[38].LT.CpuPacked;decrease=presets[40].LT.CpuPacked;
         source.Art(this,1,source.Rectangle(1),assets,shader);
@@ -32,15 +32,15 @@ internal partial class AreaAdministrationOfficerChart : Control
         UiSourceRadarMesh Layer(int node,string name,int palette)
         {var mesh=new UiSourceRadarMesh {Name=name};AddChild(mesh);mesh.Configure(source,node,palettes[palette].LT);return mesh;}
     }
-    internal void Apply(IReadOnlyList<AreaAdministrationAbilityValue>? abilities)
+    internal void Apply(IReadOnlyList<AreaAdministrationAbilityValue>? abilities, bool empty = false)
     {
         if(abilities is not null&&abilities.Count!=5)throw new InvalidDataException("Officer chart requires five abilities.");
         int[]? actual=abilities?.All(a=>a.Current.HasValue)==true?abilities.Select(a=>a.Current!.Value).ToArray():null;
         int[]? baseline=abilities?.All(a=>a.Current.HasValue&&a.Base.HasValue)==true?abilities.Select(a=>Math.Min(a.Base!.Value,a.Current!.Value)).ToArray():null;
-        current.ApplyValues(actual,Maximums);comparison.ApplyValues(baseline,Maximums);
+        current.ApplyValues(empty ? [0,0,0,0,0] : actual,Maximums);comparison.ApplyValues(empty ? [0,0,0,0,0] : baseline,Maximums);
         for(int i=0;i<5;i++)
         {
-            var label=values[i];var ability=abilities?[i];
+            var label=values[i];label.Visible=!empty;var ability=abilities?[i];
             if(ability?.Current is not int value){label.Text=unknown;continue;}
             if(ability.Base is not int basic){label.Text=unknown;continue;}
             if(basic<1||basic==value)label.Text=Number(value);

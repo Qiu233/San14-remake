@@ -12,6 +12,13 @@ public sealed class UnitDraftRouteQuery
 public sealed class TransportDraftRouteQuery
 {
     private readonly Func<int,int,TransportDraftMarch> query;
-    internal TransportDraftRouteQuery(Func<int,int,TransportDraftMarch> query) => this.query=query;
+    private readonly Func<IReadOnlyList<int>,TransportDraftEta> eta;
+    internal TransportDraftRouteQuery(Func<int,int,TransportDraftMarch> query,
+        Func<IReadOnlyList<int>,TransportDraftEta> eta) { this.query=query; this.eta=eta; }
     public TransportDraftMarch QuerySegment(int startHex,int goalHex) => query(startHex,goalHex);
+    /// <summary>7C63D0: concatenate every segment except its final point in
+    ///source order. Integrate once, without deduplication or adding segment days.</summary>
+    public TransportDraftEta QueryEta(IReadOnlyList<int> assembledEtaPath) => eta(assembledEtaPath);
 }
+
+public sealed record TransportDraftEta(int? Days, string? UnresolvedInput);

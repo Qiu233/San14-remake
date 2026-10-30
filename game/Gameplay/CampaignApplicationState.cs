@@ -11,6 +11,7 @@ internal sealed class CampaignApplicationState(San14.Core.ApplicationGameplaySta
     // Normal new-game/load routes do not construct a tutorial controller or
     // special-mode controller. A detached owner cannot answer for a new campaign.
     internal bool? TutorialBlocksAreaReports => attached ? gameplay.Context?.TutorialBlocksAreaReports : null;
+    internal bool? TutorialBlocksAssociationReports => attached ? gameplay.Context?.TutorialBlocksAssociationReports : null;
     internal bool? TutorialRestrictsFacilities => attached ? gameplay.Context?.TutorialRestrictsFacilities : null;
     internal bool? SpecialModeSuppressesSceneryReport => attached ? gameplay.Context?.SpecialModeSuppressesSceneryReport : null;
     internal bool? SpecialModeSuppressesAssociationReport => attached ? gameplay.Context?.SpecialModeSuppressesAssociationReport : null;

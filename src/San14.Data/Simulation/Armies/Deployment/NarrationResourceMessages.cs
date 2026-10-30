@@ -7,6 +7,8 @@ namespace San14.Data;
 
 internal interface INarrationCurrentContext
 {
+    int ProvinceValue(int argument, int field) => throw new InvalidDataException("narration.province_numeric_argument");
+    string ProvinceText(int argument, int field) => throw new InvalidDataException("narration.province_argument");
     int PersonValue(int argument, int field);
     string PersonText(int argument, int field);
     int Relationship(int field, int firstPersonId, int secondPersonId);
@@ -14,8 +16,11 @@ internal interface INarrationCurrentContext
     // the second expression. Synthetic legacy contexts need no pointer owner.
     int Personality(int firstPersonId, Func<int> readTraitKey) => Relationship('L', firstPersonId, readTraitKey());
     string AreaText(int argument, int field);
+    int AreaValue(int argument, int field) => throw new InvalidDataException("narration.area_numeric_argument");
     int ArmyValue(int argument, int field) => throw new InvalidDataException("narration.army_argument");
     string ArmyText(int argument, int field) => throw new InvalidDataException("narration.army_argument");
+    int ItemValue(int argument, int field) => throw new InvalidDataException("narration.item_numeric_argument");
+    string ItemText(int argument, int field) => throw new InvalidDataException("narration.item_argument");
     int StringValue(int argument, int field) => throw new InvalidDataException("narration.string_argument");
     string StringText(int argument, int field) => throw new InvalidDataException("narration.string_argument");
     int IntegerValue(int argument) => throw new InvalidDataException("narration.integer_argument");
@@ -66,7 +71,7 @@ internal sealed partial class NarrationResourceMessages
     }
 
     public NarrationResourceText Resolve(INarrationCurrentContext people,
-        Func<int, int> presentationRandom, NarrationResourceFamily family)
+        Func<int, int> presentationRandom, NarrationResourceFamily family, bool executeVoiceRequest = false)
     {
         ArgumentNullException.ThrowIfNull(people);
         ArgumentNullException.ThrowIfNull(presentationRandom);
@@ -77,7 +82,7 @@ internal sealed partial class NarrationResourceMessages
         int firstLeaf = root + 1;
         int lastLeaf = family switch { NarrationResourceFamily.Deployment => 0x567E,
             NarrationResourceFamily.AreaDismissal => 0x5741, _ => 0x5747 };
-        return ExecuteMessage(people, presentationRandom, root, ReadTextFamily(root, family),
+        return ExecuteMessage(people, presentationRandom, root, executeVoiceRequest ? Get(root) : ReadTextFamily(root, family),
             id => id >= firstLeaf && id <= lastLeaf, false, null);
     }
 
@@ -141,16 +146,16 @@ internal sealed partial class NarrationResourceMessages
     }
 
     internal NarrationResourceText ResolveTransport(INarrationCurrentContext people,
-        Func<int, int> presentationRandom, int root)
+        Func<int, int> presentationRandom, int root, bool executeVoiceRequest = false)
     {
         ArgumentNullException.ThrowIfNull(people);
         ArgumentNullException.ThrowIfNull(presentationRandom);
         if (root is not (0x57AD or 0x57BA)) throw new InvalidDataException("transport.narration.root");
         _prefix = "transport.narration";
         int first = root + 1, last = root + 12;
-        // Both original voice38 branches contain the same complete text.
-        // This proves text independently; it does not invent voice availability.
-        return ExecuteMessage(people, presentationRandom, root, ReadVoiceText(root, 38),
+        //Ordinary presentation executes Function4 once during preparation;
+        //text-only callers retain their established audio-independent reader.
+        return ExecuteMessage(people, presentationRandom, root, executeVoiceRequest ? Get(root) : ReadVoiceText(root, 38),
             id => id >= first && id <= last, false, null,
             id => id >= first && id <= last || id is >= 0x0097 and <= 0x00A7);
     }
@@ -332,7 +337,7 @@ internal sealed partial class NarrationResourceMessages
         //Normal scenery-discovery speech and its exact TC/SC leaves; these
         //call only the shared0097 family already admitted below.
         0xC970, 0xC971, 0xC972, 0xC973, 0xC974, 0xC975, 0xC976, 0xC977, 0xC978,
-        0x5C74, 0x5C75, 0x5C76,
+        0x5C74, 0x5C75, 0x5C76, 0x5C8A,
         //Normal TC/SC recruit conversation roots and their95-message closure.
         0xC366, 0xC367, 0xC368, 0xC369, 0xC36A, 0xC36B, 0xC36C, 0xC36D, 0xC36E, 0xC36F,
         0xC370, 0xC371, 0xC372, 0xC373, 0xC374, 0xC375, 0xC376, 0xC377, 0xC378, 0xC379,
@@ -537,7 +542,7 @@ internal sealed partial class NarrationResourceMessages
             0x51BD or 0xC39F or 0x51C5 or 0xC97B or 0x53C5 or 0xC3A9 or 0x298F or 0x2990 or
             0x535B or 0x5360 or 0xC3AB or 0xC3B4 or 0x51A0 or 0xC3F4 or 0xC415 or 0xC416 or
             0x51E2 or 0xC417 or 0x51EA or 0x34A0 or 0x31FC or 0x31FD or 0x31FE or 0x31FF or 0xC97C or 0xC981 or 0xC982 or
-            0xC366 or 0xC3B6 or 0xC3C5 or 0xC970 or 0x5C74 or 0x5C75 or 0x5C76 or
+            0xC366 or 0xC3B6 or 0xC3C5 or 0xC970 or 0x5C74 or 0x5C75 or 0x5C76 or 0x5C8A or
             0x57EE or 0x3163 or 0x3162 or 0x3155 or 0x597C or 0x597D))
             throw new InvalidDataException("talent.report.root");
         _prefix = "talent.report";
@@ -564,6 +569,7 @@ internal sealed partial class NarrationResourceMessages
     //Finite TC/SC normal message closure for the four diplomatic orders.
     private static readonly HashSet<int> DiplomacyReportMessages =
     [
+        0x3209, 0x320B, 0x320C, 0x320D, 0x320F, 0x3210, 0x3211,
         0x3507, 0x3508, 0x3509,
         0x0097, 0x0098, 0x0099, 0x009A, 0x009B, 0x009C, 0x009D, 0x009E, 0x009F, 0x00A0, 0x00A1, 0x00A2,
         0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x00AA, 0x00AB, 0x00AC, 0x00AD, 0x00AE,
@@ -603,6 +609,7 @@ internal sealed partial class NarrationResourceMessages
     ];
     private static readonly HashSet<int> DiplomacyReportRoots =
     [
+        0x3209, 0x320B, 0x320C, 0x320D, 0x320F, 0x3210, 0x3211,
         0x3507, 0x3508, 0x3509,
         0x2D03, 0x3055, 0x3056, 0x3057, 0x3058, 0x3059, 0x305A, 0x305B, 0x305C, 0x305D, 0x305E, 0x3067,
         0x3070, 0x308B, 0x309D, 0x309E, 0x309F, 0x30A2, 0x3164, 0x3165, 0x3166, 0x316F, 0x3174, 0x318C, 0x318D,
@@ -652,13 +659,15 @@ internal sealed partial class NarrationResourceMessages
     ];
     internal string ResolveDiplomacyReport(INarrationCurrentContext people, Func<int, int> drawApp32, int root)
     {
-        if (!DiplomacyReportRoots.Contains(root) && !DiplomacyAdviceRoots.Contains(root)) throw new InvalidDataException("diplomacy.report.root");
+        if (!DiplomacyReportRoots.Contains(root) && !DiplomacyAdviceRoots.Contains(root) &&
+            !ExtendedDiplomacyRoots.Contains(root)) throw new InvalidDataException("diplomacy.report.root");
         _prefix = "diplomacy.report";
         bool previous = _report; _report = true;
         try
         {
             return ExecuteMessage(people, drawApp32, root, Get(root, true), _ => false, true, null,
-                id => DiplomacyAdviceRoots.Contains(root) ? DiplomacyAdviceMessages.Contains(id) : DiplomacyReportMessages.Contains(id), (group, code) => (group, code) switch
+                id => ExtendedDiplomacyRoots.Contains(root) ? ExtendedDiplomacyMessages.Contains(id) :
+                    DiplomacyAdviceRoots.Contains(root) ? DiplomacyAdviceMessages.Contains(id) : DiplomacyReportMessages.Contains(id), (group, code) => (group, code) switch
                 {
                     ('C', 'J') => "^02", ('C', 'L') => "^05",
                     ('E', 'K') or ('E', 'M') => string.Empty,
@@ -1055,8 +1064,11 @@ internal sealed partial class NarrationResourceMessages
             Number n => n.Value,
             IntegerArgument argument => argument.Read(argument.Index),
             ReportInteger argument => people.IntegerValue(argument.Index),
+            Province p => people.ProvinceValue(p.Argument, p.Field),
             Person p => people.PersonValue(p.Argument, p.Field),
+            Area a => people.AreaValue(a.Argument, a.Field),
             Army a => people.ArmyValue(a.Argument, a.Field),
+            Item a => people.ItemValue(a.Argument, a.Field),
             StringArgument a => people.StringValue(a.Argument, a.Field),
             City c => people.CityValue(c.Argument, c.Field),
             Force f => people.ForceValue(f.Argument, f.Field),
@@ -1069,11 +1081,14 @@ internal sealed partial class NarrationResourceMessages
         };
         int Percentage(int percent) => random(100) < percent ? 1 : 0;
         string DisplayValue(Expression expression) => expression switch
-        { Person p => people.PersonText(p.Argument, p.Field), Area a => people.AreaText(a.Argument, a.Field),
+        { Province p when p.Field != 0 => people.ProvinceText(p.Argument, p.Field),
+          Person p => people.PersonText(p.Argument, p.Field),
+          Area a when a.Field == '3' => people.AreaText(a.Argument, a.Field),
           City c => people.CityText(c.Argument, c.Field),
           Force f => people.ForceText(f.Argument, f.Field),
           District d => people.DistrictText(d.Argument, d.Field),
           Army a => people.ArmyText(a.Argument, a.Field),
+          Item a when a.Field is '2' or '4' or '5' or '6' or '7' => people.ItemText(a.Argument, a.Field),
           StringArgument a => _report ? people.StringText(a.Argument, a.Field) :
               string0?.Invoke() ?? throw Failure("string_argument"),
           _ => Eval(expression).ToString(CultureInfo.InvariantCulture) };
@@ -1120,11 +1135,11 @@ internal sealed partial class NarrationResourceMessages
         0xC4B5, 0xC4B6, 0xC4B7, 0xC4B8, 0xC4B9, 0xC4BA, 0xC4BB, 0xC4BC, 0xC4BD, 0xC4BE, 0xC4BF, 0xC4C0,
         0xC4C1, 0xC4C2, 0xC4C3, 0xC4C4, 0xC4C5, 0xC4C6, 0xC4C7, 0xC4C8, 0xC4C9, 0xC4CA, 0xC4CB, 0xC4CC,
         0xC4CD, 0xC4CE, 0xC4E8, 0xC4E9, 0xC829, 0xC82A, 0xC82B, 0xC82C, 0xC82D, 0xC82E, 0xC82F, 0xC830,
-        0xC831, 0xC832,
+        0xC831, 0xC832, 0xC7E2, 0xC7E3, 0xC7E4, 0xC7E5, 0xC7E6, 0xC7E7, 0xC7E8,
     ];
     internal string ResolveArmyMapSpeech(INarrationCurrentContext context, Func<int, int> drawApp32, int root = 0xC829)
     {
-        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829 or 0xC72B or 0xC72C) && !ArmyTraitSpeechRoot(root))
+        if (root is not (0xC47F or 0xC4E8 or 0xC4AB or 0xC4E9 or 0xC4C3 or 0xC829 or 0xC72B or 0xC72C or 0xC7E2 or 0xC7E6) && !ArmyTraitSpeechRoot(root) && !FacilityArmySpeechRoot(root) && !FireArmySpeechRoot(root) && !ArmyCommandSpeechRoot(root) && !OccupationArmySpeechRoot(root) && !DuelArmySpeechRoot(root))
             throw new InvalidDataException("army-map-speech.text.root");
         _prefix = "army-map-speech.text";
         bool previous = _report; _report = true;
@@ -1132,7 +1147,7 @@ internal sealed partial class NarrationResourceMessages
         try
         {
             return ExecuteMessage(context, drawApp32, root, Get(root, true), _ => false, true, null,
-                id => ArmyMapSpeechMessages.Contains(id) || ArmyTraitSpeechMessages.Contains(id) || id is 0xC72B or 0xC72C, (group, code) => (group, code) switch
+                id => ArmyMapSpeechMessages.Contains(id) || ArmyTraitSpeechMessages.Contains(id) || FacilityArmySpeechMessage(id) || FireArmySpeechMessage(id) || ArmyCommandSpeechMessage(id) || OccupationArmySpeechMessage(id) || DuelArmySpeechMessage(id) || id is 0xC72B or 0xC72C, (group, code) => (group, code) switch
                 {
                     ('C', 'J') => "^02", ('C', 'L') => "^05",
                     ('E', 'K') or ('E', 'M') => string.Empty,
@@ -1251,12 +1266,14 @@ internal sealed partial class NarrationResourceMessages
     private sealed record Number(int Value) : Expression;
     private sealed record IntegerArgument(int Index, Func<int, int> Read) : Expression;
     private sealed record ReportInteger(int Index) : Expression;
+    private sealed record Province(int Argument, int Field) : Expression;
     private sealed record Person(int Argument, int Field) : Expression;
     private sealed record Area(int Argument, int Field) : Expression;
     private sealed record City(int Argument, int Field) : Expression;
     private sealed record Force(int Argument, int Field) : Expression;
     private sealed record District(int Argument, int Field) : Expression;
     private sealed record Army(int Argument, int Field) : Expression;
+    private sealed record Item(int Argument, int Field) : Expression;
     private sealed record StringArgument(int Argument = 0, int Field = 0) : Expression;
     private sealed record Function(int Field, Expression[] Arguments) : Expression;
     private sealed record Comparison(Expression Left, int Operator, Expression? Right);
@@ -1359,8 +1376,18 @@ internal sealed partial class NarrationResourceMessages
             if (selector == '<' || reportArguments && selector is >= '=' and <= '@')
             { int field = reportArguments && Peek() >= 0x20 ? Read() : 0;
               return new StringArgument(selector - '<', field); }
-            if (selector == 0x96)
-            { int field = Peek() >= 0x20 ? Read() : 0; return new Area(0, field); }
+            //310390 maps all ten Item registers; the current context owns
+            //which saved argument slots are actually known.
+            if (selector is >= 0x82 and <= 0x8B)
+            { int field = Peek() >= 0x20 ? Read() : 0; return new Item(selector - 0x82, field); }
+            //310CD0 maps the complete ten-register Area selector family.
+            //The current argument owner decides which registers are known;
+            //the parser must not collapse every reference into Area0.
+            if (selector is >= 0x96 and <= 0x9F)
+            { int field = Peek() >= 0x20 ? Read() : 0; return new Area(selector - 0x96, field); }
+            //310CD0/312310: the ten independent Province registers.
+            if (selector is >= 0xAA and <= 0xB3)
+            { int field = Peek() >= 0x20 ? Read() : 0; return new Province(selector - 0xAA, field); }
             if (selector != 0xC8) throw Bad("selector");
             int function = Read();
             int arity = reportArguments && function is ('x' or 'P') ? 1 : function is '2' or '3' or '<' ? 1

@@ -2,12 +2,15 @@ using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Only the current City Basic consumer's finite leaves. No candidate
-/// eligibility, whole-card resolve, saved-vector publication or state writer.</summary>
+/// <summary>Current person-list cells shared by City, Area, information and
+/// personnel groups. No candidate eligibility, whole-card resolve or writer.</summary>
 internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldContext current,
-    ArmyOperationContext definitions, OwnedArmyGovernorComparatorInputs? governor = null, LoadedScenario? scenario = null, GameResourceRepository? repository = null, string? language = null)
+    ArmyOperationContext definitions, OwnedArmyGovernorComparatorInputs? governor = null, LoadedScenario? scenario = null, GameResourceRepository? repository = null, string? language = null,
+    bool? userSelectionServicePresent = null)
 {
     private San14.Data.Formats.MessageDocument? _forceMessages;
+    private CurrentPersonListSource? listSource;
+    private CurrentPersonListSource ListSource => listSource ??= new(state, current, scenario, repository, language);
 
     internal string Name(CityDomesticCandidate candidate, bool sortKey = false)
     {
@@ -61,35 +64,15 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         return K(current.ReadPersonSecondLocation(candidate.PhysicalSlot), "second_location") is >= 62 and <= 561;
     }
 
-    internal int? Task(CityDomesticCandidate candidate)
-    {
-        var linked = TaskLink(candidate);
-        if (linked.Identity is null) return null;
-        throw Missing("task_associated_display_consumer");
-    }
-
-    internal int? TaskKey(CityDomesticCandidate candidate)
-    {
-        var linked = TaskLink(candidate);
-        if (linked.Identity is not int identity) return null;
-        // These two actual virtual98 values are already consumed by the
-        // shared current Busy leaf; they do not establish display formatting.
-        var commands = current.ReadOwnedPersonCommandManager();
-        if (commands?.Returns.ContainsKey(identity) == true) return 15;
-        if (commands?.Disappearances?.ContainsKey(identity) == true) return 16;
-        throw Missing("task_associated_virtual98");
-    }
-
-    private PersonLinkedEntityReference TaskLink(CityDomesticCandidate candidate)
+    private readonly Dictionary<int, CurrentPersonTaskSource> taskSources = [];
+    private CurrentPersonTaskSource TaskSource(CityDomesticCandidate candidate)
     {
         Identity(candidate);
-        // The actual commander-army leaf is shared with existing consumers;
-        // an active Army's display/visibility and virtual task remain unclosed.
-        if (K(PersonArmyLocationSource.ReadCommanderArmyValidity(state, current, candidate.PhysicalSlot), "task_commander_army"))
-            throw Missing("task_army_display_consumer");
-        var linked = current.ReadPersonLinkedEntity(candidate.PhysicalSlot) ?? throw Missing("task_associated22AC00");
-        return linked;
+        if (taskSources.TryGetValue(candidate.PhysicalSlot, out var source)) return source;
+        return taskSources[candidate.PhysicalSlot] = new(state, current, candidate.PhysicalSlot, repository, scenario, language);
     }
+    internal int? Task(CityDomesticCandidate candidate) => TaskSource(candidate).ReadCaptionId();
+    internal int? TaskKey(CityDomesticCandidate candidate) => TaskSource(candidate).InformationTaskNameKey();
 
     internal bool Special(CityDomesticCandidate candidate)
     {
@@ -204,20 +187,23 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         if (!valid || Status(c) == 1 || office == 0) return SortValue.Empty;
         return SortValue.Numeric(office);
     }
+    internal int CommandCapacity(CityDomesticCandidate c) => DistrictValid(District(c)) ? Capacity(c) : 0;
+    internal SortValue CommandCapacityKey(CityDomesticCandidate c) => SortValue.Numeric(NativeValid(c) ? Capacity(c) : 0);
+    private int Capacity(CityDomesticCandidate c) => CurrentPersonCommandCapacitySource.ReadCapacity(state,current,c.PhysicalSlot,Missing);
+    internal bool CommandCapacityEmphasized(CityDomesticCandidate c,OwnedBaseCapacityInputs panels)
+        => CurrentPersonCommandCapacitySource.ReadPalette(state,current,c.PhysicalSlot,()=>CreditBonus(c,1),
+            (force,effect)=>panels.ReadPanelModifier(state,force,effect),Missing) is not null;
     internal int? OtherMetric(CityDomesticCandidate c)
     {
-        int value = 0;
-        if (DistrictValid(District(c)) && Status(c) != 1)
-            if (!Force51(c) && !SpecialForce(c)) throw Missing("other_metric_value");
-        if (DistrictValid(District(c)) && Status(c) != 1) return value;
-        return null;
+        if (!DistrictValid(District(c)) || Status(c) == 1) return null;
+        return Salary(c);
     }
     internal SortValue OtherMetricKey(CityDomesticCandidate c)
     {
-        if (NativeValid(c) && Status(c) != 1 && !Force51(c) && !SpecialForce(c))
-            throw Missing("other_metric_value");
-        return SortValue.Numeric(0);
+        return SortValue.Numeric(!NativeValid(c) || Status(c) == 1 ? 0 : Salary(c));
     }
+    private int Salary(CityDomesticCandidate c) => Force51(c) || SpecialForce(c) ? 0
+        : ArmyReturnCaptivesSource.ReadGuard(state, current, c.PhysicalSlot);
     internal int? ItemCount(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c)) return null;
@@ -226,7 +212,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal SortValue ItemKey(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c)) return SortValue.Empty;
-        throw Missing("item_filtered_iterator");
+        return SortValue.Numeric(ListSource.RegisteredItemCount(Identity(c)));
     }
     internal string? Doctrine(CityDomesticCandidate c)
     {
@@ -248,20 +234,14 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal SortValue DoctrineKey(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c) || (Flags(c) & 0x4000) != 0) return SortValue.Empty;
-        _ = DoctrineByte(c);
-        throw Missing("doctrine_sort_table_binding");
+        return SortValue.String(ListSource.DoctrineSortText(DoctrineByte(c)));
     }
     private int Mode() => state.CampaignEventWorld?.ScenarioMode ?? throw Missing("scenario_mode");
     internal int? Age(CityDomesticCandidate c, bool display)
     {
         if (Mode() == 2 || Force51(c) || SpecialForce(c) || (Flags(c) & 0x400) != 0 || Special(c)) return null;
-        if (display && Mode() == 3) throw Missing("age_mode3_display_control");
-        //2A62E0 rereads mode before the ordinary birth/year arithmetic.
-        if (Mode() == 3) throw Missing("age_mode3_helper_control");
-        if (Mode() == 2) throw Missing("age_special_mode");
-        int birth = Owner(c).BirthYear ?? throw Missing("age_current_birth_year");
-        int year = state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("age_current_year");
-        int value = Math.Max(0, year - birth + 1);
+        if (display && Mode() == 3 && PersonCurrentAgeSource.UsesTimelessAges(state)) return null;
+        int value = PersonCurrentAgeSource.Read(state, current, c.PhysicalSlot);
         return value == 0 ? null : value;
     }
     internal SortValue AgeKey(CityDomesticCandidate c)
@@ -300,15 +280,25 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal SortValue RelationKey(CityDomesticCandidate c, int field)
     { string? value = Relation(c, field, true); return value is null ? SortValue.Empty : SortValue.String(value); }
 
-    private void CreditDisplayContext()
+    private bool CreditDisplayVisible()
     {
-        if (state.CampaignEventWorld?.CurrentUserIndex != -1) throw Missing("credit_current_user_gate");
+        //The independent application service gates the saved signed selection.
+        //An absent service never reads the World selection field.
+        bool restricted = userSelectionServicePresent switch
+        {
+            false => false,
+            true => state.CampaignEventWorld?.CurrentUserIndex is sbyte selected
+                ? selected != -1 : throw Missing("credit_current_user_selection"),
+            _ => throw Missing("credit_application_selection_service")
+        };
+        if (restricted) return false;
         if (Mode() == 3) throw Missing("credit_person_selection_state");
+        return true;
     }
     private byte Stage(CityDomesticCandidate c) => K(OfficerMeritSourceAdapter.EncodeStage(Owner(c).MeritState), "credit_stage");
     internal string? RankName(CityDomesticCandidate c)
     {
-        CreditDisplayContext();
+        if (!CreditDisplayVisible()) return null;
         if (Status(c) == 1 || Special(c) || (Flags(c) & 0x4000) != 0) return null;
         byte stage = Stage(c);
         if (stage is < 1 or > 6) return null;
@@ -325,7 +315,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     }
     internal int? Merit(CityDomesticCandidate c, bool display)
     {
-        if (display) CreditDisplayContext();
+        if (display && !CreditDisplayVisible()) return null;
         if (Status(c) == 1 || Special(c) || (Flags(c) & 0x4000) != 0 || Stage(c) == 0) return null;
         return K(OfficerMeritSourceAdapter.EncodeMerit(Owner(c).MeritState), "merit");
     }
@@ -333,16 +323,17 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     { int? value = Merit(c, false); return value is int n ? SortValue.Numeric(n) : SortValue.Empty; }
     internal int CreditBonus(CityDomesticCandidate c, int kind)
     {
-        if (!NativeValid(c) || Status(c) == 1) return 0;
+        if (!NativeValid(c) || !CreditDisplayVisible()) return 0;
         Identity(c);
-        var result = kind == 1 ? OfficerCommandCapacity.ResolveCreditBonus(state, current, c.PhysicalSlot)
-            : OfficerCommandCapacity.ResolveCreditKindBonus(state, current, c.PhysicalSlot, 3);
+        var result = kind == 1 ? OfficerCommandCapacity.ResolveCreditKindBonus(state, current, c.PhysicalSlot, 1, userSelectionServicePresent)
+            : OfficerCommandCapacity.ResolveCreditKindBonus(state, current, c.PhysicalSlot, 3, userSelectionServicePresent);
         return result.Bonus ?? throw new InvalidDataException(result.UnresolvedInput);
     }
-    internal int AdditionalBonus(CityDomesticCandidate c, Func<int> read)
+    internal int AdditionalBonus(CityDomesticCandidate c)
     {
-        if (!NativeValid(c) || SpecialForce(c)) return 0;
-        Identity(c); return read();
+        if (!NativeValid(c) || !CreditDisplayVisible()) return 0;
+        Identity(c);
+        return PersonAreaAppointmentSource.AdditionalCount(state, current, c.PhysicalSlot, userSelectionServicePresent);
     }
     internal int? BonusDisplay(CityDomesticCandidate c, Func<int> read)
     { int first = read(); return first > 0 ? read() : null; }
@@ -409,6 +400,14 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         }
         return PersonName(person, true);
     }
+    //The ordinary multi-page list captures these already mature sort inputs
+    //once per Person/column; comparisons then consume only prepared values.
+    internal (bool Valid, int PhysicalSlot, string Key) ForceOrderInput(CityDomesticCandidate person)
+    {
+        var force = Force(person);
+        return ForceValid(force) ? (true, ForcePhysical(force), ForceKey(force)) : (false, 0, "");
+    }
+
     internal bool BeforeForce(CityDomesticCandidate a, CityDomesticCandidate b, bool reversed)
     {
         var left = Force(a); var right = Force(b);
@@ -458,9 +457,9 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
             K(current.ReadPersonSecondLocation(c.PhysicalSlot), "second_location"));
         if (location.Kind == 27)
         {
-            _ = current.ReadArmyUnitTableReference(location.Index < 501 ? location.Index : 0)
+            var army = current.ReadArmyUnitTableReference(location.Index < 501 ? location.Index : 0)
                 ?? throw Missing("current_location_army_pointer");
-            throw Missing("current_location_army_name");
+            return ListSource.ArmyName(army);
         }
         if (location.Kind is not (5 or 6)) return "";
         var selected = location.Kind == 5 ? current.ReadCityTableReference(location.Index < 52 ? location.Index : 0)
@@ -468,30 +467,13 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         return LocationName(selected ?? throw Missing("current_location_base_pointer"));
     }
     internal bool BeforeLocation(CityDomesticCandidate a, CityDomesticCandidate b, bool currentLocation)
-    { throw Missing(currentLocation ? "current_location_compare_composition" : "home_compare_composition"); }
-    internal bool BeforeTaskTarget(CityDomesticCandidate a, CityDomesticCandidate b)
-    { throw Missing("task_target_compare_composition"); }
-    internal string? TaskTarget(CityDomesticCandidate c)
-    {
-        if (K(PersonArmyLocationSource.ReadCommanderArmyValidity(state, current, c.PhysicalSlot), "task_commander_army"))
-            throw Missing("task_army_target_display");
-        var linked = current.ReadPersonLinkedEntity(c.PhysicalSlot) ?? throw Missing("task_associated_entity");
-        if (linked.Identity is not int identity) return "";
-        var commands = current.ReadOwnedPersonCommandManager();
-        if (commands?.Disappearances?.ContainsKey(identity) == true) return "";
-        throw Missing("task_target_virtual_kind_or_target");
-    }
-    internal CityDomesticPersonTaskRemaining? TaskRemaining(CityDomesticCandidate c)
-    {
-        var linked = current.ReadPersonLinkedEntity(c.PhysicalSlot) ?? throw Missing("task_associated_entity");
-        if (linked.Identity is not int identity) return null;
-        if (current.ReadOwnedPersonCommandManager()?.Disappearances?.ContainsKey(identity) == true) return new(true, null);
-        throw Missing("task_remaining_value");
-    }
-    internal SortValue TaskRemainingKey(CityDomesticCandidate c)
-    {
-        var linked = current.ReadPersonLinkedEntity(c.PhysicalSlot) ?? throw Missing("task_associated_entity");
-        if (linked.Identity is null) return SortValue.Empty;
-        throw Missing("task_remaining_value");
-    }
+        => LocationOrderInput(a, currentLocation).Before(LocationOrderInput(b, currentLocation));
+    internal PersonLocationOrderKey LocationOrderInput(CityDomesticCandidate c, bool currentLocation) =>
+        ListSource.LocationOrder(c.PhysicalSlot, currentLocation);
+    internal bool BeforeTaskTarget(CityDomesticCandidate a, CityDomesticCandidate b, bool reversed = false) =>
+        CurrentPersonTaskSource.BeforeTarget(TaskSource(a).InformationTaskTargetKey(), TaskSource(b).InformationTaskTargetKey(), reversed);
+    internal string? TaskTarget(CityDomesticCandidate candidate) => TaskSource(candidate).InformationTaskTarget();
+    internal CityDomesticPersonTaskRemaining? TaskRemaining(CityDomesticCandidate candidate) => TaskSource(candidate).ReadRemainingCell();
+    internal SortValue TaskRemainingKey(CityDomesticCandidate candidate) =>
+        TaskSource(candidate).InformationTaskDurationKey() is int value ? SortValue.Numeric(value) : SortValue.Empty;
 }

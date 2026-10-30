@@ -1,6 +1,7 @@
 // Resource import and constant-buffer output for the normal post timeline.
 // Include after NativeNormalPostPass helpers.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include "PostProcessHistory.h"
 
@@ -52,17 +53,17 @@ struct NativeNormalPostStagingMap {
 static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
     NormalPostTimeline owner;auto& templates=owner.templates;
     San14::Render::PostHistorySeed seed;UINT width,height,history,change,applied;
-    std::ifstream fixed(source/"continuous-fixed.txt");
+    NativePreparedInputFile fixed(source/"continuous-fixed.txt");
     fixed>>templates.heatCoefficient>>width>>height>>templates.gatherMode>>templates.depthOfFieldMode
         >>seed.warmupApplications>>history>>seed.stagingReadSide>>change>>applied>>seed.previousApplyTime;
     if(!fixed)throw std::runtime_error("Normal post fixed inputs absent");
     seed.cocWriteSide=history!=0;seed.apertureChanged=change!=0;seed.previousGatherApplied=applied!=0;
     owner.history=San14::Render::PostProcessHistory(seed);
-    std::ifstream order(source/"ordered-required-color-passes.txt");std::string name;
+    NativePreparedInputFile order(source/"ordered-required-color-passes.txt");std::string name;
     if(!order)throw std::runtime_error("Normal post pass directory absent");
     while(order>>name) {
         PostPassTemplate pass;pass.name=name;pass.role=postPassRole(name);
-        std::ifstream cbs(source/name/"cbuffers.txt");
+        NativePreparedInputFile cbs(source/name/"cbuffers.txt");
         if(!cbs)throw std::runtime_error("Normal post CB layout absent");
         PostConstantBinding binding;
         while(cbs>>binding.stage>>binding.slot>>binding.file) {

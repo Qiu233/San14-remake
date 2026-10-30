@@ -68,11 +68,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 root = 0x57BA;
             }
             var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, parameters.RuleVersion);
+            var voices = new NarrationVoiceRequests(_personnelNarrationVoice ?? throw TransportNarrationMissing("voice_settings"),appRandom);
             var people = new DeploymentNarrationCurrentPeople(state, current, abilities, speaker, ruler,
-                cityArgument: baseArgument);
+                cityArgument: baseArgument, voiceRequests: voices);
             var context = new TransportNarrationCurrentContext(state, current, people, areaArgument, quantities);
             var result = new NarrationResourceMessages(_repository.LoadMessages(locale, MessageKind.Game).Messages)
-                .ResolveTransport(context, appRandom, root);
+                .ResolveTransport(context, appRandom, root,true);
             var choices = result.Choices.Where(choice => choice.MessageId == result.MessageId && choice.Arity == 3).ToArray();
             if (choices.Length != 1) throw TransportNarrationMissing("empty_or_unproved_variant");
 
@@ -83,7 +84,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             ushort portrait = TransportNarrationNeed(owner.PortraitAppearanceIndex, "current_portrait");
             var route = ReadNarrationPortrait(state, current, _definitions, speaker, portrait);
             return new(speaker, name, portrait, result.MessageId, choices[0].SelectedIndex,
-                result.Text, result.Pages, null) { PortraitRoute = route, RequestedVoiceId = 38 };
+                result.Text, result.Pages, null) { PortraitRoute = route, RequestedVoiceId = 38,
+                    VoiceAvailabilityKnown = true, Voices = voices.Pending.ToArray() };
 
             int PersonPointer(int id) => current.ReadPersonLookupReference(id is >= 0 and <= 6000 ? id : 0)?.PhysicalSlot
                 ?? throw TransportNarrationMissing("Person_pointer");

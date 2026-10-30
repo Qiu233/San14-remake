@@ -20,7 +20,7 @@ internal sealed partial class TrapEffectApplication
         //that pointer first so an aliased lookup keeps its actual kind/speech.
         if (kind != Need(reference.PhysicalSlot, "damage_definition_identity") ||
             channel is < 0 or > 1 ||
-            !(category == 2 && kind == 5 || category == 4 && kind is (11 or 12 or 13 or 14 or 17)))
+            !(category == 2 && kind is (5 or 6 or 15) || category == 4 && kind is (11 or 12 or 13 or 14 or 17)))
             throw Missing("damage_definition_kind_channel");
         var definition = Current.ReadFacilityEffectDefinition(reference) ?? throw Missing("damage_definition_effects");
         var effect = definition.Channel(channel);

@@ -3,7 +3,7 @@
 internal sealed record DeploymentPersonColumn(int Id, int Width, int CaptionMessage,
     byte Align, byte LineArrange, bool InitialAscending = false);
 
-internal sealed record DeploymentPersonCell(string Text, bool Emphasized = false, uint? FirstGlyphColour = null);
+internal sealed record DeploymentPersonCell(string Text, bool Emphasized = false, uint? FirstGlyphColour = null, int? SourcePreset = null, string? SourceFormattedText = null);
 
 internal static class DeploymentPersonColumns
 {

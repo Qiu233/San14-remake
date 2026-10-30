@@ -1,0 +1,96 @@
+using San14.Data;
+
+// Original selector metadata belongs to the resource/layout boundary.
+internal static class AreaAdministrationPersonColumns
+{
+    internal static IReadOnlyList<int> Captions { get; } = Array.AsReadOnly<int>([0x03CD,0x0431,0x0219,0x0452,0x0821,0x0221,0x0451]);
+    private static readonly IReadOnlyList<DeploymentPersonColumn>[] Pages =
+    [
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(8,76,0x0238,0x21,3,false),
+            new(9,76,0x0239,0x21,3,false),
+            new(10,76,0x023A,0x21,3,false),
+            new(11,76,0x023B,0x21,3,false),
+            new(12,76,0x023C,0x21,3,false),
+            new(35,104,0x03D4,0x01,1,false),
+            new(208,104,0x0895,0x01,1,false),
+            new(209,104,0x0896,0x01,1,false),
+            new(36,76,0x0223,0x11,2,false),
+            new(132,132,0x02C0,0x11,2,false),
+            new(133,132,0x02C1,0x11,2,false),
+            new(134,132,0x02C2,0x11,2,false),
+            new(139,132,0x047B,0x11,2,false),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(113,76,0x0510,0x11,2,false),
+            new(127,76,0x07D9,0x11,2,false),
+            new(114,76,0x0511,0x11,2,false),
+            new(126,76,0x06B9,0x11,2,false),
+            new(115,76,0x0512,0x11,2,false),
+            new(116,76,0x0513,0x11,2,false),
+            new(117,76,0x0514,0x11,2,false),
+            new(118,76,0x0515,0x11,2,false),
+            new(119,76,0x0516,0x11,2,false),
+            new(120,76,0x0517,0x11,2,false),
+            new(125,76,0x06BA,0x11,2,false),
+            new(211,76,0x052A,0x11,2,false),
+            new(207,76,0x0867,0x11,2,false),
+            new(205,76,0x0865,0x11,2,false),
+            new(206,76,0x0866,0x11,2,false),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(1,160,0x01FD,0x01,1,true),
+            new(2,160,0x01FE,0x21,3,true),
+            new(3,104,0x0219,0x11,2,true),
+            new(4,160,0x021A,0x11,2,true),
+            new(5,76,0x0212,0x11,2,true),
+            new(35,104,0x03D4,0x01,1,false),
+            new(6,76,0x021D,0x21,3,false),
+            new(21,132,0x021C,0x11,2,true),
+            new(23,76,0x0429,0x21,3,false),
+            new(7,76,0x021E,0x21,3,false),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(5,76,0x0212,0x11,2,true),
+            new(8,76,0x0238,0x21,3,false),
+            new(9,76,0x0239,0x21,3,false),
+            new(10,76,0x023A,0x21,3,false),
+            new(11,76,0x023B,0x21,3,false),
+            new(12,76,0x023C,0x21,3,false),
+            new(18,76,0x0229,0x11,2,true),
+            new(20,76,0x0246,0x21,3,false),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(194,160,0x0822,0x21,3,false),
+            new(193,90,0x0821,0x21,3,false),
+            new(196,160,0x0823,0x21,3,false),
+            new(197,132,0x0824,0x21,3,false),
+            new(198,132,0x0825,0x21,3,false),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(37,132,0x0221,0x21,3,true),
+            new(86,160,0x0299,0x11,2,true),
+            new(88,76,0x0450,0x21,3,true),
+            new(34,104,0x0430,0x11,2,false),
+            new(204,216,0x08BB,0x21,3,true),
+        ]),
+        Array.AsReadOnly<DeploymentPersonColumn>([
+            new(0,132,0x0211,0x01,1,true),
+            new(29,76,0x042B,0x11,2,true),
+            new(28,76,0x042A,0x21,3,false),
+            new(24,76,0x0244,0x21,3,true),
+            new(30,132,0x042C,0x21,3,true),
+            new(31,132,0x042D,0x21,3,true),
+            new(32,132,0x042E,0x21,3,true),
+            new(33,132,0x042F,0x21,3,true),
+        ]),
+    ];
+    internal static IReadOnlyList<DeploymentPersonColumn> For(int page) => (uint)page<(uint)Pages.Length
+        ? Pages[page] : throw new ArgumentOutOfRangeException(nameof(page));
+}

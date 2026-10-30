@@ -82,8 +82,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (selected != FacilityConstructionLegality.DefinitionOf(current, obj) ||
                     K(current.ReadObjectRawField14(obj), "playable_existing_HP") >
                     K(FacilityRepairCapacity.ReadCapacity(state, current, obj, _baseCapacityInputs), "playable_existing_capacity") ||
-                    K(current.ReadObjectForceSlot13(obj), "playable_existing_Force") !=
-                    current.ReadArmyUnitRawForceSlot(new(physical))) continue;
+                    (K(current.ReadObjectForceSlot13(obj), "playable_existing_Force") !=
+                    current.ReadArmyUnitRawForceSlot(new(physical)) &&
+                    K(current.ReadObjectDefinitionRaw2C(selected), "playable_existing_category") != 3)) continue;
                 if (!K(current.ReadArmyUnitNativeValidity(new(physical)), "playable_transition_validity")) continue;
                 int objectPhysical = K(obj.PhysicalSlot, "playable_Object_identity");
                 var subject = state.MapObjects?.Find(current.CurrentMapObjectDirectory!.ReceiverAtPhysical(objectPhysical))?.Subject
@@ -105,8 +106,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!K(current.ReadObjectNativeValidity(obj), "playable_repair_validity")) continue;
                 if (K(current.ReadObjectRawField14(obj), "playable_repair_HP") !=
                     K(FacilityRepairCapacity.ReadCapacity(state, current, obj, _baseCapacityInputs), "playable_repair_capacity")) continue;
-                state = ClearConstructionContinuation(state, image.Id);
-                state = FinishFacilityConstructionCommand(state, current, image, operation, reportFailure: false);
+                var definition = FacilityConstructionLegality.DefinitionOf(current, obj);
+                if (!K(current.ReadObjectDefinitionValidity(definition), "playable_repair_definition_validity")) continue;
+                state = CompleteFacilityRepairCommand(state, current, image, obj, definition, operation);
             }
         }
         return state.WithArmyLifecycle(state.ReadArmyLifecycle()! with

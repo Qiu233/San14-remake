@@ -21,6 +21,12 @@ internal sealed class DeploymentSetupDraft(GameState world,int sourceLocationId,
         }
     }
 
+    internal void AdoptSpeechWorld(GameState expected,GameState replacement)
+    {
+        if(!ReferenceEquals(world,expected))throw new InvalidOperationException("The setup draft belongs to another world.");
+        world=replacement;
+    }
+
     internal void RestoreAcceptedRows(IReadOnlyList<DeploymentDraftRow> accepted)
     {
         // The city caller owns accepted Make packets independently of Target's
@@ -51,6 +57,17 @@ internal sealed class DeploymentSetupDraft(GameState world,int sourceLocationId,
 
     internal string? SetTroops(int troops)=>ApplyEdit(edit?.LandFormationId,troops);
     internal string? SetLandFormation(int formation)=>ApplyEdit(formation,null);
+
+    internal string? ToggleTacticOccurrence(int occurrence)
+    {
+        if(FocusedOfficerId is not int officer||edit is null)
+            return PaneUnresolvedInput??"deployment.tactic_choices.selected_row";
+        var result=rules.QueryDeploymentTacticEdit(world,officer,edit,occurrence);
+        if(result.Value is not { } next)return result.UnresolvedInput??"deployment.tactic_choices.unavailable";
+        rows=Array.AsReadOnly(rows.Select(row=>row.Request.OfficerId!=officer?row:row with
+        {Request=row.Request with{TacticIds=Array.AsReadOnly(next.Tactics.ToArray())}}).ToArray());
+        edit=next;PaneUnresolvedInput=null;return null;
+    }
 
     internal string? SetAllTroops(int troops)=>AcceptBatch(
         rules.ApplyDeploymentBatchTroops(world,rows,troops,FocusedOfficerId));

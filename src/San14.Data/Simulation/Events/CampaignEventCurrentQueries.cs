@@ -80,6 +80,9 @@ public sealed class CampaignEventCurrentQueries : IS14PlayerEventConditionQuerie
     public bool? ReadConditionPersonFamily(S14EventConditionPersonReference first, S14EventConditionPersonReference second) => _native.ReadConditionPersonFamily(first, second);
     public S14EventConditionForcePointer? ReadConditionForceTableSlot(int slot) => NativePlayer?.ReadConditionForceTableSlot(slot);
     public bool? ReadConditionForceValidity(S14EventConditionForceReference force) => NativePlayer?.ReadConditionForceValidity(force);
+    public int? ReadConditionForceIdentity(S14EventConditionForceReference force) => NativePlayer?.ReadConditionForceIdentity(force);
+    public int? ReadConditionForceExperience(S14EventConditionForceReference force) => NativePlayer?.ReadConditionForceExperience(force);
+    public int? ReadConditionAreaIdentity(AreaReference area) => NativePlayer?.ReadConditionAreaIdentity(area);
     public bool? ReadConditionApplicationPresent() => NativePlayer?.ReadConditionApplicationPresent();
     public int? ReadConditionCurrentUserIndex() => NativePlayer?.ReadConditionCurrentUserIndex();
     public int? ReadConditionSelectedUserPersonId(int index) => NativePlayer?.ReadConditionSelectedUserPersonId(index);
@@ -95,6 +98,7 @@ public sealed class CampaignEventCurrentQueries : IS14PlayerEventConditionQuerie
     public bool? ReadConditionBaseValidity(BaseReference reference) => NativePlayer?.ReadConditionBaseValidity(reference);
     public int? ReadConditionBaseTroops(BaseReference reference) => NativePlayer?.ReadConditionBaseTroops(reference);
     public int? ReadConditionBaseGold(BaseReference reference) => NativePlayer?.ReadConditionBaseGold(reference);
+    public int? ReadConditionBaseSupplies(BaseReference reference) => NativePlayer?.ReadConditionBaseSupplies(reference);
     public IReadOnlyList<S14EventConditionForcePointer>? ReadRegisteredConditionForcePointers() => NativePlayer?.ReadRegisteredConditionForcePointers();
     public bool? ReadConditionForceCoalitionMembership(S14EventConditionForceReference force) => NativePlayer?.ReadConditionForceCoalitionMembership(force);
     public int? ReadConditionBaseForceSlot(BaseReference receiver) => NativePlayer?.ReadConditionBaseForceSlot(receiver);
@@ -137,8 +141,20 @@ public sealed class CampaignEventCurrentQueries : IS14PlayerEventConditionQuerie
     public byte? ReadConditionForceRank(S14EventConditionForceReference force) => NativePlayer?.ReadConditionForceRank(force);
     public RegistryObjectReference? ReadConditionItemTableSlot(int slot) => NativePlayer?.ReadConditionItemTableSlot(slot);
     public bool? ReadConditionItemValidity(RegistryObjectReference item) => NativePlayer?.ReadConditionItemValidity(item);
+    public int? ReadConditionItemIllustrationIndex(RegistryObjectReference item)
+    {
+        if (item.Kind != RegistryKind.Item || item.PhysicalSlot is not int physical ||
+            _state.Items?.GetValueOrDefault(physical) is not { } owner) return null;
+        //The fresh Item/editor producer has already normalized source51 and
+        //flags4F into this independently saved current artwork selection.
+        return _state.ItemDefinitions.GetValueOrDefault(owner.DefinitionId)?.Appearance?.ImageIndex;
+    }
+    public ushort? ReadConditionPersonRawCharacterId(S14EventConditionPersonReference person) =>
+        _native.ReadConditionPersonCharacterId(person);
     public ushort? ReadConditionItemOwnerId(RegistryObjectReference item) => NativePlayer?.ReadConditionItemOwnerId(item);
     public ushort? ReadConditionPersonBloodlineId(S14EventConditionPersonReference person) => NativePlayer?.ReadConditionPersonBloodlineId(person);
+    public ushort? ReadConditionPersonRelationListIdentity(S14EventConditionPersonReference person, int index, bool like) =>
+        NativePlayer?.ReadConditionPersonRelationListIdentity(person, index, like);
     public int? ReadConditionForceRegionCityCount(S14EventConditionForceReference force, int region) => NativePlayer?.ReadConditionForceRegionCityCount(force, region);
     public AreaReference? ReadConditionBaseArea(BaseReference reference) => NativePlayer?.ReadConditionBaseArea(reference);
     public bool? ReadConditionAreaValidity(AreaReference reference) => NativePlayer?.ReadConditionAreaValidity(reference);

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -22,7 +23,7 @@ struct NativeRefractionFilterInputs {
 };
 inline NativeRefractionFilterInputs readNativeRefractionFilterInputs(const std::filesystem::path& directory) {
     NativeRefractionFilterInputs result;
-    std::ifstream targets(directory/"targets.txt"),depth(directory/"source-depth.txt"),passes(directory/"passes.txt");
+    NativePreparedInputFile targets(directory/"targets.txt"),depth(directory/"source-depth.txt"),passes(directory/"passes.txt");
     if(!targets||!depth||!passes||!(depth>>result.mainDepthKey))
         throw std::runtime_error("Refraction filter resource declarations are absent");
     NativeRefractionFilterTargetInput target;
@@ -33,7 +34,7 @@ inline NativeRefractionFilterInputs readNativeRefractionFilterInputs(const std::
     if(!targets.eof())throw std::runtime_error("Refraction filter targets are truncated");
     NativeRefractionFilterRoute route;
     while(passes>>route.sourceIndex>>route.directory) {
-        std::ifstream input(directory/route.directory/"input.txt"),output(directory/route.directory/"target.txt");
+        NativePreparedInputFile input(directory/route.directory/"input.txt"),output(directory/route.directory/"target.txt");
         if(route.sourceIndex>2||!(input>>route.inputSlot>>route.sourceKey>>route.sourceMip>>route.mipCount)||
             !(output>>route.targetKey>>route.targetMip)||route.inputSlot!=0||!route.mipCount)
             throw std::runtime_error("Refraction filter route format");

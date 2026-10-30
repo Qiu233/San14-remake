@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "MainStarMaterialState.h"
 #include <cstdint>
 #include <filesystem>
@@ -12,7 +13,7 @@ struct NativeAmbientStarCameras {
 // This initial input contains only the real six WORK cameras. Materials,
 // programs, point geometry and retained draw setters belong to the shared Star.
 inline NativeAmbientStarCameras readNativeAmbientStarCameras(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     std::uint32_t magic{};input.read(reinterpret_cast<char*>(&magic),4);
     if(!input||magic!=0x31435357u)throw std::runtime_error("WORK Star camera WSC1 format");
     NativeAmbientStarCameras result;

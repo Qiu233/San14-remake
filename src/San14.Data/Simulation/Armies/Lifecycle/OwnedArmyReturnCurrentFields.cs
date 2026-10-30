@@ -88,6 +88,7 @@ public static class OwnedArmyReturnCurrentFields
     {
         var people = state.Officers.ToDictionary(x => x.Key, x => x.Value);
         var residues = CampaignSourceKnowledge.From(state.ResourceState);
+        var locationUpdates = new List<OfficerLocationSourceResidue>(people.Count);
         foreach (var person in people.Values.ToArray())
         {
             int physical = current.ResolveOfficerSource(person.Id)
@@ -95,7 +96,7 @@ public static class OwnedArmyReturnCurrentFields
             _ = person.LocationState ?? throw new InvalidDataException("Current officer location owner is missing.");
             var location = current.ReadOfficerLocation(person.Id) ?? throw new InvalidDataException("Current officer location owner is missing.");
             var residue = current.ReadOfficerLocationResidue(person.Id);
-            residues = residues.With(new(person.Id, location.Position?.Kind == OfficerPositionKind.Unresolved ? residue?.LocationCode : null,
+            locationUpdates.Add(new(person.Id, location.Position?.Kind == OfficerPositionKind.Unresolved ? residue?.LocationCode : null,
                 location.Membership?.Kind == OfficerDistrictMembershipKind.Unresolved ? residue?.DistrictCode : null));
             ushort? first = current.ReadPersonFirstLocation(physical); byte? district = current.ReadPersonDistrictSlot(physical);
             int? forceId = person.ForceId;
@@ -120,6 +121,7 @@ public static class OwnedArmyReturnCurrentFields
                 CurrentTacticSlots = ReadTacticSlots(current, physical)
             };
         }
+        residues = residues.WithOfficerLocations(locationUpdates);
         var cities = state.Cities.ToDictionary(x => x.Key,x => x.Value);
         foreach (var city in cities.Values.ToArray())
         {

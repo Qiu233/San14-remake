@@ -66,7 +66,7 @@ internal static class FacilityEffectTargets
             {
                 var effect = definition.Channel(channel);
                 if (effect.Effect == 0) continue;
-                if (effect.Effect is not (1 or 2 or 3 or 15 or 17 or 18)) throw Missing("effect_" + effect.Effect);
+                if (effect.Effect is not (1 or 2 or 3 or 8 or 15 or 16 or 17 or 18)) throw Missing("effect_" + effect.Effect);
                 // The native collector allocates this Base de-dup descriptor
                 // even though type15 never admits a Base to its Hex output.
                 var seenBases = current.CreateNearbyTemporary();
@@ -118,7 +118,7 @@ internal static class FacilityEffectTargets
                             if (AdmitFireHex(state, current, hex, identity)) current.AppendNearbyHexTemporary(channels[channel], hex);
                             continue;
                         }
-                        if (effect.Effect is 1 or 2 or 3)
+                        if (effect.Effect is 1 or 2 or 3 or 16)
                         {
                             if (K(ArmyLogisticsPreparation.ReadNativeRelationGate(state, identity, other), "trap_target_directional_relation"))
                                 current.AppendNearbyHexTemporary(channels[channel], hex);

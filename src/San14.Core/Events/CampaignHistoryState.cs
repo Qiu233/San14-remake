@@ -19,9 +19,13 @@ public sealed record CampaignHistoryRecord(byte Category, byte DistrictId, ushor
 public sealed record CampaignHistoryState(ushort Cursor,
     ImmutableArray<CampaignHistoryRecord> Records, string? DefaultSupplementalText)
 {
+    /// <summary>The independent history-manager reception gate. Null is unknown legacy knowledge.</summary>
+    public bool? EmperorReceptionChronicleSuppressed { get; init; }
+
     public const int Capacity = 2001;
     public static CampaignHistoryState Fresh() => new(0,
-        Enumerable.Range(0, Capacity).Select(_ => CampaignHistoryRecord.Empty).ToImmutableArray(), "");
+        Enumerable.Range(0, Capacity).Select(_ => CampaignHistoryRecord.Empty).ToImmutableArray(), "")
+        { EmperorReceptionChronicleSuppressed = false };
 }
 
 /// <summary>Immutable source-time receipt for a completed record write. The

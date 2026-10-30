@@ -39,16 +39,17 @@ public partial class Main
             _campaignComposition is not { } composition || _failed || _shuttingDown || IsReturningToTitle) return;
         var owner = PersonnelPresentationOwner(session);
         if (owner.ArmyMapSpeech is not { } snapshot) return;
+        var commandOwner = owner;
         if (!ReferenceEquals(owner, _armySpeechWorld))
         { playback.Synchronize(snapshot); _armySpeechWorld = owner; _armySpeechFailedSequences.Clear(); }
         bool paused = _advancingPeriod || HasAdministrationPage || HasMilitaryOrderPage || HasEnvironmentSettings ||
             HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
             _diplomacyNegotiation is not null || !map.MapSpeechManagerVisible;
         playback.Advance(delta, paused);
-        if (_advancingPeriod)
+        if (_advancingPeriod || HasDuelPresentation)
         {
-            //The worker owns its candidate and adoption identity until it ends.
-            //Only the independent display clock may advance during that borrow.
+            //The worker or duel host owns its exact prepared candidate until
+            //completion. Only the independent display clock advances here.
             map.PresentArmyMapSpeech(playback.Visible, snapshot);
             return;
         }
@@ -110,7 +111,8 @@ public partial class Main
                     continue;
                 }
                 owner = PersonnelPresentationOwner(session); playback.Synchronize(owner.ArmyMapSpeech!);
-                if (session.PendingNormalPeriod is null && owner.CampaignAppRandom32 is { } random)
+                if ((session.PendingNormalPeriod is null || IntelligenceNarrationContinuation(owner) is not null) &&
+                    owner.CampaignAppRandom32 is { } random)
                     _presentationRandom.InstallCommittedState(random.State);
                 if (owner.ArmyMapSpeech!.Entries.FirstOrDefault(row => row.Sequence == sequence) is
                     { TextAtSource: not null, SpatialVoices: { IsEmpty: false } })
@@ -127,7 +129,76 @@ public partial class Main
             finally { rules.ConfigureArmyMapSpeechSpatialVoice(null, null); }
         }
         _armySpeechWorld = owner;
+        AdoptRetainedSpeechWorld(session, map, commandOwner, owner);
         map.PresentArmyMapSpeech(playback.Visible, owner.ArmyMapSpeech!);
+    }
+
+    private void AdoptRetainedSpeechWorld(GameplaySession session, MapSceneView map,
+        GameState previous, GameState replacement)
+    {
+        // This entry belongs only to the synchronous speech commit above.
+        // Shared admission is checked once; each live page retains its own
+        // strict predecessor, view and parent lifecycle below.
+        if (ReferenceEquals(previous, replacement) || _session != session || _residentMap != map) return;
+        //A real NoWait intelligence SE6 also retains its queue-admission
+        //holder through this exact speech-only commit, outside a typed wait.
+        if (_personnelSound is { IntelligenceCue: true } sound && sound.Session == session && sound.Map == map &&
+            ReferenceEquals(sound.Owner, previous) && ReferenceEquals(PersonnelPresentationOwner(session), replacement) &&
+            ReferenceEquals(previous.NativePeriodContinuation, replacement.NativePeriodContinuation) &&
+            ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands) &&
+            ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests)) sound.Owner = replacement;
+        if (session.PendingNormalPeriod is { } pending)
+        {
+            //Only this synchronous speech publication may adopt a retained
+            //intelligence presentation. Its task and outbox owners are unchanged.
+            if (!ReferenceEquals(pending.Candidate, replacement) || IntelligenceNarrationContinuation(previous) is null ||
+                !ReferenceEquals(previous.NativePeriodContinuation, replacement.NativePeriodContinuation) ||
+                !ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands) ||
+                !ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests)) return;
+            map.AdoptSpeechWorld(previous, replacement);
+            if (_personnelPresentationIntelligenceWait && _personnelPresentation is not null &&
+                _personnelPresentationSession == session && _personnelPresentationMap == map &&
+                ReferenceEquals(_personnelPresentationWorld, previous))
+                _personnelPresentationWorld = replacement;
+            return;
+        }
+        if (!ReferenceEquals(session.World, replacement)) return;
+        map.AdoptSpeechWorld(previous, replacement);
+        AdoptUnitOrderSpeechWorld(session, previous, replacement);
+        AdoptMapSystemSpeechWorld(session, previous, replacement);
+        AdoptAreaAdministrationSpeechWorld(session, previous, replacement);
+        AdoptCityDomesticSpeechWorld(session, previous, replacement);
+        AdoptForceExperienceSpeechWorld(session, previous, replacement);
+        AdoptGovernanceRosterSpeechWorld(session, previous, replacement);
+        AdoptGovernanceNarrationSpeechWorld(session, previous, replacement);
+        AdoptEnemyFootholdSpeechWorld(session, previous, replacement);
+        AdoptProposalsSpeechWorld(session, previous, replacement);
+        AdoptCityMerchantSpeechWorld(session, previous, replacement);
+        AdoptCityOfficerMovementSpeechWorld(session, previous, replacement);
+        AdoptTransportSetupSpeechWorld(session, previous, replacement);
+        AdoptPersonnelItemSpeechWorld(session, previous, replacement);
+        AdoptOfficerOfficeSpeechWorld(session, previous, replacement);
+        AdoptPersonnelAdministrationSpeechWorld(session, previous, replacement);
+        AdoptPersonnelGroupsSpeechWorld(session, previous, replacement);
+        AdoptTalentOrdersSpeechWorld(session, previous, replacement);
+        AdoptTalentAutoSearchSpeechWorld(session, previous, replacement);
+        AdoptDiplomacyOrdersSpeechWorld(session, previous, replacement);
+        AdoptForeignTradeSpeechWorld(session, previous, replacement);
+        AdoptDistrictAdministrationSpeechWorld(session, previous, replacement);
+        AdoptDoctrineResearchSpeechWorld(session, previous, replacement);
+        AdoptStrategicOrdersSpeechWorld(session, previous, replacement);
+        AdoptIntelligenceSpeechWorld(session, previous, replacement);
+        AdoptSceneryInvestmentSpeechWorld(session, previous, replacement);
+        AdoptMilitaryPagesSpeechWorld(session, previous, replacement);
+        AdoptCommandDetailsSpeechWorld(session, previous, replacement);
+    }
+
+    private static PersonnelIntelligenceNarrationPending? IntelligenceNarrationContinuation(GameState owner)
+    {
+        if (owner.NativePeriodContinuation?.Cursor?.AwaitingIntelligenceTaskId is not int taskId) return null;
+        return owner.PersonnelCommands?.Intelligences?.GetValueOrDefault(taskId)?.NarrationProgress?.Pending is
+            { Phase: PersonnelIntelligenceNarrationPhase.AwaitingNarration or PersonnelIntelligenceNarrationPhase.ReadyToResume } wait
+            ? wait : null;
     }
 
     private (ArmyMapSpeechState? Snapshot, GameState? Owner) CaptureArmySpeechCheckpoint(GameplaySession session)

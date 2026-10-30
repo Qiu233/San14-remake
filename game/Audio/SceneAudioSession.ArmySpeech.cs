@@ -88,7 +88,7 @@ public partial class SceneAudioSession
             var playback = NarrationVoiceSelection.ReadSpatialPlayback(new(voice.SpeakerId, voice.VoiceType, voice.VoiceId,
                 language, voice.VariantIndex, voice.SoundId), pending.Result.Bank, pending.Result.Categories);
             var output = owner._armySpeechOutput;
-            if (output is null) owner._armySpeechOutput = output = new(owner.GetInstanceId(), playback.Outputs);
+            if (output is null) owner._armySpeechOutput = output = new(owner._service!.OriginalOutputs, playback.Outputs);
             else if (output.Graph.Source.DecodedSha256 != playback.Outputs.Source.DecodedSha256 ||
                 output.Graph.Classification.Id != playback.Outputs.Classification.Id)
                 throw new InvalidDataException("Army speech output resource changed; re-enter the map to bind its new route.");
@@ -147,9 +147,11 @@ public partial class SceneAudioSession
                     throw new OperationCanceledException(voice.Token);
                 _service.PlaySpatial(clip, voice.Channel, voice.World,
                     new(voice.Request.SourceX, voice.Request.SourceY, voice.Request.SourceZ), voice.Playback.PlaybackRate,
-                    () => voice.Playback.Gain * voice.Output.ClassificationGain,
+                    () => voice.Playback.Gain,
                     () => ReleaseArmySpeechVoice(voice, stopPlayer: false), AudioVolumeGroup.Voice,
-                    AudioStreamPlayer3D.AttenuationModelEnum.Disabled, voice.Output.Bus, voice.Output.Buses.Skip(1).ToArray());
+                    AudioStreamPlayer3D.AttenuationModelEnum.Disabled, voice.Output.Bus, voice.Output.Buses.Skip(1).ToArray(), voice.Output.Sends,
+                    voice.Output.Sends.Any(send => send.IsControl) ? SpatialSoundControlMatrixSource.PrepareSpatialNarration(
+                        clip.OutputChannels, voice.Playback.SourceChannelMask) : null);
                 prepared = null; //The actual spatial player owns the decoded clip.
                 return true;
             }, voice.Token).ConfigureAwait(false);

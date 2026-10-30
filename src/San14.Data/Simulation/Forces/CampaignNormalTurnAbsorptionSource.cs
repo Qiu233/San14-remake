@@ -8,6 +8,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw AbsorptionMissing("shared_current_pool");
+        if (state.PlayerCoalitionAbsorptionTail is not null || state.NpcForceAbsorptionTail is not null)
+        {
+            if (HasPendingForceAbsorptionCurrent(state))
+                state = ResumeNormalTurnForceAbsorptionCurrent(state, current, pool);
+            if (!HasPendingForceAbsorptionCurrent(state))
+                state = ResumeForceAbsorptionCallerTailCurrent(state, current, pool);
+            var resumedArena = state.ReadArmyLifecycle() ?? throw AbsorptionMissing("resumed_lifecycle_owner");
+            return state.WithArmyLifecycle(resumedArena with { Indexes = pool.ExportOwnedState() });
+        }
         if (!NormalTurnForceAbsorptionAllowed(state, current)) return state;
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
             ?? throw AbsorptionMissing("player_pointer");

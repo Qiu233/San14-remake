@@ -9,7 +9,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             if (Seed.Language is not ("TC" or "SC")) throw new InvalidDataException("area-draft.source_language");
-            if (state.CampaignEventWorld?.CurrentUserIndex != -1)
+            if (state.CampaignEventWorld?.CurrentUserIndex != -1 &&
+                ReadApplicationGameplay()?.UserSelectionServicePresent != false)
                 throw new InvalidDataException("area-draft.tutorial_current_user");
             if (!state.Cities.TryGetValue(cityId, out var city)) throw new InvalidDataException("area-draft.city");
             var indexes = state.ReadArmyLifecycle()?.Indexes ?? throw new InvalidDataException("area-draft.saved_indexes");
@@ -18,7 +19,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             PersonReturnCommands.BindCurrent(state, current);
             _personAssignmentPrecallInputs.BindAreaAdministrationScalars(state, current);
             current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
-            var card = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario, Seed.Language, _baseCapacityInputs, _repository);
+            var card = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario, Seed.Language, _baseCapacityInputs, _repository, _governorInputs,
+                ReadApplicationGameplay()?.UserSelectionServicePresent);
             var narration = new AreaAdministrationNarrationSource(state, current, _definitions, _scenario, Seed.Language, _repository, _baseCapacityInputs);
             bool goldCapacityInputsBound = _baseCapacityInputs.BindCurrent(state, current);
             var preview = new AreaAdministrationPreviewSource(state, current, _scenario, Seed.Language, _baseCapacityInputs, goldCapacityInputsBound);

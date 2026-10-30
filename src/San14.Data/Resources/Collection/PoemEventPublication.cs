@@ -11,9 +11,13 @@ public sealed record PoemEventPublication(int ItemId, int LayoutIndex, string La
     LoadedLayout Layout, int MaxTextScrollOffsetX, IReadOnlyList<PoemEventImage> Images,
     PoemEventInfoPublication Info)
 {
-    /// <summary>The title appreciation caller clears this input even though
-    /// the source catalog records have it set.</summary>
+    /// <summary>Both callers initially hide the information group. The source
+    /// descriptor flag controls its footer hint, not this visibility.</summary>
     public bool InformationInitiallyVisible => false;
+    /// <summary>The actual second-footer hint. The descriptor's flag selects
+    /// this caption only; it does not initially display information or change
+    /// the reading, information and exit phases.</summary>
+    public int InformationFooterHintMessageId { get; init; } = 0x2986;
     public int InitialAnimationIndex => 2;
     public string InitialAnimationName => "09_ev_p_01_all";
     public IReadOnlyList<LcskAnimationClip> Animations { get; init; } = [];

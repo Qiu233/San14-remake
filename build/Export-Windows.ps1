@@ -23,6 +23,12 @@ $nativeDestination = Join-Path $buildFolder 'native/windows-x64'
     -InstallDirectory $nativeDestination | Out-Host
 & (Join-Path $projectRoot 'native/San14.Audio.Decoder/build.ps1') -MSBuildPath $MSBuildPath `
     -InstallDirectory (Join-Path $nativeDestination 'audio') | Out-Host
+& (Join-Path $projectRoot 'native/San14.Audio.Speakers/build.ps1') -MSBuildPath $MSBuildPath `
+    -InstallDirectory (Join-Path $nativeDestination 'audio') | Out-Host
+& (Join-Path $projectRoot 'native/San14.DisplayMode.Guard/build.ps1') -MSBuildPath $MSBuildPath `
+    -InstallDirectory (Join-Path $nativeDestination 'display') | Out-Host
+& (Join-Path $projectRoot 'native/San14.Media.Decoder/build.ps1') -MSBuildPath $MSBuildPath `
+    -InstallDirectory $nativeDestination | Out-Host
 & dotnet build (Join-Path $projectRoot 'game/San14.Client.sln') -c Release -nologo -v minimal | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "Client build failed ($LASTEXITCODE)." }
 

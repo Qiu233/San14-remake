@@ -12,12 +12,16 @@ internal partial class MapCommandRailButton : TextureButton
     private Texture2D? _secondMask;
     private Rect2 _secondMaskRectangle;
     private UiSourceSprite? _captionLayer;
+    private UiSourceSprite? _focusLayer;
+    private Texture2D[]? _focusTextures;
+    private Color[]? _focusTints;
     private Texture2D? _caption;
     private UiSourceText? _text;
     private MapFont? _font;
     private MapFontProfile[]? _textProfiles;
     private readonly MapCornerColors[] _palettes = new MapCornerColors[5];
     private bool _selected;
+    internal event Action<bool>? HoverChanged;
     internal bool Selected
     {
         get => _selected;
@@ -54,8 +58,8 @@ internal partial class MapCommandRailButton : TextureButton
         _firstLayer = Layer("ButtonBase", second is null ? first[0] : second[0], new(Vector2.Zero, visualSize),
             second is null ? UiSourceSprite.Blend.Ordinary : UiSourceSprite.Blend.ClippedButton);
         if (caption is not null) _captionLayer = Layer("Caption", caption, captionRectangle, UiSourceSprite.Blend.Ordinary);
-        MouseEntered += QueueRedraw;
-        MouseExited += QueueRedraw;
+        MouseEntered += () => { QueueRedraw(); HoverChanged?.Invoke(true); };
+        MouseExited += () => { QueueRedraw(); HoverChanged?.Invoke(false); };
         QueueRedraw();
 
         UiSourceSprite Layer(string name, Texture2D image, Rect2 rectangle, UiSourceSprite.Blend blend)
@@ -65,6 +69,20 @@ internal partial class MapCommandRailButton : TextureButton
             AddChild(layer);
             return layer;
         }
+    }
+
+    internal void ConfigureFocus(Shader shader, Texture2D focus, Texture2D disabledFocus,
+        Color focusTint, Color disabledFocusTint)
+    {
+        _focusTextures = [focus, disabledFocus];
+        _focusTints = [focusTint, disabledFocusTint];
+        _focusLayer = new UiSourceSprite { Name = "SourceFocusEffect", Size = _firstLayer.Size };
+        _focusLayer.Configure(shader, focus, _second is null
+            ? UiSourceSprite.Blend.Additive : UiSourceSprite.Blend.ClippedButton);
+        AddChild(_focusLayer);
+        if (_captionLayer is not null) MoveChild(_focusLayer, _captionLayer.GetIndex());
+        _focusLayer.Hide();
+        QueueRedraw();
     }
 
     internal void ConfigureText(MapFont font, MapFontProfile profile, string caption)
@@ -93,6 +111,18 @@ internal partial class MapCommandRailButton : TextureButton
         int state = VisualState;
         _firstLayer.SetSource(_second is null ? _first[state] : _second[state]);
         if (_second is not null) _firstLayer.SetClipping(_first[state], _mask!, _maskRectangle, _secondMask, _secondMaskRectangle);
+        if (_focusLayer is not null)
+        {
+            _focusLayer.Visible = state is 1 or 4;
+            if (_focusLayer.Visible)
+            {
+                int focus = state == 1 ? 0 : 1;
+                _focusLayer.SetSource(_focusTextures![focus]);
+                _focusLayer.Modulate = _focusTints![focus];
+                if (_second is not null)
+                    _focusLayer.SetClipping(_second[state], _mask!, _maskRectangle, _secondMask, _secondMaskRectangle);
+            }
+        }
         _captionLayer?.SetSource(_caption!, _palettes[state]);
         if (_text is not null)
         {
@@ -100,4 +130,6 @@ internal partial class MapCommandRailButton : TextureButton
             _text.QueueRedraw();
         }
     }
+
+    public override void _ExitTree() => HoverChanged = null;
 }

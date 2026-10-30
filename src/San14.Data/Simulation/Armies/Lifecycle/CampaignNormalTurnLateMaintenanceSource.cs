@@ -245,6 +245,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (parameters.Float32Values.ContainsKey(key)) throw LateMaintenanceMissing("integer_parameter_" + name);
         if (parameters.Int32Values.TryGetValue(key, out int saved)) return saved;
         if (parameters.Language == "TC") return tcValue; //File-backed1A4AFE8=50/1A4AFF4=36.
+        if (parameters.Language == "SC") return name switch
+        {
+            // Independently sourced SC signed32 rules. The first is read by
+            // the captive pending-merit consumer; the second by the stage1
+            // elapsed-period promotion consumer. Never infer one from TC.
+            "captive-percent" => 50, //SC1A4C018, read at2DB694.
+            "stage1-periods" => 36, //SC1A4C024, read at2F5F13.
+            _ => throw LateMaintenanceMissing("locale_parameter_" + name)
+        };
         throw LateMaintenanceMissing("locale_parameter_" + name);
     }
     private static T LateNeed<T>(T? value, string name) where T : struct => value ?? throw LateMaintenanceMissing(name);

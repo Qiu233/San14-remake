@@ -222,7 +222,8 @@ internal sealed class PersonnelGroupMovementRules
         if (owner.Disappearances?.ContainsKey(taskId) == true) return false; //232370 v98==16 only.
         if (owner.Returns.ContainsKey(taskId) || owner.Talents?.ContainsKey(taskId) == true ||
             owner.Diplomacies?.ContainsKey(taskId) == true || owner.Strategies?.ContainsKey(taskId) == true ||
-            owner.Independences?.ContainsKey(taskId) == true) return true;
+            owner.Independences?.ContainsKey(taskId) == true || owner.Caravans?.ContainsKey(taskId) == true ||
+            owner.Intelligences?.ContainsKey(taskId) == true) return true;
         throw Missing("associated_virtual98");
     }
 

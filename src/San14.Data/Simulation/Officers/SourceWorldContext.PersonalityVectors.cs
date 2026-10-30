@@ -38,17 +38,22 @@ public sealed partial class SourceWorldContext
     public IReadOnlyList<int>? ReadPersonalitySourceCodes(int physical)
     {
         Check(physical,S14PersonalityReader.Count,"personality vector receiver");
-        return _personalityVectors.TryGetValue(physical,out PersonalityVector? vector) ? vector.Values.AsReadOnly() : null;
+        return _personalityVectors.TryGetValue(physical,out PersonalityVector? vector) ? vector.Values.AsReadOnly() : _initialPersonalities?.ReadSourceCodes(physical);
     }
     public int? ReadPersonalityVectorCapacity(int physical)
     {
         Check(physical,S14PersonalityReader.Count,"personality vector receiver");
-        return _personalityVectors.TryGetValue(physical,out PersonalityVector? vector) ? vector.Capacity : null;
+        return _personalityVectors.TryGetValue(physical,out PersonalityVector? vector) ? vector.Capacity : _initialPersonalities?.ReadCapacity(physical);
     }
     private void AppendPersonalitySourceCode(int physical,byte sourceValue)
     {
-        PersonalityVector vector=_personalityVectors.GetValueOrDefault(physical)
-            ?? throw new InvalidDataException("Current personality C8 vector is unknown; construction/reset must precede fixed loading.");
+        if (!_personalityVectors.TryGetValue(physical, out PersonalityVector? vector))
+        {
+            if (_initialPersonalities is not { } initial)
+                throw new InvalidDataException("Current personality C8 vector is unknown; construction/reset must precede fixed loading.");
+            vector = new() { Values = initial.ReadSourceCodes(physical).ToList(), Capacity = initial.ReadCapacity(physical) };
+            _personalityVectors[physical] = vector;
+        }
         if (vector.Values.Count==vector.Capacity)
         {
             int required=checked(vector.Values.Count+1);

@@ -26,6 +26,16 @@ public static class CeHexWorldCoordinates
     {
         if ((uint)hexId >= Width * Height)
             throw new ArgumentOutOfRangeException(nameof(hexId));
+        return ProjectIndex(hexId);
+    }
+
+    /// <summary>1888D0 also projects a camera caller's raw word index outside
+    /// the map. In particular, 48400 is row 220, not a missing camera request.
+    /// This does not make that index a valid world Hex.</summary>
+    public static ProjectedMapPoint ProjectEventCamera(ushort rawHexIndex) => ProjectIndex(rawHexIndex);
+
+    private static ProjectedMapPoint ProjectIndex(int hexId)
+    {
         int column = hexId % Width, row = hexId / Width;
         float x = column * 702f;
         x += 37594f;

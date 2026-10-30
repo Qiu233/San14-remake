@@ -10,6 +10,16 @@ public partial class Main
     private GameState? _governanceNarrationWorld;
     private MapSceneView? _governanceNarrationMap;
 
+    private Action<GameState>? _governanceNarrationAdoptSpeechWorld;
+
+    private void AdoptGovernanceNarrationSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        if (_governanceNarration is null || _governanceNarrationSession != session ||
+            _governanceNarrationMap != _residentMap || !ReferenceEquals(_governanceNarrationWorld, previous)) return;
+        _governanceNarrationWorld = replacement;
+        _governanceNarrationAdoptSpeechWorld?.Invoke(replacement);
+    }
+
     private void TryOpenGovernanceNarration()
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasAdministrationPage ||
@@ -24,6 +34,7 @@ public partial class Main
             row.Requests.All(request => request.GovernanceNarration?.ForceId == player));
         if (batch is null) return;
         var rules = composition.PrepareArmyQueries(world);
+        _governanceNarrationAdoptSpeechWorld = next => world = next;
         int index = 0;
         ShowNext();
 
@@ -50,8 +61,7 @@ public partial class Main
                 return;
             }
             var sprites = new LocalizedUiSpriteSource(_repository!);
-            var layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-                .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+            var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
             var view = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };
             _governanceNarration = view; _governanceNarrationSession = session;
             _governanceNarrationWorld = world; _governanceNarrationMap = map;
@@ -79,6 +89,7 @@ public partial class Main
     private void CloseGovernanceNarration()
     {
         var view = _governanceNarration; var map = _governanceNarrationMap;
+        _governanceNarrationAdoptSpeechWorld = null;
         _governanceNarration = null; _governanceNarrationSession = null;
         _governanceNarrationWorld = null; _governanceNarrationMap = null;
         if (view is not null)

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "MainStarMaterialState.h"
 #include <cstdint>
 #include <cstring>
@@ -40,7 +41,7 @@ struct MainStarPassLayout {
 using MainStarMaterialLayout=std::array<MainStarPassLayout,2>;
 
 inline MainStarMaterialLayout readMainStarMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     auto word=[&]() {
         std::uint32_t value{};stream.read(reinterpret_cast<char*>(&value),sizeof(value));
         if(!stream)throw std::runtime_error("Incomplete Main Star material layout");
@@ -83,7 +84,7 @@ inline MainStarMaterialLayout readMainStarMaterialLayout(const std::filesystem::
 }
 inline std::array<source_camera::V4,16> readMainStarTwinkleTable(const std::filesystem::path& path) {
     std::array<source_camera::V4,16> table{};
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     stream.read(reinterpret_cast<char*>(table.data()),sizeof(table));
     if(!stream||stream.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Main Star twinkle table extent");

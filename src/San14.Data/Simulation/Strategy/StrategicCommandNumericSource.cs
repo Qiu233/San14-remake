@@ -296,8 +296,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             var app = package.ReadApplicationGameplay() ?? throw StrategyMissing("numeric_Application");
             if (!StrategyNeed(app.TutorialServicePresent, "numeric_tutorial_service")) return false;
             if (!StrategyNeed(app.TutorialActive, "numeric_tutorial_active")) return false;
-            if (!StrategyNeed(app.SpecialModeServicePresent, "numeric_special_service")) return false;
-            throw StrategyMissing("numeric_special_service_byte6_bit4");
+            //1EBA70 reads570840, the tutorial's actual13-byte bitmap.
+            //It is independent of the application's special-mode service.
+            var control = package.ReadTutorialControlState(state);
+            return TacticRemakeCurrentBattleControl.Read(control, 52)
+                ?? throw StrategyMissing("numeric_tutorial_byte6_bit4");
         }
         private bool TargetValid() => kind switch
         {

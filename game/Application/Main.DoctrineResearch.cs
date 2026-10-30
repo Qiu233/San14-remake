@@ -9,15 +9,30 @@ public partial class Main
         MapSceneView map, DoctrineResearchDraft draft)
     {
         internal GameplaySession Session { get; } = session;
-        internal GameState World { get; } = world;
+        internal GameState World { get; set; } = world;
         internal MapSceneView Map { get; } = map;
         internal DoctrineResearchDraft Draft { get; } = draft;
         internal DoctrineResearchView View { get; set; } = null!;
         internal DeploymentTargetConfirmation? Question { get; set; }
         internal MapInformationListView? Effects { get; set; }
+        internal long SelectionAcceptedSequence, ResearchAcceptedSequence;
+        internal int? LastSelectedPanelId, LastResearchedPanelId;
     }
     private DoctrineResearchWorkspace? _doctrineResearch;
+    private Func<int, bool>? DoctrinePanelAdmission, DoctrineResearchAdmission;
+    private Func<bool>? DoctrineDecisionAdmission;
+    private Func<bool>? DoctrineAuxiliaryAdmission;
+    private bool DoctrineReturnAllowed = true;
     private bool HasDoctrineResearchPage => _doctrineResearch is not null;
+    private void AdoptDoctrineResearchSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The caller admits only a committed speech transition. Retain the
+        // same draft and child callbacks with their captured business baseline.
+        if (_doctrineResearch is not { } owner || owner.Session != session ||
+            owner.Map != _residentMap || !ReferenceEquals(owner.World, previous)) return;
+        owner.World = replacement;
+    }
+
     private bool IsDoctrineResearchCurrent(DoctrineResearchWorkspace owner) => !_failed && !_shuttingDown &&
         _doctrineResearch == owner && _session == owner.Session && _residentMap == owner.Map &&
         ReferenceEquals(owner.Session.World, owner.World);
@@ -41,17 +56,21 @@ public partial class Main
         var owner = new DoctrineResearchWorkspace(session, world, map, draft);
         _doctrineResearch = owner;
         var view = new DoctrineResearchView(); owner.View = view; AddChild(view);
+        view.PanelAdmission = id => DoctrinePanelAdmission?.Invoke(id) ?? true;
+        view.ResearchAdmission = id => DoctrineResearchAdmission?.Invoke(id) ?? true;
+        view.DecisionAdmission = () => DoctrineDecisionAdmission?.Invoke() ?? true;
+        view.AuxiliaryAdmission = () => DoctrineAuxiliaryAdmission?.Invoke() ?? true;
+        view.ReturnAdmission = () => DoctrineReturnAllowed;
         try
         {
-            LoadedSprite[] layers = [];
+            IReadOnlyList<LoadedSprite> layers = [];
             if (draft.RulerId is int ruler)
             {
                 var actor = rules.QueryPersonnelPresentationSpeaker(world, ruler);
                 if (actor.Value?.StandingPortrait is { } standing)
                 {
                     var sprites = new LocalizedUiSpriteSource(_repository);
-                    layers = new[] { standing.SpriteB, standing.SpriteA, standing.SpriteC }
-                        .Select(name => sprites.LoadTexturePackSprite(standing.ResourceName, name)).ToArray();
+                    layers = standing.LoadSprites(sprites.LoadTexturePackSprite);
                 }
                 else if ((actor.Value?.PortraitUnresolvedInput ?? actor.UnresolvedInput) is { } portraitMissing)
                     GD.PushWarning(portraitMissing);
@@ -59,21 +78,28 @@ public partial class Main
             view.Configure(_repository, _ui, () => CanEditDoctrineResearch(owner),
                 () => RunUiAction(() => RequestDoctrineResearchBack()),
                 () => RunPlayAction(() => SubmitDoctrineResearch(owner)),
-                id => RunUiAction(() => { if (CanEditDoctrineResearch(owner) && draft.SelectPanel(id)) RefreshDoctrineResearch(owner); }),
+                id => RunUiAction(() =>
+                {
+                    if (CanEditDoctrineResearch(owner) && (DoctrinePanelAdmission?.Invoke(id) ?? true) && draft.SelectPanel(id))
+                    { owner.LastSelectedPanelId = id; owner.SelectionAcceptedSequence++; RefreshDoctrineResearch(owner); }
+                }),
                 () => RunUiAction(() =>
                 {
-                    if (CanEditDoctrineResearch(owner) && draft.SelectedPanelId is int id && draft.Research(id)) RefreshDoctrineResearch(owner);
+                    if (CanEditDoctrineResearch(owner) && draft.SelectedPanelId is int id &&
+                        (DoctrineResearchAdmission?.Invoke(id) ?? true) && draft.Research(id))
+                    { owner.LastResearchedPanelId = id; owner.ResearchAcceptedSequence++; RefreshDoctrineResearch(owner); }
                     else if (draft.LastError is { } error) DoctrineResearchUnavailable(error);
                 }),
                 () => RunUiAction(() => RedefineDoctrineResearch(owner)),
                 () => RunUiAction(() =>
                 {
-                    if (CanEditDoctrineResearch(owner) && draft.AutoResearch()) RefreshDoctrineResearch(owner);
+                    if (CanEditDoctrineResearch(owner) && (DoctrineAuxiliaryAdmission?.Invoke() ?? true) && draft.AutoResearch()) RefreshDoctrineResearch(owner);
                     else if (draft.LastError is { } error) DoctrineResearchUnavailable(error);
                 }),
                 () => RunUiAction(() => OpenDoctrineResearchEffects(owner)), layers);
             map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true);
             SetMapFocus(true); HideDeploymentHud(); RefreshDoctrineResearch(owner);
+            BindCurrentTutorialCreditAndDoctrine();
         }
         catch { CloseDoctrineResearch(); throw; }
     }
@@ -100,7 +126,7 @@ public partial class Main
 
     private void SubmitDoctrineResearch(DoctrineResearchWorkspace owner)
     {
-        if (!CanEditDoctrineResearch(owner) || !owner.Draft.CanConfirm) return;
+        if (!CanEditDoctrineResearch(owner) || !owner.Draft.CanConfirm || !(DoctrineDecisionAdmission?.Invoke() ?? true)) return;
         owner.View.SetBusy(true);
         if (!ApplyPlayableOrder(owner.Draft.BuildOrder(), CloseDoctrineResearch))
         { owner.View.SetBusy(false); RefreshDoctrineResearch(owner); }
@@ -108,7 +134,7 @@ public partial class Main
 
     private void RedefineDoctrineResearch(DoctrineResearchWorkspace owner)
     {
-        if (!CanEditDoctrineResearch(owner) || !owner.Draft.CanRedefine) return;
+        if (!CanEditDoctrineResearch(owner) || !owner.Draft.CanRedefine || !(DoctrineAuxiliaryAdmission?.Invoke() ?? true)) return;
         void Apply()
         {
             if (owner.Draft.Redefine()) RefreshDoctrineResearch(owner);
@@ -121,6 +147,7 @@ public partial class Main
     private void RequestDoctrineResearchBack(bool escape = false)
     {
         if (_doctrineResearch is not { } owner || !IsDoctrineResearchCurrent(owner)) return;
+        if (!DoctrineReturnAllowed) return;
         if (owner.Question is { } question) { question.RequestCancel(); return; }
         if (owner.Effects is not null) { CloseDoctrineResearchEffects(owner); return; }
         if (escape && owner.Draft.SelectedPanelId is not null)
@@ -147,7 +174,7 @@ public partial class Main
 
     private void OpenDoctrineResearchEffects(DoctrineResearchWorkspace owner)
     {
-        if (!CanEditDoctrineResearch(owner)) return;
+        if (!CanEditDoctrineResearch(owner) || !(DoctrineAuxiliaryAdmission?.Invoke() ?? true)) return;
         var guide = owner.Draft.QueryEffectsGuide();
         if (!guide.Available) { DoctrineResearchUnavailable(guide.UnresolvedInput ?? "doctrine-research.effects_guide"); return; }
         var rows = owner.Draft.EffectRows.Select(row => new MapInformationListRow(row.PanelId, [row.Name], true)).ToArray();
@@ -170,6 +197,8 @@ public partial class Main
     private void CloseDoctrineResearch()
     {
         var owner = _doctrineResearch; _doctrineResearch = null;
+        DoctrinePanelAdmission = DoctrineResearchAdmission = null;
+        DoctrineDecisionAdmission = DoctrineAuxiliaryAdmission = null; DoctrineReturnAllowed = true;
         if (owner is null) return;
         CloseDoctrineResearchEffects(owner);
         if (owner.Question is { } question)

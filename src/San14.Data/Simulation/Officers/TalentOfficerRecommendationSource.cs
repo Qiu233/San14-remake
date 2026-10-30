@@ -27,6 +27,8 @@ internal sealed class TalentOfficerRecommendationSource(TalentUiQuerySource page
         return rows.AsReadOnly();
     }
 
+    internal void ClearRecruitTargetCache() => ordinaryRecruitDays.Clear();
+
     internal IReadOnlyList<TalentOfficerRecommendation> RecruitTarget(int targetPhysical, IReadOnlyList<int> actors,
         Func<int, bool> advise)
     {
@@ -38,10 +40,16 @@ internal sealed class TalentOfficerRecommendationSource(TalentUiQuerySource page
             int days;
             if (HasJourneyTrait(physical) || !ordinaryRecruitDays.TryGetValue((home, targetPhysical), out days))
             {
-                var force = current.ReadPersonForce(physical) ?? throw Missing("recruit_Force");
-                days = TalentTravelSource.Resolve(page.State, current, TalentOrderKind.Recruit, physical,
-                    BaseLookup.Find(home, current), null, targetPhysical, force,
-                    page.State.NativeMapSeason?.ThirdDate ?? throw Missing("date")).TravelDays;
+                var date = page.State.NativeMapSeason?.ThirdDate ?? throw Missing("date");
+                var first = PersonReturnCommands.ResolvePersonPosition(page.State, current, physical, date);
+                var last = PersonReturnCommands.ResolvePersonPosition(page.State, current, targetPhysical, date);
+                var force = current.ReadForceTableReference(page.ForceId) ?? throw Missing("recruit_District_Force");
+                int count = first.PhysicalSlot is int a && last.PhysicalSlot is int b
+                    ? PersonReturnPathSource.Search(current, a, b).Length : 0;
+                //231670 clamps its path count-minus-one before2318F0 applies
+                //the actual executor's journey trait and District Force.
+                days = PersonReturnPathSource.CalculateTalentTravelDays(page.State, current,
+                    Math.Max(1, unchecked(count - 1)), physical, force);
                 if (!HasJourneyTrait(physical)) ordinaryRecruitDays[(home, targetPhysical)] = days;
             }
             rows.Add(new(actor, days, recommended));

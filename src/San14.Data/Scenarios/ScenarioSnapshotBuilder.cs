@@ -150,6 +150,8 @@ public static class ScenarioSnapshotBuilder
                 definition.RawLimit1, definition.RawLimit2, definition.GroupCode,
                 capitalMatches.Length == 1 ? capitalMatches[0].HexId : null)
             {
+                RawNeighborSlots58 = definition.RawNeighborSlots58,
+                RawField68 = definition.RawField68,
                 RawValidityFlag69 = city.RawValidityFlag69,
                 RawAutomaticTactics48 = city.RawAutomaticTactics48
             });
@@ -179,6 +181,7 @@ public static class ScenarioSnapshotBuilder
                 RawSexCode = sexes[placement.Slot].RawCode,
                 DialogueStyle = dialogue?[placement.Slot].Style,
                 VoiceType = dialogue?[placement.Slot].VoiceType,
+                SpecialVoiceType = dialogue?[placement.Slot].SpecialVoiceType,
                 BirthYear = dialogue?[placement.Slot].BirthYear,
                 FamilyGeneration = dialogue?[placement.Slot].FamilyGeneration,
                 FamilyName = people.Names[placement.Slot].FamilyName,
@@ -216,6 +219,8 @@ public static class ScenarioSnapshotBuilder
                 PersonName(state.OfficerSlot), state.DistrictSlot, ForceOf(state.DistrictSlot),
                 state.Amount0, state.Amount1, state.Troops, state.RemainingBytesHex)
                 {
+                    RawNeighborSlots58 = gate.RawNeighborSlots58,
+                    RawField68 = gate.RawField68,
                     RawValidityFlag69 = state.RawValidityFlag69,
                     RawAutomaticTactics48 = state.RawAutomaticTactics48,
                     RawMorale44 = state.RawMorale44,

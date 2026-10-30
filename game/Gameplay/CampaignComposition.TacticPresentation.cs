@@ -24,5 +24,12 @@ public sealed partial class CampaignComposition
             var result = Rules.QueryUniqueTacticDirectionAdmission(state, actor, tacticId, views?.Read(actor.Id));
             return result.Available ? result.Value : null;
         }
+
+        public bool? ReadUniqueDirectionAdmission(GameState state, int casterUnitId, int armyPhysical, int tacticId)
+        {
+            var views = Volatile.Read(ref owner._tacticPresentationViews);
+            var result = Rules.QueryUniqueTacticDirectionAdmission(state, armyPhysical, tacticId, views?.Read(casterUnitId));
+            return result.Available ? result.Value : null;
+        }
     }
 }

@@ -42,9 +42,9 @@ public sealed class ModelShaderProgram : IAsyncDisposable
     }
 
     public static async Task<ModelShaderProgram> BuildAsync(LoadedShaderContainer source,
-        int explicitCombinationIndex, Vkd3dShaderCompiler compiler, ArmySkinVertexProfile? armySkinProfile=null)
+        int explicitCombinationIndex, Vkd3dShaderCompiler compiler, ArmySkinVertexProfile? armySkinProfile=null, bool reflectionCaptureUnusedConstantTail=false)
     {
-        var prepared = ModelShaderPreparation.Prepare(source, explicitCombinationIndex, compiler, armySkinProfile);
+        var prepared = ModelShaderPreparation.Prepare(source, explicitCombinationIndex, compiler, armySkinProfile,reflectionCaptureUnusedConstantTail);
         return await BuildPreparedAsync(prepared);
     }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ShadowReceiverInputs.h"
 #include "ShadowReceiverMaterialInputs.h"
 #include "../Environment/AmbientRenderer.h"
@@ -25,7 +26,7 @@ class NativeShadowReceiverResources {
 public:
     void prepare(ID3D11Device* device,const fs::path& root) {
         auto nodes=Interop::readShadowReceiverNodes(root/"nodes.tsv");
-        std::ifstream atlasDeclaration(root/"shadow-atlas-object.txt");
+        NativePreparedInputFile atlasDeclaration(root/"shadow-atlas-object.txt");
         std::uint32_t atlasObject{};std::string extra;
         if(!(atlasDeclaration>>atlasObject)||atlasDeclaration>>extra)
             throw std::runtime_error("Receiver compact atlas declaration is absent or malformed");
@@ -55,7 +56,7 @@ public:
                 if(row.recipe<0||provider.recipes.contains(row.recipe))continue;
                 const auto recipeDirectory=directory/"recipes"/std::to_string(row.recipe);
                 NativeShadowReceiverRecipe recipe;
-                std::ifstream reason(recipeDirectory/"unsupported.txt");
+                NativePreparedInputFile reason(recipeDirectory/"unsupported.txt");
                 if(reason)recipe.unsupported.assign(std::istreambuf_iterator<char>(reason),{});
                 else recipe.layout=Interop::readShadowReceiverMaterialLayout(recipeDirectory/"layout.bin");
                 provider.recipes.emplace(row.recipe,std::move(recipe));

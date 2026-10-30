@@ -5,6 +5,9 @@ public sealed record PersonnelGroupPersonCell(int ColumnId, string? Text, int? N
 {
     public string? SortUnresolvedOwner { get; init; }
     public int? SortGroup { get; init; }
+    public PersonLocationOrderKey? LocationOrder { get; init; }
+    public string? SourceFormattedText { get; init; }
+    public string? PresentationUnresolvedOwner { get; init; }
 }
 public sealed record PersonnelGroupPersonListRow(int OfficerId, IReadOnlyList<PersonnelGroupPersonCell> Cells);
 public sealed record PersonnelGroupPersonPage(int PageIndex, IReadOnlyList<int> ColumnIds,

@@ -19,9 +19,11 @@ internal static class ArmyOverrideSaveValidation
             if (target.Destination is not { } destination) return;
             bool shape = destination.Kind switch
             {
-                ArmyOverrideDestinationKind.None or ArmyOverrideDestinationKind.Unresolved => destination.EntityId is null && destination.ReceiverId is null,
-                ArmyOverrideDestinationKind.City or ArmyOverrideDestinationKind.Gate or ArmyOverrideDestinationKind.Hex => destination.EntityId is >= 0 && destination.ReceiverId is null,
-                ArmyOverrideDestinationKind.ArmyReceiver => destination.EntityId is null && destination.ReceiverId is { Value: > 0 } id && receivers.Contains(id),
+                ArmyOverrideDestinationKind.None or ArmyOverrideDestinationKind.Unresolved => destination.EntityId is null && destination.ReceiverId is null && destination.MapObjectReceiverId is null,
+                ArmyOverrideDestinationKind.City or ArmyOverrideDestinationKind.Gate or ArmyOverrideDestinationKind.Hex => destination.EntityId is >= 0 && destination.ReceiverId is null && destination.MapObjectReceiverId is null,
+                ArmyOverrideDestinationKind.ArmyReceiver => destination.EntityId is null && destination.MapObjectReceiverId is null && destination.ReceiverId is { Value: > 0 } id && receivers.Contains(id),
+                ArmyOverrideDestinationKind.MapObjectReceiver => target.Kind == ArmyOverrideTargetKind.Object && destination.EntityId is null && destination.ReceiverId is null &&
+                    destination.MapObjectReceiverId is { Value: > 0 } mapObject && state.MapObjects?.Find(mapObject) is not null,
                 _ => false
             };
             if (!shape) throw new InvalidDataException("Saved override destination is invalid.");
@@ -33,6 +35,7 @@ internal static class ArmyOverrideSaveValidation
                 ArmyOverrideTargetKind.Gate => ArmyOverrideDestinationKind.Gate,
                 ArmyOverrideTargetKind.Hex => ArmyOverrideDestinationKind.Hex,
                 ArmyOverrideTargetKind.ArmyReceiver => ArmyOverrideDestinationKind.ArmyReceiver,
+                ArmyOverrideTargetKind.Object => ArmyOverrideDestinationKind.MapObjectReceiver,
                 _ => ArmyOverrideDestinationKind.Unresolved
             };
             if (destination.Kind != expected) throw new InvalidDataException("Saved override category and destination disagree.");

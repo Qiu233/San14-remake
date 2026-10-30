@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // CE FPSManager + actual FrameSync wait/dispatch predicates. No scheduler,
 // elapsed accumulator, rendering request count or actor clock is introduced.
 #include <array>
@@ -10,7 +11,7 @@ namespace source_animation_cadence {
 struct Profile {std::array<uint32_t,2> fps;};
 struct FpsManager {uint32_t mode8=0;}; // CE935110
 inline Profile readProfile(const std::filesystem::path& path) {
- Profile p;std::ifstream in(path,std::ios::binary);in.read(reinterpret_cast<char*>(p.fps.data()),8);
+ Profile p;NativePreparedInputFile in(path,std::ios::binary);in.read(reinterpret_cast<char*>(p.fps.data()),8);
  if(!in||p.fps[0]==0||p.fps[1]==0)throw std::runtime_error("Source animation FPS table");return p;
 }
 inline void applyLoadedOption31(FpsManager& owner,uint32_t selectedSettings84) {

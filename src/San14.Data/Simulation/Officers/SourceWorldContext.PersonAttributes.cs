@@ -3,10 +3,16 @@ namespace San14.Data;
 public sealed partial class SourceWorldContext : IPersonAttributePostLoadState
 {
     private readonly Dictionary<(int Person, int Offset), byte?> _personAttributeBytes = [];
+    private InitialPersonAttributeValues? _initialPersonAttributes;
     public int? ReadPersonPostLoadPhysicalSlot(int receiver)
     { Check(receiver, 1851, "person attribute receiver"); return receiver; }
     public byte? ReadPersonPostLoadByte(int receiver, int offset)
-    { CheckPersonAttributeField(receiver, offset); return _personAttributeBytes.GetValueOrDefault((receiver, offset)); }
+    {
+        CheckPersonAttributeField(receiver, offset);
+        //A present null is an actual current Unknown, not a missing override.
+        return _personAttributeBytes.TryGetValue((receiver, offset), out var value)
+            ? value : _initialPersonAttributes?.Read(receiver, offset);
+    }
     public void WritePersonPostLoadByte(int receiver, int offset, byte value) => SetPersonPostLoadByte(receiver, offset, value);
     public void SetPersonPostLoadByte(int receiver, int offset, byte? value)
     { CheckPersonAttributeField(receiver, offset); _personAttributeBytes[(receiver, offset)] = value; }

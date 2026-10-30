@@ -73,6 +73,7 @@ SAN14_RENDER_API int __cdecl san14_render_next_map_effects_v1(void* owner,void* 
     uint32_t outputUse,San14RenderReceipt* receipt);
 // Synchronous calls on the same render thread as next; all package bytes are
 // consumed before return. Allocation identities belong to this session.
+SAN14_RENDER_API int __cdecl san14_effect_retire_owner_v1(void* owner,uint64_t sourceOwner);
 SAN14_RENDER_API uint64_t __cdecl san14_effect_direct_create_v1(void* owner,const uint8_t* bytes,uint32_t byteCount);
 SAN14_RENDER_API int __cdecl san14_effect_direct_submit_v1(void* owner,uint64_t allocation,const uint8_t* bytes,uint32_t byteCount);
 SAN14_RENDER_API int __cdecl san14_effect_direct_live_v1(void* owner,uint64_t allocation,int32_t* live);

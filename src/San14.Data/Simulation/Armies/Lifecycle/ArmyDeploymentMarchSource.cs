@@ -7,6 +7,13 @@ namespace San14.Data;
 internal sealed record ArmyDeploymentMarchSource(ArmyMarchState March, ArmyTargetSourceFields Goal, byte Action,
     byte? RouteHold)
 {
+    //0A19B0 explicitly clears the five relay destinations before1EC980.
+    //The raw action and actual target were independently prepared by the AI
+    //source caller, and must not be translated through player button keys.
+    internal static ArmyDeploymentMarchSource ReadSourceDeparture(ArmyTargetSourceFields goal, byte action, byte? commandControl)
+        => new(new(0, commandControl is null ? null : ArmyMarchDestination.None, ArmyMarchDestination.None)
+            { FollowingWaypoints = commandControl is null ? null : new([]) }, goal, action, 0);
+
     internal static ArmyDeploymentMarchSource? Read(PreparedDeployment deployment, byte? commandControl,
         ArmyTargetSourceFields? normalTarget = null)
     {

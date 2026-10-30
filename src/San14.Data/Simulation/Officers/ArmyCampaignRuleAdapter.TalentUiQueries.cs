@@ -24,7 +24,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             id => ReadTalentOfficerCard(state, current, cards, id),
             (working, id, dimension) => abilities.ResolveDimension(working, id, dimension,
                 (f, effect) => _baseCapacityInputs.ReadPanelModifier(working, f, effect))
-                ?? throw TalentUiQuerySource.Missing("recommend_ability"));
+                ?? throw TalentUiQuerySource.Missing("recommend_ability"), state,
+            recruitment ? null : CreateTalentSearchFastAdvice(current, abilities),
+            recruitment ? ReadTalentRecruitTargetsCurrent(queryState, current, forceId) : null,
+            recruitment ? ReadTalentRecruitExecutorsCurrent(current, districtId) : null);
         return new(source);
     }
 

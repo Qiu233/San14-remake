@@ -24,7 +24,7 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
     }
 
     internal G1EffectGpuPublication Encode(ulong sequence, byte[] stream,
-        IReadOnlyList<G1EffectGpuPreparedDraw> draws, bool direct = false)
+        IReadOnlyList<G1EffectGpuPreparedDraw> draws, bool direct = false, bool mainBankZeroOwner = false)
     {
         foreach (var draw in draws)
         {
@@ -38,15 +38,17 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
                 else if (binding.Sampler is { } sampler) Register(samplers, sampler);
         }
         using var blob = new Blob();
-        int header = blob.Reserve(48), rows = blob.Reserve(checked(draws.Count * 100));
+        int header = blob.Reserve(64), rows = blob.Reserve(checked(draws.Count * 108));
         int constantCount = draws.Sum(draw => draw.Constants.Count);
         int textureCount = draws.Sum(draw => draw.Textures.Count), samplerCount = draws.Sum(draw => draw.Samplers.Count);
         int constants = blob.Reserve(checked(constantCount * 16));
         int textureBindings = blob.Reserve(checked(textureCount * 16));
         int samplerBindings = blob.Reserve(checked(samplerCount * 16));
         int streamOffset = blob.Append(stream, 16);
-        blob.Words(header, 0x31464543, 1, streamOffset, stream.Length, draws.Count, rows,
+        blob.Words(header, 0x31464543, 3, streamOffset, stream.Length, draws.Count, rows,
             constantCount, constants, textureCount, textureBindings, samplerCount, samplerBindings);
+        // CEF3 extends the header, not the draw ABI or native API envelope.
+        blob.Words(header + 48, mainBankZeroOwner ? 1 : 0, 0, 0, 0);
         int ci = 0, ti = 0, si = 0;
         for (int index = 0; index < draws.Count; index++)
         {
@@ -72,12 +74,14 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
                 indexStart = subdraw.IndexStart; baseVertex = subdraw.BaseVertex;
             }
             int blendOffset = blob.Append(draw.Blend.Span);
-            blob.Words(rows + index * 100, Pipeline(draw.Pipeline), draw.Scope.SourceNode,
+            blob.Words(rows + index * 108, Pipeline(draw.Pipeline), draw.Scope.SourceNode,
                 draw.Scope.View, draw.Scope.Timing, packet.Configuration, packet.RenderingType,
                 packet.HeaderFlags, packet.Flags, packet.AlphaReference, draw.StreamOffset,
                 packet.DynamicStride, packet.DynamicCount, unchecked((uint)meshId), topology,
                 indexCount, indexStart, unchecked((uint)baseVertex), firstConstant, draw.Constants.Count,
                 firstTexture, draw.Textures.Count, firstSampler, draw.Samplers.Count, blendOffset, draw.Blend.Length);
+            blob.Words(rows + index * 108 + 100, unchecked((uint)draw.Scope.SourceOwner),
+                unchecked((uint)(draw.Scope.SourceOwner >> 32)));
         }
         return new(CaptureResources(), blob.ToArray(), G1EffectGpuUpdateKind.Replace, sequence);
     }
@@ -88,11 +92,14 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
             (binding.Sampler is null ? 0 : 1);
         if (count != 1 || !sampler && binding.Sampler is not null)
             throw new InvalidDataException("Effect binding requires exactly one current source.");
-        int id = sampler ? binding.Texture is { } wrapped ? Register(samplers, wrapped) :
+        long id = sampler ? binding.Texture is { } wrapped ? Register(samplers, wrapped) :
             binding.Sampler is { } standalone ? Register(samplers, standalone) : 0 :
             binding.Texture is { } image ? Texture(image) : 0;
-        blob.Words(offset, binding.StageCode, binding.Slot, (uint?)binding.Global ?? 0,
-            id);
+        if (binding.Global == G1EffectGpuGlobalTexture.PatternLighting)
+            id = binding.ExternalOwnerObjectId ?? throw new InvalidDataException("Effect Pattern binding has no current outer Light owner.");
+        else if (binding.ExternalOwnerObjectId.HasValue)
+            throw new InvalidDataException("Effect external object identity belongs to the Pattern binding.");
+        blob.Words(offset, binding.StageCode, binding.Slot, (uint?)binding.Global ?? 0, id);
     }
 
     internal G1EffectGpuResourceUpload CaptureResources()

@@ -40,6 +40,17 @@ public static class D3D11HdrProgramMediaPreparation
         foreach(var declaration in catalog.Resources.Declarations)
         {
             string bank=Path.Combine(directory,declaration.NodeIndex.ToString(CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(bank);
+            int hatchingModules=declaration.Shader.ReadConfigurations().Records.Count(record=>record.Name=="HatchingShadow");
+            if(hatchingModules>1)
+                throw new NotSupportedException("A shader declaring multiple Hatching instances needs their separate module owners.");
+            using(var moduleFile=File.Create(Path.Combine(bank,"shader-module.bin")))
+            using(var moduleWriter=new BinaryWriter(moduleFile))
+            {
+                moduleWriter.Write(0x314D5348u); // HSM1: one named shader resource's plugin owner.
+                moduleWriter.Write(declaration.Reference.ShaderObject.ObjectId);
+                moduleWriter.Write(hatchingModules==1?1u:0u);
+            }
             var vertexDefinitions=new Dictionary<int,DxbcResourceDefinitions>();
             var vertexInterfaces=new Dictionary<int,bool>();
             var pixelInterfaces=new Dictionary<int,bool>();
@@ -100,6 +111,7 @@ public static class D3D11HdrProgramMediaPreparation
                     File.WriteAllText(Path.Combine(recipe.Directory,"cbuffers.txt"),
                         FormattableString.Invariant($"PS {globalBinding.BindPoint} {file}\n"));
                     File.WriteAllLines(Path.Combine(recipe.Directory,"camera-writes.txt"),packet.CameraWriteLayout);
+                    WriteMaterialLayout(recipe.Directory,pixel,globals,reasons);
                     WriteHeightFogLayout(recipe.Directory,pixel,globals,reasons);
                     var lighting=CreateWrites(globals,LightingNames,LightingSizes,reasons);
                     using(var stream=File.Create(Path.Combine(recipe.Directory,"hdr-lighting-layout.bin")))
@@ -129,6 +141,28 @@ public static class D3D11HdrProgramMediaPreparation
 
     private sealed record FieldWrite(int Kind,int Destination,int Bytes);
     private static bool IsUsed(DxbcRdefVariable field)=>(field.Flags&2)!=0;
+
+    private static void WriteMaterialLayout(string directory,DxbcResourceDefinitions definitions,
+        DxbcRdefBuffer globals,List<string> reasons)
+    {
+        string[] names=["hsRampPrm","hsAOPrm","hsUVMat","fSdmFade"];
+        int[] widths=[16,16,12,4],columns=[4,4,3,1],elements=[0,0,2,0];
+        var rows=new List<string>();
+        for(int kind=0;kind<names.Length;kind++)
+        {
+            var field=globals.Variables.SingleOrDefault(field=>field.Name.Text==names[kind]);
+            if(field is null||!IsUsed(field))continue;
+            var type=definitions.Types.Single(type=>type.Offset==field.TypeOffset);
+            int count=Math.Max(1,elements[kind]),width=widths[kind];
+            if(type.BaseType!=3||type.Class!=(columns[kind]==1?0:1)||
+                type.Rows!=1||type.Columns!=columns[kind]||type.Elements!=elements[kind]||
+                field.ByteSize!=(count-1)*16+width)
+            {reasons.Add("Material plugin field shape has no producer: "+names[kind]);continue;}
+            for(int element=0;element<count;element++)
+                rows.Add(FormattableString.Invariant($"{kind} {field.StartOffset+element*16} {element*16} {width}"));
+        }
+        File.WriteAllLines(Path.Combine(directory,"material-writes.txt"),rows);
+    }
 
     private static HashSet<string> WriteClusterLayout(string directory,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)

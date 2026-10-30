@@ -1,9 +1,10 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "WeatherFogState.h"
 #include <optional>
 namespace source_weather_fog {
 inline Profile readProfile(const std::filesystem::path& source){
-    Profile p;std::ifstream s(source/"profile.bin",std::ios::binary);
+    Profile p;NativePreparedInputFile s(source/"profile.bin",std::ios::binary);
     const auto fields=source_camera::read<std::array<float,46>>(s);
     p.conditions={fields[0],fields[1],fields[36]};
     p.response={fields[2],fields[3],fields[4],fields[5],fields[6],fields[7],fields[8],fields[9],
@@ -17,7 +18,7 @@ inline Profile readProfile(const std::filesystem::path& source){
     p.power.reciprocal=source_camera::read<std::array<double,257>>(s);p.power.logarithms=source_camera::read<std::array<double,257>>(s);
     p.power.exponentials=source_camera::read<std::array<double,64>>(s);p.power.constants=source_camera::read<std::array<double,11>>(s);
     if(s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather Fog profile tail");
-    std::ifstream table(source/"ambient2d-half4.bin",std::ios::binary);p.ambient.resize(64*256*4);
+    NativePreparedInputFile table(source/"ambient2d-half4.bin",std::ios::binary);p.ambient.resize(64*256*4);
     table.read(reinterpret_cast<char*>(p.ambient.data()),p.ambient.size()*sizeof(uint16_t));
     if(!table||table.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Weather Ambient2D raw shape");return p;
 }
@@ -29,7 +30,7 @@ struct ImportedWeatherProfile {
     Power power;
 };
 inline ImportedWeatherProfile readWeatherProfile(const std::filesystem::path& source) {
-    std::ifstream selection(source/"selection.bin",std::ios::binary);
+    NativePreparedInputFile selection(source/"selection.bin",std::ios::binary);
     const auto words=source_camera::read<std::array<std::uint32_t,2>>(selection);
     if(words[0]!=0x31534657u||selection.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Weather WFS1 selection format");
@@ -38,7 +39,7 @@ inline ImportedWeatherProfile readWeatherProfile(const std::filesystem::path& so
         result.profile=readProfile(source);
         result.power=result.profile->power;
     } else {
-        std::ifstream power(source/"power.bin",std::ios::binary);
+        NativePreparedInputFile power(source/"power.bin",std::ios::binary);
         result.power.reciprocal=source_camera::read<std::array<double,257>>(power);
         result.power.logarithms=source_camera::read<std::array<double,257>>(power);
         result.power.exponentials=source_camera::read<std::array<double,64>>(power);

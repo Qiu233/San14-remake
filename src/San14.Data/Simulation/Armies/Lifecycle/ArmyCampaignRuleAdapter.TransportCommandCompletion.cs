@@ -69,9 +69,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState HoldTransportPositionAfterCommand(GameState state, SourceWorldContext current,
         UnitState image, FacilityOperation operation)
     {
-        if (MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(state, image), "transport_hold.control140") != 0)
-            throw MaintenanceMissing("transport_hold.stored_command");
         int physical = image.NativeArmyOrigin?.NativeSlotIndex ?? throw MaintenanceMissing("transport_hold.receiver");
+        bool canReplace = MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(state, image), "transport_hold.control140") == 0;
         ushort at = MaintenanceKnown(ArmyMarchSourceAdapter.ReadCurrentHex(state, image), "transport_hold.current2A");
         var receiver = state.ReadArmyLifecycle()?.Receivers.FindUnit(image.Id) ?? throw MaintenanceMissing("transport_hold.owner");
         var mission = image.Mission is { Kind: UnitMissionKind.Transport } transport ? transport
@@ -80,15 +79,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         ushort[] points = Enumerable.Repeat((ushort)48400, 5).ToArray();
         var held = image with
         {
-            FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(13), DestinationHexId = at,
-            Mission = mission with { DestinationCityId = null }, TransportRoute = TransportRouteSourceAdapter.Decode(points),
+            FieldAttackPolicy = canReplace ? ArmyConfigurationSourceAdapter.DecodePolicy(13) : image.FieldAttackPolicy,
+            DestinationHexId = canReplace ? at : image.DestinationHexId,
+            Mission = canReplace ? mission with { DestinationCityId = null } : mission,
+            TransportRoute = TransportRouteSourceAdapter.Decode(points),
             March = (image.March ?? throw MaintenanceMissing("transport_hold.March")) with { NextStep = ArmyMarchDestination.None }
         };
-        var working = OwnedArmyLifecycleTargets.Write(state, receiver.ReceiverId, new(9, at));
-        current.SetArmyLifecycleTargetFields(physical, new(9, at));
+        var working = state;
+        if (canReplace)
+        {
+            working = OwnedArmyLifecycleTargets.Write(working, receiver.ReceiverId, new(9, at));
+            current.SetArmyLifecycleTargetFields(physical, new(9, at));
+            working = working with { ResourceState = ArmyConfigurationSourceAdapter.WriteAction(working.ResourceState, image.Id, 13) };
+        }
         working = working with { Units = new(working.Units) { [image.Id] = held },
-            ResourceState = ArmyConfigurationSourceAdapter.WriteAction(
-                TransportRouteSourceAdapter.Write(working.ResourceState, image.Id, points, choice), image.Id, 13) };
+            ResourceState = TransportRouteSourceAdapter.Write(working.ResourceState, image.Id, points, choice) };
         if (MaintenanceKnown(ArmyOverrideTargetSourceAdapter.Read(working, held).Kind3C, "transport_hold.override3C") != 255)
             return working;
         var runtime = held.NativeTacticRuntime ?? throw MaintenanceMissing("transport_hold.runtime");

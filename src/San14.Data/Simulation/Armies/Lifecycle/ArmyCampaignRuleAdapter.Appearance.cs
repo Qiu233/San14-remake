@@ -71,7 +71,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                       throw OrdinaryArmyAppearanceSource.Missing("update_Army_validity"))) continue;
                 if (!working.Units.TryGetValue(actor.Unit, out var army))
                     throw OrdinaryArmyAppearanceSource.Missing("update_Army_owner");
-                var result = OrdinaryArmyAppearanceSource.Depart(working, current, army, operationCurrent is not null);
+                var result = OrdinaryArmyAppearanceSource.Depart(working, current, army, operationCurrent is not null, this, date);
                 working = result.State; receipts.Add(result.Receipt);
             }
             return new(working, receipts.ToArray(), null);

@@ -5,14 +5,14 @@ public partial class AudioPlaybackService
 {
     internal async Task<NormalSoundAdmission> PlaySpatialEffectAsync(SpatialEffectSoundPlayback source,
         OriginalSpatialOutput output, object owner, Node3D world, Vector3 position, SpatialSoundMode mode,
-        Func<float> cameraDistance, CancellationToken cancellationToken)
+        Func<SpatialSoundCameraFrame> readCamera, CancellationToken cancellationToken)
     {
         RequireEngineThread(); cancellationToken.ThrowIfCancellationRequested();
-        OriginalOutputs.ValidateHost();
-        //The current product host is Windows stereo. The supplementary source
-        //LFE matrix applies only to the six/eight-channel device branch.
-        if (AudioServer.GetSpeakerMode() != AudioServer.SpeakerMode.ModeStereo)
-            throw new NotSupportedException("Capture sound needs its multichannel spatial matrix consumer.");
+        var outputEpoch=OriginalOutputs;
+        outputEpoch.ValidateHost();
+        var layout=outputEpoch.SpeakerLayout;
+        var matrixAvailability=OriginalSpeakerPairGate.MatrixAvailability(layout);
+        if(!matrixAvailability.Available)throw new NotSupportedException(matrixAvailability.UnresolvedOwner);
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         EffectVoice? effect = null;
         var context = new NormalSoundManagerContext(_repository is not null, !_lifetime.IsCancellationRequested,
@@ -36,14 +36,27 @@ public partial class AudioPlaybackService
                 clips.Add(await PrepareInputAsync(layer.Input, AudioLoopPolicy.Disabled, lifetime.Token).ConfigureAwait(false));
             await InvokeOnEngineThreadAsync(() =>
             {
-                if (!ReferenceEquals(_effects[effect.Slot], effect) || lifetime.IsCancellationRequested)
+                if (!ReferenceEquals(_effects[effect.Slot], effect) || lifetime.IsCancellationRequested ||
+                    !ReferenceEquals(_originalOutputs,outputEpoch) || outputEpoch.SpeakerLayout!=layout)
                     throw new OperationCanceledException(lifetime.Token);
+                outputEpoch.ValidateHost();
                 float initialGain = output.Plan.InitialCategoryGains.Where(gain => gain.Key != 0xF4E09144)
                     .Aggregate(1f, (value, gain) => value * gain.InitialValue);
-                var layers = source.Layers.Select((layer, index) => new SpatialAudioLayer(clips[index],
-                    layer.PlaybackRate, () => layer.GainAt(cameraDistance()) * initialGain,
-                    MathF.Max(0, layer.StartOffsetSeconds))).ToArray();
-                PlaySpatialLayers(layers, effect.Channel, world, position, output.Sends);
+                var emitter=new System.Numerics.Vector3(position.X,position.Y,position.Z);
+                var layers=source.Layers.Select((layer,index)=>
+                {
+                    var clip=clips[index];
+                    return new SpatialAudioLayer(clip,layer.PlaybackRate,
+                        ()=>layer.GainAt(readCamera().CameraDistance)*initialGain,
+                        MathF.Max(0,layer.StartOffsetSeconds),
+                        distance=>layer.GainAt(distance)*initialGain,
+                        (camera,logicalChannels)=>SpatialSoundSpeakerMatrixSource.PrepareEffect(
+                            source,layer,camera,emitter,clip.OutputChannels,logicalChannels,source.OutputPlan.Graph.MixChannels,
+                            outputEpoch.ReadSpatialSpread(source.OutputPlan)))
+                        { ControlMatrix = SpatialSoundControlMatrixSource.PrepareOrdinaryEffect(layer, clip.OutputChannels) };
+                }).ToArray();
+                PlaySpatialMatrixLayers(layers,effect.Channel,world,output.Sends,outputEpoch,
+                    output.Graph.MixChannels,readCamera,()=>effect.ControlGain);
                 effect.Reserved = false;
                 clips.Clear(); //The one cue now owns all decoded streams.
                 return true;

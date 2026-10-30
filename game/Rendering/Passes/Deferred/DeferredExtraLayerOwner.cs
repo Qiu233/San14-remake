@@ -102,6 +102,10 @@ public sealed class DeferredExtraLayerOwner : IAsyncDisposable
         });
     }
 
+    public Task<DeferredReflectionDecision> ApplyReflectionAsync(DeferredReflectionState source,
+        MapCommonRenderState? actualCommon) => ApplyReflectionAsync(
+            DeferredExtraLayerPlan.BindCurrentReflectionCommon(source, actualCommon));
+
     public Task<DeferredReflectionDecision> ApplyReflectionAsync(DeferredReflectionState explicitSourceState)
     {
         ObjectDisposedException.ThrowIf(_disposal is not null,this);
@@ -149,6 +153,13 @@ public sealed class DeferredExtraLayerOwner : IAsyncDisposable
     /// <summary>Execute the original null-target branch using the caller's
     /// current slot0 attachment. This attachment must be a one-color framebuffer
     /// view with externally owned backing that remains live through completion.</summary>
+    public Task<DeferredReflectionDecision> ApplyReflectionInheritedTargetAsync(
+        DeferredReflectionState source, MapCommonRenderState? actualCommon,
+        DeferredExtraDeviceLayer? currentSlot0, IReadOnlyList<bool>? threeSourceBindResults) =>
+        ApplyReflectionInheritedTargetAsync(
+            DeferredExtraLayerPlan.BindCurrentReflectionCommon(source, actualCommon),
+            currentSlot0, threeSourceBindResults);
+
     public Task<DeferredReflectionDecision> ApplyReflectionInheritedTargetAsync(
         DeferredReflectionState explicitSourceState,DeferredExtraDeviceLayer? explicitCurrentSlot0,
         IReadOnlyList<bool>? threeSourceBindResults)

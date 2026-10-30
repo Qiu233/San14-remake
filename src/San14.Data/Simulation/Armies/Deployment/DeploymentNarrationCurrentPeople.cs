@@ -11,7 +11,8 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     GameResourceRepository? appearanceRepository = null, LoadedScenario? appearanceScenario = null,
     string? appearanceLanguage = null, int? forceArgument = null,
     int? personArgument2 = null, int? personArgument3 = null,
-    NarrationVoiceRequests? voiceRequests = null, int? forceArgument1 = null, int? personArgument4 = null) : INarrationCurrentContext
+    NarrationVoiceRequests? voiceRequests = null, int? forceArgument1 = null, int? personArgument4 = null,
+    MessageDocument? appearanceDataSource = null, LoadedForceNameDefinitions? appearanceNamesSource = null) : INarrationCurrentContext
 {
     private readonly int?[] _arguments = [speaker, ruler, personArgument2, personArgument3, personArgument4];
     private int Argument(int index) => (uint)index < (uint)_arguments.Length && _arguments[index] is int id
@@ -39,16 +40,21 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             throw Missing("person_relation_" + field.ToString("X"));
         return value;
     }
+    //310EC0 cases5D/5E test the current related Person pointer's native
+    //validity. The canonical relation owner supplies the saved identity;
+    //out-of-range identities use the separate physical placeholder table.
+    private bool RelatedPersonValid(int id, int field)
+    {
+        int raw = Field(id, field);
+        var related = (raw <= 6000 ? current.ReadPersonLookupReference(raw)
+            : current.ReadTransferPersonTableReference(0)) ?? throw Missing("related_person_pointer");
+        return related.PhysicalSlot is int physical &&
+            Need(current.ReadPersonNativeValidity(physical), "related_person_validity");
+    }
     private int Style(int id) => Need(Person(id).DialogueStyle, "current_dialogue_style");
     private int Birth(int id) => Need(Person(id).BirthYear, "current_birth_year");
     private int Generation(int id) => Need(Person(id).FamilyGeneration, "current_family_generation");
-    private int Age(int id)
-    {
-        int mode = state.CampaignEventWorld?.ScenarioMode ?? throw Missing("current_scenario_mode");
-        if (mode is 2 or 3) throw Missing("special_mode_age");
-        int year = state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("current_native_year");
-        return Math.Max(0, unchecked((short)year - Birth(id) + 1));
-    }
+    private int Age(int id) => PersonCurrentAgeSource.Read(state, current, Physical(id));
     public int PersonValue(int argument, int field)
     {
         int id = Argument(argument);
@@ -67,6 +73,8 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
             't' => (Need(current.ReadArmyReturnPersonFlags196(Physical(id)), "current_person_flags") & 0x400) != 0 ? 1 : 0,
             '_' => (uint)(id - 5012) < 22 ? 1 : 0,
             '\\' => id == Field(id, 0xBC) ? 1 : 0,
+            ']' => RelatedPersonValid(id, 0xBC) ? 1 : 0,
+            '^' => RelatedPersonValid(id, 0xBA) ? 1 : 0,
             'G' => Status(id) == 1 ? Rank(id) : 0,
             'H' => StatusField(id).Value,
             //310EC0 case4C reads the current signed Person16C word. This
@@ -187,8 +195,8 @@ internal sealed class DeploymentNarrationCurrentPeople(GameState state, SourceWo
     private static bool SpecialName(int id) => id is >= 5101 and <= 5200 or >= 2062 and <= 2066;
     private static string Surname(OfficerState person) => person.CurrentSurname ?? throw Missing("current_surname");
 
-    private LoadedForceNameDefinitions? appearanceNames;
-    private MessageDocument? appearanceData;
+    private LoadedForceNameDefinitions? appearanceNames = appearanceNamesSource;
+    private MessageDocument? appearanceData = appearanceDataSource;
     private (int Value, string Text) PersonForceDisplayName(int id)
     {
         // Q keeps the raw District Force value even when its Force is invalid.

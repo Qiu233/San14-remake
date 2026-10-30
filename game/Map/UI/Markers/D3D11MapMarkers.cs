@@ -33,6 +33,7 @@ internal partial class D3D11MapMarkers : Control
         public string FlagGlyph { get; set; } = "";
         public Color FlagLetterColor { get; set; }
         public int? Force { get; set; }
+        public int? SourceSortForce { get; set; }
         public int? DurabilityCurrent { get; set; }
         public int? DurabilityCapacity { get; set; }
         public byte? Morale44 { get; set; }
@@ -47,6 +48,28 @@ internal partial class D3D11MapMarkers : Control
         public bool HasHexOwner { get; set; }
         public Vector2 Screen { get; set; }
         public bool OnScreen { get; set; }
+    }
+
+    // This root also owns independently ordered speech/effect subtrees. Base
+    // ink and diplomacy use the same actual bucket under this structural root.
+    private readonly MarkerCanvas markerCanvas;
+
+    public D3D11MapMarkers()
+    {
+        markerCanvas = new() { Name = "BaseMarkerDrawing" };
+        AddChild(markerCanvas);
+    }
+
+    private void QueueMarkerRedraw()
+    { RefreshInformationOrder(); RefreshAreaInteraction(); }
+
+    // Existing map ink owner. Individual source controls are ordered inside
+    // this same bucket; a separate diplomacy Canvas cannot impose a global Z.
+    private sealed partial class MarkerCanvas : Node2D { }
+    private sealed partial class MarkerInk(D3D11MapMarkers owner,Marker marker) : Node2D,IUiSourceDrawing
+    {
+        public override void _Draw()=>owner.DrawMarker(this,marker);
+        public void SetDrawingVisibilityLayer(uint layer)=>owner._font?.SetDrawingVisibilityLayer(this,layer);
     }
 
     private static readonly Vector2 CanonicalSize = new(1920, 1080);
@@ -84,25 +107,34 @@ internal partial class D3D11MapMarkers : Control
         if (!bases) ClearPointer();
         PositionFoodWarnings();
         PositionCityAttention();
-        QueueRedraw();
+        PositionFacilityInfo();
+        PositionAreaOccupationWarnings();
+        QueueMarkerRedraw();
     }
 
     internal void UpdatePointer(Vector2 point, MainMapCameraFrame frame, bool? pressed = null)
     {
         int? hit = TryPickMarker(point, frame, out int hex) ? hex : null;
+        AcceptPointerHex(hit,pressed);
+    }
+
+    private void AcceptPointerHex(int? hit,bool? pressed=null)
+    {
         if (pressed == true) _pressedHex = hit;
         else if (pressed == false) _pressedHex = null;
         if (_hoveredHex == hit && pressed is null) return;
         _hoveredHex = hit;
         PositionFoodWarnings();
-        QueueRedraw();
+        PositionFacilityInfo();
+        QueueMarkerRedraw();
     }
 
     internal void ClearPointer()
     {
         _hoveredHex = _pressedHex = null;
         PositionFoodWarnings();
-        QueueRedraw();
+        PositionFacilityInfo();
+        QueueMarkerRedraw();
     }
 
     internal bool TryGetCityMenuAnchor(int cityId, out Vector2 anchor)
@@ -121,6 +153,19 @@ internal partial class D3D11MapMarkers : Control
         if (_armyLabels is null) return false;
         _armyLabels.RefreshTraitViews(world);
         return true;
+    }
+
+    internal bool RebuildDepartureInfo(ArmyDeparturePresentationWorld prepared, ArmyDeparturePresentationRequest request,
+        out string? missing)
+    {
+        missing = "army-departure.info_controller";
+        return _armyLabels is not null && _armyLabels.RebuildDepartureInfo(prepared, request, out missing);
+    }
+
+    internal void RefreshArmyPersonalities(int armyId,IReadOnlyList<ArmyDeparturePersonalitySnapshot> source)
+    {
+        if(_armyLabels is null)throw new InvalidDataException("army-personalities.info_controller");
+        _armyLabels.RefreshDeparturePersonalities(armyId,source);
     }
 
     internal bool HasRefreshedArmyTraitView(GameState world, int armyId, out string? missing)
@@ -172,6 +217,7 @@ internal partial class D3D11MapMarkers : Control
         _namePanel = MapMarkerSlices.Load(_citySources.Simple, 3, _assets);
         _numberPanel = MapMarkerSlices.Load(layout, 67, _assets);
         _barPanel = MapMarkerSlices.Load(_citySources.Bar, 1, _assets);
+        ConfigureFacilityInfo(repository);
         RefreshWorld(world, markerColors, durabilityCapacities);
         ConfigureCityAttention(repository);
         SetMeta("source_marker_layout_uri", layout.Source.ResourceUri);
@@ -192,6 +238,13 @@ internal partial class D3D11MapMarkers : Control
 
         Texture2D[] Sprites(params string[] names) =>
             names.Select(name => (Texture2D)_assets.Sprite(name).Texture).ToArray();
+    }
+
+    internal CityGateMapMarkerSources MarkerSources=>_citySources??throw new InvalidOperationException("The source marker layouts are not loaded.");
+    internal void AdoptCampaignPlayer(GameState world,int player)
+    {
+        _playerForce=player;
+        RefreshWorld(world,null);
     }
 
     internal void ConfigureArmyLabels(GameResourceRepository repository, ScenarioCityPreview scenario,
@@ -255,7 +308,7 @@ internal partial class D3D11MapMarkers : Control
         _font!.Prepare(_markers.Values.Where(marker => marker.Kind != Kind.Area).Select(marker => marker.Name), _locationFont!);
         _font.Prepare(_markers.Values.Where(marker => marker.Kind == Kind.Area).Select(marker => marker.Name), _areaFont!);
         if (_frame is { } frame) ProjectMarkers(frame);
-        QueueRedraw();
+        QueueMarkerRedraw();
 
         void SetDistrict(Kind kind, int id, int? districtId)
         {
@@ -317,6 +370,7 @@ internal partial class D3D11MapMarkers : Control
                     marker.Morale44 = current.Morale44;
                     marker.MoraleCapacity = current.MoraleCapacity;
                     marker.Force = current.Force;
+                    marker.SourceSortForce = current.Force;
                     var material = glyphs[owner.Index].Material;
                     marker.FlagGlyph = kind == Kind.City && material is { } flag ? ((char)flag.Glyph).ToString() : "";
                     marker.Tint = material is { } color ? CanvasColor(_areaSources!.ForceFillColor(color.Color49)) : Colors.White;
@@ -347,11 +401,12 @@ internal partial class D3D11MapMarkers : Control
                         // 22CD40 tests Hex14 to select Base->District. The UI
                         // fill itself reads that District's Force.Color49.
                         marker.HasHexOwner = owner.CurrentForce != 0;
+                        marker.SourceSortForce = owner.CurrentForce;
                         RefreshAreaColour(marker);
                     }
         }
         ProjectMarkers(frame);
-        QueueRedraw();
+        QueueMarkerRedraw();
     }
 
     private void RefreshAreaColour(Marker marker)
@@ -368,13 +423,13 @@ internal partial class D3D11MapMarkers : Control
     internal void Select(int index)
     {
         _selectedHex = _locations[index].HexId;
-        QueueRedraw();
+        QueueMarkerRedraw();
     }
 
     internal void ClearSelection()
     {
         _selectedHex = null;
-        QueueRedraw();
+        QueueMarkerRedraw();
     }
 
     internal bool TryPickMarker(Vector2 localPoint, MainMapCameraFrame displayedFrame, out int hexId)
@@ -382,31 +437,13 @@ internal partial class D3D11MapMarkers : Control
         hexId = -1;
         if (!_baseInformationVisible && campaignMarkerHexes is null || !IsVisibleInTree() || Size.X <= 0 || Size.Y <= 0) return false;
         Vector2 cursor = localPoint / Size * CanonicalSize;
-        // Hit the image currently on screen, even when a newer GPU request is
-        // waiting for its Canvas submission. Reverse matches the draw order.
-        foreach (var marker in _markers.Values.Reverse())
+        // The same unsigned bucket selects both source GUI and map targets.
+        if(informationHits.TryPick(cursor,displayedFrame,true,out var hit,campaignMarkerHexes,directionSuppression))
         {
-            if (!marker.PositionReady || !CampaignMarkerVisible(marker)) continue;
-            AreaMapLabelPresentation areaPresentation = default;
-            if (marker.Kind == Kind.Area)
-            {
-                areaPresentation = MapLabelPresentation.Area(displayedFrame, marker.AreaUnitPosition);
-                if (!areaPresentation.Visible) continue;
-            }
-            else if (!MapLabelPresentation.CityGate(displayedFrame, marker.CityUnitPosition).Visible) continue;
-            if (!TryProject(marker.Position, displayedFrame.Camera.Matrices.WorldToProjection100, out var p)) continue;
-            var rect = marker.Kind == Kind.Area ?
-                AreaHitRectangle(marker, p, areaPresentation.ShowName) :
-                AreaRectangle(CityGateMapMarkerSources.NormalHitRectangle(
-                    MapLabelPresentation.CityGate(displayedFrame, marker.CityUnitPosition).Display,
-                    marker.Troops, marker.Kind == Kind.Gate), p);
-            // Original86FFE0 includes both edges. Godot Rect2.HasPoint
-            // excludes right/bottom, so keep the actual source tester.
-            bool hit = cursor.X >= rect.Position.X && cursor.Y >= rect.Position.Y &&
-                cursor.X <= rect.End.X && cursor.Y <= rect.End.Y;
-            if (hit) { hexId = marker.Hex; return true; }
+            if(hit.Hex is not int hex)return false;
+            hexId=hex;return true;
         }
-        return false;
+        return TryPickFacility(localPoint, displayedFrame, out hexId);
     }
 
     private void ProjectMarkers(MainMapCameraFrame frame)
@@ -417,12 +454,12 @@ internal partial class D3D11MapMarkers : Control
             bool visible = TryProject(marker.Position, matrix, out Vector2 screen) && marker.PositionReady;
             if (marker.Kind == Kind.Area)
             {
-                marker.AreaPresentation = MapLabelPresentation.Area(frame, marker.AreaUnitPosition);
+                marker.AreaPresentation = ReadTargetAreaPresentation(marker,frame);
                 visible &= marker.AreaPresentation.Visible;
             }
             else
             {
-                marker.CityPresentation = MapLabelPresentation.CityGate(frame, marker.CityUnitPosition);
+                marker.CityPresentation = ReadTargetCityPresentation(marker,frame);
                 visible &= marker.CityPresentation.Visible;
             }
             marker.Screen = screen;
@@ -431,6 +468,8 @@ internal partial class D3D11MapMarkers : Control
         }
         PositionFoodWarnings();
         PositionCityAttention();
+        PositionFacilityInfo(frame);
+        PositionAreaOccupationWarnings();
     }
 
     internal static bool TryProject(Vector3 world, NMatrix worldToProjection, out Vector2 canonicalPixel)
@@ -444,32 +483,35 @@ internal partial class D3D11MapMarkers : Control
         return true;
     }
 
-    public override void _Draw()
+    private void DrawMarker(CanvasItem canvas,Marker marker)
     {
         if (_frame is null || _namePanel is null || _numberPanel is null || _barPanel is null || _font is null) return;
-        var textDraw = _font.BeginDraw(this, Size / CanonicalSize);
+        var textDraw = _font.BeginDraw(canvas, Size / CanonicalSize);
         var spritePalettes = _spritePalettes!;
-        DrawSetTransform(Vector2.Zero, 0, Size / CanonicalSize);
+        canvas.DrawSetTransform(Vector2.Zero, 0, Size / CanonicalSize);
         if (!_baseInformationVisible && campaignMarkerHexes is null) { textDraw.End(); return; }
-        foreach (Marker marker in _markers.Values)
+        try
         {
-            if (!marker.OnScreen || !CampaignMarkerVisible(marker)) continue;
+            if (!marker.OnScreen || !CampaignMarkerVisible(marker) || !TargetMarkerVisible(marker) || DirectionSuppresses(marker)) return;
             Vector2 p = marker.Screen;
             if (marker.Kind == Kind.Area)
             {
+                if (DrawStrategicDisabledArea(canvas,marker,p)) return;
+                if (AreaInteractionReplaces(marker)) return;
                 Rect2 icon = AreaRectangle(_areaLayout!.FlagRectangle, p);
                 var presentation = marker.AreaPresentation;
-                if (marker.OutlineTint is Color border) DrawTextureRect(_areaFlag[0], icon, false, Alpha(border, presentation.FlagAlpha));
-                DrawTextureRect(_areaFlag[1], icon, false, Alpha(marker.Tint, presentation.FlagAlpha));
+                if (marker.OutlineTint is Color border) canvas.DrawTextureRect(_areaFlag[0], icon, false, Alpha(border, presentation.FlagAlpha));
+                canvas.DrawTextureRect(_areaFlag[1], icon, false, Alpha(marker.Tint, presentation.FlagAlpha));
                 if (presentation.ShowName)
                 {
                     Rect2 cell = AreaRectangle(_areaLayout.NameCellRectangle, p);
-                    _font.Draw(this, marker.Name, cell.Position + new Vector2(0, _font.CellBaselineY(_areaFont!, cell.Size.Y)), _areaFont!,
+                    _font.Draw(canvas, marker.Name, cell.Position + new Vector2(0, _font.CellBaselineY(_areaFont!, cell.Size.Y)), _areaFont!,
                         modulate: Alpha(Colors.White, presentation.TextAlpha));
                 }
-                continue;
+                return;
             }
             var city = marker.CityPresentation;
+            bool disabled=TargetMarkerDisabled(marker);
             int interaction = campaignSelectedHexes?.Contains(marker.Hex)==true ? 2 :
                 _hoveredHex == marker.Hex ? (_pressedHex == marker.Hex ? 2 : 1) : 0;
             bool numbers = city.Display == 1;
@@ -480,35 +522,45 @@ internal partial class D3D11MapMarkers : Control
             // The name plate extends beneath the force flag. Paint its
             // background first so it cannot cover the flag or its glyph.
             if (city.Display != 2)
-                _namePanel.Draw(this, AreaRectangle(geometry.Plate, p), spritePalettes[4 + interaction], city.PanelAlpha);
+                _namePanel.Draw(canvas, AreaRectangle(geometry.Plate, p), spritePalettes[4 + interaction], city.PanelAlpha);
             if (marker.Kind == Kind.City)
             {
                 // 1A64B0 replaces the same outline slot with24D base or24E
                 // player outline. They are not two simultaneous white layers.
-                Texture2D outlineTexture = _cityFlag[marker.OutlineTint is null ? 0 : 1];
-                if (interaction == 0) DrawTextureRect(outlineTexture, cityFlag, false,
-                    Alpha(marker.OutlineTint ?? Colors.White, city.FlagAlpha));
-                else PaletteSprite(outlineTexture, cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
-                if (interaction == 0) DrawTextureRect(_cityFlag[2], cityFlag, false, Alpha(marker.Tint, city.FlagAlpha));
-                else PaletteSprite(_cityFlag[2], cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
-                if (marker.FlagGlyph.Length != 0)
-                    Text(marker.FlagGlyph, new(-12, -30, 24, 24), _cityGlyphStates[interaction], HorizontalAlignment.Center, city.FlagAlpha,
-                        interaction == 0 ? marker.FlagLetterColor : Colors.White);
+                var chronology=ChronologyCityFlag(marker);
+                Texture2D outlineTexture = _cityFlag[chronology is null && marker.OutlineTint is not null ? 1 : 0];
+                if(disabled)PaletteSprite(canvas,outlineTexture,cityFlag,spritePalettes[6],city.FlagAlpha);
+                else if (interaction == 0) canvas.DrawTextureRect(outlineTexture, cityFlag, false,
+                    Alpha(chronology is null ? marker.OutlineTint ?? Colors.White : Colors.White, city.FlagAlpha));
+                else PaletteSprite(canvas,outlineTexture, cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
+                if(disabled)canvas.DrawTextureRect(_cityFlag[2],cityFlag,false,Alpha(DiplomacyDisabledColor(marker.Tint),city.FlagAlpha));
+                else if (interaction == 0) canvas.DrawTextureRect(_cityFlag[2], cityFlag, false,
+                    Alpha(chronology?.Fill ?? marker.Tint, city.FlagAlpha));
+                else PaletteSprite(canvas,_cityFlag[2], cityFlag, spritePalettes[4 + interaction], city.FlagAlpha);
+                string flagGlyph=chronology?.Name ?? marker.FlagGlyph;
+                if (flagGlyph.Length != 0)
+                    Text(flagGlyph, new(-12, -30, 24, 24), _cityGlyphStates[interaction], HorizontalAlignment.Center, city.FlagAlpha,
+                        disabled?DiplomacyDisabledColor(marker.FlagLetterColor):interaction == 0 ? chronology?.Letter ?? marker.FlagLetterColor : Colors.White);
             }
             else
             {
-                DrawTextureRect(_gateFlag[0], cityFlag, false, Alpha(Colors.White, city.FlagAlpha));
+                Color? chronologyFill=ChronologyGateFill(marker);
+                canvas.DrawTextureRect(_gateFlag[0], cityFlag, false, Alpha(Colors.White, city.FlagAlpha));
                 if (marker.OutlineTint is Color outline)
-                    DrawTextureRect(_gateFlag[1], cityFlag, false, Alpha(outline, city.FlagAlpha));
-                DrawTextureRect(_gateFlag[2], cityFlag, false, Alpha(marker.Tint, city.FlagAlpha));
+                {
+                    if(disabled)PaletteSprite(canvas,_gateFlag[1],cityFlag,spritePalettes[6],city.FlagAlpha);
+                    else canvas.DrawTextureRect(_gateFlag[1],cityFlag,false,Alpha(outline,city.FlagAlpha));
+                }
+                canvas.DrawTextureRect(_gateFlag[2], cityFlag, false,
+                    Alpha(disabled?DiplomacyDisabledColor(marker.Tint):chronologyFill ?? marker.Tint, city.FlagAlpha));
             }
-            if (city.Display == 2) continue;
+            if (city.Display == 2) return;
             Text(simpleText, geometry.TextCell, numbers ? _simpleNumberStates[interaction] : _locationStates[interaction],
                 numbers ? HorizontalAlignment.Left : HorizontalAlignment.Center, city.PanelAlpha);
             if (city.Display == 0)
             {
-                _numberPanel.Draw(this, new(p + new Vector2(-6, -1), new Vector2(98, 24)), panelTint);
-                DrawTextureRect(_soldier!, new(p + new Vector2(-7, -2), new Vector2(24, 24)), false,
+                _numberPanel.Draw(canvas, new(p + new Vector2(-6, -1), new Vector2(98, 24)), panelTint);
+                canvas.DrawTextureRect(_soldier!, new(p + new Vector2(-7, -2), new Vector2(24, 24)), false,
                     Alpha(CanvasColor(spritePalettes[10].LT), city.PanelAlpha));
                 Text(marker.Troops, new(19, -2, 156, 24), _numberFont!, HorizontalAlignment.Left, city.PanelAlpha);
             }
@@ -531,20 +583,20 @@ internal partial class D3D11MapMarkers : Control
                 HorizontalAlignment alignment, byte alpha, Color? color = null)
             {
                 Rect2 cell = AreaRectangle(source, p);
-                _font.Draw(this, value, cell.Position + new Vector2(0, _font.CellBaselineY(profile, cell.Size.Y)),
+                _font.Draw(canvas, value, cell.Position + new Vector2(0, _font.CellBaselineY(profile, cell.Size.Y)),
                     profile, alignment, cell.Size.X, Alpha(color ?? Colors.White, alpha));
             }
 
             int Bar(int current, int capacity, AreaMarkerRectangle control, int style, int? retainedWidth)
             {
                 var bar = _citySources!.BarGeometry(current, capacity, control, retainedWidth);
-                _barPanel.Draw(this, AreaRectangle(bar.Background, p), panelTint, bar.ScaleX, bar.ScaleY);
+                _barPanel.Draw(canvas, AreaRectangle(bar.Background, p), panelTint, bar.ScaleX, bar.ScaleY);
                 if (bar.SourceFillWidth > 0)
-                    PaletteSprite(_barFill!, AreaRectangle(bar.Fill, p), _spritePalettes![style], city.PanelAlpha);
+                    PaletteSprite(canvas,_barFill!, AreaRectangle(bar.Fill, p), _spritePalettes![style], city.PanelAlpha);
                 return bar.SourceFillWidth;
             }
         }
-        textDraw.End();
+        finally {textDraw.End();}
     }
 
     private static Rect2 AreaRectangle(AreaMarkerRectangle source, Vector2 p) =>
@@ -552,7 +604,7 @@ internal partial class D3D11MapMarkers : Control
 
     private static Color Alpha(Color color, byte alpha) => new(color.R, color.G, color.B, color.A * (alpha / 255f));
 
-    private void PaletteSprite(Texture2D texture, Rect2 rectangle, MapCornerColors colors, byte alpha)
+    private static void PaletteSprite(CanvasItem canvas, Texture2D texture, Rect2 rectangle, MapCornerColors colors, byte alpha)
     {
         Rect2 uv = new(Vector2.Zero, Vector2.One);
         if (texture is AtlasTexture atlas)
@@ -565,18 +617,24 @@ internal partial class D3D11MapMarkers : Control
         Vector2[] uvs = [uv.Position, new(uv.End.X, uv.Position.Y), uv.End, new(uv.Position.X, uv.End.Y)];
         Color[] corners = [Alpha(CanvasColor(colors.LT), alpha), Alpha(CanvasColor(colors.RT), alpha),
             Alpha(CanvasColor(colors.RB), alpha), Alpha(CanvasColor(colors.LB), alpha)];
-        DrawPolygon(points, corners, uvs, texture);
+        canvas.DrawPolygon(points, corners, uvs, texture);
     }
 
     private Rect2 AreaHitRectangle(Marker marker, Vector2 p, bool showName)
         => AreaRectangle(AreaMapMarkerSources.NormalHitRectangle(marker.Name.Length, showName), p);
 
-    public override void _Ready() => Resized += QueueRedraw;
+    public override void _Ready() => Resized += QueueMarkerRedraw;
 
     public override void _ExitTree()
     {
+        //Before its first base action this owned canvas has no tree parent.
+        //A mounted canvas is already retired with this marker subtree.
+        if (GodotObject.IsInstanceValid(tacticBaseCanvas) && tacticBaseCanvas.GetParent() is null)
+            tacticBaseCanvas.Free();
+        ReleaseFacilityInfo();
         foodWarningShader?.Dispose();
         cityAttentionShader?.Dispose();
+        areaWarningShader?.Dispose();
         if (_ownsAssets) _assets?.Dispose();
         _font?.Dispose();
     }

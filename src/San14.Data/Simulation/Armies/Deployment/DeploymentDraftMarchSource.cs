@@ -49,6 +49,13 @@ internal static class DeploymentDraftMarchSource
     }
 
     internal static int Eta(GameState state, SourceWorldContext current, Motion motion,
+        IReadOnlyList<int> etaPath) => Eta(state, current, motion.LandFormation,
+            motion.NavalFormation, motion.EtaMobility, etaPath);
+
+    //266860 is also called with353FE0's transport reset descriptor. The
+    //caller supplies that descriptor's formations and actual2B0660 inputs.
+    internal static int Eta(GameState state, SourceWorldContext current,
+        byte landFormation, byte navalFormation, Func<int, int, float> readMobility,
         IReadOnlyList<int> etaPath)
     {
         float total = 0;
@@ -61,8 +68,8 @@ internal static class DeploymentDraftMarchSource
             int physical = terrain.PhysicalSlot ?? throw Missing("eta_surface_receiver");
             int cost = ArmyRouteTerrainCost.Read(state, current, terrain);
             byte flags = Need(PersonArmyCaptureInputs.ReadTerrainFlags2C(state, physical), "eta_surface_flags");
-            int formation = (flags & 2) != 0 ? motion.NavalFormation : motion.LandFormation;
-            float rawMobility = motion.EtaMobility(formation, previous);
+            int formation = (flags & 2) != 0 ? navalFormation : landFormation;
+            float rawMobility = readMobility(formation, previous);
             if (!float.IsFinite(rawMobility) || rawMobility < int.MinValue || rawMobility >= 2147483648f)
                 throw Missing("eta_cvttss2si_boundary");
             int mobility = BattleUnitSourceMath.TruncateSingleToInt32(rawMobility);

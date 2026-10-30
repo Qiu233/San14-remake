@@ -10,6 +10,7 @@ internal sealed record CityDomesticPolicyValues(int? Selected, bool? Current, bo
 /// selector and final command lifecycle.</summary>
 internal partial class CityDomesticView : Control
 {
+    internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
     private AdministrationPageChrome chrome = null!;
     private CityDomesticSummaryView summary = null!;
     private readonly List<AreaAdministrationOfficerView> officers = [];
@@ -28,6 +29,7 @@ internal partial class CityDomesticView : Control
         this.dismiss = dismiss; this.policyChosen = policyChosen;
         Name = "CityDomestic"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
         chrome = new AdministrationPageChrome { Name = "CityDomesticChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x0476, RequestBack,
             () => { if (!abandoned) this.accepted?.Invoke(); });
@@ -36,6 +38,11 @@ internal partial class CityDomesticView : Control
         var panel = new Control { Name = "CityDomesticPanel", Position = new(460, 173),
             Size = source.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Stop };
         chrome.Canvas.AddChild(panel);
+        source.Art(panel, 2, source.Rectangle(2), chrome.Assets, chrome.SpriteShader,
+            blend: UiSourceSprite.Blend.AlphaMask);
+        var firstBlur = source.Blur(panel, 3, source.Rectangle(3));
+        Rect2 secondBlur = source.Rectangle(4);
+        source.Blur(firstBlur, 4, new(secondBlur.Position - firstBlur.Position, secondBlur.Size));
         foreach (int node in Enumerable.Range(5, 10))
             source.Art(panel, node, source.Rectangle(node), chrome.Assets, chrome.SpriteShader);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
@@ -114,6 +121,7 @@ internal partial class CityDomesticView : Control
         var hovered = GetViewport().GuiGetHoveredControl();
         chrome.ApplyHoverHint(hovered is not null && hints.TryGetValue(hovered, out var hint) ? hint : null);
     }
+    public override void _ExitTree() => CommonBackdrop = null!;
     internal void Abandon()
     {
         abandoned = true; returned = null; accepted = null; choose = null; dismiss = null; policyChosen = null;

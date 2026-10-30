@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ShadowReceiverMaterial.h"
 #include <algorithm>
 #include <cmath>
@@ -38,7 +39,7 @@ struct ShadowReceiverMaterialLayout {
 };
 namespace Interop {
 inline ShadowReceiverMaterialLayout readShadowReceiverMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     auto word=[&] {
         std::uint32_t value{};input.read(reinterpret_cast<char*>(&value),4);
         if(!input)throw std::runtime_error("Incomplete receiver RML1 layout");

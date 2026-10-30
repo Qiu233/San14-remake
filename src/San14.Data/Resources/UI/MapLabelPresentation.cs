@@ -26,11 +26,31 @@ public readonly record struct ArmyMapLabelPresentation(int CameraLevel, int Disp
 /// This leaf reads the same accepted frame as the terrain, with no resource IO.</summary>
 public static class MapLabelPresentation
 {
+    // 00ECB0 primary-owner branch reads the retained230/234 fields. This
+    // deliberately does not use00EAB0's NativeReturnedIndex at exact anchors.
     public static int SettledCameraLevel(MainMapCameraZoomSelection selection)
+        => PrimaryCameraLevel(selection);
+
+    public static int PrimaryCameraLevel(MainMapCameraZoomSelection selection)
     {
         int level = (int)MathF.Floor((float)selection.Band1E0 + (float)selection.Fraction1E4 / 10000f);
         if ((uint)level >= 7) throw new InvalidDataException("Original map label camera level is outside its seven source rows.");
         return level;
+    }
+
+    // 1AC650/1AC710/1AC800, in the same unsigned draw bucket. Position is
+    // v79's unoffset Unit; v76's world-height offset belongs only to projection.
+    public static uint ControlSortKey(MainMapCameraFrame frame,Vector3 unitPosition,
+        int category,bool currentPlayer,bool hovered,bool pressed)
+    {
+        var eye=frame.Camera.CurrentPose.Position80;
+        float x=eye.X-unitPosition.X,y=eye.Y-unitPosition.Y,z=eye.Z-unitPosition.Z;
+        float distance=MathF.Sqrt(x*x+y*y+z*z);
+        uint depth=unchecked((uint)(0xFFFFF-(int)(long)distance));
+        uint key=unchecked((depth<<6)|(uint)(category+(currentPlayer?1:0)));
+        if(hovered)key|=0x40000000u;
+        if(pressed)key|=0x80000000u;
+        return key;
     }
 
     public static AreaMapLabelPresentation Area(MainMapCameraFrame frame, Vector3 unitPosition)

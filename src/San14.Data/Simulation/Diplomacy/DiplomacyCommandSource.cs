@@ -15,7 +15,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal DiplomacySubmission ReadDiplomacySubmissionCurrent(GameState state,
         SourceWorldContext current, PrepareDiplomaticOrder order, ForceState force, CommandContext context)
     {
-        if (Seed.Language != "TC") throw DiplomacyCommandSource.Missing("SC_submission_contract");
+        if (state.NativeArmySimulation?.Parameters is not { } parameters ||
+            parameters.Language != Seed.Language ||
+            !HasDiplomacyParameterProfile(parameters.Language, parameters.RuleVersion))
+            throw DiplomacyCommandSource.Missing("submission_parameter_profile");
         int nativeKind = DiplomacyCommandSource.NativeKind(order.Kind);
         if (order.ForceId != force.Id || !state.Forces.ContainsKey(force.Id))
             throw DiplomacyCommandSource.Invalid("actor_Force");
@@ -79,14 +82,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 !ReadDiplomacyAreaOfferEligibilityCurrent(state, current, areaId, force.Id, order.TargetForceId))
                 throw DiplomacyCommandSource.Invalid("initial_Area_offer");
         }
-        if (nativeKind != 6 && order.GiftGold == 0 && order.GiftSupplies == 0 &&
+        if (nativeKind is 4 or 5 or 9 or 19 && order.GiftGold == 0 && order.GiftSupplies == 0 &&
             order.GiftItemId is null && order.GiftAreaId is null)
             throw DiplomacyCommandSource.Invalid("empty_offer");
         if (nativeKind == 5 && order.AllianceMonths <= 0)
             throw DiplomacyCommandSource.Invalid("alliance_duration");
 
+        if(nativeKind==8)RequireReturnCaptivesSubmissionCurrent(state,current,order);
+        else if(!order.RequestedCaptiveOfficerIds.IsEmpty)throw DiplomacyCommandSource.Invalid("unexpected_captives");
+        if(nativeKind==7)RequireDemandSurrenderSubmissionCurrent(state,current,order);
+        if(nativeKind==19)RequireExchangeSubmissionCurrent(state,current,order);
         var queries = new DiplomacyCommandSource(state, current);
-        queries.RequireInteraction(force.Id, order.TargetForceId);
+        queries.RequireInteraction(force.Id, order.TargetForceId,requireIndependentRecipient:nativeKind is not (7 or 8));
         int treatyMonths = queries.TreatyMonths(force.Id, order.TargetForceId);
         if (nativeKind == 5 && ((long)treatyMonths + order.AllianceMonths > 48))
             throw DiplomacyCommandSource.Invalid("alliance_48_month_limit");
@@ -129,30 +136,32 @@ public sealed partial class ArmyCampaignRuleAdapter
             nativeKind == 5 ? order.AllianceMonths : 0, treasury, capital, requested);
     }
 
-    /// <summary>Only fresh TC command costs are installed here. Relationship
+    /// <summary>Independently qualified fresh TC/SC costs are installed here. Relationship
     /// and pending-mission initialization belong to their typed owners.</summary>
     public GameState InstallFreshDiplomacyRules(GameState state)
     {
-        if (Seed.Language != "TC") return state;
+        if (Seed.Language is not ("TC" or "SC")) return state;
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
-            state.NativeArmySimulation is not { } simulation)
+            state.NativeArmySimulation is not { } simulation || simulation.Parameters.Language != Seed.Language ||
+            simulation.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
             throw DiplomacyCommandSource.Missing("unused_fresh_allocation");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values);
         foreach (var kind in new[] { DiplomaticMissionKind.Goodwill, DiplomaticMissionKind.Alliance,
-            DiplomaticMissionKind.CancelAlliance, DiplomaticMissionKind.RequestAttack })
+            DiplomaticMissionKind.CancelAlliance, DiplomaticMissionKind.RequestAttack,
+            DiplomaticMissionKind.ReturnCaptives,DiplomaticMissionKind.DemandSurrender,DiplomaticMissionKind.Exchange })
         {
             string key = DiplomacyCommandSource.BookKey(kind);
             if (values.ContainsKey(key) || simulation.Parameters.Float32Values.ContainsKey(key))
                 throw DiplomacyCommandSource.Missing("fresh_cost_conflict");
-            //TC6D51A0 selects four independent .data Int32 values. All are
-            //1 in the authorized offline snapshot read on2026-10-24.
+            //Each edition's actual switch selects its own seven .data
+            //Int32 fields; every independently read cost is exactly1.
             values.Add(key, 1);
         }
         var installed = state with { NativeArmySimulation = simulation with
             { Parameters = simulation.Parameters with { Int32Values = values } } };
         return SynchronizeDiplomacyProjection(InstallFreshDiplomacyCommandRewardParameters(
             InstallFreshDiplomacyRequestTerminationParameters(InstallFreshDiplomacyCounterParameters(
-                InstallFreshDiplomacyNpcParameters(InstallFreshDiplomacyNumericParameters(installed))))));
+                InstallFreshDiplomacyNpcParameters(InstallFreshExtendedDiplomacyRules(InstallFreshDiplomacyNumericParameters(installed)))))));
     }
 }
 
@@ -162,6 +171,7 @@ internal sealed class DiplomacyCommandSource(GameState state, SourceWorldContext
     {
         DiplomaticMissionKind.Goodwill => 4, DiplomaticMissionKind.Alliance => 5,
         DiplomaticMissionKind.CancelAlliance => 6, DiplomaticMissionKind.RequestAttack => 9,
+        DiplomaticMissionKind.ReturnCaptives=>8,DiplomaticMissionKind.DemandSurrender=>7,DiplomaticMissionKind.Exchange=>19,
         _ => throw Invalid("kind")
     };
     internal static string BookKey(DiplomaticMissionKind kind) => kind switch
@@ -170,14 +180,24 @@ internal sealed class DiplomacyCommandSource(GameState state, SourceWorldContext
         DiplomaticMissionKind.Alliance => "simulation.diplomacy.alliance-command-books",
         DiplomaticMissionKind.CancelAlliance => "simulation.diplomacy.cancel-alliance-command-books",
         DiplomaticMissionKind.RequestAttack => "simulation.diplomacy.request-attack-command-books",
+        DiplomaticMissionKind.ReturnCaptives=>"simulation.diplomacy.return-captives-command-books",
+        DiplomaticMissionKind.DemandSurrender=>"simulation.diplomacy.demand-surrender-command-books",
+        DiplomaticMissionKind.Exchange=>"simulation.diplomacy.exchange-command-books",
         _ => throw Invalid("kind")
     };
     internal static int ReadBooks(GameState state, DiplomaticMissionKind kind)
     {
         string key = BookKey(kind);
         var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("cost_parameters");
-        if (!parameters.Int32Values.TryGetValue(key, out int value) || parameters.Float32Values.ContainsKey(key))
-            throw Missing(key);
+        if(parameters.Float32Values.ContainsKey(key))throw Missing(key);
+        if(!parameters.Int32Values.TryGetValue(key,out int value))
+        {
+            //Only these independently qualified TC/SC command-cost rules can be
+            //absent in an older world. Existing four-kind knowledge is unchanged.
+            if(parameters.Language is ("TC" or "SC") && parameters.RuleVersion==SimulationRuleIdentity.ForLocale(parameters.Language) &&
+                kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)value=1;
+            else throw Missing(key);
+        }
         if (value < 0) throw Missing("negative_command_books");
         return value;
     }
@@ -194,9 +214,9 @@ internal sealed class DiplomacyCommandSource(GameState state, SourceWorldContext
         if (!K(current.ReadBaseNativeValidity(result), "capital_validity")) throw Invalid("invalid_capital");
         return result;
     }
-    internal void RequireInteraction(int own, int other)
+    internal void RequireInteraction(int own, int other,bool requireIndependentRecipient=true)
     {
-        if (ForceByte(other, 0x194) != 0) throw Invalid("dependent_recipient");
+        if (requireIndependentRecipient && ForceByte(other, 0x194) != 0) throw Invalid("dependent_recipient");
         if (CoalitionBlocks(own, other)) throw Invalid("coalition_pair");
         bool IsPlayer(int force) => K(current.ReadForcePhysicalSlot(OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
             ?? throw Missing("player_Force")), "player_Force_physical") == force;
@@ -220,7 +240,7 @@ internal sealed class DiplomacyCommandSource(GameState state, SourceWorldContext
         if ((ForceByte(first, 0x12) & 2) != 0 && (ForceByte(second, 0x12) & 2) != 0) return true;
         return ForceByte(first, 0x194) == second || ForceByte(second, 0x194) == first;
     }
-    private bool CoalitionBlocks(int first, int second)
+    internal bool CoalitionBlocks(int first, int second)
     {
         int player = state.NativeArmySimulation?.World.SelectedForce1656 ?? throw Missing("World1656");
         return player == first && (ForceByte(second, 0x12) & 2) != 0 ||

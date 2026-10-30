@@ -23,6 +23,13 @@ public sealed class ArmyMapUiSources
             .Select(row => (From: row.PortraitWhenTrue, To: row.PortraitWhenFalse)).ToArray();
         var names = new Dictionary<int, string>
         {
+            [0x21D]="000_cmn_mrk_base_disable",
+            [0x1C3]="000_cmn_icon_kyoten", [0x198]="000_cmn_icon_gate", [0x1D6]="000_cmn_icon_port",
+            [0x221]="000_cmn_mrk_base_red", [0x222]="000_cmn_mrk_base_yellow",
+            [0x21F]="000_cmn_mrk_base_green", [0x21C]="000_cmn_mrk_base_cyan",
+            [0x1C1]="000_cmn_icon_kane_fuchi",
+            [0x1A0]="000_cmn_icon_hyourou_fuchi",
+            [0x19C]="000_cmn_icon_heishi_fuchi",
             [0x1A2]="000_cmn_icon_jin_1", [0x1A8]="000_cmn_icon_jin_2",
             [0x1A9]="000_cmn_icon_jin_3", [0x1AA]="000_cmn_icon_jin_4",
             [0x1AC]="000_cmn_icon_jin_6", [0x1AD]="000_cmn_icon_jin_7",
@@ -42,7 +49,8 @@ public sealed class ArmyMapUiSources
             [0x232]="000_cmn_mrk_gundan_2", [0x233]="000_cmn_mrk_gundan_3",
             [0x234]="000_cmn_mrk_gundan_4", [0x235]="000_cmn_mrk_gundan_5",
             [0x236]="000_cmn_mrk_gundan_6", [0x237]="000_cmn_mrk_gundan_7",
-            [0x238]="000_cmn_mrk_gundan_8", [0x1D1]="000_cmn_icon_map_shussei"
+            [0x238]="000_cmn_mrk_gundan_8", [0x1D1]="000_cmn_icon_map_shussei",
+            [0x1F0]="000_cmn_icon_st_syusei_fuchi"
         };
         return new(appearance, names);
     }
@@ -67,6 +75,16 @@ public sealed class ArmyMapUiSources
     public static ArmyMapIconSelection DistrictIcon(byte number11)
         => new(number11 is >= 2 and <= 8 ? 0x230 + number11 : 0x231, 9);
     public static ArmyMapIconSelection SpecialPlayerIcon() => new(0x1D1, 9);
+
+    //930280(form,0) uses the source non-outline table8AAA50.
+    public static ArmyMapIconSelection FormationIconWithoutOutline(byte actualFormation, byte formationClass7E)
+        => new(actualFormation switch
+        {
+            2 => 0x1A8, 3 => 0x1A9, 4 => 0x1AA,
+            5 => 0x1AC, 6 => 0x1AD, 7 => 0x1AB, 8 => 0x1AE, 9 => 0x1AF,
+            10 => 0x1A3, 11 => 0x1A4, 12 => 0x1A5, 13 => 0x1A6,
+            14 => 0x3EF, >= 17 and <= 20 => 0x1A7, _ => 0x1A2
+        }, formationClass7E == 2 ? 0x2C : 0x0A);
 
     // actualFormation is22B2D0's chosen water1C/land1B, not Core FormationId.
     public static ArmyMapIconSelection FormationIcon(byte actualFormation, byte formationClass7E)

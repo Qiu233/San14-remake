@@ -242,15 +242,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private static ushort MediationRelation(GameState state, int person, int field) =>
         MediationNeed(OwnedPersonRelationInputs.ReadCurrentRelationIdentity(state, person, field), "relation_" + field.ToString("X"));
-    private static int MediationAge(GameState state, SourceWorldContext current, int person)
-    {
-        int mode = MediationNeed(current.ReadScenarioMode(), "age_mode");
-        if (mode is 2 or 3) throw MediationMissing("special_mode_age2A62E0");
-        int id = MediationNeed(current.ReadPersonIdentity(person), "age_ID");
-        int year = MediationNeed(current.ReadCurrentYear(), "age_year");
-        int birth = MediationNeed(state.Officers.GetValueOrDefault(id)?.BirthYear, "age_birthAC");
-        return Math.Max(0, unchecked((short)year - birth + 1));
-    }
+    private static int MediationAge(GameState state, SourceWorldContext current, int person) =>
+        PersonCurrentAgeSource.Read(state, current, person);
     private static int MediationParameter(GameState state, string key)
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw MediationMissing("parameters");

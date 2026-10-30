@@ -181,11 +181,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             ?? throw DuelMissing("selected_actor_readiness");
         byte opponentReadiness = state.Officers.GetValueOrDefault(opponentPersonId)?.DuelCondition?.Readiness
             ?? throw DuelMissing("selected_opponent_readiness");
-        // The original primary +0x50 is a persistent presentation preference,
-        // outside the scenario serializer. No preference owner has supplied it
-        // here; preserve Unknown instead of blocking numerical registration or
-        // inventing an off/default value from an unrelated scenario field.
-        int? setting = null;
+        //The real application preference is snapshotted with this pair;
+        //numerical resolution remains independent of the display choice.
+        int? setting = ReadDuelPresentationSettingCurrent();
         return new(UnitId(actor), UnitId(opponent), assistPersonId is null ? null : UnitId(assist!),
             actorPersonId, opponentPersonId, assistPersonId, actorReadiness, opponentReadiness, side, setting);
         int UnitId(ArmyUnitReference army) => ArmyDestructionQueue.ResolveUnitId(state,
@@ -234,10 +232,28 @@ internal static class DuelSelectionParameters
         ("trait1", 20), ("trait3", 10), ("liked", 50), ("disliked", -50), ("abnormal", 20),
         ("most-troops", 40), ("most-morale", 20), ("most-readiness", 20), ("most-strength", 20)
     ];
+    // Independently extracted SC file-backed words through the actual
+    // paired campaign consumer. This table does not borrow the TC values.
+    private static readonly (string Name, int Value)[] FreshSc =
+    [
+        ("base", 20),
+        ("trait62", 160),
+        ("older-trait144", 160),
+        ("middle-trait144", 80),
+        ("trait1", 20),
+        ("trait3", 10),
+        ("liked", 50),
+        ("disliked", -50),
+        ("abnormal", 20),
+        ("most-troops", 40),
+        ("most-morale", 20),
+        ("most-readiness", 20),
+        ("most-strength", 20),
+    ];
     internal static void AddFresh(string language, Dictionary<string, int> values, IReadOnlyDictionary<string, float> floating)
     {
-        if (language != "TC") return;
-        foreach (var row in FreshTc)
+        if (language is not ("TC" or "SC")) return;
+        foreach (var row in language == "SC" ? FreshSc : FreshTc)
         {
             string key = Prefix + row.Name;
             if (values.ContainsKey(key) || floating.ContainsKey(key)) throw DuelOpportunityParameters.Missing("fresh_opponent_weight_owner");

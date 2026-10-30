@@ -11,6 +11,16 @@ public static partial class PersonReturnCommands
     /// legality and player identity are not admission gates for this command.</summary>
     public static PersonDisappearanceRegistration RegisterDisappearance(GameState state, SourceWorldContext current,
         int physical, int delay, bool isPlayer, NativeMapSeasonDate date)
+        => RegisterDisappearanceCore(state, current, physical, delay, isPlayer, date, allowResetHome: false);
+
+    //171 calls1ED230(...,1) without a serving/Home-validity admission gate.
+    //Its actual initializer retains Home0 as the known City0 reset pointer.
+    internal static PersonDisappearanceRegistration RegisterStoryDisappearance(GameState state, SourceWorldContext current,
+        int physical, int delay, NativeMapSeasonDate date)
+        => RegisterDisappearanceCore(state, current, physical, delay, true, date, allowResetHome: true);
+
+    private static PersonDisappearanceRegistration RegisterDisappearanceCore(GameState state, SourceWorldContext current,
+        int physical, int delay, bool isPlayer, NativeMapSeasonDate date, bool allowResetHome)
     {
         try
         {
@@ -25,7 +35,8 @@ public static partial class PersonReturnCommands
             ushort personId = Get(current.ReadPersonIdentity(physical), "absence person identity");
             var home = BaseLookup.Find(Get(current.ReadPersonFirstLocation(physical), "absence home"), current);
             var destination = ToDestination(home);
-            if (destination.BaseId <= 0) throw Missing("absence home identity");
+            if (destination.BaseId <= 0 && !(allowResetHome && destination is { Kind: PersonnelReturnBaseKind.City, BaseId: 0 }))
+                throw Missing("absence home identity");
             byte district = unchecked((byte)Get(current.ReadBaseDistrictSlot(home), "absence home district"));
             ushort priorCode = Math.Min(Get(current.ReadPersonSecondLocation(physical), "absence prior place"), (ushort)1061);
             var previous = OfficerLocationSourceAdapter.DecodePosition(priorCode, OfficerLocationSourceAdapter.Receivers(state));

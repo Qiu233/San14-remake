@@ -63,15 +63,16 @@ public partial class Main
                     draft.Count, fields, draft.Cities.Count > 0, draft.People.Count > 0,
                     draft.CanConfirm, draft.CanContinue, new AdministrationMessages(_repository, _ui.SourceLocale).Format(draft.CityId is null ? 0x5CDE : 0x5CDF)));
             }
-            void ChooseCity() => OpenPersonnelDevelopmentSelection(view, 0x39A,
-                [new("city", PersonnelDataText(0x478), 1416)],
-                draft.Cities.Select(city => new CommandSelectionRow(city.CityId, [new(city.Name)], true)).ToArray(),
-                draft.CityId is int id ? [id] : [], 1, selected =>
-                { if (selected is { Count: > 0 }) draft.SelectCity(selected[0]); Refresh(); }, view.SetBusy, single: true);
-            void ChoosePeople() => OpenPersonnelDevelopmentSelection(view, 0x32E,
-                [new("name", PersonnelDataText(0x211), 1416)], OfficerRows(draft.People),
-                draft.SelectedOfficerIds, draft.MaximumCount ?? 0, selected =>
-                { if (selected is not null) draft.SelectTargets(selected); Refresh(); }, view.SetBusy);
+            void ChooseCity()
+            {
+                var ids = draft.Cities.Select(city => city.CityId).ToArray();
+                OpenPersonnelHireCitySelection(view, rules.PreparePersonnelHireCitySelection(world, player, ids), selected =>
+                    { if (selected is { Count: > 0 }) draft.SelectCity(selected[0]); Refresh(); }, view.SetBusy);
+            }
+            void ChoosePeople() => OpenPersonnelDevelopmentSelection(view,
+                rules.PreparePersonnelHireTemplatePages(world, player, draft.People.Select(person => person.OfficerId).ToArray()),
+                Eligibility(draft.People), draft.SelectedOfficerIds, draft.MaximumCount ?? 0, selected =>
+                { if (selected is not null) draft.SelectTargets(selected); Refresh(); }, view.SetBusy, 0x5CDF);
         }
 
         void OpenLearn()
@@ -115,26 +116,25 @@ public partial class Main
                             draft.OfficerId is null ? 0x5980 : draft.RequiresReplacement == true ? 0x5981 : 0x597F) : ""
                         : _ui.Get("information_partial")));
             }
-            void ChooseOfficer() => OpenPersonnelDevelopmentSelection(view, 0x32E,
-                [new("name", PersonnelDataText(0x211), 1416)], OfficerRows(draft.People),
-                draft.OfficerId is int id ? [id] : [], 1, selected =>
-                { if (selected is { Count: > 0 }) draft.SelectOfficer(selected[0]); Refresh(); }, view.SetBusy, single: true);
+            void ChooseOfficer() => OpenPersonnelDevelopmentSelection(view,
+                rules.PreparePersonnelDevelopmentOfficerPages(world, player, draft.People.Select(person => person.OfficerId).ToArray(), false),
+                Eligibility(draft.People), [], 1, selected =>
+                { if (selected is { Count: > 0 }) draft.SelectOfficer(selected[0]); Refresh(); }, view.SetBusy, 0x5980, single: true);
             void ChooseTactic(int index)
             {
                 var slot = draft.TacticSlots.FirstOrDefault(item => item.Index == index);
                 if (slot?.Enabled != true) return;
                 int? replacement = draft.RequiresReplacement == true ? slot.TacticId : null;
-                var rows = draft.Books.Select(book => new CommandSelectionRow(book.GemId,
-                    [new(book.Name), new(Number(book.Count), book.Count), new(book.TacticName)],
-                    book.Eligible == true && book.Count > 0, book.UnresolvedOwner is null ? null : _ui.Get("information_partial"))).ToArray();
-                OpenPersonnelDevelopmentSelection(view, 0x699,
-                    [new("book", PersonnelDataText(0x41E), 560), new("count", PersonnelDataText(0x41F), 296, true),
-                     new("tactic", PersonnelDataText(0x234), 560)], rows,
-                    draft.GemId is int gem ? [gem] : [], 1, selected =>
+                var query = rules.PreparePersonnelLearningBookPages(world, player, draft.Books);
+                if (!query.Available) { Unavailable(query.UnresolvedInput ?? "learning.book_information"); return; }
+                var eligibility = draft.Books.ToDictionary(book => book.GemId,
+                    book => (book.Eligible == true && book.Count > 0,
+                        book.UnresolvedOwner is null ? (string?)null : _ui.Get("information_partial")));
+                OpenPersonnelDevelopmentSelection(view, query.Value!, eligibility, [], 1, selected =>
                     {
                         if (selected is { Count: > 0 } && draft.SelectGem(selected[0])) draft.SelectReplacement(replacement);
                         Refresh();
-                    }, view.SetBusy, single: true);
+                    }, view.SetBusy, draft.Books.All(book => book.Eligible != true) ? 0x5985 : 0x597E, single: true);
             }
             void InspectTactic(int? index)
             {
@@ -181,35 +181,80 @@ public partial class Main
             void ChoosePerson(int slot)
             {
                 if ((uint)slot >= draft.CandidatesBySlot.Count) return;
-                OpenPersonnelDevelopmentSelection(view, 0x58F,
-                    [new("name", PersonnelDataText(0x211), 1416)], OfficerRows(draft.CandidatesBySlot[slot]),
-                    draft.SelectedOfficerIds[slot] > 0 ? [draft.SelectedOfficerIds[slot]] : [], 1, selected =>
-                    { if (selected is { Count: > 0 }) draft.SelectSlot(slot, selected[0]); Refresh(); }, view.SetBusy, single: true);
+                var people = draft.CandidatesBySlot[slot];
+                OpenPersonnelDevelopmentSelection(view,
+                    rules.PreparePersonnelDevelopmentOfficerPages(world, player, people.Select(person => person.OfficerId).ToArray(), true),
+                    Eligibility(people), [], 1, selected =>
+                    { if (selected is { Count: > 0 }) draft.SelectSlot(slot, selected[0]); Refresh(); }, view.SetBusy, 0x5835, single: true);
             }
         }
 
-        CommandSelectionRow[] OfficerRows(IReadOnlyList<PersonnelDevelopmentOfficer> people) => people.Select(person =>
-            new CommandSelectionRow(person.OfficerId, [new(person.Name, SortKey: person.NameSortKey)],
-                person.Enabled == true, person.DisabledReason ?? (person.UnresolvedOwner is null ? null : _ui.Get("information_partial")))).ToArray();
+        IReadOnlyDictionary<int, (bool Enabled, string? Reason)> Eligibility(IReadOnlyList<PersonnelDevelopmentOfficer> people) =>
+            people.ToDictionary(person => person.OfficerId, person => (person.Enabled == true,
+                person.DisabledReason ?? (person.UnresolvedOwner is null ? null : _ui.Get("information_partial"))));
         void Unavailable(string reason) { _playMessage.Text = _ui.Get("information_partial"); GD.PushWarning(reason); }
     }
 
-    private void OpenPersonnelDevelopmentSelection(Control parent, int title, IReadOnlyList<CommandSelectionColumn> columns,
-        IReadOnlyList<CommandSelectionRow> rows, IReadOnlyList<int> initial, int maximum,
-        Action<IReadOnlyList<int>?> selected, Action<bool> busy, bool single = false)
+    private PersonnelHireCitySelectionPage? _personnelHireCities;
+    private void OpenPersonnelHireCitySelection(Control parent, AreaAdministrationQuery<PersonnelHireCitySelection> query,
+        Action<IReadOnlyList<int>?> selected, Action<bool> busy)
     {
-        if (_repository is null || !IsPersonnelAdministrationCurrent(parent) || _personnelAdministrationPeople is not null ||
+        if (_repository is null || !IsPersonnelAdministrationCurrent(parent) || _personnelAdministrationMap is not { } map ||
+            _personnelHireCities is not null || _personnelDevelopmentPeople is not null || _personnelAdministrationPeople is not null ||
             _personnelAdministrationQuestion is not null) return;
-        var selector = new CommandSelectionView(); _personnelAdministrationPeople = selector; AddChild(selector); busy(true);
+        if (!query.Available || query.Value is not { } source)
+        { _playMessage.Text = _ui.Get("information_partial"); GD.PushWarning(query.UnresolvedInput); return; }
+        var selector = new PersonnelHireCitySelectionPage(); _personnelHireCities = selector; AddChild(selector); busy(true); parent.Hide();
+        bool Current() => IsPersonnelAdministrationCurrent(parent) && _personnelHireCities == selector;
+        void Mode(bool list)
+        {
+            if (!Current()) return;
+            map.EndCityOfficerMovementMapPick(selector);
+            map.SetDetailsOpen(list, keepMapVisible: true);
+            if (!list) map.BeginCityOfficerMovementMapPick(selector, _personnelAdministrationWorld!, source.Map,
+                () => Current() && selector.IsMapMode, id => RunUiAction(() => { if (Current()) selector.PickMapCity(id); }));
+            HideDeploymentHud();
+        }
         try
         {
-            selector.Configure(_repository, _ui, title, columns, rows, initial, maximum,
-                () => IsPersonnelAdministrationCurrent(parent) && _personnelAdministrationPeople == selector,
+            selector.Configure(_repository, _ui, source.Pages, Current, result => RunUiAction(() =>
+            {
+                if (!Current()) return;
+                ClosePersonnelAdministrationPeople(); map.SetDetailsOpen(true, keepMapVisible: true);
+                parent.Show(); busy(false); selected(result);
+            }), list => RunUiAction(() => Mode(list)), CurrentListScrollSpeed);
+            Mode(false);
+        }
+        catch
+        { ClosePersonnelAdministrationPeople(); map.SetDetailsOpen(true, keepMapVisible: true); parent.Show(); busy(false); throw; }
+    }
+    private bool HandlePersonnelHireCityMapBackInput(InputEvent input)
+    {
+        if (_personnelHireCities?.IsMapMode != true || input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button)
+            return false;
+        if (_personnelAdministrationMap!.SourceRightCancelReleased(button))
+        { RequestPersonnelAdministrationBack(); GetViewport().SetInputAsHandled(); }
+        return true;
+    }
+
+    private PersonnelDevelopmentSelectorPage? _personnelDevelopmentPeople;
+    private void OpenPersonnelDevelopmentSelection(Control parent, OfficerInformationPageSet pages,
+        IReadOnlyDictionary<int, (bool Enabled, string? Reason)> eligibility, IReadOnlyList<int> initial, int maximum,
+        Action<IReadOnlyList<int>?> selected, Action<bool> busy, int guide, bool single = false)
+    {
+        if (_repository is null || !IsPersonnelAdministrationCurrent(parent) || _personnelAdministrationPeople is not null ||
+            _personnelDevelopmentPeople is not null || _personnelHireCities is not null || _personnelAdministrationQuestion is not null) return;
+        var selector = new PersonnelDevelopmentSelectorPage(); _personnelDevelopmentPeople = selector; AddChild(selector); busy(true);
+        try
+        {
+            selector.Configure(_repository, _ui, pages, eligibility, initial, maximum, single,
+                new AdministrationMessages(_repository, _ui.SourceLocale).Format(guide),
+                () => IsPersonnelAdministrationCurrent(parent) && _personnelDevelopmentPeople == selector,
                 result => RunUiAction(() =>
                 {
-                    if (!IsPersonnelAdministrationCurrent(parent) || _personnelAdministrationPeople != selector) return;
+                    if (!IsPersonnelAdministrationCurrent(parent) || _personnelDevelopmentPeople != selector) return;
                     ClosePersonnelAdministrationPeople(); busy(false); selected(result);
-                }), CurrentListScrollSpeed, requireSelection: single, singleSelection: single);
+                }), CurrentListScrollSpeed);
         }
         catch { ClosePersonnelAdministrationPeople(); busy(false); throw; }
     }

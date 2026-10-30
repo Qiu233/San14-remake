@@ -6,7 +6,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal sealed partial class CampaignNormalTurnPersonnelAgingSource
     {
-        /// <summary>TC27CB30, the monthly health action. All four temporaries,
+        /// <summary>TC27CB30/SC27C830, the monthly health action. All four temporaries,
         /// health writes and later deaths borrow the enclosing Turn's pool.</summary>
         internal GameState RunHealth()
         {
@@ -206,12 +206,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private int HealthSample(int divisor, int first, int second) => TacticEffectSourceSamplerMath.Sample(100, divisor, first, second, 0, 0,
             package.ReadArmyDestructionSampler(state, current) ?? throw Missing("health.sampler_World450_45C"));
         private int HealthAge(int person)
-        {
-            int mode = state.CampaignEventWorld?.ScenarioMode ?? throw Missing("health.age_mode");
-            if (mode is 2 or 3) throw Missing("health.special_mode_age");
-            int birth = HealthOwner(person).BirthYear ?? throw Missing("health.birth_year");
-            return Math.Max(0, unchecked((short)(state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("health.age_year"))) - birth + 1);
-        }
+            => PersonCurrentAgeSource.Read(state, current, person);
         private bool HealthSpecialForce(int person)
         {
             int location = Need(current.ReadPersonFirstLocation(person), "health.special_home");
@@ -321,25 +316,29 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         private int HealthRule(HealthParameter key)
         {
-            //TC immutable .data, extracted offline (health-static65.json).
+            //The SC monthly/illness/recovery/severe callers and all fourteen
+            //file-backed rule values were independently paired with TC. Both
+            //languages share these values (HEALTH_SOURCES155.json); only their
+            //Person layouts differ, handled by the existing current readers.
             //No executable or cached execution input is read by the game.
-            if (package.Seed.Language != "TC") throw Missing("health.SC_rule_constants");
+            if (package.Seed.Language is not ("TC" or "SC"))
+                throw Missing("health.unsupported_language_rule_constants");
             return key switch
             {
-                HealthParameter.IllnessYearRate => 10, //TC1A4A438
-                HealthParameter.ForceIllnessProtection => 10, //TC1A49770
-                HealthParameter.LongLifeTerminalExtension => 20, //TC1A4A478
-                HealthParameter.SpecialModeRecovery => 50, //TC1A4A458
-                HealthParameter.RecoveryAgeSlope => 60, //TC1A4A460
-                HealthParameter.SpecialPersonRecoveryAge => 7, //TC1A4A468
-                HealthParameter.RecoveryAgeOffset => 25, //TC1A4A470
-                HealthParameter.SevereAgeDivisor => 10, //TC1A4A488
-                HealthParameter.ExpiredSevereAgeDivisor => 3, //TC1A4A480
-                HealthParameter.MinimumSevereDeathProbability => 1, //TC1A4A48C
-                HealthParameter.PolicyRecoveryScale => 1, //TC1A4A490
-                HealthParameter.HealerRecoveryScale => 1, //TC1A4A494
-                HealthParameter.EasyPlayerRecoveryPercent => 150, //TC1A4A4A4
-                HealthParameter.NormalPlayerRecoveryPercent => 125, //TC1A4A4AC
+                HealthParameter.IllnessYearRate => 10, //TC1A4A438/SC1A4B468
+                HealthParameter.ForceIllnessProtection => 10, //TC1A49770/SC1A4A7A0
+                HealthParameter.LongLifeTerminalExtension => 20, //TC1A4A478/SC1A4B4A8
+                HealthParameter.SpecialModeRecovery => 50, //TC1A4A458/SC1A4B488
+                HealthParameter.RecoveryAgeSlope => 60, //TC1A4A460/SC1A4B490
+                HealthParameter.SpecialPersonRecoveryAge => 7, //TC1A4A468/SC1A4B498
+                HealthParameter.RecoveryAgeOffset => 25, //TC1A4A470/SC1A4B4A0
+                HealthParameter.SevereAgeDivisor => 10, //TC1A4A488/SC1A4B4B8
+                HealthParameter.ExpiredSevereAgeDivisor => 3, //TC1A4A480/SC1A4B4B0
+                HealthParameter.MinimumSevereDeathProbability => 1, //TC1A4A48C/SC1A4B4BC
+                HealthParameter.PolicyRecoveryScale => 1, //TC1A4A490/SC1A4B4C0
+                HealthParameter.HealerRecoveryScale => 1, //TC1A4A494/SC1A4B4C4
+                HealthParameter.EasyPlayerRecoveryPercent => 150, //TC1A4A4A4/SC1A4B4D4
+                HealthParameter.NormalPlayerRecoveryPercent => 125, //TC1A4A4AC/SC1A4B4DC
                 _ => throw new ArgumentOutOfRangeException(nameof(key))
             };
         }

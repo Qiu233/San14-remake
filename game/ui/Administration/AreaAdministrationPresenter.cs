@@ -20,7 +20,10 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     private readonly Action<bool> mapInputChanged;
     private readonly Action<string> unavailable;
     private readonly Func<int,int> presentationRandom;
+    private readonly Func<int> scrollSpeed;
     private AreaAdministrationView? child;
+    private AreaAdministrationPersonSelectionHost? personSelector;
+    private CommandSelectionView? replacementSelector;
     private DeploymentTargetConfirmation? confirmation;
     private UiSourcePulldownMenu? automaticMenu;
     private bool disposed, busy;
@@ -29,6 +32,25 @@ internal sealed class AreaAdministrationPresenter : IDisposable
 
     internal AreaAdministrationDraft Draft => draft;
     internal bool HasChild => child is not null;
+    internal bool OfficerSelectionOpen => personSelector?.IsOpen == true;
+    internal int? OfficerSelectionPersonId => personSelector?.SelectedPersonId;
+    internal bool ReplacementSelectionOpen => replacementSelector is not null;
+    internal long OfficerSelectionAcceptedSequence { get; private set; }
+    internal int? OfficerSelectionAcceptedPersonId { get; private set; }
+    internal int? OfficerSelectionAcceptedAreaId { get; private set; }
+    internal long AreaAcceptedSequence { get; private set; }
+    internal int? AreaAcceptedAreaId { get; private set; }
+    internal AreaDevelopmentFocus? AreaAcceptedFocus { get; private set; }
+    internal long FocusChangedSequence { get; private set; }
+    internal AreaDevelopmentFocus? FocusChangedValue { get; private set; }
+    internal Func<AreaDevelopmentFocus,bool>? AreaConfirmationAdmission { get; set; }
+    internal Func<int,bool>? OfficerSelectionAdmission { get; set; }
+    private Func<int,bool>? areaSelectionAdmission;
+    internal Func<int,bool>? AreaSelectionAdmission
+    {
+        get => areaSelectionAdmission;
+        set { areaSelectionAdmission = value; parent.ApplyAreaSelectionAdmission(value); }
+    }
 
     internal AreaAdministrationPresenter(AreaAdministrationParentView parent,
         GameResourceRepository repository, PreviewText text, AreaAdministrationDraft draft,
@@ -39,6 +61,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
         this.current=current;this.dispatch=dispatch;this.returned=returned;
         this.commitRequested=commitRequested;this.mapInputChanged=mapInputChanged;this.unavailable=unavailable;
         this.presentationRandom=presentationRandom;
+        this.scrollSpeed=scrollSpeed??(()=>0);
         messages=new(repository,text.SourceLocale);officers=new(repository);
         parent.Configure(repository,text,Entries(),scrollSpeed?.Invoke()??0,
             area=>Run(()=>OpenArea(area)),()=>Run(RequestBack),()=>Run(RequestCommit),
@@ -110,7 +133,8 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     {
         if(!Active||busy||child is not null||confirmation is not null||automaticMenu is not null||!parent.IsMapMode)return false;
         var target=draft.QueryMapTarget(hex);
-        return target.Available&&target.Value is {AreaId:not null,IsHeld:true};
+        return target.Available&&target.Value is {AreaId:int area,IsHeld:true}&&
+            (areaSelectionAdmission?.Invoke(area)??true);
     }
     internal void PickMapTarget(int hex)=>Run(()=>
     {
@@ -118,21 +142,79 @@ internal sealed class AreaAdministrationPresenter : IDisposable
         OpenArea(draft.QueryMapTarget(hex).Value!.AreaId!.Value);
     });
 
+    // The same explicit list-selection contract, independent of map-display mode.
+    internal void OpenSelectedArea(int area) => Run(() => OpenArea(area));
+
     private void OpenArea(int area)
     {
+        if(!(areaSelectionAdmission?.Invoke(area)??true))return;
         if(child is not null||confirmation is not null||automaticMenu is not null||!Accept(draft.BeginArea(area)))return;
         speechPersonPhysical=null;speechPointerUnavailable=false;
         var view=new AreaAdministrationView();child=view;parent.SetSuspended(true);parent.GetParent().AddChild(view);
         view.Configure(repository,text,()=>Run(ReturnChild),()=>Run(AcceptChild),
             ()=>Run(()=>{if(Accept(draft.Dismiss()))RefreshChildAfterOfficerChange();}),
-            ()=>Run(()=>Unknown(draft.QueryPersonCandidates().UnresolvedInput)),
+            ()=>Run(OpenOfficerSelection),
             focus=>Run(()=>
             {
                 var chosen=focus switch{1=>AreaDevelopmentFocus.Commerce,2=>AreaDevelopmentFocus.Agriculture,
                     3=>AreaDevelopmentFocus.Barracks,_=>throw new InvalidDataException("Unknown regional focus control.")};
-                if(Accept(draft.StageFocus(chosen)))RefreshChild();
+                if(Accept(draft.StageFocus(chosen)))
+                {FocusChangedValue=chosen;FocusChangedSequence++;RefreshChild();}
             }));
         RefreshChild();UpdateMapInput();
+    }
+    private void OpenOfficerSelection()
+    {
+        if(child is null||OfficerSelectionOpen||replacementSelector is not null)return;
+        var query=draft.QueryPersonSelection();
+        if(!query.Available){Unknown(query.UnresolvedInput);return;}
+        var selection=query.Value!;
+        personSelector??=new(parent.GetParent(),repository,text,draft,()=>Active&&child is not null&&!busy,Unknown,scrollSpeed,
+            id=>OfficerSelectionAdmission?.Invoke(id)??true);
+        child.SetSuspended(true);
+        personSelector.Open(selection,occurrence=>Run(()=>
+        {
+            if(child is null)return;
+            child.SetSuspended(false);
+            if(occurrence is not int chosen)return;
+            var replacements=draft.QueryPersonReplacementAreas(selection,chosen);
+            if(!replacements.Available){Unknown(replacements.UnresolvedInput);return;}
+            if(!replacements.Value!.Required)
+            {ApplySelectedPerson(selection,chosen);return;}
+            OpenReplacementSelection(selection,chosen,replacements.Value.Areas);
+        }));
+        if(!personSelector.IsOpen)child.SetSuspended(false);
+    }
+    private void OpenReplacementSelection(AreaAdministrationPersonSelection selection,int occurrence,
+        IReadOnlyList<AreaAdministrationReplacementArea> candidates)
+    {
+        if(child is null||replacementSelector is not null)return;
+        long revision=draft.Revision;
+        var view=new CommandSelectionView();replacementSelector=view;child.SetSuspended(true);
+        parent.GetParent().AddChild(view);
+        // Row identities are occurrences so the source active prefix can retain
+        // duplicate areas without collapsing its actual chooser publication.
+        var rows=candidates.Select((area,index)=>new CommandSelectionRow(index,[new(area.Name)],true)).ToArray();
+        string caption=repository.LoadMessages(text.SourceLocale,San14.Data.Formats.MessageKind.Data).Messages.Sections[1].Records[0x0477].Text
+            ??throw new InvalidDataException("Missing replacement area caption.");
+        view.Configure(repository,text,0x05AF,[new("area",caption,600)],rows,[],1,
+            ()=>Active&&!busy&&replacementSelector==view&&child is not null&&draft.Revision==revision,
+            chosen=>Run(()=>
+            {
+                if(replacementSelector!=view)return;
+                replacementSelector=null;view.Abandon();view.QueueFree();child?.SetSuspended(false);
+                if(chosen is {Count:1}&&draft.Revision==revision)
+                    ApplySelectedPerson(selection,occurrence,candidates[chosen[0]].AreaId);
+            }),scrollSpeed,messages.Format(0x5C86),requireSelection:true,singleSelection:true,activateRows:true);
+    }
+    private void ApplySelectedPerson(AreaAdministrationPersonSelection selection,int occurrence,int? replacementArea=null)
+    {
+        if(OfficerSelectionAdmission?.Invoke(selection.Candidates[occurrence].RawIdentity)==false)return;
+        if(!Accept(draft.StagePerson(selection,occurrence,replacementArea)))return;
+        OfficerSelectionAcceptedPersonId=selection.Candidates[occurrence].RawIdentity;
+        OfficerSelectionAcceptedAreaId=selection.AreaId;
+        OfficerSelectionAcceptedSequence++;
+        RefreshChildAfterOfficerChange();
     }
     private void RefreshChild()
     {
@@ -198,10 +280,22 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     private void AcceptChild()
     {
         var status=draft.QueryChildStatus();
-        if(status.Available&&status.Value!.CanAccept is {Available:true,Value:true}&&Accept(draft.AcceptArea()))CloseChild();
+        int? area=draft.ActiveAreaId;
+        if(!status.Available||status.Value!.CanAccept is not {Available:true,Value:true})return;
+        var panel=draft.QueryPanel();
+        AreaDevelopmentFocus? focus=panel.Available?panel.Value!.Focus:null;
+        if(AreaConfirmationAdmission is { } admission)
+        {
+            if(focus is not { } known){Unknown(panel.UnresolvedInput);return;}
+            if(!admission(known))return;
+        }
+        if(Accept(draft.AcceptArea()))
+        {AreaAcceptedAreaId=area;AreaAcceptedFocus=focus;AreaAcceptedSequence++;CloseChild();}
     }
     private void CloseChild()
     {
+        personSelector?.Dispose();personSelector=null;
+        var replacement=replacementSelector;replacementSelector=null;replacement?.Abandon();replacement?.QueueFree();
         var old=child;child=null;speechPersonPhysical=null;speechPointerUnavailable=false;
         old?.Abandon();old?.QueueFree();parent.SetSuspended(false);RefreshParent();
     }
@@ -209,6 +303,8 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     internal void RequestBack()
     {
         if(!Active||busy)return;
+        if(personSelector?.TryCancel()==true)return;
+        if(replacementSelector is { } replacement){replacement.RequestCancel();return;}
         if(automaticMenu is not null){CloseAutomaticMenu();return;}
         if(confirmation is { } dialog){dialog.RequestCancel();return;}
         if(child is not null){ReturnChild();return;}
@@ -270,6 +366,9 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     public void Dispose()
     {
         if(disposed)return;disposed=true;
+        AreaConfirmationAdmission=null;OfficerSelectionAdmission=null;areaSelectionAdmission=null;
+        personSelector?.Dispose();personSelector=null;
+        var replacement=replacementSelector;replacementSelector=null;replacement?.Abandon();replacement?.QueueFree();
         CloseAutomaticMenu();
         var old=child;child=null;old?.Abandon();old?.QueueFree();
         var dialog=confirmation;confirmation=null;dialog?.Abandon();dialog?.QueueFree();

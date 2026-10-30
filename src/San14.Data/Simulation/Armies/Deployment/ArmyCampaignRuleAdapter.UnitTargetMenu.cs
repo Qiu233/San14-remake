@@ -181,7 +181,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw Missing("target_surface_pointer");
             if (surface.PhysicalSlot is null || Need(current.ReadSurfaceTypeRawField2A(surface), "target_surface_cost") == 0)
                 return false;
-            RequireTutorialOwner();
+            if (!TutorialTargetQualification.AllowsHex(package.ReadTutorialControlState(state), current, targetHex,
+                route.HasActiveRouteGroup ? route.FirstActiveWaypointIndex : null)) return false;
 
             try { Classify(); }
             catch (InvalidDataException error) { classMissing = error.Message; }
@@ -637,13 +638,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (canOpen == true)
                 canOpen = options.Any(option => option.Included == true) ? true : options.Count == 0 ? false : null;
             return new(Unit.Id, clicked, targetHex, canOpen, kind, relation, options.AsReadOnly(), classMissing ?? relationMissing);
-        }
-        private void RequireTutorialOwner()
-        {
-            var values = state.NativeArmySimulation?.Parameters.Int32Values ?? throw Missing("parameters");
-            if (values.GetValueOrDefault(TacticRemakeCurrentBattleControl.VersionKey) != 1 ||
-                !values.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorial)) throw Missing("tutorial_owner");
-            if (tutorial != 0) throw Missing("active_tutorial_target_gate");
         }
         private static int ClampHex(int raw) => raw <= 48399 ? raw : 0;
         private static T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);

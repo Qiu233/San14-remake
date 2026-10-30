@@ -20,12 +20,19 @@ public sealed record AudioSpatialOutputPlan(AudioMusicOutputGraph Graph, int Ent
 {
     public IReadOnlyList<AudioSpatialOutputInput> Inputs { get; init; } = [];
     public IReadOnlyList<AudioSpatialCategoryGain> InitialCategoryGains { get; init; } = [];
+    /// <summary>Loaded CGRS listener distance scale; absent only for an unprepared legacy plan.</summary>
+    public float? SourceDistanceScale { get; init; }
+    /// <summary>The real classification constructor starts its spread at zero.</summary>
+    public float? SourceSpreadGain { get; init; }
+    public IReadOnlyList<AudioSpatialSpreadControl> SpreadControls { get; init; } = [];
+    public IReadOnlyList<uint> SpreadControlKeys { get; init; } = [];
+    public IReadOnlyList<int> SpreadControlIndices { get; init; } = [];
 }
 
 /// <summary>Fresh output-host construction and the separate, callable CGRS
 /// controls. Registering a control declaration does not execute it. A host
 /// accepting a later control request must apply its parameters explicitly.</summary>
-public static class AudioSpatialOutputResources
+public static partial class AudioSpatialOutputResources
 {
     public static AudioSpatialOutputPlan ReadFreshVoicePlan(AudioMusicOutputGraph graph)
         => ReadFreshPlan(graph, 0xFE924B28);
@@ -70,9 +77,13 @@ public static class AudioSpatialOutputResources
         //The independent6D8C8F46 records below are not this setup packet.
         var processors = audible.Where(index => graph.Outputs[index].NodeKind is 2 or 5)
             .Select(index => new AudioSpatialOutputProcessor(index, new(1, 1, 0, 0, 0, 1))).ToArray();
+        var initialGains = ReadInitialCategoryGains(graph, out float distanceScale);
+        var spreadControls = ReadSpreadControls(graph, out var spreadKeys, out var spreadIndices);
         return new(graph, starts[0].OutputIndex, audible.AsReadOnly(), sends.AsReadOnly(), controls.AsReadOnly(),
             Array.AsReadOnly(processors), ReadCompressorControls(graph))
-            { Inputs = inputs.AsReadOnly(), InitialCategoryGains = ReadInitialCategoryGains(graph) };
+            { Inputs = inputs.AsReadOnly(), InitialCategoryGains = initialGains, SourceDistanceScale = distanceScale,
+                SourceSpreadGain = 0f, SpreadControls = spreadControls,
+                SpreadControlKeys = spreadKeys, SpreadControlIndices = spreadIndices };
 
         void Visit(int index)
         {
@@ -98,7 +109,7 @@ public static class AudioSpatialOutputResources
         }
     }
 
-    private static IReadOnlyList<AudioSpatialCategoryGain> ReadInitialCategoryGains(AudioMusicOutputGraph graph)
+    private static IReadOnlyList<AudioSpatialCategoryGain> ReadInitialCategoryGains(AudioMusicOutputGraph graph, out float distanceScale)
     {
         byte[] bytes = graph.Source.Bytes;
         uint U(int at)
@@ -112,7 +123,10 @@ public static class AudioSpatialOutputResources
             if (size < 8 || size > bytes.Length - at) throw new InvalidDataException("Spatial category section is incomplete.");
             if (U(at) == 0xE0736214)
             {
-                if (size < 0x28) throw new InvalidDataException("Spatial category master is incomplete.");
+                if (size < 0x60) throw new InvalidDataException("Spatial category master is incomplete.");
+                distanceScale = BitConverter.Int32BitsToSingle(unchecked((int)U(at + 0x44)));
+                if (!float.IsFinite(distanceScale))
+                    throw new InvalidDataException("Spatial listener distance scale is nonfinite.");
                 int count = checked((int)U(at + 0x20)), offset = checked((int)U(at + 0x24));
                 if (count > 1024 || offset < 0 || offset > size || count > (size - offset) / 12)
                     throw new InvalidDataException("Spatial category initial gain table is invalid.");

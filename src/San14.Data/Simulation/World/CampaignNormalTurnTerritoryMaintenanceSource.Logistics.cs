@@ -9,12 +9,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         private ArmyTraitFeedback? logisticsFeedback;
         private NativeMapSeasonDate Date => state.NativeMapSeason?.ThirdDate ?? throw Missing("World34_date");
 
-        private void UpdateLogistics()
+        private void UpdateLogistics(IEnumerable<int>? selectedArmies = null)
         {
             var preparation = new ArmyLogisticsPreparation(package.Context(current), current, package._map, package._terrain);
             logisticsFeedback = new(state, current, Date, effects, () => state,
                 speechConsumer: package.CreateArmyTraitSpeechConsumer(current, () => state, next => state = next));
-            foreach (int physical in ArmyOrder())
+            foreach (int physical in selectedArmies ?? ArmyOrder())
             {
                 var receiver = new ArmyUnitReference(physical);
                 if (!N(current.ReadArmyUnitNativeValidity(receiver), "logistics_Army_validity")) continue;
@@ -128,7 +128,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 PersonId(commander), 19, hex);
         }
 
-        private void ApplyLogisticsAbnormal(ArmyUnitReference receiver, int physical, int index, int duration)
+        private void ApplyLogisticsAbnormal(ArmyUnitReference receiver, int physical, int index, int duration,
+            string? explicitReportSource = null)
         {
             if (!N(current.ReadArmyUnitNativeValidity(receiver), "logistics_abnormal_Army_validity")) return;
             int person = Person(N(current.ReadArmyUnitCommanderId(receiver), "logistics_abnormal_Commander"));
@@ -147,18 +148,23 @@ public sealed partial class ArmyCampaignRuleAdapter
                     0, null, null);
             }
             var adjustment = TacticEffectSourceAbnormal.ResolveAdjustment(input) ?? throw Missing("logistics_abnormal_adjustment");
-            int district = ReadFacilityHistoryDistrict(current, receiver);
-            string source = package.ReadHistoryDataText(0, 0x26A);
+            //Ordinary Story passes the source's actual empty string. It still
+            //uses this complete counter/trait/feedback writer, while omitting
+            //only the source-name reports and their otherwise unused inputs.
+            int? district = explicitReportSource is null ? ReadFacilityHistoryDistrict(current, receiver) : null;
+            int District() => district ??= ReadFacilityHistoryDistrict(current, receiver);
+            string source = explicitReportSource ?? package.ReadHistoryDataText(0, 0x26A);
             if (!adjustment.CounterWritten)
             {
                 if (source.Length != 0) state = package.ApplyAutomaticArmyAbnormalReport(state, current, null,
-                    Image(physical), district, index, adjustment.CauseCode, source, Day, effects);
+                    Image(physical), District(), index, adjustment.CauseCode, source, Day, effects);
                 return;
             }
             bool visible = true;
             if (adjustment.HasTraitAdjustment)
             {
-                var pointer = current.ReadDistrictTableReference(district <= 51 ? district : 0) ?? throw Missing("logistics_abnormal_District");
+                int slot = District();
+                var pointer = current.ReadDistrictTableReference(slot <= 51 ? slot : 0) ?? throw Missing("logistics_abnormal_District");
                 visible = BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, pointer, Missing);
             }
             var image = Image(physical);
@@ -170,9 +176,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.SetTacticAbnormalRawByte(new(RegistryKind.Army, physical), 0x23 + index, result.CounterAfter);
             WriteImage(physical, image with { NativeTacticRuntime = index == 0
                 ? runtime with { Abnormal23 = result.CounterAfter } : runtime with { Abnormal24 = result.CounterAfter } });
-            if (result.IncreasingNotification) logisticsFeedback!.AbnormalIncreased(receiver, 23 + index);
+            if (result.IncreasingNotification)
+            {
+                logisticsFeedback ??= new(state, current, Date, effects, () => state,
+                    speechConsumer: package.CreateArmyTraitSpeechConsumer(current, () => state, next => state = next));
+                logisticsFeedback.AbnormalIncreased(receiver, 23 + index);
+            }
             if (before == 0 && result.UnclampedSum > 0 && source.Length != 0)
-                state = package.ApplyAutomaticArmyAbnormalReport(state, current, null, Image(physical), district,
+                state = package.ApplyAutomaticArmyAbnormalReport(state, current, null, Image(physical), District(),
                     index, visible ? result.CauseCode : 0, source, Day, effects);
         }
 

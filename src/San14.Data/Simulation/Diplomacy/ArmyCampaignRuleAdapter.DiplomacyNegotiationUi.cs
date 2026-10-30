@@ -3,7 +3,10 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record DiplomacyNegotiationPage(int DisplayedForceId, int RelationLevel,
-    AreaAdministrationQuery<AreaAdministrationOfficerCard>? Ruler, bool CanAccept, string? NamedCondition);
+    AreaAdministrationQuery<AreaAdministrationOfficerCard>? Ruler, bool CanAccept, string? NamedCondition)
+{
+    public string? RequestedNamedCondition { get; init; }
+}
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
@@ -53,13 +56,27 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (offer.ItemId is int item && Valid(RegistryKind.Item,item))
         {
             var held=state.Items?.GetValueOrDefault(item)??throw DiplomacyMissing("negotiation_ui_item");
-            named = _scenario.Snapshot.ItemDefinitions?.Definitions.FirstOrDefault(value => value.Slot == held.DefinitionId)?.Name
+            named = state.ItemDefinitions.GetValueOrDefault(held.DefinitionId)?.Name
                 ?? throw DiplomacyMissing("negotiation_ui_item_name");
         }
         else if (offer.AreaId is int area && Valid(RegistryKind.Area,area))
             named = _scenario.Snapshot.Areas.FirstOrDefault(value => value.Slot == area)?.Name
                 ?? throw DiplomacyMissing("negotiation_ui_area_name");
-        return new(shown, relation, ruler, canAccept, named);
+        string? requestedNamed = null;
+        if(request.Kind==DiplomaticMissionKind.Exchange)
+        {
+            var requested=request.RequestedOffer;
+            if(requested.ItemId is int requestedItem && Valid(RegistryKind.Item,requestedItem))
+            {
+                var held=state.Items?.GetValueOrDefault(requestedItem)??throw DiplomacyMissing("negotiation_ui_requested_item");
+                requestedNamed=state.ItemDefinitions.GetValueOrDefault(held.DefinitionId)?.Name
+                    ??throw DiplomacyMissing("negotiation_ui_requested_item_name");
+            }
+            else if(requested.AreaId is int requestedArea && Valid(RegistryKind.Area,requestedArea))
+                requestedNamed=_scenario.Snapshot.Areas.FirstOrDefault(value=>value.Slot==requestedArea)?.Name
+                    ??throw DiplomacyMissing("negotiation_ui_requested_area_name");
+        }
+        return new(shown, relation, ruler, canAccept, named) {RequestedNamedCondition=requestedNamed};
 
         bool Valid(RegistryKind kind,int physical)
         {

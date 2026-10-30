@@ -17,6 +17,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var people = new Dictionary<int, NewGameGovernanceOfficer>();
         var slots = new List<NewGameGovernancePersonnelSlot>(35);
         bool? valid = null;
+        int? rulerPending=null;
         bool? canEdit = application?.UserStrategyStatePresent == false ? false : null;
         if (canEdit is null) issues.Add("new-game.government.application-edit-owner");
         var roster = new GovernanceRosterView(forceId, null, [], [], null, null,
@@ -38,6 +39,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (valid != true)
             { if (valid is null) issues.Add("new-game.government.force-validity"); return Publish(); }
             var fields = (ForcePolicyPersonnelFields.Read(sourceRow) with { Ruler = ruler!.Value }).ForGovernmentPage();
+            rulerPending=fields.Field16A;
             roster = GovernanceRosterSource.Read(state, forceId, _scenario.Snapshot.DoctrineParameters, [], fields);
             for (int group = 0; group < 5; group++)
                 for (int ordinal = 0; ordinal < 7; ordinal++)
@@ -78,6 +80,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         return Publish();
 
         NewGameForceGovernancePreview Publish() => new(forceId, valid, canEdit, roster,
-            new ReadOnlyDictionary<int, NewGameGovernanceOfficer>(people), slots.AsReadOnly(), issues.AsReadOnly());
+            new ReadOnlyDictionary<int, NewGameGovernanceOfficer>(people), slots.AsReadOnly(), issues.AsReadOnly()){RulerPendingValue=rulerPending};
     }
 }

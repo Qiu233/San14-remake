@@ -22,6 +22,16 @@ public static class ScenePlacementReader
     public static ScenePlacements Read(LoadedSceneResources scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
+        return ReadSelected(scene,scene.Instances);
+    }
+
+    /// <summary>Read an actual selected current resource owner's complete
+    /// instances. Their source indices remain caller-owned identities, not
+    /// positions in the Scene VisibilitySet array.</summary>
+    public static ScenePlacements ReadSelected(LoadedSceneResources scene,
+        IReadOnlyList<SceneInstance> actualSelectedInstances)
+    {
+        ArgumentNullException.ThrowIfNull(scene);ArgumentNullException.ThrowIfNull(actualSelectedInstances);
         var models = new Dictionary<uint, List<(LoadedObjects Resource, DokObject Object)>>();
         var objectCounts = new Dictionary<LoadedObjects, Dictionary<uint, int>>(ReferenceEqualityComparer.Instance);
         foreach (SceneDependency dependency in scene.Dependencies)
@@ -36,8 +46,8 @@ public static class ScenePlacementReader
                 }
         }
         var definitions = new Dictionary<(string Uri, string Hash, uint Id), (SceneTransformValues Transform, SceneModelReference? Model)>();
-        var placements = new List<ScenePlacement>(scene.Instances.Count);
-        foreach (SceneInstance instance in scene.Instances)
+        var placements = new List<ScenePlacement>(actualSelectedInstances.Count);
+        foreach (SceneInstance instance in actualSelectedInstances)
         {
             string context = $"{scene.Scene.Source.ResourceUri}, instance {instance.Index} object {instance.Object.ObjectId:X8}";
             try

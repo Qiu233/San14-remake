@@ -4,7 +4,10 @@ namespace San14.Data;
 /// retained; an unresolved directory must not be interpreted as an empty one.</summary>
 public sealed record UnitFacilityDirectory(IReadOnlyList<UnitFacilityDirectoryRow> Rows,
     string? UnresolvedInput, string? ColumnLayoutUnresolvedInput,
-    string? SortingUnresolvedInput);
+    string? SortingUnresolvedInput)
+{
+    public FacilitySelectionPageSet? Pages { get; init; }
+}
 
 public sealed record UnitFacilityDirectoryRow(int DefinitionLookupId,
     string DefinitionKey, int? DefinitionPhysicalSlot, string? Name, byte? Category,

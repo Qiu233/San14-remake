@@ -3,7 +3,7 @@ namespace San14.Core;
 public sealed partial class GameSimulation
 {
     private CampaignPendingOperation? _progress;
-    public bool HasPendingOperation => _progress is not null || _normalPeriod is not null;
+    public bool HasPendingOperation => _progress is not null || _normalPeriod is not null || State.EditedEventPlayback is not null || State.CampaignEventCommandPlayback is not null || State.AutomaticEmperorCapture is not null;
     public CampaignProgressOperation? PendingProgress => _progress?.Story?.Copy();
     public ManualTacticProgressOperation? PendingManualTactic => _progress?.ManualTactic?.Copy();
     /// <summary>Borrowed read-only candidate for exact-owner presentation transactions.</summary>
@@ -13,7 +13,11 @@ public sealed partial class GameSimulation
     { if (HasPendingOperation) throw new InvalidOperationException("The campaign is awaiting its current continuation."); }
     public void RestoreProgress(CampaignProgressOperation? progress, long lastSequence, ManualTacticProgressOperation? manualTactic = null)
     {
-        RequireNoProgress();
+        // A manual editor Story is already owned by the restored world. The
+        // Session may restore its sequence, but cannot attach a second owner.
+        if (_progress is not null || _normalPeriod is not null ||
+            (State.EditedEventPlayback is not null || State.CampaignEventCommandPlayback is not null) && (progress is not null || manualTactic is not null))
+            throw new InvalidOperationException("The campaign already has a continuation owner.");
         if (lastSequence < 0 || progress is not null && progress.LastStorySequence != lastSequence)
             throw new InvalidDataException("Saved story sequence is inconsistent.");
         progress?.Validate(State);
@@ -29,7 +33,9 @@ public sealed partial class GameSimulation
             foreach (var capture in manualTactic.Captures) StateValidator.Validate(capture.State, capture.Context);
         }
         _progress = progress is not null ? new(progress.Copy(), null) : manualTactic is not null ? new(null, manualTactic.Copy()) : null;
-        LastStorySequence = lastSequence;
+        LastStorySequence = Math.Max(lastSequence, Math.Max(
+            State.EditedEventPlayback?.Story.Sequence ?? 0,
+            State.CampaignEventCommandPlayback?.Invocation.Story.Sequence ?? 0));
     }
     public CampaignProgressTransition BeginProgress(ICampaignProgressRules rules, CampaignProgressRequest request,
         ICommandPlanner? planner = null)
@@ -54,7 +60,9 @@ public sealed partial class GameSimulation
     {
         if (_progress?.ManualTactic is { } manual)
         {
-            if (!manual.ContinueAfterPresentation || rules is not ICampaignManualTacticProgressRules source)
+            if ((!manual.ContinueAfterPresentation && !manual.RequiresAutomaticManualTacticContinuation) ||
+                manual.PendingCapturedRulerTreatment is not null || manual.PendingRulerSuccession is not null ||
+                rules is not ICampaignManualTacticProgressRules source)
                 throw new InvalidOperationException("Manual tactic continuation needs its actual reply or rules.");
             return Admit(rules, source.RetryManualTactic(manual.Copy()), manual.Request);
         }

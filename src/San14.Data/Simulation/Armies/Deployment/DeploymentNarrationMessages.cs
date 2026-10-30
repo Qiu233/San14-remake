@@ -10,10 +10,19 @@ internal sealed record DeploymentNarrationText(int MessageId, int VariantIndex,
 internal sealed class DeploymentNarrationMessages(MessageDocument messages)
 {
     public DeploymentNarrationText Resolve(INarrationCurrentContext people,
-        Func<int,int> presentationRandom)
+        Func<int,int> presentationRandom, bool executeVoiceRequest = false)
     {
         var result = new NarrationResourceMessages(messages).Resolve(people, presentationRandom,
-            NarrationResourceFamily.Deployment);
+            NarrationResourceFamily.Deployment,executeVoiceRequest);
+        return ReadResult(result);
+    }
+
+    public DeploymentNarrationText ResolveGeneralUnitTarget(INarrationCurrentContext people,
+        Func<int,int> presentationRandom, bool executeVoiceRequest = false) => ReadResult(
+            new NarrationResourceMessages(messages).ResolveGeneralUnitTarget(people,presentationRandom,executeVoiceRequest));
+
+    private static DeploymentNarrationText ReadResult(NarrationResourceText result)
+    {
         var selected = result.Choices.Where(choice => choice.MessageId == result.MessageId && choice.Arity == 3).ToArray();
         if (selected.Length != 1) throw new InvalidDataException("deployment.narration.empty_or_unproved_variant");
         return new(result.MessageId, selected[0].SelectedIndex, result.Text, result.Pages);

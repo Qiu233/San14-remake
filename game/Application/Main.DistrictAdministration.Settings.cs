@@ -51,7 +51,9 @@ public partial class Main
         ];
         owner.Setup.Apply(new(summary?.Name ?? "", fields, choices, summary?.CityCaption ?? "", summary?.LeaderCaption ?? "",
             summary?.TargetCaption ?? "", true, draft.CanEditLeader, draft.CanEditTarget,
-            draft.CanConfirm, draft.CanContinue, DistrictAdministrationGuide(draft)));
+            draft.CanConfirm, draft.CanContinue, DistrictAdministrationGuide(owner)) { DistrictNumber=draft.Number });
+        var presentation=draft.QuerySetupPresentation();
+        owner.Setup.ApplyPresentation(presentation.Available?presentation.Value:null,presentation.UnresolvedInput);
     }
 
     private void ChangeDistrictSetting(DistrictAdministrationWorkspace owner, DistrictSetupField field, int value)

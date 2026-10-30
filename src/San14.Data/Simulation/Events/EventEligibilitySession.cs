@@ -31,4 +31,5 @@ public sealed class EventEligibilitySession
         _results.Add(result);
     }
     public void SetAvailableResult(bool value) => HasAvailableResult = value;
+    internal void RestoreAvailableResult(bool? value) => HasAvailableResult = value;
 }

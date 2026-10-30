@@ -180,8 +180,13 @@ internal static class PersonReturnDistrictReorganizationSource
             {
                 var linked = current.ReadPersonLinkedEntity(person) ?? throw Missing("merge_associated");
                 if (K(current.ReadLinkedEntityNativeValidity(linked), "merge_associated_validity"))
-                    operation.Publish(PersonReturnCommands.CancelAssociatedCommandCurrent(operation.Latest(), current,
-                        K(linked.Identity, "merge_associated_receiver"), operation.Date ?? throw Missing("merge_actual_cut_date")));
+                {
+                    int commandId = K(linked.Identity, "merge_associated_receiver");
+                    var cancelled = PersonReturnCommands.CancelAssociatedCommandCurrent(operation.Latest(), current,
+                        commandId, operation.Date ?? throw Missing("merge_actual_cut_date"), operation.Package);
+                    //293490 calls335CD0, including virtual110(...,1).
+                    operation.Publish(PersonReturnCommands.RetireAssociatedCommandImmediatelyCurrent(cancelled, current, commandId));
+                }
             }
         }
         for (int slot = 0; slot < 52; slot++)
@@ -277,13 +282,22 @@ internal static class PersonReturnDistrictReorganizationSource
     {
         operation.Publish(ArmyCautionDistrictResetSource.ResetForDistrict(operation.Latest(), current, district));
     }
-    private static int Cap(SourceWorldContext current, GameState state, int district)
+    internal static int Cap(SourceWorldContext current, GameState state, int district)
     {
-        if (state.NativeArmySimulation?.Parameters.Language != "TC") throw Missing("SC_District24_cap_table");
+        string language = state.NativeArmySimulation?.Parameters.Language ?? throw Missing("District24_cap_profile");
+        if (language is not ("TC" or "SC")) throw Missing("District24_cap_profile");
         int force = K(current.ReadDistrictForceId(district), "budget_Force");
         int rank = state.Forces.GetValueOrDefault(force)?.RankId ?? throw Missing("budget_current_rank47");
-        //TC231350's immutable data table, extracted offline2026-10-24.
-        return rank switch { 1 or 2 or 3 or 10 or 11 or 12 => 200000, 4 or 5 => 150000, 6 or 7 => 100000, _ => 50000 };
+        //Both independently inspected getters use the actual current rank47
+        //and this band selection. SC's own jump table and four scalar bytes
+        //establish its values; they are not inferred from the TC numbers.
+        int band = rank switch { 1 or 2 or 3 or 10 or 11 or 12 => 0, 4 or 5 => 1, 6 or 7 => 2, _ => 3 };
+        return language switch
+        {
+            "TC" => band switch { 0 => 200000, 1 => 150000, 2 => 100000, _ => 50000 },
+            "SC" => band switch { 0 => 200000, 1 => 150000, 2 => 100000, _ => 50000 },
+            _ => throw Missing("District24_cap_profile")
+        };
     }
     private static int Word24(SourceWorldContext current, int district)
     {

@@ -15,6 +15,7 @@ internal partial class UiSourceSimpleTooltip : Control
     private readonly List<UiSourceText> lines=[];
     private float nominalHeight;
     private string? current;
+    private bool currentKnownColours;
     private bool followPointer;
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
@@ -35,17 +36,26 @@ internal partial class UiSourceSimpleTooltip : Control
     }
 
     internal void DisplayText(string? value)
+        => Display(value, false);
+
+    internal void DisplayKnownColourText(string? value)
+        => Display(value, true);
+
+    private void Display(string? value, bool knownColours)
     {
         if(value is null){Hide();return;}
         string text=value.Length==0?" ":value;
-        if(current!=text)
+        if(current!=text || currentKnownColours!=knownColours)
         {
             string[] paragraphs=text.Split('\n');
             // Source formatting atoms require their own text consumer; never
             // paint them as literal glyphs or silently remove their semantics.
-            if(text.Any(code=>code=='^'||char.IsControl(code)&&code!='\n'))
+            if(!knownColours && text.Any(code=>code=='^'||char.IsControl(code)&&code!='\n'))
                 throw new InvalidDataException("Simple tooltip requires expanded plain LF text.");
-            var size=MeasureSource(text,nominalHeight,profile.VerticalSpace);
+            if (knownColours) DeploymentNarrationPlainParagraph.RequireKnownColours(text);
+            var colourLines = knownColours ? DeploymentNarrationParagraphPlan.Runs(text) : null;
+            string[] visible = colourLines?.Select(line => line.VisibleText).ToArray() ?? paragraphs;
+            var size=MeasureSource(string.Join('\n', visible),nominalHeight,profile.VerticalSpace);
             Size=new(size.X+20,size.Y+4);
             blur.Size=Size;
             if(artwork is { } old){old.Hide();old.Name="PreviousTooltipArtwork";old.QueueFree();}
@@ -53,7 +63,7 @@ internal partial class UiSourceSimpleTooltip : Control
             artwork=source.Art(this,2,new(Vector2.Zero,Size),assets,shader,
                 new MapCornerColors(backgroundColour,backgroundColour,backgroundColour,backgroundColour));
             artwork.Name="TooltipBackground";MoveChild(artwork,1);
-            int widest=paragraphs.Max(line=>font.Measure(line,profile).Width);
+            int widest=visible.Max(line=>font.Measure(line,profile).Width);
             int available=size.X-(int)profile.WidthReserve;
             float factor=widest>available?available/(float)widest*.98f:1;
             var fitted=profile with{ScaleX=profile.ScaleX*factor,
@@ -68,13 +78,25 @@ internal partial class UiSourceSimpleTooltip : Control
                 var line=lines[index];line.Visible=index<paragraphs.Length;
                 if(!line.Visible)continue;
                 line.Position=source.Rectangle(3).Position+new Vector2(0,top);
-                line.Size=new(size.X,(int)nominalHeight);line.Configure(font,fitted);line.Text=paragraphs[index];
+                line.Size=new(size.X,(int)nominalHeight);line.Configure(font,fitted);
+                if (colourLines is not null)
+                {
+                    var presets = MapTextPresets.Create();
+                    line.SetRuns(colourLines[index].Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
+                    {
+                        NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
+                        NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
+                        NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
+                        _ => (uint?)null
+                    })).ToArray());
+                }
+                else line.Text=paragraphs[index];
                 // Another line can change the shared fit while this line's
                 // text, position and size stay identical.
                 line.QueueRedraw();
-                top+=LineAdvance(paragraphs[index],fitted);
+                top+=LineAdvance(visible[index],fitted);
             }
-            current=text;
+            current=text; currentKnownColours=knownColours;
         }
         Show();
         if(followPointer)UpdatePointer(GetParent<Control>().GetLocalMousePosition());

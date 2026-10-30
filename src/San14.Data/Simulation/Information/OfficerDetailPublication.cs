@@ -9,6 +9,10 @@ public sealed record OfficerDetailPublication(int OfficerId, int PhysicalSlot, s
     OfficerDetailRelations Relations, ImmutableArray<AreaAdministrationOfficerAbility> Abilities,
     ImmutableArray<OfficerDetailTrait> Traits, ImmutableArray<string> UnresolvedOwners)
 {
+    /// <summary>The current Person's actual detail-page count. Source15E
+    /// bit14 removes the third page; absent knowledge must not imply three.</summary>
+    public AreaAdministrationQuery<int> PageCount { get; init; }
+        = AreaAdministrationQuery<int>.Unknown("officer-detail.page_count");
     public AreaAdministrationQuery<DeploymentNarrationPortraitRoute> StandingPortrait { get; init; }
         = AreaAdministrationQuery<DeploymentNarrationPortraitRoute>.Unknown("officer-detail.standing_portrait");
     public AreaAdministrationQuery<AreaAdministrationOfficerFlag> ForceFlag { get; init; }

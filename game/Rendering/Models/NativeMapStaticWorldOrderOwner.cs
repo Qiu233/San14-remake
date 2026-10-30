@@ -38,6 +38,8 @@ public sealed class NativeMapStaticWorldOrderOwner
     private readonly Dictionary<string, (MapStaticModelAsset Asset, MapModelNativeFreshVisibilityPrefix Prefix)> freshBounds
         = new(StringComparer.Ordinal);
     private StaticWorldCurrentTuplePublication? current;
+    private FacilitySceneModelFrame? facilityFrame;
+    private HashSet<string> facilityBounds = new(StringComparer.Ordinal);
     public NativeMapStaticWorldOrderOwner(SceneViewNativeMapModelSourceOwner actualModels,
         WorldPrimitiveOrderSource actualViewParameter,
         Func<MapStaticModelPreparedState, NativeWorldShaderTableState> readActualFinalShaderTable)
@@ -60,6 +62,14 @@ public sealed class NativeMapStaticWorldOrderOwner
         if (actualPopulation.FrameNumber <= 0 || !actualPopulation.Population.Complete || !actualPrepared.Complete ||
             !ReferenceEquals(actualPopulation.Visibility, actualPrepared.Visibility))
             throw new InvalidDataException("Static primitive order needs the exact complete current CPU population and packet preparation.");
+        if (!ReferenceEquals(facilityFrame, actualPopulation.FacilitySceneModels))
+        {
+            var retained = actualPopulation.FacilitySceneModels?.Rows.Select(row => row.Identity)
+                .ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+            foreach (string identity in facilityBounds)
+                if (!retained.Contains(identity)) freshBounds.Remove(identity);
+            facilityBounds = retained; facilityFrame = actualPopulation.FacilitySceneModels;
+        }
         var sourceOrder = actualPopulation.Visibility.Visible.SelectMany(instance =>
             instance.Asset.Draws.Select(draw => (instance.InstanceKey, Draw: draw.Index))).ToArray();
         if (!sourceOrder.SequenceEqual(actualPrepared.MaterialStates.Select(state =>

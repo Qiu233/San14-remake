@@ -69,7 +69,7 @@ public static class ArmyGroupRules
         if (created.CanLeadGroup && (leaderPolicy == ArmyGroupLeaderPolicy.AssignCommander ||
             groupDistrict.DistrictId != playerPrimaryDistrictId))
             next.Leaders[selected] = new(true, created.Officer);
-        return next;
+        return next.RegisterOriginalAiContext(selected);
     }
 
     /// <summary>Before removing a retiring member, replace its matching leader
@@ -123,6 +123,7 @@ public static class ArmyGroupRules
         {
             next.Leaders[groupId] = new(true, emptyGroupLeader ?? next.ResetLeader);
             next.CautionTargets?.Remove(groupId);
+            next = next.ResetObjective(groupId);
         }
         return next;
     }

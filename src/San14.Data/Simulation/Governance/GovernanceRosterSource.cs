@@ -29,12 +29,7 @@ internal static class GovernanceRosterSource
         if (advisorId is null || advisorPending is null) unresolved = "governance.advisor_owner";
         else if (advisorId.Value != 0) advisor = new(advisorId.Value, advisorPending.Value);
 
-        S14DoctrineDefinition? doctrine = null;
-        if (force.RulerId is int rulerId && state.Officers.TryGetValue(rulerId, out var ruler) &&
-            OfficerDoctrineRules.ReadDoctrineId(ruler.DoctrineId, ruler.AbilityState) is int doctrineId &&
-            doctrineId is >= 1 and <= 6 && state.Doctrines.ContainsKey(doctrineId))
-            doctrine = doctrines?.Doctrines.FirstOrDefault(row => row.Slot == doctrineId &&
-                !string.IsNullOrEmpty(row.Name) && row.RawBytes.Length == 102);
+        var doctrine = ReadDoctrine(state, force, doctrines);
         for (int group = 0; group < 5; group++)
         {
             string? missing = null;
@@ -72,4 +67,14 @@ internal static class GovernanceRosterSource
         int? Byte(string key) => values is not null && values.TryGetValue(key, out int value) &&
             value is >= 0 and <= byte.MaxValue ? value : null;
     }
+    internal static S14DoctrineDefinition? ReadDoctrine(GameState state, ForceState force, S14DoctrineCatalog? doctrines)
+    {
+        if (force.RulerId is int rulerId && state.Officers.TryGetValue(rulerId, out var ruler) &&
+            OfficerDoctrineRules.ReadDoctrineId(ruler.DoctrineId, ruler.AbilityState) is int doctrineId &&
+            doctrineId is >= 1 and <= 6 && state.Doctrines.ContainsKey(doctrineId))
+            return doctrines?.Doctrines.FirstOrDefault(row => row.Slot == doctrineId &&
+                !string.IsNullOrEmpty(row.Name) && row.RawBytes.Length == 102);
+        return null;
+    }
+
 }

@@ -8,7 +8,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         //28DFB0(old,new,out,0). The caller retains the real Person list for
         //the later independence decisions and source-order reports.
-        private void ApplyRulerSuccessionTransfer(int oldRuler, int newRuler, HexListHandle retainedPeople)
+        private void ApplyRulerSuccessionTransfer(int oldRuler, int newRuler, HexListHandle retainedPeople,
+            bool refreshForce = false)
         {
             if (!Known(current.ReadPersonNativeValidity(oldRuler), "succession_old_validity") ||
                 !Known(current.ReadPersonNativeValidity(newRuler), "succession_new_validity")) return;
@@ -68,6 +69,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Append(retainedPeople, new(RegistryKind.Person, person));
             }
             AppendRulerSuccessionEffects(effects);
+            //28DFB0's ordinary Story caller passes1. Death passes0 and
+            //retains its later independent-successor work before this tail.
+            if (refreshForce) ApplyRulerSuccessionForceTail(force, newRuler, oldRuler);
             BindLatestPolicyReader();
             return;
 

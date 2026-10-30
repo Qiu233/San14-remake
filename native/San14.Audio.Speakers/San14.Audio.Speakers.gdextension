@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol = "san14_speakers_init"
+compatibility_minimum = "4.3"
+reloadable = false
+
+[libraries]
+windows.debug.x86_64 = "./San14.Audio.Speakers.dll"
+windows.release.x86_64 = "./San14.Audio.Speakers.dll"

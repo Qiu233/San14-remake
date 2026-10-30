@@ -3,6 +3,8 @@ namespace San14.Core;
 /// <summary>Replace the terminal action and its ordered intermediate destinations.</summary>
 public sealed record SetUnitActionOrder(int ForceId, int UnitId, DeploymentAction Action,
     IReadOnlyList<int> WaypointHexIds) : GameOrder(ForceId);
+public sealed record IssueContinuousFacilityConstructionOrder(int ForceId, int UnitId,
+    int InitialHexId, int FinalHexId, string DefinitionKey, IReadOnlyList<int> WaypointHexIds) : GameOrder(ForceId);
 public sealed record SetUnitWaypointsOrder(int ForceId, int UnitId,
     IReadOnlyList<int> WaypointHexIds) : GameOrder(ForceId);
 public sealed record SetUnitsWaypointsOrder(int ForceId, IReadOnlyList<int> UnitIds,
@@ -37,6 +39,48 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
 {
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)
     {
+        if (order is IssueArmiesFacilityConstructionOrder group)
+        {
+            int hexCount = checked(state.MapWidth * state.MapHeight);
+            if (group.Armies is null || group.Armies.Count is < 1 or > 30 ||
+                group.InitialHexId < 0 || group.InitialHexId >= hexCount ||
+                group.FinalHexId is int finalHex && (finalHex < 0 || finalHex >= hexCount) ||
+                !FacilityConstructionIntent.IsDefinitionKey(group.DefinitionKey))
+                return CommandResult.Reject("Select distinct armies and valid construction sites.", "structure.selection");
+            var selected = new ArmyFacilityConstructionSelection[group.Armies.Count];
+            var ids = new HashSet<int>();
+            for (int index = 0; index < group.Armies.Count; index++)
+            {
+                var row = group.Armies[index];
+                if (row is null || !ids.Add(row.UnitId) || row.WaypointHexIds is null ||
+                    row.WaypointHexIds.Count > PlayableWaypointMarch.MaximumWaypoints ||
+                    row.WaypointHexIds.Any(hex => hex < 0 || hex >= hexCount))
+                    return CommandResult.Reject("Each selected army needs its own valid intermediate destinations.", "structure.selection");
+                if (!TryUnit(state, force, row.UnitId, context, out _, out var denied)) return denied!;
+                selected[index] = row with { WaypointHexIds = row.WaypointHexIds.ToArray() };
+            }
+            // The whole People selection supplies the construction qualification.
+            // Singleton commands would incorrectly require every commander to qualify.
+            return construction is IPlayableArmyGroupConstructionCommandRules commands
+                ? commands.IssueArmyGroupFacilityConstruction(state, force,
+                    group with { Armies = selected }, context)
+                : CommandResult.RuleUnavailable("rules.army_group_construction", "Group construction rules are unavailable.");
+        }
+        if (order is IssueContinuousFacilityConstructionOrder continuous)
+        {
+            if (!TryUnit(state, force, continuous.UnitId, context, out var army, out var denied)) return denied!;
+            int hexCount = checked(state.MapWidth * state.MapHeight);
+            if (continuous.InitialHexId < 0 || continuous.InitialHexId >= hexCount ||
+                continuous.FinalHexId < 0 || continuous.FinalHexId >= hexCount ||
+                !FacilityConstructionIntent.IsDefinitionKey(continuous.DefinitionKey) ||
+                continuous.WaypointHexIds is null || continuous.WaypointHexIds.Count > PlayableWaypointMarch.MaximumWaypoints ||
+                continuous.WaypointHexIds.Any(hex => hex < 0 || hex >= hexCount))
+                return CommandResult.Reject("The continuous construction sites or route are invalid.", "structure.target");
+            return construction is IPlayableArmyContinuousConstructionCommandRules commands
+                ? commands.IssueContinuousFacilityConstruction(state, army!, continuous.InitialHexId,
+                    continuous.FinalHexId, continuous.DefinitionKey, continuous.WaypointHexIds)
+                : CommandResult.RuleUnavailable("rules.army_continuous_construction", "Continuous construction rules are unavailable.");
+        }
         if (order is SetUnitFireOrder fire)
             return SetFire(state, force, [fire.UnitId], fire.ClickedHexId, fire.TargetHexId, fire.WaypointHexIds, context);
         if (order is SetUnitsFireOrder fires)
@@ -323,7 +367,8 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
         {
             if (waypoints is null || waypoints.Count > PlayableWaypointMarch.MaximumWaypoints ||
                 state.Structures is not { } targetStructures ||
-                !targetStructures.TryGetValue(action.Target.Id, out var target) || target.ForceId != force.Id)
+                !targetStructures.TryGetValue(action.Target.Id, out var target) ||
+                action.ActionKey == "demolish" && target.ForceId != force.Id)
                 return CommandResult.Reject("The selected facility or route is invalid.", "structure.target");
             int demolitionCursor = unit!.HexId;
             foreach (int hex in waypoints)

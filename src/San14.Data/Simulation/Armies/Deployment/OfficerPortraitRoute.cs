@@ -6,7 +6,12 @@ public enum OfficerPortraitRouteKind { Hidden, StockNamed, Unresolved }
 /// declared resource/sprite pair, not a fallback on resource loading failure.</summary>
 public sealed record OfficerPortraitRoute(int OfficerId, OfficerPortraitRouteKind Kind,
     ushort? CurrentAppearanceIndex, int? ResolvedAppearanceIndex,
-    string? ResourceName, string? SpriteName, int? EligibilityPersonId, string? UnresolvedInput);
+    string? ResourceName, string? SpriteName, int? EligibilityPersonId, string? UnresolvedInput)
+{
+    //Actual bank10 input after live content/app/user gates, before static
+    //portrait-name remapping. A saved presentation may retain this decision.
+    public ushort? AdmittedAppearanceIndex {get;init;}
+}
 
 internal static class OrdinaryPortraitEligibility
 {

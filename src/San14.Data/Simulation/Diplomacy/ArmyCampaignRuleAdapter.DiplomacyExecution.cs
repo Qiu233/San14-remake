@@ -8,7 +8,15 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelDiplomacyExecuti
         GameState state, SourceWorldContext current, PersonnelDiplomacyTask task, NativeMapSeasonDate date)
     {
         if (date.Hour != 8) return new(state, false);
+        if (state.DemandSurrenderCompletionTail is { } resumed && resumed.Task.Id == task.Id)
+        {
+            var resumedEffects = new List<CampaignEffectRequest>();
+            state = CompleteDemandSurrenderCurrent(state, current, resumed.Task, resumed.Accepted,
+                resumed.OperationDate, resumedEffects);
+            return new(AppendDiplomacyEffects(state, resumedEffects), state.DemandSurrenderCompletionTail is null);
+        }
         if (task.AwaitingNegotiation) return new(state, false);
+        if(task.NativeKind==8)task=RetainReturnCaptivesCurrent(current,task);
         task = task with { Started = true };
         state = SetDiplomacyTaskCurrent(state, current, task);
         var effects = new List<CampaignEffectRequest>();
@@ -30,6 +38,19 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelDiplomacyExecuti
             return new(CompleteUnilateralDiplomacyCurrent(state, current, task, date, effects), true);
         }
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw DiplomacyMissing("arrival_player");
+        if(task.NativeKind is 7 or 19)
+        {
+            var trial=task.NativeKind==7?ResolveDemandSurrenderTrialCurrent(state,current,task)
+                :ResolveExchangeTrialCurrent(state,current,task,task.InitialOffer);
+            if(TalentKnown(current.ReadForceNativeValidity(player),"direct_recipient_player_validity") && player.PhysicalSlot==task.TargetForceId)
+            {
+                task=task with {AwaitingNegotiation=true,NegotiationDate=date,
+                    Negotiation=new(DiplomaticNegotiationStage.RecipientDecision,task.InitialOffer,trial.Probability,task.NativeKind==19,trial.Accepted)};
+                return new(AppendDiplomacyEffects(SetDiplomacyTaskCurrent(state,current,task),effects),false);
+            }
+            state = AppendDiplomacyEffects(CompleteDirectDiplomacyCurrent(state,current,task,trial.Accepted,date,effects),effects);
+            return new(state, state.DemandSurrenderCompletionTail is null);
+        }
         int playerId = TalentKnown(player.PhysicalSlot, "diplomacy_player_id");
         if (TalentKnown(current.ReadForceNativeValidity(player), "diplomacy_player_validity") &&
             (task.ForceId == playerId || task.TargetForceId == playerId))
@@ -79,6 +100,32 @@ public sealed partial class ArmyCampaignRuleAdapter : IPersonnelDiplomacyExecuti
                 return CommandResult.Reject("The force does not own this negotiation decision.", "diplomacy.negotiation_permission");
             if (context.DelegatedDistrictId is int districtId && districtId != task.SourceDistrictId)
                 return CommandResult.Reject("The diplomatic decision is outside this district.", "diplomacy.negotiation_scope");
+            if(task.NativeKind is 7 or 19)
+            {
+                if(force.Id!=task.TargetForceId || order.MilitaryIntelligence.HasValue ||
+                    task.NativeKind==7 && order.Offer!=task.InitialOffer)
+                    return CommandResult.Reject("This diplomatic reply cannot change the submitted conditions.","diplomacy.direct_reply");
+                var directEffects=new List<CampaignEffectRequest>();
+                bool directAccepted=order.Accepted;
+                if(task.NativeKind==19)
+                {
+                    if(order.Accepted)RequireExchangeCounterOfferCurrent(state,current,task,order.Offer);
+                    if(order.Accepted && !IsExchangeRequestedOfferStillQualifiedCurrent(state,current,task,true))
+                        return CommandResult.Reject("The requested exchange resources are no longer available.","diplomacy.exchange_resources");
+                    //811870 keeps unchanged terms on stage12. Only changed
+                    //sender terms enter812EB0; requested terms stay fixed.
+                    if(order.Accepted && order.Offer!=task.InitialOffer)
+                        directAccepted=ResolveExchangeCounterOfferCurrent(state,current,task,order.Offer).Accepted;
+                    task=task with {Negotiation=(task.Negotiation??throw DiplomacyMissing("exchange_reply_stage"))
+                        with {Proposal=order.Offer}};
+                }
+                var completed=task.NativeKind==19
+                    ?CompleteExchangeDiplomacyCurrent(state,current,task,directAccepted,date,directEffects,
+                        order.Accepted?order.Offer:task.InitialOffer)
+                    :CompleteDirectDiplomacyCurrent(state,current,task,directAccepted,date,directEffects);
+                return CommandResult.Accept(SynchronizeDiplomacyProjection(PersonReturnCommands.PublishCurrent(
+                    AppendDiplomacyEffects(completed,directEffects),current)));
+            }
             var negotiation = task.Negotiation ?? ReadInitialDiplomacyNegotiationCurrent(state, current, task);
             if (!negotiation.CanEditConditions && order.Offer != negotiation.Proposal)
                 return CommandResult.Reject("The current diplomatic window does not admit changing the conditions.", "diplomacy.negotiation_stage");

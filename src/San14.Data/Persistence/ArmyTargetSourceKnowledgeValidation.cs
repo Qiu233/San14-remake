@@ -22,13 +22,17 @@ internal static class ArmyTargetSourceKnowledgeValidation
             if (residue.MapObjectLookupAlias is ushort alias)
             {
                 if (residue.KindCode is not null || residue.IdentityCode is not null ||
-                    target.Kind != ArmyTargetKind.MapObjectReceiver ||
-                    target.Destination is not { Kind: ArmyTargetDestinationKind.MapObjectReceiver,
-                        MapObjectReceiverId: MapObjectReceiverId mapped } || mapObjects is null || mapObjects.Lookup(alias) != mapped)
-                    throw new InvalidDataException("Army target map lookup alias has no matching known destination.");
-                int physical = mapObjects.PhysicalOf(mapped);
-                if (alias == physical && mapObjects.Lookup(physical) == mapped)
-                    throw new InvalidDataException("Canonical army target lookup is stored as redundant alias knowledge.");
+                    target.Kind != ArmyTargetKind.MapObjectReceiver || mapObjects is null)
+                    throw new InvalidDataException("Army target map lookup alias has no complete Object knowledge.");
+                if (target.Destination?.Kind != ArmyTargetDestinationKind.UnavailableObject)
+                {
+                    if (target.Destination is not { Kind: ArmyTargetDestinationKind.MapObjectReceiver,
+                            MapObjectReceiverId: MapObjectReceiverId mapped } || mapObjects.Lookup(alias) != mapped)
+                        throw new InvalidDataException("Army target map lookup alias has no matching known destination.");
+                    int physical = mapObjects.PhysicalOf(mapped);
+                    if (alias == physical && mapObjects.Lookup(physical) == mapped)
+                        throw new InvalidDataException("Canonical army target lookup is stored as redundant alias knowledge.");
+                }
             }
             if (residue.IdentityCode is ushort code &&
                 (target.Kind == ArmyTargetKind.City && code is >= 1 and <= 51 ||
@@ -56,6 +60,9 @@ internal static class ArmyTargetSourceKnowledgeValidation
             {
                 if (mapObjects is null)
                     throw new InvalidDataException("Saved map object target has no current source directory.");
+                if (row.Target.Destination?.Kind == ArmyTargetDestinationKind.UnavailableObject &&
+                    residue?.MapObjectLookupAlias is null)
+                    throw new InvalidDataException("Saved unavailable Object target has lost its actual lookup operand.");
                 if (row.Target.Destination?.MapObjectReceiverId is { } receiver)
                 {
                     int physical = mapObjects.PhysicalOf(receiver);

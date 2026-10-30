@@ -18,6 +18,9 @@ public sealed record ArmyCreationConfiguration(int NavalFormation10,
     /// <summary>Actual generic packet index16 (+40); creator clamps0..9.
     /// Unmodeled packet input is unknown, even when the free reset was0.</summary>
     public int? RouteHold40Input { get; init; }
+    // Actual AI1EC980 caller admission, not a player-dialog default. Its
+    // signed requested count can be zero; the generic creator clamps it.
+    internal bool SourceDeparture { get; init; }
 }
 
 /// <summary>Fresh CArmy constructor/reset plus the generic ordinary creator's
@@ -75,7 +78,7 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
             state.ContentHashes.GetValueOrDefault(_formations.Source.ResourceUri) != _formations.Source.Sha256 ||
             simulation.Forces.GetValueOrDefault(army.ForceId)?.Flags193 is not byte forceFlags ||
             army.OfficerId is < 1 or > 6000 || army.Id < 0 || state.Units.ContainsKey(army.Id) ||
-            army.Troops is <= 0 or > ushort.MaxValue || army.FormationId != deployment.FormationId ||
+            (army.Troops < 0 || army.Troops == 0 && !configuration.SourceDeparture || army.Troops > ushort.MaxValue) || army.FormationId != deployment.FormationId ||
             army.OfficerId != deployment.OfficerId || army.ForceId != deployment.ForceId ||
             army.SourceLocationId != deployment.SourceLocationId || army.TacticIds is not { } tactics ||
             !tactics.SequenceEqual(deployment.TacticIds) || tactics.Length > 3 ||
@@ -135,8 +138,8 @@ public sealed class ArmyConstruction : IPlayableArmyCreationRules
         int requested = unchecked(unchecked(initial.Value + adjustment.Value) - reduction.Value);
         byte primary = CreationCounter(requested, cap0.Value);
         byte flags = (byte)((configuration.Flag48Input == 1 ? 4 : 0) | (configuration.Flag4CInput == 1 ? 8 : 0));
-        byte action = ArmyDeploymentMarchSource.Read(deployment, null)?.Action ??
-            (byte)Math.Clamp(configuration.Action34, 0, 17);
+        byte action = configuration.SourceDeparture ? (byte)Math.Clamp(configuration.Action34, 0, 17) :
+            ArmyDeploymentMarchSource.Read(deployment, null)?.Action ?? (byte)Math.Clamp(configuration.Action34, 0, 17);
         // Fresh reset defines the three abnormal fields, six modifier/timers,
         // wounded quantity, and FF/0 no-owner pair. Registration does not set02.
         var runtime = new NativeArmyTacticRuntime(1, flags, primary,

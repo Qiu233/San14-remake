@@ -4,10 +4,12 @@ namespace San14.Data;
 
 public static partial class PersonReturnCommands
 {
-    /// <summary>The common cancellation branch keeps only serving members,
-    /// preserving member order and duplicates, and creates a new Return task.</summary>
+    /// <summary>The common Return initializer preserves member order and
+    /// duplicates. Cancellation callers admit only serving members; the direct
+    /// initializer has no such caller-specific status restriction.</summary>
     private static (PersonnelCommandTasks Owner, int? NewTaskId) RescheduleEligibleMembers(GameState state,
-        SourceWorldContext current, int[] members, bool isPlayer, NativeMapSeasonDate date)
+        SourceWorldContext current, int[] members, bool isPlayer, NativeMapSeasonDate date,
+        bool servingOnly = true)
     {
         var owner = CurrentCommandOwner(state, current);
         if (members.Length == 0) return (owner, null);
@@ -20,7 +22,7 @@ public static partial class PersonReturnCommands
             {
                 int person = Get((member < 6001 ? current.ReadPersonLookupReference(member) : current.ReadTransferPersonTableReference(0))?.PhysicalSlot,
                     "reschedule member pointer");
-                if (Get(current.ReadPersonStatus(person), "reschedule member status") is not (>= 1 and <= 4)) continue;
+                if (servingOnly && Get(current.ReadPersonStatus(person), "reschedule member status") is not (>= 1 and <= 4)) continue;
                 if (current.AppendPersonReturnTemporary(temporary, person)) people.Add(person);
             }
             if (people.Count == 0) return (owner, null);

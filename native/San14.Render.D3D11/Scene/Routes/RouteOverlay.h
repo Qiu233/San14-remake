@@ -1,6 +1,8 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Interop/RouteOverlayInput.h"
 #include "RouteStripRenderer.h"
+#include "RouteOriginalPrograms.h"
 #include <memory>
 #include <optional>
 #include <map>
@@ -8,55 +10,19 @@
 #include <sstream>
 #include <cmath>
 
-// Project route program: actual world XYZ/UV, original selected images/G1T
-// samplers and source queue state. CNS ToneMap/HeightFog appearance remains a
-// later visual restoration step. The original9DXBC are not GPU-created here.
+// Original route DXBC, retained geometry/media, and same-frame named constants.
+// Resource-generation replacement retires shader and texture owners together.
 namespace San14::Render {
 class NativeRouteOverlay {
     struct Program {
-        ComPtr<ID3D11VertexShader> vertex;
-        ComPtr<ID3D11PixelShader> pixel;
-        ComPtr<ID3D11InputLayout> layout;
-        ComPtr<ID3D11Buffer> constants;
+        RouteOriginalPrograms original;
         ComPtr<ID3D11RasterizerState> raster;
         ComPtr<ID3D11BlendState> blend;
         std::array<ComPtr<ID3D11DepthStencilState>,2> drawDepth,restoreDepth;
         std::array<D3D11_DEPTH_STENCIL_DESC,2> drawDescription{},restoreDescription{};
-        static std::shared_ptr<Program> prepare(ID3D11Device* device) {
-            static constexpr char shader[]=R"(
-cbuffer Current : register(b0) {
-    row_major float4x4 worldToClip;
-    float4 diffuse;
-    float4 alphaMapping;
-};
-struct Vertex {float3 position:POSITION;float2 uv:TEXCOORD0;};
-struct Fragment {float4 position:SV_Position;float2 uv:TEXCOORD0;};
-Fragment vertexMain(Vertex input) {
-    Fragment o;o.position=mul(float4(input.position,1),worldToClip);o.uv=input.uv;return o;
-}
-Texture2D<float4> sourceImage:register(t0);
-SamplerState sourceSampler:register(s0);
-float4 pixelMain(Fragment input):SV_Target {
-    float4 sampled=sourceImage.Sample(sourceSampler,input.uv);
-    sampled.a=saturate(sampled.a*alphaMapping.x+alphaMapping.y);
-    clip(sampled.a-alphaMapping.z);
-    return sampled*diffuse;
-})";
-            auto out=std::make_shared<Program>();ComPtr<ID3DBlob> vs,ps,error;
-            auto compile=[&](const char* entry,const char* profile,ComPtr<ID3DBlob>& code) {
-                HRESULT result=D3DCompile(shader,sizeof(shader)-1,"project-route-program",nullptr,nullptr,entry,profile,
-                    D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&error);
-                if(FAILED(result))throw std::runtime_error(error?std::string(static_cast<const char*>(error->GetBufferPointer()),error->GetBufferSize()):"Project route program compilation failed");
-            };
-            compile("vertexMain","vs_5_0",vs);compile("pixelMain","ps_5_0",ps);
-            check(device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&out->vertex),"Project route VS");
-            check(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&out->pixel),"Project route PS");
-            const D3D11_INPUT_ELEMENT_DESC elements[]{
-                {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},
-                {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,12,D3D11_INPUT_PER_VERTEX_DATA,0}};
-            check(device->CreateInputLayout(elements,2,vs->GetBufferPointer(),vs->GetBufferSize(),&out->layout),"Route XYZUV20 layout");
-            D3D11_BUFFER_DESC cb{};cb.ByteWidth=96;cb.Usage=D3D11_USAGE_DYNAMIC;cb.BindFlags=D3D11_BIND_CONSTANT_BUFFER;cb.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
-            check(device->CreateBuffer(&cb,nullptr,&out->constants),"Route current camera/tint constants");
+        static std::shared_ptr<Program> prepare(ID3D11Device* device,const fs::path& root) {
+            auto out=std::make_shared<Program>();
+            out->original.prepare(device,root);
             D3D11_RASTERIZER_DESC raster{};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=D3D11_CULL_BACK;raster.DepthClipEnable=TRUE;
             check(device->CreateRasterizerState(&raster,&out->raster),"Route queue200 solid back-cull raster");
             //D43190/D712F0: packed0100000000000000 selects RT0, disables
@@ -87,15 +53,15 @@ float4 pixelMain(Fragment input):SV_Target {
     struct Media {
         std::shared_ptr<Program> program;
         std::map<unsigned,Image> groups;
-        static std::shared_ptr<Media> prepare(ID3D11Device* device,const fs::path& root,std::shared_ptr<Program> program) {
-            auto out=std::make_shared<Media>();out->program=program?std::move(program):Program::prepare(device);
-            std::ifstream groups(root/"texture-groups.txt");unsigned name,object,count;std::string relative;
+        static std::shared_ptr<Media> prepare(ID3D11Device* device,const fs::path& root) {
+            auto out=std::make_shared<Media>();out->program=Program::prepare(device,root);
+            NativePreparedInputFile groups(root/"texture-groups.txt");unsigned name,object,count;std::string relative;
             if(!groups)throw std::runtime_error("Route actual TextureGroups are absent");
             while(groups>>name>>object>>count>>relative) {
                 //C15440's listOffset0 and C2FA00's category13 entry0 both
                 //survive BF5FD0/BF47F0;97F630 selects actual image0/UV0.
                 if(object!=0||count==0)throw std::runtime_error("Route TextureGroup's source-selected image is unsupported");
-                std::ifstream images(root/relative/"images.txt");unsigned slot,resource,view;std::string texture,sampler;
+                NativePreparedInputFile images(root/relative/"images.txt");unsigned slot,resource,view;std::string texture,sampler;
                 if(!(images>>slot>>resource>>view>>texture>>sampler)||slot!=0)throw std::runtime_error("Route selected image0 is absent");
                 Image image;image.texture=loadNativeModelTexture(device,root/relative/texture,DXGI_FORMAT(resource),DXGI_FORMAT(view));
                 auto bytes=load(root/relative/sampler);
@@ -132,6 +98,7 @@ float4 pixelMain(Fragment input):SV_Target {
     std::array<float,4> globalTint{};
     bool viewPrepared{};
 
+    HdrHeightFogState heightState_;
     static void makeEndpointVertices(Geometry& g,bool advance) {
         using namespace source_camera;
         const auto step=sinCos(3.1415927410125732f/512.f);
@@ -166,7 +133,7 @@ public:
         auto candidateMedia=media;
         if(input.resourceDirectory) {
             if(!input.resourceGeneration)throw std::runtime_error("Route resource generation is absent");
-            candidateMedia=Media::prepare(device,fs::path(input.resourceDirectory),media?media->program:nullptr);
+            candidateMedia=Media::prepare(device,fs::path(input.resourceDirectory));
         } else if(input.resourceGeneration!=resourceGeneration)throw std::runtime_error("Route replacement refers to an uninstalled media generation");
         if(!candidateMedia&&(input.spanCount||input.endpointCount))throw std::runtime_error("Route original media is absent");
         Geometry candidate;std::vector<NativeRouteStripRange> ranges;
@@ -212,23 +179,24 @@ public:
     }
     bool empty()const noexcept {return geometry.strip.ranges.empty()&&geometry.endpoints.empty();}
     void draw(ID3D11DeviceContext* context,NativeSourceDepthState& sourceDepth,const source_camera::Frame& camera,
-        unsigned sourceHostFlags) {
+        unsigned sourceHostFlags,const RouteAcceptedInputs& accepted) {
         if(empty())return;
         if(!viewPrepared||!media)throw std::runtime_error("Route current View/color owner is absent");
         auto& program=*media->program;
-        struct Constants {source_camera::Matrix worldToClip;std::array<float,4> diffuse,alpha;};
-        static_assert(sizeof(Constants)==96);
-        //C2FA00 stage0 ordinal0 + entry7=16 ->980E00 vSAMap=(1,1,0,0).
-        //Actual module10041 excludes the older half-scale branch. D27BC0's
-        //route material ref0 produces vATest=1/255 before diffuse modulation.
-        //Primitive tint isFFFFFFFF; beginView published the real global tint.
-        Constants current{camera.worldToClip,globalTint,{1.f,0.f,1.f/255.f,0.f}};
-        D3D11_MAPPED_SUBRESOURCE mapped{};check(context->Map(program.constants.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped),"Route current constants");
-        std::memcpy(mapped.pData,&current,sizeof(current));context->Unmap(program.constants.Get(),0);
-        auto cb=program.constants.Get();context->VSSetConstantBuffers(0,1,&cb);context->PSSetConstantBuffers(0,1,&cb);
-        context->IASetInputLayout(program.layout.Get());context->IASetIndexBuffer(nullptr,DXGI_FORMAT_UNKNOWN,0);
-        context->VSSetShader(program.vertex.Get(),nullptr,0);context->PSSetShader(program.pixel.Get(),nullptr,0);
-        context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
+        auto nextHeight=prepareHdrHeightFog(heightState_,accepted.heightSettings,camera.eye.Z,accepted.heightEnabled);
+        RouteOriginalFrame frame;
+        frame.worldToClip=camera.worldToClip;frame.eye=camera.eye;frame.clipPlanes=accepted.clipPlanes;
+        frame.heightFog=prepareHdrHeightFogValues(nextHeight,accepted.commonClock,false);
+        // Same accepted ToneMap owner as normal Exposure, before its fullscreen
+        // curve normalization. Type3 consumes original W, not a sampled texel.
+        float white=accepted.exposureLuminance<=1e-6f?1e-6f:accepted.exposureLuminance;
+        float square=source_camera::M(white,white);
+        frame.toneMap={source_camera::D(1.f,square),source_camera::M(square,.5f)};
+        frame.exposure=accepted.exposure;frame.exposureSampler=accepted.exposureSampler;
+        program.original.bind(context,frame,globalTint);
+        heightState_=std::move(nextHeight);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        context->IASetIndexBuffer(nullptr,DXGI_FORMAT_UNKNOWN,0);
         context->RSSetState(program.raster.Get());context->OMSetBlendState(program.blend.Get(),nullptr,0xFFFFFFFF);
         unsigned reverse=(sourceHostFlags>>29)&1;
         sourceDepth.bind(context,program.drawDepth[reverse].Get(),program.drawDescription[reverse],0);
@@ -237,7 +205,7 @@ public:
             auto vb=geometry.strip.vertices.Get();context->IASetVertexBuffers(0,1,&vb,&stride,&offset);
             for(std::size_t i=0;i<geometry.strip.ranges.size();i++) {
                 const auto& range=geometry.strip.ranges[i];auto image=range.stage0.Get();auto sampler=geometry.samplers[i].Get();
-                context->PSSetShaderResources(0,1,&image);context->PSSetSamplers(0,1,&sampler);
+                program.original.bindImage(context,image,sampler);
                 context->IASetPrimitiveTopology(range.topology);context->Draw(range.count,range.first);
             }
         }
@@ -253,12 +221,12 @@ public:
             unsigned first=0;
             for(const auto& [key,endpoint]:geometry.endpoints) {
                 const auto& e=endpoint.value;const auto& selected=media->image(e.bank,e.surface>=15&&e.surface<=18?3:2);
-                auto image=selected.texture.Get();auto sampler=selected.sampler.Get();context->PSSetShaderResources(0,1,&image);context->PSSetSamplers(0,1,&sampler);
+                auto image=selected.texture.Get();auto sampler=selected.sampler.Get();program.original.bindImage(context,image,sampler);
                 context->Draw(6,first);first+=6;
             }
         }
         sourceDepth.bind(context,program.restoreDepth[reverse].Get(),program.restoreDescription[reverse],0);
-        ID3D11ShaderResourceView* none=nullptr;context->PSSetShaderResources(0,1,&none);
+        program.original.clearImages(context);
     }
 };
 }

@@ -56,7 +56,7 @@ public enum CityDomesticPersonSortColumn
     Force, District, Home, CurrentLocation, ServiceStatus, Loyalty, ServiceYears,
     Intelligence, Politics, Charm, Health, ItemCount, Office, OtherMetric, Doctrine,
     Age, Sex, Father, Mother, Partner, Sworn, TaskTarget, TaskRemaining,
-    Merit, CreditRankStage, CommandBonus, AdditionalAreaCapacity, CreditKind3Bonus, ResetCounter
+    Merit, CreditRankStage, CommandBonus, AdditionalAreaCapacity, CreditKind3Bonus, ResetCounter, CommandCapacity
 }
 public enum CityDomesticPersonSortDirection { Natural, Reversed }
 
@@ -92,7 +92,11 @@ public sealed record CityDomesticPersonAffiliationRow(int Occurrence, CityDomest
     AreaAdministrationQuery<DeploymentPersonServiceStatus?> ServiceStatus,
     AreaAdministrationQuery<DeploymentPersonResponsibility?> PrimaryResponsibility,
     AreaAdministrationQuery<int?> Loyalty, AreaAdministrationQuery<string?> OfficeName,
-    AreaAdministrationQuery<int?> OtherMetric, AreaAdministrationQuery<int?> ServiceYears);
+    AreaAdministrationQuery<int?> OtherMetric, AreaAdministrationQuery<int?> ServiceYears)
+{
+    public AreaAdministrationQuery<int?> CommandCapacity { get; init; } = new(null,"city-domestic.person.command_capacity");
+    public AreaAdministrationQuery<bool> CommandCapacityEmphasized { get; init; } = new(false,"city-domestic.person.command_capacity_palette");
+}
 public sealed record CityDomesticPersonAbilityRow(int Occurrence, CityDomesticCandidate Candidate,
     AreaAdministrationQuery<string> Name, AreaAdministrationQuery<int?> RowState,
     AreaAdministrationQuery<DeploymentPersonServiceStatus?> ServiceStatus,

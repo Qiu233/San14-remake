@@ -38,8 +38,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 publishReached?.Invoke(state);
             }
             int officer = DemolitionKnown(current.ReadPersonIdentity(personPhysical), "speech_person_identity");
-            requests.Add(new(new(CombatParticipantKind.Army, image.Id, officer, CombatSpeechEvent.ArmyDemolitionCompleted,
-                position, CombatParticipantKind.FieldObject, removal.Receiver.Value, null, null, null), null));
+            state = QueueArmyMapSpeechCurrent(state, current, image.Id, officer, 56, position);
             publishReached?.Invoke(state);
         }
         // Category4 suppresses only text reporting, after all three prior intents.

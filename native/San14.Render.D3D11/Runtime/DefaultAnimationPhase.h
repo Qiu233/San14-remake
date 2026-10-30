@@ -1,4 +1,5 @@
 #pragma once
+#include "PreparedFileInput.h"
 // Actual CE D953F0 default selection and D95330 float32 returned phase.
 // The update callback/controller owns cadence; this leaf has no time advance.
 #include <array>
@@ -12,7 +13,7 @@ namespace source_default_player_phase {
 struct Player {float duration8{},defaultLoop28{};};
 struct Profile {std::array<Player,4> categories;};
 inline Profile readProfile(const std::filesystem::path& path) {
- std::ifstream in(path,std::ios::binary);auto read=[&]<class T>(){T value;in.read(reinterpret_cast<char*>(&value),sizeof(value));if(!in)throw std::runtime_error("Default player source truncated");return value;};
+ NativePreparedInputFile in(path,std::ios::binary);auto read=[&]<class T>(){T value;in.read(reinterpret_cast<char*>(&value),sizeof(value));if(!in)throw std::runtime_error("Default player source truncated");return value;};
  if(read.template operator()<uint32_t>()!=4)throw std::runtime_error("Default player source category count");Profile p;
  for(unsigned i=0;i<4;++i){auto category=read.template operator()<uint32_t>();if(category!=i)throw std::runtime_error("Default player source category");
   auto player=Player{read.template operator()<float>(),read.template operator()<float>()};

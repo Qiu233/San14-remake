@@ -140,7 +140,9 @@ public sealed class ArmyMarchCurrentProducer : IArmyMarchCurrentQueries
         byte? status = army.NativeTacticRuntime?.Status10;
         byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, army);
         if (state.Units.GetValueOrDefault(army.Id) != army || status is not (1 or 2) ||
-            status == 1 && action is not (1 or 8 or 9 or 10 or 13 or 14 or 16 or 17) ||
+            status == 1 && action is not (1 or 4 or 5 or 7 or 8 or 9 or 10 or 13 or 14 or 16 or 17) &&
+                !(OrdinaryArmyRouteSource.HasTypedObjectOverride(army) && action is >= 0 and <= 17) &&
+                !(action == 6 && OrdinaryArmyRouteSource.UsesObjectCommandMovement(state, army)) ||
             status == 1 && action == 10 &&
                 (army.NativeArmyOrigin?.NativeSlotIndex is not int workPhysical || state.ReadArmyLifecycle() is not { } workLifecycle ||
                     OwnedArmyLifecycleTargets.Read(state, workLifecycle.Slots[workPhysical].ReceiverId) is not { Kind38: 11 }) ||

@@ -89,7 +89,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 string key = MapObjectSourceDirectory.DefinitionKey(definition.Physical);
                 if (ConstructionModelIsRequired(working, current, obj))
                     requests.Add(ConstructionPresentation(FacilityConstructionPresentationOperation.EnsureInitialFacilityModel));
-                working = ApplyConstructionSiteOwnership(working, current, army, site, receiver, key, requests);
+                AppendAdjacentConstructionConnections(current, obj, requests);
+                working = ApplyConstructionSiteOwnership(working, current, army, site, operation, requests);
                 //241900(param3=1) writes raw physical identity only when its
                 //actual lookup points to a valid Object at this same Hex.
                 if (current.AssignHexObject(site, objectPhysical, 1))

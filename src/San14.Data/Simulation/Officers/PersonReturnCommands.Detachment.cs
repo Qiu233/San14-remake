@@ -27,6 +27,8 @@ public static partial class PersonReturnCommands
                 owner.Disappearances?.TryGetValue(taskId, out var absence) == true ? absence.MemberIds :
                 owner.Talents?.TryGetValue(taskId, out var talent) == true ? talent.MemberIds :
                 owner.Diplomacies?.TryGetValue(taskId, out var diplomacy) == true ? diplomacy.MemberIds :
+                owner.Caravans?.TryGetValue(taskId, out var caravan) == true ? caravan.MemberIds :
+                owner.Intelligences?.TryGetValue(taskId, out var intelligence) == true ? intelligence.MemberIds :
                 throw Missing("associated personnel command member owner");
             int[] removed = members.Select((member, index) => (member, index))
                 .Where(entry => entry.member == id).Select(entry => entry.index).ToArray();
@@ -40,6 +42,10 @@ public static partial class PersonReturnCommands
                 ? owner with { Talents = new(owner.Talents) { [taskId] = talent with { MemberIds = remaining } } }
                 : owner.Diplomacies?.TryGetValue(taskId, out diplomacy) == true
                 ? owner with { Diplomacies = new(owner.Diplomacies) { [taskId] = diplomacy with { MemberIds = remaining } } }
+                : owner.Caravans?.TryGetValue(taskId, out caravan) == true
+                ? owner with { Caravans = new(owner.Caravans) { [taskId] = caravan with { MemberIds = remaining } } }
+                : owner.Intelligences?.TryGetValue(taskId, out intelligence) == true
+                ? owner with { Intelligences = new(owner.Intelligences) { [taskId] = intelligence with { MemberIds = remaining } } }
                 : throw Missing("associated personnel command member publication");
             current.SetOwnedPersonCommandManager(after);
             current.SetLinkedEntityMemberIds(taskId, remaining.Select(member => (uint?)member).ToArray());

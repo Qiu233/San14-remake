@@ -40,8 +40,8 @@ public sealed class OfficerAftermathInputs
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
-        byte[] bytes = File.ReadAllBytes(path);
-        OfficerAllegianceSourceRow[] people = ReadSourceRows(S14Reader.Read(bytes, true), language);
+        var document = source.InitialScenarioDocument ?? S14Reader.Read(File.ReadAllBytes(path), true);
+        OfficerAllegianceSourceRow[] people = ReadSourceRows(document, language);
         if (people.Where((row, physical) => row.PhysicalSlot != physical ||
             row.PersonId != source.Snapshot.Characters[physical].CharacterId).Any())
             throw new InvalidDataException("Person destruction serializer identities differ from the loaded scenario.");
@@ -93,9 +93,10 @@ public sealed class OfficerAftermathInputs
 
     public OfficerAftermathObservation? ReadCurrent(GameState state, int physical)
     {
+        int id = CurrentPersonId(state, physical);
         if (!Bound(state) || (uint)physical >= _people.Length ||
-            !state.Officers.TryGetValue(_people[physical].PersonId, out OfficerState? person) ||
-            _identities.ResolveOfficer(person.Id) != physical) return null;
+            !state.Officers.TryGetValue(id, out OfficerState? person) ||
+            (_identities.ResolveOfficer(person.Id) ?? PostRegistrationLookups.RegisteredPersonPhysicalSlot(person.Id)) != physical) return null;
         var residue = CampaignSourceKnowledge.From(state.ResourceState).FindAftermath(person.Id);
         return person.Resentment is null && person.AllegianceDisposition is null && residue is null ? null :
             new(person.Resentment, person.AllegianceDisposition, residue);
@@ -109,11 +110,15 @@ public sealed class OfficerAftermathInputs
         {
             int physical = current.ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Officer aftermath capture has no current resource identity.");
-            if (_identities.ResolveOfficer(person.Id) != physical)
+            if ((_identities.ResolveOfficer(person.Id) ?? PostRegistrationLookups.RegisteredPersonPhysicalSlot(person.Id)) != physical)
                 throw new InvalidDataException("Officer aftermath capture has a different resource record.");
             current.SetOfficerAftermath(physical, ReadCurrent(state, physical));
         }
     }
+
+    private int CurrentPersonId(GameState state, int physical) =>
+        PostRegistrationLookups.RegisteredPersonIdAtPhysical(physical) is int registered && state.Officers.ContainsKey(registered)
+            ? registered : (uint)physical < _people.Length ? _people[physical].PersonId : 0;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
         parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&

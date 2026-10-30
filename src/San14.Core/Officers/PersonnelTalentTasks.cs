@@ -19,8 +19,14 @@ public sealed record TalentCommandView(IReadOnlyList<int> ExecutorOfficerIds,
     IReadOnlyList<int> TargetOfficerIds, bool? CanSubmit, string? MissingRuleKey,
     int? CommandBooks, int? GoldCost);
 
+/// <summary>Current command facts: membership controls permission while the
+/// executor's actual Home Base District pays and owns its task registration.</summary>
+public sealed record TalentRecruitCommandSource(bool? IsAvailable, int? MembershipDistrictId,
+    int? PaymentDistrictId, string? MissingRuleKey);
+
 public interface IPlayableTalentCommandRules
 {
+    TalentRecruitCommandSource QueryRecruitSource(GameState state, int forceId, int sourceBaseId, int executorOfficerId);
     TalentCommandView QueryTalentSearch(GameState state, int forceId, int cityId, int targetHexId);
     TalentCommandView QueryTalentRecruit(GameState state, int forceId, int cityId, int? targetOfficerId = null);
     CommandResult PrepareTalent(GameState state, ForceState force, PreparedTalentOrder task,

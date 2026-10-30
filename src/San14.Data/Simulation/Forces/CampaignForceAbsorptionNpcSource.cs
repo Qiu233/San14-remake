@@ -94,6 +94,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Append(history);
             }
             state = package.ApplyNormalTurnForceAbsorptionCurrent(state, current, pool, absorbed, survivor);
+            if (HasPendingForceAbsorptionCurrent(state))
+            {
+                state = state with { NpcForceAbsorptionTail = new(Ordinal(player), Ordinal(survivor), visible, narration, cameraHex) };
+                Release(candidates);
+                return state;
+            }
+            state = CompleteTail(survivor, visible, narration, cameraHex);
+            Release(candidates);
+            return state;
+        }
+
+        internal GameState Resume(NpcForceAbsorptionTail tail)
+        {
+            state = CompleteTail(new(tail.SurvivorForcePhysicalSlot), tail.Visible, tail.Narration, tail.CameraHex);
+            return state with { NpcForceAbsorptionTail = null };
+        }
+
+        private GameState CompleteTail(ForceReference survivor, bool visible, string? narration, int cameraHex)
+        {
             if (visible)
             {
                 state = package.AppendNormalTurnCoalitionEventCurrent(state, true);
@@ -122,7 +141,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             //The shared setter repeats231310 using the actual District's force.
             state = SpendDiplomacyDistrictCurrent(state, current, treasury, unchecked(budget - requested));
             state = package.ApplyNormalTurnForceDevelopmentMomentumCurrent(state, current, survivor, 3);
-            Release(candidates);
             return state;
         }
 

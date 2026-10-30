@@ -3,6 +3,7 @@
 #include "TerritoryOwnership.h"
 #include "CommandMap.h"
 #include <optional>
+#include <vector>
 
 // Held ownership layers, color allocation and overlay resources belong to the
 // map overlay. Main supplies its current camera, exposure and target bindings.
@@ -17,6 +18,10 @@ public:
         zoneProfile_=source_zone::load(directory);
         source_zone::updateUntilSettled(zoneProfile_,zoneOwner_,zoneCurrent_);
     }
+
+    // Only actual FPSManager callbacks advance the map's logical palettes.
+    // Main's ordinary and water draws both consume the same current state.
+    void recordMapUpdate(unsigned fpsMode) { pendingMapUpdates_.push_back(fpsMode); }
 
     void setVisible(bool visible) { visible_=visible; }
     void setStyle(unsigned style) {
@@ -50,15 +55,19 @@ public:
         controls_.styleSelector=style_;
         controls_.screenMapMask=source_zone::displayMask(visible_,style_,
             zoneCurrent_.membership!=nullptr,!zoneCurrent_.referenceLists[0].empty()||!zoneCurrent_.referenceLists[1].empty());
-        int changed=source_zone::updateOne(zoneProfile_,zoneOwner_,zoneCurrent_);
-        if(changed>=0) {
-            UINT begin=UINT(changed)*source_zone::cells;
-            D3D11_BOX box{begin,0,0,begin+source_zone::cells,1,1};
-            context->UpdateSubresource(overlay_.zones.Get(),0,&box,zoneOwner_.zones.data()+begin,0,0);
-        }
         source_territory::Selection selection{band,fraction,distance,controls_};
         source_territory::writeCurrent(overlay_.profile,overlay_.cpu,selection,camera,cameraEffect);
-        command_.updatePalette(overlay_.profile,overlay_.cpu,zoneOwner_);
+        for(unsigned fpsMode:pendingMapUpdates_) {
+            command_.fpsMode=fpsMode;
+            int changed=source_zone::updateOne(zoneProfile_,zoneOwner_,zoneCurrent_);
+            if(changed>=0) {
+                UINT begin=UINT(changed)*source_zone::cells;
+                D3D11_BOX box{begin,0,0,begin+source_zone::cells,1,1};
+                context->UpdateSubresource(overlay_.zones.Get(),0,&box,zoneOwner_.zones.data()+begin,0,0);
+            }
+            command_.updatePalette(overlay_.profile,overlay_.cpu,zoneOwner_);
+        }
+        pendingMapUpdates_.clear();
         context->UpdateSubresource(overlay_.constants.Get(),0,nullptr,overlay_.cpu.constants.data(),0,0);
         source_territory_gpu::execute(context,overlay_,targets_,exposure,providerDrawFlags,source_territory::initializedStencilMask,depth);
     }
@@ -71,6 +80,7 @@ private:
     source_zone::Owner zoneOwner_;
     source_zone::Current zoneCurrent_;
     source_command_map::Owner command_;
+    std::vector<unsigned> pendingMapUpdates_;
     std::optional<San14::Render::TerritoryOwnershipPalette> palette_;
     std::uint64_t appliedRevision_=0;
     bool visible_=true;

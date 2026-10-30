@@ -7,6 +7,7 @@ public sealed record S14CharacterDialogue(byte Style, ushort BirthYear, byte Fam
     string GivenName, string CourtesyName)
 {
     public byte VoiceType { get; init; }
+    public byte SpecialVoiceType { get; init; }
 }
 
 /// <summary>Verified CE character serializer fields. Format offsets stay at
@@ -31,7 +32,7 @@ public static class S14CharacterDialogueReader
             if (end >= 0) courtesy = courtesy[..end];
             result[slot] = new(row[211+delta],BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(219+delta,2)),
                 row[230+delta],table.Names[slot].GivenName,courtesy)
-                { VoiceType = row[209+delta] };
+                { VoiceType = row[209+delta], SpecialVoiceType = row[210+delta] };
         }
         return Array.AsReadOnly(result);
     }

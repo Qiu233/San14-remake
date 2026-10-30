@@ -21,7 +21,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             var army = new ArmyUnitReference(target.NativeArmyOrigin?.NativeSlotIndex
                 ?? throw FalseReportDestinationMissing("target_Army_receiver"));
             if (!FalseReportTargetAllowed(state, current, own, army)) return Unavailable(new(false, [], null));
-            var selection = new ArmyFalseReportDestinationSelection(true, ReadFalseReportDestinations(current, own, army), null);
+            //The lesson installs its destination predicate on this real
+            //selector. Keep the ordinary Trap enumeration and its ordering;
+            //the controller only narrows which of those entries is accepted.
+            var control = ReadTutorialControlState(state);
+            var destinations = ReadFalseReportDestinations(current, own, army)
+                .Where(value => TutorialFifthLessonTargets.AllowsFalseReportDestination(control, value.HexId)).ToArray();
+            var selection = new ArmyFalseReportDestinationSelection(true, destinations, null);
             var candidateHexes = selection.Destinations!.Select(value => value.HexId).ToHashSet();
             int raw = FRKnown(current.ReadArmyUnitRawHex2A(army), "preview_start2A");
             int start = FRKnown(current.ReadHexTableReference(raw < 48400 ? raw : 0)?.PhysicalSlot, "preview_start_pointer");

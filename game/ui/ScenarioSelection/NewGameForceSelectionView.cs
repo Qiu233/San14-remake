@@ -47,7 +47,7 @@ internal partial class NewGameForceSelectionView : Control
         IReadOnlyList<NewGameForceFaceContent> faceContent, Texture2D? map,
         Func<NewGameForcePreview, Control?> createRulerPortrait,
         Func<bool> admitted, Action<int> selectionChanged, Action<int?> previewChanged,
-        Action<int> accepted, Action returned)
+        Action<int> accepted, Action returned, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.publication = publication;
         this.createRulerPortrait = createRulerPortrait; this.admitted = admitted;
@@ -56,7 +56,7 @@ internal partial class NewGameForceSelectionView : Control
         Name = "NewGameForceSelection"; ZIndex = 2; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new AdministrationPageChrome(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x36D, RequestBack, RequestConfirm, threeButtonFooter: true);
+        chrome.Configure(repository, text, 0x36D, RequestBack, RequestConfirm, threeButtonFooter: true, resources: resources);
         var messages = new AdministrationMessages(repository, text.SourceLocale);
         chrome.ApplyDefaultHint(messages.Format(0x2739));
         chrome.ApplyReturnHint(messages.Format(0x2733));
@@ -66,7 +66,8 @@ internal partial class NewGameForceSelectionView : Control
         source = new(repository, 0xB468AE65);
         var background = new UiSourceLayout(repository, 0x53910979);
         foreach (int node in new[] { 2, 3 })
-            background.Art(body, node, background.Rectangle(node, source.Rectangle(1).Position), chrome.Assets, chrome.SpriteShader);
+            background.Art(body, node, background.Rectangle(node, source.Rectangle(1).Position), chrome.Assets, chrome.SpriteShader,
+                sourceMaterial: true);
 
         portraitHost = new Control { Name = "RulerPortrait", Position = source.Rectangle(2).Position,
             Size = source.Rectangle(2).Size, MouseFilter = MouseFilterEnum.Ignore };
@@ -192,9 +193,10 @@ internal partial class NewGameForceSelectionView : Control
         if (scenarioMap is null && texture is not null)
         {
             scenarioMap = new TextureRect { Name = "ScenarioMap", Size = new(1920, 1080),
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered, MouseFilter = MouseFilterEnum.Ignore };
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,TextureFilter=TextureFilterEnum.Nearest,
+                StretchMode = TextureRect.StretchModeEnum.Scale, MouseFilter = MouseFilterEnum.Ignore };
             body.AddChild(scenarioMap); body.MoveChild(scenarioMap, 0);
+            AttachSourceMapInput(scenarioMap);
         }
         if (scenarioMap is not null) scenarioMap.Texture = texture;
     }
@@ -292,6 +294,7 @@ internal partial class NewGameForceSelectionView : Control
     private bool ReadAdmission() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     internal void Abandon()
     {
+        RetireSourceMapInput();
         abandoned = true; admitted = null; createRulerPortrait = null;
         selectionChanged = null; previewChanged = null; accepted = null; returned = null;
         governmentRequested = null;

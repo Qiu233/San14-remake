@@ -1,7 +1,7 @@
 using Godot;
 using San14.Data;
 
-internal sealed record ScenarioSelectionEntry(int ScenarioId, ScenarioSelectionButtonContent Content, bool Enabled);
+internal sealed record ScenarioSelectionEntry(int ScenarioId, ScenarioSelectionButtonContent Content, bool? Enabled);
 
 /// <summary>The scenario page's persistent nine rows and pager. The page owns
 /// the ordered directory, source mount order, preview and activation transition.</summary>
@@ -119,7 +119,7 @@ internal partial class ScenarioSelectionList : Control
         for (int slot = 0; slot < rows.Count; slot++)
         {
             var entry = BoundEntry(slot);
-            rows[slot].ApplyContent(entry?.Content);
+            rows[slot].ApplyContent(entry?.Content, entry?.Enabled);
             rows[slot].Disabled = entry?.Enabled != true;
         }
         pageCaption.Text = FormattableString.Invariant($"{CurrentPage + 1}/{PageCount}");

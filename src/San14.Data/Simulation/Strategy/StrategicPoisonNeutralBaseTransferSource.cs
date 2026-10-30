@@ -23,8 +23,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         var actor=new TransferPersonReference(executorPhysical);
         var working=ApplyNeutralBaseTransferCurrent(state,current,pool,target,destination,actor,
             operationDate,effects,operation=>TransferStrategicPoisonBaseDistrictCurrent(current,
-                target,destination,executorPhysical,operation));
+                target,destination,executorPhysical,operation), PoisonEmperorInputs);
+        if (working.ForceTransferEmperorTail is not null) return working;
+        return CompleteStrategicPoisonBaseTransferCurrent(working, current, target);
+    }
 
+    private GameState CompleteStrategicPoisonBaseTransferCurrent(GameState state,
+        SourceWorldContext current, BaseReference target)
+    {
+        var working = state;
         //The caller independently applies these two virtual resource floors
         //after26DA10. Gate virtual90/A0/98/A8 route to its actual receiving City.
         var receiving=BaseCurrencyAdditionSource.CurrencyCity(target,current);

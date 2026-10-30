@@ -5,9 +5,27 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
+    private enum DiplomacySelectionPurpose { None, Force, City, Executor, Months, Gold, Supplies, GiftItem, GiftArea, Captives }
+    private DiplomacySelectionPurpose _diplomacySelectionPurpose;
+    private long _diplomacySelectionAcceptedSequence;
+    private DiplomacySelectionPurpose _lastDiplomacyAcceptedPurpose;
+    private int? _lastDiplomacyAcceptedId;
+    private DiplomaticMissionKind? _lastDiplomacyAcceptedMissionKind;
+    private Func<int,bool>? DiplomacyForceAdmission;
+    private Func<int,bool>? DiplomacyExecutorAdmission;
+    private bool DiplomacySelectionReturnAllowed=true;
+
+    private void RefreshDiplomacySelectionAdmission()
+    {
+        _diplomacyTargets?.ApplySelectionAdmission(_diplomacySelectionPurpose==DiplomacySelectionPurpose.Force
+            ?DiplomacyForceAdmission:null,DiplomacySelectionReturnAllowed);
+        _diplomacyPersons?.ApplySelectionAdmission(DiplomacyExecutorAdmission,DiplomacySelectionReturnAllowed);
+        _diplomacyExecutors?.ApplySelectionAdmission(DiplomacyExecutorAdmission,DiplomacySelectionReturnAllowed);
+    }
     private DiplomacyOrdersView? _diplomacyOrdersView;
     private DiplomacyTargetSelectionView? _diplomacyTargets;
-    private TalentPersonSelectionView? _diplomacyPersons;
+    private DiplomacyPrisonerSelectionView? _diplomacyPersons;
+    private DiplomacyExecutorSelectionView? _diplomacyExecutors;
     private MerchantAmountMenuView? _diplomacyAmounts;
     private UiSourcePulldownMenu? _diplomacyMonths;
     private DiplomacyUiDraft? _diplomacyDraft;
@@ -18,8 +36,17 @@ public partial class Main
     private bool HasDiplomacyOrdersPage => _diplomacyOrdersView is not null;
     private bool IsDiplomacyOrdersCurrent => !_failed&&!_shuttingDown&&_diplomacyOrdersView is not null&&_diplomacyDraft is not null&&
         ReferenceEquals(_session,_diplomacySession)&&ReferenceEquals(_world,_diplomacyWorld)&&_residentMap==_diplomacyMap&&_diplomacyMap is not null;
-    private bool CanEditDiplomacyOrders => IsDiplomacyOrdersCurrent&&_diplomacyTargets is null&&_diplomacyPersons is null&&
-        _diplomacyAmounts is null&&_diplomacyMonths is null;
+    private bool CanEditDiplomacyOrders => IsDiplomacyOrdersCurrent&&_diplomacyTargets is null&&_diplomacyPersons is null&&_diplomacyExecutors is null&&
+        _diplomacyAmounts is null&&_diplomacyMonths is null&&_diplomacyTradeCalculator is null;
+
+    private void AdoptDiplomacyOrdersSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        if (_diplomacyOrdersView is null || _diplomacyDraft is not { } draft ||
+            _diplomacySession != session || _diplomacyMap is null || _diplomacyMap != _residentMap ||
+            !ReferenceEquals(_diplomacyWorld, previous) ||
+            !draft.TryAdoptPresentationWorld(previous, replacement, new(_presentationRandom.State))) return;
+        _diplomacyWorld = replacement;
+    }
 
     private void OpenDiplomacyOrders(DiplomaticMissionKind kind)
     {
@@ -45,8 +72,13 @@ public partial class Main
                 ()=>RunUiAction(RequestDiplomacyOrdersBack),()=>RunPlayAction(ConfirmDiplomacyOrders),
                 ()=>RunUiAction(()=>OpenDiplomacyTargetSelection(false)),()=>RunUiAction(()=>OpenDiplomacyTargetSelection(true)),
                 ()=>RunUiAction(OpenDiplomacyExecutorSelection),()=>RunUiAction(OpenDiplomacyMonthSelection),
-                kind=>RunUiAction(()=>OpenDiplomacyGiftSelection(kind)),()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetGift)));
+                kind=>RunUiAction(()=>OpenDiplomacyGiftSelection(kind)),()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetGift)),
+                ()=>RunUiAction(OpenDiplomacyCaptiveSelection),kind=>RunUiAction(()=>OpenDiplomacyTradeSelection(kind,true)),
+                ()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetRequested)));
             RefreshDiplomacyOrders();
+            if(kind==DiplomaticMissionKind.Goodwill)ObserveTutorialInformation(39);
+            if(kind==DiplomaticMissionKind.Alliance)ObserveTutorialInformation(40);
+            BindCurrentTutorialDiplomacy();
         }
         catch{CloseDiplomacyOrders();throw;}
     }
@@ -85,62 +117,98 @@ public partial class Main
             draft.CanSubmit,draft.ExecutorOfficerIds.Count>0,draft.TargetCityIds.Count>0,
             draft.CanChooseGold==true,draft.CanChooseSupplies==true,draft.CanChooseItem==true,draft.CanChooseArea==true,
             draft.UnresolvedInput is not null||draft.AdviceUnresolvedInput is not null||draft.GiftUnresolvedInput is not null
-                ?_ui.Get("play_diplomacy_rule_unavailable"):draft.AdviceText,advisorPortrait));
+                ?_ui.Get("play_diplomacy_rule_unavailable"):draft.AdviceText,advisorPortrait)
+        {
+            CaptivePeople=PrepareDiplomacyCaptiveVisuals(draft,world,out var captiveMissing),
+            CaptivePeopleUnresolvedInput=captiveMissing,
+            CaptiveRansomGold=draft.CaptiveRansomGold,CanChooseCaptives=draft.CaptiveChoices.Count>0&&draft.CaptiveChoicesUnresolvedInput is null,
+            AvailableGold=draft.MaxGold,RequestedDescription=DiplomacyRequestedDescription(draft),
+            RequestedKind=OfferKind(draft.RequestedOffer),
+            CanChooseRequested=[draft.CanChooseRequestedGold==true,draft.CanChooseRequestedSupplies==true,
+                draft.CanChooseRequestedItem==true,draft.CanChooseRequestedArea==true]
+        });
         _diplomacyOrdersView.SetBusy(!CanEditDiplomacyOrders);
     }
 
     private void OpenDiplomacyTargetSelection(bool city)
     {
         if(!CanEditDiplomacyOrders||_repository is null)return;
-        var draft=_diplomacyDraft!;var world=_diplomacyWorld!;
-        var rows=(city?draft.TargetCityIds:draft.TargetForceIds).Select(id=>city?
-            new DiplomacyTargetChoice(id,world.Cities[id].Name,world.Cities[id].ForceId is int force?
-                world.Forces.GetValueOrDefault(force)?.Name??_ui.Get("detail_unknown"):_ui.Get("detail_unknown")):
-            new DiplomacyTargetChoice(id,world.Forces[id].Name,"")).ToArray();
+        var draft=_diplomacyDraft!;
+        if((city?draft.TargetCityIds:draft.TargetForceIds).Count==0)return;
+        var page=draft.ReadTargetSelection(city?DiplomacyTargetSelectionKind.City:DiplomacyTargetSelectionKind.Force);
+        var map=_diplomacyMap!;
         var selector=new DiplomacyTargetSelectionView();_diplomacyTargets=selector;AddChild(selector);
+        bool Current()=>IsDiplomacyOrdersCurrent&&_diplomacyTargets==selector&&_diplomacyDraft==draft;
+        void BindMode(bool list)
+        {
+            if(!Current())return;
+            map.EndDiplomacyTargetPick(selector);map.SetDetailsOpen(list,keepMapVisible:true);
+            if(!list)map.BeginDiplomacyTargetPick(selector,_diplomacyWorld!,
+                page.MapSelection??throw new InvalidDataException("diplomacy.target_map.publication"),
+                ()=>Current()&&selector.IsMapMode,selector.CanChooseTarget,
+                id=>RunUiAction(()=>{if(Current())selector.PickMapTarget(id);}));
+            HideDeploymentHud();
+        }
+        selector.TreeExiting+=()=>{if(GodotObject.IsInstanceValid(map))map.EndDiplomacyTargetPick(selector);};
+        _diplomacySelectionPurpose=city?DiplomacySelectionPurpose.City:DiplomacySelectionPurpose.Force;
         _diplomacyOrdersView!.SetBusy(true);_diplomacyOrdersView.Hide();
         try
         {
-            selector.Configure(_repository,_ui,rows,city?draft.SelectedTargetCityId:draft.SelectedTargetForceId,city?0x0592:0x058D,
+            selector.Configure(_repository,_ui,page,null,city?0x0592:0x058D,
                 ()=>IsDiplomacyOrdersCurrent&&_diplomacyTargets==selector,chosen=>RunUiAction(()=>
                 {
                     if(!IsDiplomacyOrdersCurrent||_diplomacyTargets!=selector||_diplomacyDraft!=draft)return;
-                    _diplomacyTargets=null;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();
-                    if(chosen is int id)ChangeDiplomacyDraft(()=>{if(city)draft.SelectTargetCity(id);else draft.SelectForce(id);});
+                    map.EndDiplomacyTargetPick(selector);map.SetDetailsOpen(true,keepMapVisible:true);
+                    _diplomacyTargets=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();
+                    if(chosen is int id)ChangeDiplomacyDraft(()=>{if(city)draft.SelectTargetCity(id);else draft.SelectForce(id);},city?DiplomacySelectionPurpose.City:DiplomacySelectionPurpose.Force,id);
                     else ChangeDiplomacyDraft(draft.RefreshAdvice);
-                }),CurrentListScrollSpeed);
+                }),CurrentListScrollSpeed,new DiplomacyTargetSelectionView.MapMode(city?0x3AF:0x36D,city,
+                    list=>RunUiAction(()=>BindMode(list)),map.SourceRightCancelReleased));
+            BindMode(!city);BindCurrentTutorialDiplomacy();
         }
-        catch{_diplomacyTargets=null;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();RefreshDiplomacyOrders();throw;}
+        catch{map.EndDiplomacyTargetPick(selector);map.SetDetailsOpen(true,keepMapVisible:true);_diplomacyTargets=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();RefreshDiplomacyOrders();throw;}
     }
 
     private void OpenDiplomacyExecutorSelection()
     {
         if(!CanEditDiplomacyOrders||_repository is null)return;
-        var draft=_diplomacyDraft!;var world=_diplomacyWorld!;
-        var rows=draft.ExecutorOfficerIds.Select(id=>
+        var draft=_diplomacyDraft!;
+        AreaAdministrationQuery<DiplomacyExecutorSelection> query;
+        try { query=draft.ReadExecutorSelection(); }
+        finally
+        { if(draft.AppRandomState is {} random)_presentationRandom.InstallCommittedState(random.State); }
+        if(!query.Available || query.Value is not {} model)
         {
-            var actor=world.Officers[id];var query=draft.QueryOfficerCard(id);
-            int? Ability(int dimension)=>query.Available?query.Value!.Abilities.FirstOrDefault(value=>value.Dimension==dimension)?.Effective.Value:null;
-            string location=actor.LocationId is int city?world.Cities.GetValueOrDefault(city)?.Name??world.Gates.GetValueOrDefault(city)?.Name??_ui.Get("detail_unknown"):_ui.Get("detail_unknown");
-            return new TalentPersonChoice(id,actor.Name,location,actor.ForceId is int force?world.Forces.GetValueOrDefault(force)?.Name??_ui.Get("detail_unknown"):_ui.Get("detail_unknown"),Ability(2),Ability(3),Ability(4));
-        }).ToArray();
-        var selector=new TalentPersonSelectionView();_diplomacyPersons=selector;AddChild(selector);
+            _diplomacyOrdersView!.ApplyNotice(_ui.Get("information_partial"));
+            if(query.UnresolvedInput is {} missing)GD.PushWarning(missing);
+            return;
+        }
+        var selector=new DiplomacyExecutorSelectionView();_diplomacyExecutors=selector;AddChild(selector);
+        _diplomacySelectionPurpose=DiplomacySelectionPurpose.Executor;
         _diplomacyOrdersView!.SetBusy(true);_diplomacyOrdersView.Hide();
         try
         {
-            selector.Configure(_repository,_ui,rows,draft.SelectedExecutorOfficerId is int actor?[actor]:[],1,true,
-                ()=>IsDiplomacyOrdersCurrent&&_diplomacyPersons==selector,chosen=>RunUiAction(()=>
+            selector.Configure(_repository,_ui,_diplomacyOrdersView.SharedResources,model,
+                ()=>IsDiplomacyOrdersCurrent&&_diplomacyExecutors==selector,chosen=>RunUiAction(()=>
                 {
-                    if(!IsDiplomacyOrdersCurrent||_diplomacyPersons!=selector||_diplomacyDraft!=draft)return;
-                    _diplomacyPersons=null;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();
-                    if(chosen is {Count:1})ChangeDiplomacyDraft(()=>draft.SelectExecutor(chosen[0]));else ChangeDiplomacyDraft(draft.RefreshAdvice);
-                }),CurrentListScrollSpeed,titleMessage:0x058F);
+                    if(!IsDiplomacyOrdersCurrent||_diplomacyExecutors!=selector||_diplomacyDraft!=draft)return;
+                    _diplomacyExecutors=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;
+                    selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();
+                    if(chosen is int id)ChangeDiplomacyDraft(()=>draft.SelectExecutor(id),DiplomacySelectionPurpose.Executor,id);
+                    else ChangeDiplomacyDraft(draft.RefreshAdvice);
+                }),CurrentListScrollSpeed);
+            BindCurrentTutorialDiplomacy();
         }
-        catch{_diplomacyPersons=null;selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();RefreshDiplomacyOrders();throw;}
+        catch
+        {
+            _diplomacyExecutors=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;
+            selector.Abandon();selector.QueueFree();_diplomacyOrdersView!.Show();RefreshDiplomacyOrders();throw;
+        }
     }
 
     private void OpenDiplomacyGiftSelection(int kind)
     {
+        if(_diplomacyDraft?.Kind==DiplomaticMissionKind.Exchange){OpenDiplomacyTradeSelection(kind,false);return;}
         if(!CanEditDiplomacyOrders||_repository is null)return;
         var draft=_diplomacyDraft!;var parent=_diplomacyOrdersView!;
         if(kind is 0 or 1)
@@ -150,6 +218,7 @@ public partial class Main
             if(!query.Available||query.Value is not {Allowed:true} range)
             {parent.ApplyNotice(_ui.Get("play_diplomacy_rule_unavailable"));return;}
             var menu=new MerchantAmountMenuView();_diplomacyAmounts=menu;AddChild(menu);parent.SetBusy(true);parent.Hide();
+            _diplomacySelectionPurpose=gold?DiplomacySelectionPurpose.Gold:DiplomacySelectionPurpose.Supplies;
             try
             {
                 menu.Configure(_repository,_ui,range.Presets,gold?draft.GiftGold:draft.GiftSupplies,
@@ -157,12 +226,12 @@ public partial class Main
                     chosen=>RunUiAction(()=>
                     {
                         if(!IsDiplomacyOrdersCurrent||_diplomacyAmounts!=menu||_diplomacyDraft!=draft)return;
-                        _diplomacyAmounts=null;menu.Abandon();menu.QueueFree();parent.Show();
-                        if(chosen is int amount)ChangeDiplomacyDraft(()=>{if(gold)draft.SetGiftGold(amount);else draft.SetGiftSupplies(amount);});
+                        _diplomacyAmounts=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;menu.Abandon();menu.QueueFree();parent.Show();
+                        if(chosen is int amount)ChangeDiplomacyDraft(()=>{if(gold)draft.SetGiftGold(amount);else draft.SetGiftSupplies(amount);},gold?DiplomacySelectionPurpose.Gold:DiplomacySelectionPurpose.Supplies,amount);
                         else RefreshDiplomacyOrders();
                     }),titleMessage:gold?0x020C:0x020D,calculatorPosition:new(860,352));
             }
-            catch{_diplomacyAmounts=null;menu.Abandon();menu.QueueFree();parent.Show();RefreshDiplomacyOrders();throw;}
+            catch{_diplomacyAmounts=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;menu.Abandon();menu.QueueFree();parent.Show();RefreshDiplomacyOrders();throw;}
             return;
         }
         bool item=kind==2;
@@ -171,19 +240,20 @@ public partial class Main
         if(!choices.Available)
         {parent.ApplyNotice(_ui.Get("play_diplomacy_rule_unavailable"));return;}
         var selector=new DiplomacyTargetSelectionView();_diplomacyTargets=selector;AddChild(selector);parent.SetBusy(true);parent.Hide();
+        _diplomacySelectionPurpose=item?DiplomacySelectionPurpose.GiftItem:DiplomacySelectionPurpose.GiftArea;
         try
         {
-            selector.Configure(_repository,_ui,choices.Value!.Select(row=>new DiplomacyTargetChoice(row.Id,row.Name,"")).ToArray(),
+            selector.Configure(_repository,_ui,draft.ReadTargetSelection(item?DiplomacyTargetSelectionKind.Item:DiplomacyTargetSelectionKind.Area),
                 item?draft.GiftItemId:draft.GiftAreaId,item?0x058C:0x05AF,
                 ()=>IsDiplomacyOrdersCurrent&&_diplomacyTargets==selector,chosen=>RunUiAction(()=>
                 {
                     if(!IsDiplomacyOrdersCurrent||_diplomacyTargets!=selector||_diplomacyDraft!=draft)return;
-                    _diplomacyTargets=null;selector.Abandon();selector.QueueFree();parent.Show();
-                    if(chosen is int id)ChangeDiplomacyDraft(()=>{if(item)draft.SelectGiftItem(id);else draft.SelectGiftArea(id);});
+                    _diplomacyTargets=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;selector.Abandon();selector.QueueFree();parent.Show();
+                    if(chosen is int id)ChangeDiplomacyDraft(()=>{if(item)draft.SelectGiftItem(id);else draft.SelectGiftArea(id);},item?DiplomacySelectionPurpose.GiftItem:DiplomacySelectionPurpose.GiftArea,id);
                     else RefreshDiplomacyOrders();
                 }),CurrentListScrollSpeed);
         }
-        catch{_diplomacyTargets=null;selector.Abandon();selector.QueueFree();parent.Show();RefreshDiplomacyOrders();throw;}
+        catch{_diplomacyTargets=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;selector.Abandon();selector.QueueFree();parent.Show();RefreshDiplomacyOrders();throw;}
     }
 
     private void OpenDiplomacyMonthSelection()
@@ -191,6 +261,7 @@ public partial class Main
         if(!CanEditDiplomacyOrders||_repository is null||_diplomacyDraft!.Kind!=DiplomaticMissionKind.Alliance)return;
         var draft=_diplomacyDraft;int[] choices=[6,12,24];
         var menu=new UiSourcePulldownMenu();_diplomacyMonths=menu;_diplomacyOrdersView!.AddSourceOverlay(menu);_diplomacyOrdersView.SetBusy(true);
+        _diplomacySelectionPurpose=DiplomacySelectionPurpose.Months;
         try
         {
             var box=_diplomacyOrdersView.MonthsRectangle;
@@ -199,16 +270,30 @@ public partial class Main
                 UiSourcePulldownOutsideClick.ConfirmConsumed,chosen=>RunUiAction(()=>
                 {
                     if(!IsDiplomacyOrdersCurrent||_diplomacyMonths!=menu||_diplomacyDraft!=draft)return;
-                    _diplomacyMonths=null;menu.Abandon();menu.QueueFree();
-                    if(chosen is int index)ChangeDiplomacyDraft(()=>draft.SetAllianceMonths(choices[index]));else ChangeDiplomacyDraft(draft.RefreshAdvice);
+                    _diplomacyMonths=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;menu.Abandon();menu.QueueFree();
+                    if(chosen is int index)ChangeDiplomacyDraft(()=>draft.SetAllianceMonths(choices[index]),DiplomacySelectionPurpose.Months,choices[index]);else ChangeDiplomacyDraft(draft.RefreshAdvice);
                 }));
         }
-        catch{_diplomacyMonths=null;menu.Abandon();menu.QueueFree();RefreshDiplomacyOrders();throw;}
+        catch{_diplomacyMonths=null;_diplomacySelectionPurpose=DiplomacySelectionPurpose.None;menu.Abandon();menu.QueueFree();RefreshDiplomacyOrders();throw;}
     }
 
-    private void ChangeDiplomacyDraft(Action action)
+    private void ChangeDiplomacyDraft(Action action, DiplomacySelectionPurpose purpose=DiplomacySelectionPurpose.None, int? acceptedId=null)
     {
-        try{action();if(_diplomacyDraft?.AppRandomState is {} random)_presentationRandom.InstallCommittedState(random.State);}
+        if(acceptedId is int id&&
+            (purpose==DiplomacySelectionPurpose.Force&&!(DiplomacyForceAdmission?.Invoke(id)??true)||
+             purpose==DiplomacySelectionPurpose.Executor&&!(DiplomacyExecutorAdmission?.Invoke(id)??true)))
+        {RefreshDiplomacyOrders();return;}
+        try
+        {
+            action();
+            if(_diplomacyDraft?.AppRandomState is {} random)_presentationRandom.InstallCommittedState(random.State);
+            if(purpose!=DiplomacySelectionPurpose.None)
+            {
+                _lastDiplomacyAcceptedPurpose=purpose;_lastDiplomacyAcceptedId=acceptedId;
+                _lastDiplomacyAcceptedMissionKind=_diplomacyDraft?.Kind;
+                _diplomacySelectionAcceptedSequence=checked(_diplomacySelectionAcceptedSequence+1);
+            }
+        }
         catch(InvalidDataException error){GD.PushWarning(error.ToString());}
         RefreshDiplomacyOrders();
     }
@@ -230,8 +315,10 @@ public partial class Main
     private void RequestDiplomacyOrdersBack()
     {
         if(!IsDiplomacyOrdersCurrent)return;
+        if(_diplomacyTradeCalculator is{} calculator){calculator.RequestCancel();return;}
         if(_diplomacyTargets is {} targets){targets.RequestCancel();return;}
         if(_diplomacyPersons is {} persons){persons.RequestCancel();return;}
+        if(_diplomacyExecutors is {} executors){executors.RequestCancel();return;}
         if(_diplomacyAmounts is {} amounts){amounts.RequestCancel();return;}
         if(_diplomacyMonths is {} months){months.RequestCancel();return;}
         CloseDiplomacyOrders();
@@ -239,12 +326,18 @@ public partial class Main
     private void CloseDiplomacyOrders()
     {
         if(_diplomacyOrdersView is null&&_diplomacyDraft is null&&_diplomacyMap is null)return;
+        _diplomacySelectionPurpose=DiplomacySelectionPurpose.None;
+        DiplomacyForceAdmission=DiplomacyExecutorAdmission=null;DiplomacySelectionReturnAllowed=true;
         var map=_diplomacyMap;_diplomacyMap=null;_diplomacyWorld=null;_diplomacySession=null;_diplomacyDraft=null;_diplomacyCardContent=null;
         var targets=_diplomacyTargets;_diplomacyTargets=null;var persons=_diplomacyPersons;_diplomacyPersons=null;
+        if(targets is not null&&map is not null&&GodotObject.IsInstanceValid(map))map.EndDiplomacyTargetPick(targets);
+        var executors=_diplomacyExecutors;_diplomacyExecutors=null;
         var months=_diplomacyMonths;_diplomacyMonths=null;
         var amounts=_diplomacyAmounts;_diplomacyAmounts=null;
         var view=_diplomacyOrdersView;_diplomacyOrdersView=null;
+        var calculator=_diplomacyTradeCalculator;_diplomacyTradeCalculator=null;calculator?.Abandon();calculator?.QueueFree();
         targets?.Abandon();targets?.QueueFree();persons?.Abandon();persons?.QueueFree();
+        executors?.Abandon();executors?.QueueFree();
         amounts?.Abandon();amounts?.QueueFree();
         months?.Abandon();months?.QueueFree();view?.Abandon();view?.QueueFree();
         if(map is not null&&GodotObject.IsInstanceValid(map)&&_residentMap==map)map.SetDetailsOpen(false);

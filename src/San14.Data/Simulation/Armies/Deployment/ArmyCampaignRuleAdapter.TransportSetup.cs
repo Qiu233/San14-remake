@@ -80,15 +80,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         try
         {
-            var current = CaptureOwnedArmyReturnWorld(state).Context;
-            var source = TransportSource(state, current, sourceCityId);
-            var city = CurrentGateMapQueries.FindCity(source, current);
-            var quote = CityCaptureFoodWarningSource.TryReadFoodExpense(state, current, city);
-            int expense = quote.Value ?? throw new InvalidDataException(quote.UnresolvedOwner);
-            //The existing helper's known leaf has no HomeArmy. The season
-            //flag is reached only by its unresolved nonempty Army branch.
-            int stock = TK(current.ReadBaseResource(source, BaseResourceKind.Supplies), "warning-current-food");
-            return new(unchecked(stock - expense * 3 - cargoFood) < 1, expense, null);
+            //Compatibility projection only. The Make decision uses the real
+            //PrepareTransportFoodWarningOrder transaction so its quote1
+            //housekeeping state is adopted even if the warning is cancelled.
+            var prepared = PrepareTransportFoodWarningCurrent(state, sourceCityId, cargoFood);
+            return new(prepared.Warning.Required, prepared.Warning.Expense, null);
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
     }
@@ -168,7 +164,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             try
             {
-                int stock = TK(current.ReadBaseResource(source, kind), "quantity-stock");
+                int stock = TK(current.ReadBaseResource(kind == BaseResourceKind.Troops ? source
+                    : BaseCurrencyAdditionSource.CurrencyCity(source, current), kind), "quantity-stock");
                 int p = TK(current.ReadPersonLookupReference(id)?.PhysicalSlot, "quantity-person");
                 if (!TK(current.ReadPersonNativeValidity(p), "quantity-person-validity")) return stock;
                 var force = TransportPersonForce(current, id);
@@ -187,7 +184,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         int? Remaining(BaseResourceKind kind, int? selected)
         {
             if (!selected.HasValue) return null;
-            try { return unchecked(TK(current.ReadBaseResource(source, kind), "quantity-stock") - selected.Value); }
+            try { return unchecked(TK(current.ReadBaseResource(kind == BaseResourceKind.Troops ? source
+                : BaseCurrencyAdditionSource.CurrencyCity(source, current), kind), "quantity-stock") - selected.Value); }
             catch (InvalidDataException error) { missing.Add(error.Message); return null; }
         }
     }

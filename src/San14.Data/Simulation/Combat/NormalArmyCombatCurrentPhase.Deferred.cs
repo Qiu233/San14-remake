@@ -21,6 +21,7 @@ public sealed partial class NormalArmyCombatCurrentPhase
                 NormalArmyNonlethalPairOutcome.DestructionRequired or
                 NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision) return null;
             working = completed.State;
+            if (completed.Outcome == NormalArmyNonlethalPairOutcome.NativeStopped) return working;
         }
         return working;
     }
@@ -95,6 +96,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
         var activation = currentApplication.ResumeBorrowedSelectedAutomatic(state, operationCurrent,
             createContext(definitions), primary, saved, operationSampler, plan.Moment.WorldThirdDate,
             plan.Moment.CalendarCycleOrdinal, operationEffects);
+        if (ArmyCampaignRuleAdapter.HasNativeCampaignStop(activation.State))
+            return new(NormalArmyNonlethalPairOutcome.NativeStopped, activation.State, null, null, null);
         if (activation.Continuation is { } pending)
             return new(NormalArmyNonlethalPairOutcome.AwaitingPlayerDecision, activation.State, null, null, null)
             { PendingAutomaticExecution = pending, PendingOrdinaryFrame20 = frame20 };

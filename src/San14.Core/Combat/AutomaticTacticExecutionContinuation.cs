@@ -11,7 +11,15 @@ public sealed record AutomaticTacticTroopPrefix(int SourceArmyPhysicalSlot, usho
     byte SourceForceSlot, int StageProduct);
 
 public sealed record AutomaticTacticMoralePrefix(int SourceArmyPhysicalSlot, int SourceHexId,
-    float StageFactor, float WaitingFactor);
+    float StageFactor, float WaitingFactor)
+{
+    public bool SourceHexIsNull { get; init; }
+}
+
+/// <summary>The source identities captured on entering this actor, before an
+/// instruction can retire its Army or clear the commander's live binding.</summary>
+public sealed record AutomaticTacticActorSource(int ForceId, int CommanderOfficerId,
+    int? CommanderPersonPhysical);
 
 public sealed record AutomaticTacticDamageContribution(int Kind, int PhysicalSlot, int RequestedLoss);
 
@@ -34,7 +42,7 @@ public sealed record AutomaticTacticLinkedExecutionContinuation(
 /// belong to this execution, independently of the enclosing mixed combat pair.</summary>
 public sealed record AutomaticTacticExecutionContinuation(int CasterUnitId, int TacticId,
     ImmutableArray<AutomaticTacticInstructionSnapshot> Instructions, int InstructionIndex, int TargetIndex,
-    int TargetUnitId, int TargetArmyPhysicalSlot, ArmyReceiverId TargetReceiverId, int TargetHexId,
+    int? TargetUnitId, int? TargetArmyPhysicalSlot, ArmyReceiverId? TargetReceiverId, int TargetHexId,
     int RequestedLoss, int ChainWaitingContribution, ulong ChainRandomState,
     ImmutableArray<AutomaticTacticDamageContribution> DamageContributions,
     ImmutableArray<TacticReportEntry> Details,
@@ -44,6 +52,8 @@ public sealed record AutomaticTacticExecutionContinuation(int CasterUnitId, int 
 {
     public AutomaticTacticTroopPrefix? TroopPrefix { get; init; }
     public AutomaticTacticMoralePrefix? MoralePrefix { get; init; }
+    public AutomaticTacticActorSource? EntrySource { get; init; }
+    public SettlementBase? TargetBase { get; init; }
     /// <summary>When present, ChainWaitingContribution is the completed actors'
     /// contribution sum. Null preserves the legacy empty-chain interpretation.</summary>
     public AutomaticTacticLinkedExecutionContinuation? LinkedExecution { get; init; }

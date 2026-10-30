@@ -54,7 +54,9 @@ internal sealed class AreaAdministrationOfficerTraitTooltip(SourceWorldContext c
 
     private readonly record struct ResourceStamp(string Path, long Length, DateTime LastWriteTimeUtc);
 
-    private static string Dynamic(PersonalityReference trait, SourceWorldContext current, MessageDocument messages)
+    internal static string InformationListDescription(PersonalityReference trait, SourceWorldContext current, MessageDocument messages) => Dynamic(trait, current, messages, compact: true);
+
+    private static string Dynamic(PersonalityReference trait, SourceWorldContext current, MessageDocument messages, bool compact = false)
     {
         byte firstCondition = Byte(0xA4), secondCondition = Byte(0xAC);
         string condition;
@@ -69,6 +71,7 @@ internal sealed class AreaAdministrationOfficerTraitTooltip(SourceWorldContext c
         string firstEffect = Effect(Byte(0xB6), Amount(0xB8));
         byte secondCode = Byte(0xBA);
         string secondEffect = secondCode == 0 ? "" : Effect(secondCode, Amount(0xBC));
+        if (compact) return condition + firstEffect + (secondEffect.Length == 0 ? "" : Text(1, 0x698) + " " + secondEffect);
         return condition + "\n" + firstEffect + (secondEffect.Length == 0 ? "" : "\n" + secondEffect);
 
         byte Byte(int offset) => current.ReadPersonalityByte(trait, offset) ?? throw Missing("parameter_" + offset.ToString("X"));

@@ -41,24 +41,29 @@ internal static class PersonnelHireNameSource
     }
 
     internal static PersonnelHireGeneratedName Generate(GameState state, SourceWorldContext current,
-        PersonnelHireNameCatalog catalog, int sexType, IReadOnlySet<(int, int)> forbiddenPairs)
+        PersonnelHireNameCatalog catalog, int sexType, IReadOnlySet<(int, int)> forbiddenPairs,
+        PersonnelHireNameFilterSource? fullNameFilter)
     {
         if (sexType is not (3 or 4)) throw Missing("sex_type");
         ArgumentNullException.ThrowIfNull(forbiddenPairs);
-        var first = Select(state, current, catalog, sexType, 0);
-        var working = first.State;
-        PersonnelHireNameDefinition second;
-        do
+        var working = state;
+        while (true)
         {
-            var selected = Select(working, current, catalog, sexType, 1);
-            working = selected.State;
-            second = selected.Name;
-        } while (forbiddenPairs.Contains((first.Name.Id, second.Id)));
-        //334EF0 calls33EEF0/308920 after combining the name. The cached TC
-        //308920 returns1 unconditionally (14CC30 is only a global getter).
-        //There is no world-name lookup or additional full-name random retry.
-        return new(working, first.Name.Text, second.Text, first.Name.Id, second.Id,
-            first.Name.SortKey, second.SortKey);
+            var first = Select(working, current, catalog, sexType, 0);
+            working = first.State;
+            PersonnelHireNameDefinition second;
+            do
+            {
+                var selected = Select(working, current, catalog, sexType, 1);
+                working = selected.State;
+                second = selected.Name;
+            } while (forbiddenPairs.Contains((first.Name.Id, second.Id)));
+            //TC308920 admits the full name. SC308740 rejects a BadWord
+            //first-column byte match and retries both independently selected parts.
+            if (fullNameFilter?.Contains(first.Name.Text + second.Text) == true) continue;
+            return new(working, first.Name.Text, second.Text, first.Name.Id, second.Id,
+                first.Name.SortKey, second.SortKey);
+        }
     }
 
     private static (GameState State, PersonnelHireNameDefinition Name) Select(GameState state,
@@ -115,12 +120,14 @@ public sealed partial class GameResourceRepository
 public sealed partial class ArmyCampaignRuleAdapter
 {
     private PersonnelHireNameCatalog? _personnelHireNames;
+    private PersonnelHireNameFilterSource? _personnelHireNameFilter;
 
     internal PersonnelHireGeneratedName GeneratePersonnelHireNameCurrent(GameState state, SourceWorldContext current,
         int sexType, IReadOnlySet<(int, int)> forbiddenPairs)
     {
         _personnelHireNames ??= _repository.LoadPersonnelHireNames(_scenario.FixedDataSource.SourcePath);
-        return PersonnelHireNameSource.Generate(state, current, _personnelHireNames, sexType, forbiddenPairs);
+        return PersonnelHireNameSource.Generate(state, current, _personnelHireNames, sexType, forbiddenPairs,
+            Seed.Language == "SC" ? _personnelHireNameFilter ?? throw HireMissing("generation_name_filter_owner") : null);
     }
 }
 

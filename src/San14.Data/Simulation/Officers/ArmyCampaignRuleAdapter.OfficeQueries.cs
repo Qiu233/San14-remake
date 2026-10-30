@@ -40,7 +40,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             return new(forceId, rows, original, people, rules.OfficeGrades, Candidates,
                 (draft, promote) => ApplyOfficeAutomaticAssignmentCurrent(state, rules, draft, promote),
                 draft => OfficeAutomaticAssignmentSource.ReadAvailability(rules, draft),
-                rules.People.Where(person => person.CanRemove).Select(person => person.Id), Preview);
+                rules.People.Where(person => person.CanRemove).Select(person => person.Id), Preview,
+                (office, draft) => CreateOfficePeopleSelectionCurrent(state, rules, displayed, draft, office, Dimension));
 
             AreaAdministrationQuery<int> Dimension(int person, int dimension)
             {

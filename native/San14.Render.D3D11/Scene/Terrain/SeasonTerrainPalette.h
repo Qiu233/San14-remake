@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // CE C460 changes LandscapePalette rows10/4. The actual first-name lookup
 // indexes below belong to one loaded Landscape, not a synthetic texture bank.
 #include <array>
@@ -12,7 +13,7 @@
 namespace source_current_season_terrain {
 struct PaletteBank {std::array<std::vector<uint32_t>,4> seasons;};
 inline PaletteBank readPaletteBank(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"season-palette.bin",std::ios::binary);
+    NativePreparedInputFile input(directory/"season-palette.bin",std::ios::binary);
     if(!input)throw std::runtime_error("Actual seasonal Landscape palette absent");
     auto word=[&](){uint32_t v{};input.read(reinterpret_cast<char*>(&v),4);
         if(!input)throw std::runtime_error("Actual seasonal Landscape palette truncated");return v;};

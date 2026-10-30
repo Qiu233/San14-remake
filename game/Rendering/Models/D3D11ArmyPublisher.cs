@@ -204,9 +204,24 @@ public sealed class D3D11ArmyPublisher:IDisposable
 
     internal D3D11ArmyPublisher ForkPresentation() => new(this);
 
-    private D3D11ArmyPublication CapturePrepared(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null)
+    public D3D11ArmyPublication CaptureDeparture(GameState sourceWorld, int sourceUnitId,
+        ArmyGraphicsCurrentInputs sourceInputs, ArmyDepartureFlagInputs? sourceFlagInputs = null)
     {
-        bool sameWorld=_current is not null&&ReferenceEquals(world,_lastWorld);
+        ObjectDisposedException.ThrowIf(_disposed,this);
+        using var candidate=new D3D11ArmyPublisher(this);
+        var publication=candidate.CapturePrepared(sourceWorld, null,
+            (world,unit)=>unit.Id==sourceUnitId?sourceInputs:_motionInputs?.Invoke(world,unit),
+            sourceUnitId,sourceFlagInputs);
+        Adopt(candidate);
+        return publication;
+    }
+
+    private D3D11ArmyPublication CapturePrepared(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null,
+        Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? sourceMotionInputs=null,
+        int? sourceFlagUnitId=null,ArmyDepartureFlagInputs? sourceFlagInputs=null)
+    {
+        bool sameWorld=sourceMotionInputs is null&&sourceFlagInputs is null&&
+            _current is not null&&ReferenceEquals(world,_lastWorld);
         if(sameWorld&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
         D3D11ArmyActor[] actors;D3D11ArmyUnavailable[] unavailable;
         ReadOnlyCollection<ArmyFlagMaterialRequest>? flagRequests=_current?.FlagMaterialRequestOwner;
@@ -215,7 +230,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
             if(!sameWorld){
                 var plan=_selection.Resolve(world);
                 if(_motionInputs is null)_ordinary.Prepare(world,plan);
-                else _ordinary.PrepareMotion(world,plan,_motionClock!.Resolve(_fpsMode),_motionInputs);
+                else _ordinary.PrepareMotion(world,plan,_motionClock!.Resolve(_fpsMode),sourceMotionInputs??_motionInputs);
                 var missingPlan=new List<D3D11ArmyUnavailable>();
                 foreach(var failure in plan.Unresolved.Where(f=>!plan.Selections.ContainsKey(f.UnitId)))missingPlan.Add(new(failure.UnitId,failure.Reason));
                 foreach(var selection in plan.Selections.Values)if(!_ordinary.Frames.ContainsKey(selection.UnitId))
@@ -224,7 +239,8 @@ public sealed class D3D11ArmyPublisher:IDisposable
             }
             _flags.Prepare(_ordinary.Frames);
             var missing=new List<D3D11ArmyUnavailable>(_planUnavailable);
-            if(!sameWorld)_flagMaterials=_flags.Frames.Count==0?null:_flagCurrent.Prepare(world,_flags.Frames.Keys);
+            if(!sameWorld)_flagMaterials=_flags.Frames.Count==0?null:
+                _flagCurrent.Prepare(world,_flags.Frames.Keys,sourceFlagUnitId,sourceFlagInputs);
             var material=_flagMaterials;
             var current=new List<D3D11ArmyActor>();
             // Motion changes transforms and bounds, while the source world

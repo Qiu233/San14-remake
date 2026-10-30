@@ -60,7 +60,7 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
     }
 
     internal string FallbackName(GameState state, SourceWorldContext current, ForceReference force,
-        Func<OfficerState, bool, string> personName)
+        Func<OfficerState, bool, string> personName, Formats.MessageDocument? admittedData = null)
     {
             //22EE60 repeats its own validity and physical reads after the
             //custom lookup. Its default Force0 uses actual lookup5014.
@@ -84,7 +84,7 @@ internal sealed class CampaignHistoryWriter(GameResourceRepository repository, L
                 //The actual formatting appends Data1/034F. Normally the first
                 //unit already comes from the name; an empty current name must
                 //still follow the real suffix instead of inventing an empty.
-                var data = repository.LoadMessages(language, Formats.MessageKind.Data).Messages;
+                var data = admittedData ?? repository.LoadMessages(language, Formats.MessageKind.Data).Messages;
                 if (data.Sections.Count <= 1 || data.Sections[1].Records.Count <= 0x34F)
                     throw Missing("fallback_army_suffix");
                 text = Head(text) + Head(data.Sections[1].Records[0x34F].Text ?? throw Missing("fallback_army_suffix"));

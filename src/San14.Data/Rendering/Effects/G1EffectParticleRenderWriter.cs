@@ -13,8 +13,6 @@ public static partial class G1EffectDrawWriter
         ushort type = H(payload, 0), sourceFlags = H(payload, 2), renderEnum = H(payload, 0xA);
         if ((sourceFlags & 0x14) != 0)
             throw new NotSupportedException("Particle fog-split writer requires the actual fog providers.");
-        if ((sourceFlags & 0x200) != 0)
-            throw new NotSupportedException("Particle extended stream requires its actual secondary UV provider.");
         flags = 0x800;
         foreach (var (source, target) in new[] { (7, 1), (8, 2), (9, 3), (10, 4), (11, 5), (12, 6) })
             flags |= ((uint)sourceFlags >> source & 1) << target;
@@ -22,26 +20,30 @@ public static partial class G1EffectDrawWriter
         alpha = (sourceFlags & 8) != 0 ? (byte)~payload[0x13] : (byte)0;
         if (type == 6)
         {
-            stride = 64; count = 1;
+            stride = (sourceFlags & 0x200) != 0 ? 128 : 64; count = 1;
             renderType = (renderEnum & 255) switch
             {
-                134 => 109, 150 => 125, 151 => 126, 152 => 127,
+                128 => 103, 130 => 105, 131 => 106, 134 => 109,
+                150 => 125, 151 => 126, 152 => 127,
+                172 => 147, 173 => 148, 194 => 169, 195 => 170,
                 _ => throw new NotSupportedException($"Mesh rendering enum {renderEnum:X4} is not implemented.")
             };
             header = (uint)(H(payload, 8) & 7) | (uint)((renderEnum >> 4) & 0x30) |
                 (uint)((renderEnum >> 12) & 8) | (uint)(payload[6] << 6);
-            return WriteMesh(payload, camera);
+            return ExtendMeshStream(payload, WriteMesh(payload, camera));
         }
         if (type is not (0 or 1 or 2))
             throw new NotSupportedException($"Particle payload dispatch {type} is not implemented.");
         renderType = renderEnum switch
         {
-            7 => 7, 19 => 17, 26 => 22, 34 => 18,
+            7 => 7, 8 => 8, 19 => 17, 23 => 29, 26 => 22, 34 => 18,
+            38 => 48, 40 => 50, 53 => 38,
+            67 => 64, 68 => 65, 98 => 95, 99 => 96,
             _ => throw new NotSupportedException($"Sprite rendering enum {renderEnum} is not implemented.")
         };
         header = 4u | ((uint)H(payload, 8) << 3 & 0x38) | 4u << 8;
-        stride = 32; count = 4;
-        return WriteSprite(payload, camera);
+        stride = (sourceFlags & 0x200) != 0 ? 64 : 32; count = 4;
+        return ExtendSpriteStream(payload, WriteSprite(payload, camera));
     }
 
     private static byte[] WriteMesh(ReadOnlySpan<byte> payload, G1EffectDrawCamera camera)
@@ -79,6 +81,8 @@ public static partial class G1EffectDrawWriter
         int type = H(payload, 0), flags = H(payload, 2), renderEnum = H(payload, 0xA);
         float halfWidth = F(payload, 0x14) * 0.5f, halfHeight = F(payload, 0x18) * 0.5f;
         Vector4 x, y, center, normal;
+        Matrix4x4 materialOrientation = default;
+        float rollSine = 0, rollCosine = 1;
         if (type is 0 or 1)
         {
             x = Row(camera.CameraToWorld, 0); y = Row(camera.CameraToWorld, 1);
@@ -88,6 +92,7 @@ public static partial class G1EffectDrawWriter
                 float angle = F(payload, 0x1C);
                 if (MathF.Abs(angle) > 6.2831855f) angle -= (int)(angle / 6.2831855f) * 6.2831855f;
                 var (sine, cosine) = G1EffectShapeMath.SinCos(angle);
+                rollSine = sine; rollCosine = cosine;
                 Vector4 originalX = x;
                 x = cosine * x + sine * y;
                 y = cosine * y - sine * originalX;
@@ -98,9 +103,11 @@ public static partial class G1EffectDrawWriter
         {
             Range(payload, 0x30, 64);
             Matrix4x4 transform = Orient(Matrix(payload, 0x30), flags, camera);
+            materialOrientation = transform;
             x = Row(transform, 0); y = Row(transform, 1); normal = Row(transform, 2);
             center = V(payload, 0x60);
         }
+        Vector4 directionX = x, directionY = y;
         x *= halfWidth; y *= halfHeight;
         Vector4[] positions = [center - x + y, center - x - y, x + center + y, x + center - y];
         Vector2[] uv = [new(F(payload, 0x20), F(payload, 0x24)), new(F(payload, 0x20), F(payload, 0x2C)),
@@ -124,10 +131,50 @@ public static partial class G1EffectDrawWriter
             // not a fourth spatial coordinate or an arbitrary opacity value.
             for (int i = 0; i < 4; i++) positions[i].W = halfWidth;
         }
-        else if (renderEnum != 7)
+        else if (renderEnum is not (7 or 8 or 23 or 38 or 40 or 53 or 67 or 68 or 98 or 99))
             throw new NotSupportedException($"Sprite material writer {renderEnum} is not implemented.");
         uint color = U(payload, 0x10);
         if ((flags & 8) != 0) color |= 0xFF000000;
+        if (renderEnum == 23)
+        {
+            // The distortion material carries its tangent frame in the two
+            // color words. Only the matrix-oriented callback normalizes it;
+            // billboard callbacks use the camera basis directly.
+            if (type == 2)
+            {
+                directionX /= MathF.Sqrt(directionX.X * directionX.X +
+                    directionX.Y * directionX.Y + directionX.Z * directionX.Z);
+                directionY /= MathF.Sqrt(directionY.X * directionY.X +
+                    directionY.Y * directionY.Y + directionY.Z * directionY.Z);
+            }
+            uint Direction(Vector4 d) => Byte((d.Z + 1f) * 127.5f) |
+                Byte((d.Y + 1f) * 127.5f) << 8 | Byte((d.X + 1f) * 127.5f) << 16;
+            color = Direction(directionX) | (color & 0xFF000000);
+            packed = Direction(-directionY) |
+                (uint)((payload[0xE] >> 1) + ((flags & 0x20) != 0 ? 128 : 0)) << 24;
+        }
+        if (renderEnum is 67 or 68 or 98 or 99)
+        {
+            // The dedicated callback packs the normal and tangent in colors;
+            // W carries the numeric 24-bit source color, not a spatial value.
+            float sign = 127.5f;
+            if (type == 2)
+            {
+                Vector3 delta = camera.Eye - new Vector3(center.X, center.Y, center.Z);
+                if ((delta.Y * normal.Y + delta.X * normal.X) + delta.Z * normal.Z < 0) sign = -127.5f;
+                normal /= MathF.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
+                directionX /= MathF.Sqrt(directionX.X * directionX.X + directionX.Y * directionX.Y + directionX.Z * directionX.Z);
+            }
+            uint Direction(Vector4 d) => Byte(d.Z * sign + 127.5f) |
+                Byte(d.Y * sign + 127.5f) << 8 | Byte(d.X * sign + 127.5f) << 16;
+            color = Direction(normal) | (color & 0xFF000000);
+            packed = Direction(directionX) | (uint)index << 24;
+            for (int i = 0; i < 4; i++) positions[i].W = U(payload, 0x10) & 0xFFFFFF;
+        }
+        uint[]? materialColors = null, materialFrames = null;
+        if (renderEnum is 38 or 40 or 53)
+            WriteDirectionalSpriteMaterial(renderEnum, type, payload, camera, materialOrientation,
+                center, rollSine, rollCosine, positions, uv, out materialColors, out materialFrames);
         int[] order = [0, 1, 2, 3];
         if (renderEnum < 42 && ((0x3F300360000UL >> renderEnum) & 1) != 0)
         {
@@ -141,7 +188,8 @@ public static partial class G1EffectDrawWriter
         {
             int source = order[indexOfVertex], at = indexOfVertex * 32;
             Put(bytes, at, positions[source]);
-            Put(bytes, at + 16, color); Put(bytes, at + 20, packed);
+            Put(bytes, at + 16, materialColors?[source] ?? color);
+            Put(bytes, at + 20, materialFrames?[source] ?? packed);
             Put(bytes, at + 24, uv[source].X); Put(bytes, at + 28, uv[source].Y);
         }
         return bytes;

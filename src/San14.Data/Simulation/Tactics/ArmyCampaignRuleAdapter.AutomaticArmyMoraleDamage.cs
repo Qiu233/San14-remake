@@ -17,9 +17,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         int casterId, int stageOrdinal)
     {
         if (!context.IsBoundCurrentState(state) ||
-            state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC") ||
-            !state.Units.TryGetValue(casterId, out var caster))
+            state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC"))
             throw AutomaticMoraleDamageMissing("current_caster");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         int stage = AutomaticMoraleDamageParameter(state, SimulationParameterKeys.Tactics.EffectStageScale);
         float stageFactor = (float)unchecked(stageOrdinal * stage) / 100f + 1f;
         int physical = AutomaticMoraleDamageNeed(caster.NativeArmyOrigin?.NativeSlotIndex, "source_Army_physical");

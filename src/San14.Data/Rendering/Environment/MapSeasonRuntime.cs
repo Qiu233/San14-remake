@@ -17,11 +17,36 @@ public sealed class MapSeasonNativeSource
 
 public sealed record MapSeasonCalendarStep(NativeMapSeasonDate Date,
     bool ContinueNativeCycle,bool DayAdvanced,bool PeriodAdvanced,bool MonthAdvanced);
+/// <summary>The date boundary consumed by rendering. Strategy clocks and
+/// read-only scenario previews retain distinct concrete owners.</summary>
+public abstract record MapSeasonCalendarFrame(long FrameNumber,
+    MapSeasonSelection Selection,string SourceProvenance)
+{
+    public abstract NativeMapSeasonDate ThirdDate { get; }
+}
 public sealed record MapSeasonRuntimeFrame(long FrameNumber,NativeMapSeasonState State,
-    MapSeasonSelection Selection,string SourceProvenance);
+    MapSeasonSelection Selection,string SourceProvenance)
+    : MapSeasonCalendarFrame(FrameNumber,Selection,SourceProvenance)
+{
+    public override NativeMapSeasonDate ThirdDate => State.ThirdDate;
+}
+/// <summary>A scenario resource date, without an owned strategy clock epoch.</summary>
+public sealed record MapSeasonScenarioPreviewFrame(long FrameNumber,LoadedScenarioWorld Source,
+    MapSeasonSelection Selection,string SourceProvenance)
+    : MapSeasonCalendarFrame(FrameNumber,Selection,SourceProvenance)
+{
+    public override NativeMapSeasonDate ThirdDate
+    {
+        get
+        {
+            var date=Source.Document.RawThirdDate;
+            return new(date.RawYear,date.RawMonth,date.RawDay,date.RawSubdayPart);
+        }
+    }
+}
 public sealed record MapSeasonRuntimeAdvance(bool Available,NativeMapSeasonState State,
     long CalendarStepsApplied,string? UnavailableReason);
-public sealed record MapSeasonResolvedSourceFrame(MapSeasonRuntimeFrame Calendar,
+public sealed record MapSeasonResolvedSourceFrame(MapSeasonCalendarFrame Calendar,
     MapSeasonSourceResources Resources);
 
 /// <summary>Owned source World+34 producer. It never takes date values from
@@ -127,6 +152,66 @@ public static class MapSeasonRuntime
             $"owned-native-world-third;{state.SourceScenarioUri}@{state.SourceScenarioSha256};world={state.SourceWorldSha256};"+
             $"third={state.ThirdDate.Year}/{state.ThirdDate.Month}/{state.ThirdDate.Day}:{state.ThirdDate.Hour};"+
             $"processed-native-ordinal={state.ProcessedNativeOrdinal};phase={state.Phase};writer={state.WriterRevision};frame={explicitFrameNumber}");
+    }
+
+    /// <summary>Read the actual scenario third date for pre-game rendering.
+    /// This does not create or advance a NativeMapSeasonState or NativeClock.</summary>
+    public static MapSeasonScenarioPreviewFrame PrepareScenarioPreviewFrame(
+        LoadedScenarioWorld source,long explicitFrameNumber)
+    {
+        ArgumentNullException.ThrowIfNull(source);ValidateSource(source);
+        if(explicitFrameNumber<1)throw new ArgumentOutOfRangeException(nameof(explicitFrameNumber));
+        if(!Hash(source.Source.Sha256)||!Hash(source.Document.WorldSha256))
+            throw new InvalidDataException("Scenario preview requires its actual source and World resource identities.");
+        var third=Date(source.Document.RawThirdDate);OrdinaryDate(third);
+        return new(explicitFrameNumber,source,MapSeasonMath.SelectMonth(third.Month),
+            $"scenario-preview-world-third;{source.Source.ResourceUri}@{source.Source.Sha256};world={source.Document.WorldSha256};"+
+            $"third={third.Year}/{third.Month}/{third.Day}:{third.Hour};frame={explicitFrameNumber}");
+    }
+
+    /// <summary>Reframe an already loaded preview without reloading, hashing or
+    /// copying its scenario source. Source identity is checked at initial load.</summary>
+    public static MapSeasonScenarioPreviewFrame PrepareScenarioPreviewFrame(
+        MapSeasonScenarioPreviewFrame preview,long explicitFrameNumber)
+    {
+        ArgumentNullException.ThrowIfNull(preview);ValidateFrame(preview);
+        if(explicitFrameNumber<1)throw new ArgumentOutOfRangeException(nameof(explicitFrameNumber));
+        var source=preview.Source;var third=preview.ThirdDate;
+        return new(explicitFrameNumber,source,preview.Selection,
+            $"scenario-preview-world-third;{source.Source.ResourceUri}@{source.Source.Sha256};world={source.Document.WorldSha256};"+
+            $"third={third.Year}/{third.Month}/{third.Day}:{third.Hour};frame={explicitFrameNumber}");
+    }
+
+    /// <summary>Validate only the concrete calendar's rendering boundary.
+    /// Preview source format and identity belong to its initial load.</summary>
+    public static void ValidateFrame(MapSeasonCalendarFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        switch(frame)
+        {
+            case MapSeasonRuntimeFrame live:
+                if(PrepareFrame(live.State,live.FrameNumber)!=live)
+                    throw new InvalidDataException("Season frame differs from its owned calendar source.");
+                break;
+            case MapSeasonScenarioPreviewFrame preview:
+                if(preview.FrameNumber<1)throw new InvalidDataException("Scenario preview needs a positive rendering frame.");
+                var third=preview.ThirdDate;OrdinaryDate(third);
+                if(preview.Selection!=MapSeasonMath.SelectMonth(third.Month))
+                    throw new InvalidDataException("Scenario preview selection differs from its resource third date.");
+                break;
+            default:
+                throw new NotSupportedException("Rendering requires an owned live calendar or an actual scenario preview date.");
+        }
+    }
+
+    public static MapSeasonResolvedSourceFrame ResolveScenarioPreviewSourceFrame(
+        GameResourceRepository repository,LoadedScenarioWorld source,long explicitFrameNumber)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        var frame=PrepareScenarioPreviewFrame(source,explicitFrameNumber);
+        var resources=MapSeasonResourceConsumer.Load(repository,frame.ThirdDate.Month);
+        if(resources.Selection!=frame.Selection)throw new InvalidDataException("Scenario preview date and resolved source season keys disagree.");
+        return new(frame,resources);
     }
 
     /// <summary>Resolve the actual named season's SceneDatabase and effect

@@ -165,7 +165,13 @@ public static class LcskLayoutReader
                 throw new InvalidDataException($"LCSK pool {type} entry {index} length differs.");
             byte[] data = bytes.Slice(entry + 4, dataBytes).ToArray();
             string? text = null;
-            if (type is 0 or 1)
+            // Pool1 is an opaque narrow-byte control identifier in the original
+            // loader. Its bytes are copied and NUL-terminated, never decoded as
+            // localized text. Preserve each byte one-to-one for diagnostics and
+            // ASCII-name comparisons; Data remains the actual byte identity.
+            // Pool0 resource names retain their existing stricter text contract.
+            if (type == 1) text = Encoding.Latin1.GetString(data);
+            if (type == 0)
             {
                 try { text = TextEncoding.GetString(data); }
                 catch (DecoderFallbackException error)

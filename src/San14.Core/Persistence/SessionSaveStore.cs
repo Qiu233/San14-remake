@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 namespace San14.Core;
 
@@ -14,7 +15,7 @@ public sealed record GameSessionSave(GameState State, int PlayerForceId)
 public sealed class SessionSaveStore(ISaveCodec codec)
 {
     private static readonly byte[] Magic = "S14S"u8.ToArray();
-    private const int Version = 5;
+    private const int Version = 14;
     private static readonly JsonSerializerOptions Options = new() { RespectRequiredConstructorParameters = true,
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
     public void Save(string path, GameState state, int playerForceId, CampaignProgressOperation? progress = null, long lastStorySequence = 0, ManualTacticProgressOperation? manualTactic = null, DateTimeOffset? savedAt = null, NormalPeriodOperation? normalPeriod = null)
@@ -27,6 +28,7 @@ public sealed class SessionSaveStore(ISaveCodec codec)
             Write(writer, codec.Encode(state)); writer.Write(lastStorySequence); writer.Write((byte)(normalPeriod is not null ? 3 : manualTactic is not null ? 2 : progress is not null ? 1 : 0));
             if (progress is not null)
             {
+                CampaignStorySelectionSaveFields.ValidateRequest(progress.Story);
                 var operationCodec = codec as ICampaignOperationSaveCodec ?? throw new InvalidDataException("This codec cannot preserve an in-flight campaign.");
                 // World values use their complete resource-state codec below.
                 // Explicit null placeholders keep all constructor fields required.
@@ -69,7 +71,7 @@ public sealed class SessionSaveStore(ISaveCodec codec)
                 if (present == 1)
                 {
                     var operationCodec = codec as ICampaignOperationSaveCodec ?? throw new InvalidDataException("This codec cannot restore an in-flight campaign.");
-                    progress = JsonSerializer.Deserialize<CampaignProgressOperation>(Read(reader), Options) ?? throw new InvalidDataException("Pending campaign is missing.");
+                    progress = ReadMetadata<CampaignProgressOperation>(reader, version);
                     progress = progress with { Candidate = operationCodec.DecodeOperationWorld(Read(reader), progress.Context) };
                     var captures = new List<SavedArmyCombatCapture>();
                     foreach (var capture in progress.Captures) captures.Add(capture with { State = operationCodec.DecodeOperationWorld(Read(reader), capture.Context) });
@@ -78,7 +80,7 @@ public sealed class SessionSaveStore(ISaveCodec codec)
                 else if (present == 2)
                 {
                     var operationCodec = codec as ICampaignOperationSaveCodec ?? throw new InvalidDataException("This codec cannot restore a manual tactic transaction.");
-                    manualTactic = JsonSerializer.Deserialize<ManualTacticProgressOperation>(Read(reader), Options) ?? throw new InvalidDataException("Pending manual tactic is missing.");
+                    manualTactic = ReadMetadata<ManualTacticProgressOperation>(reader, version);
                     manualTactic = manualTactic with { Candidate = operationCodec.DecodeOperationWorld(Read(reader), manualTactic.Context) };
                     var captures = new List<SavedArmyCombatCapture>();
                     foreach (var capture in manualTactic.Captures) captures.Add(capture with { State = operationCodec.DecodeOperationWorld(Read(reader), capture.Context) });
@@ -136,7 +138,7 @@ public sealed class SessionSaveStore(ISaveCodec codec)
     {
         if (!reader.ReadBytes(4).SequenceEqual(Magic)) throw new InvalidDataException("Session save magic is invalid.");
         int version = reader.ReadInt32();
-        if (version is not (1 or 2 or 3 or 4 or Version)) throw new InvalidDataException("Session save format is unsupported.");
+        if (version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or Version)) throw new InvalidDataException("Session save format is unsupported.");
         return version;
     }
     private static byte ReadPendingPresence(BinaryReader reader, int version)
@@ -144,6 +146,23 @@ public sealed class SessionSaveStore(ISaveCodec codec)
         byte present = reader.ReadByte();
         if (present > (version >= 5 ? 3 : version == 2 ? 1 : 2)) throw new InvalidDataException("Pending campaign presence is invalid.");
         return present;
+    }
+    private static T ReadMetadata<T>(BinaryReader reader, int version) where T : class
+    {
+        if (JsonNode.Parse(Read(reader)) is not JsonObject metadata || metadata["ServiceChanges"] is not JsonObject service)
+            throw new InvalidDataException("Pending campaign service metadata is missing.");
+        foreach (string key in new[] { "CompletedScenarios", "CompletedEndingTracks", "UnlockedBonusOfficerIndices", "CompletedTutorialLessons" })
+            if (version < 6)
+            {
+                if (service[key] is JsonNode node && (node is not JsonArray array || array.Count != 0))
+                    throw new InvalidDataException("Legacy session contains future Ending service writes.");
+                service[key] = new JsonArray();
+            }
+        CampaignStorySelectionSaveFields.MigrateOperationMetadata(metadata, version);
+        CampaignStoryMessageBankSaveFields.MigrateOperationMetadata(metadata, version);
+        CampaignStoryInvocationPresentationSaveFields.MigrateOperationMetadata(metadata, version);
+        CampaignStoryPresentationSaveFields.MigrateOperationMetadata(metadata, version);
+        return metadata.Deserialize<T>(Options) ?? throw new InvalidDataException("Pending campaign metadata is missing.");
     }
     private static DateTimeOffset? ReadTimestamp(BinaryReader reader, int version)
     {
@@ -165,6 +184,12 @@ public sealed class SessionSaveStore(ISaveCodec codec)
 
     private static void ValidateProgress(GameState state, CampaignProgressOperation? progress, long sequence, ManualTacticProgressOperation? manualTactic = null, NormalPeriodOperation? normalPeriod = null)
     {
+        if (state.CampaignEventCommandPlayback is { } command &&
+            (progress is not null || manualTactic is not null || normalPeriod is not null || sequence < command.Invocation.Story.Sequence))
+            throw new InvalidDataException("Saved ordinary event command has a conflicting owner or sequence.");
+        if (state.EditedEventPlayback is { } edited &&
+            (progress is not null || manualTactic is not null || normalPeriod is not null || sequence < edited.Story.Sequence))
+            throw new InvalidDataException("Saved manual edited-event playback has a conflicting owner or sequence.");
         if (sequence < 0 || progress is not null && progress.LastStorySequence != sequence) throw new InvalidDataException("Saved story sequence is inconsistent.");
         if (progress is not null && manualTactic is not null || manualTactic is not null && manualTactic.LastStorySequence != sequence)
             throw new InvalidDataException("Saved campaign operation is not exclusive or has the wrong sequence.");

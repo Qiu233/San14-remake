@@ -13,7 +13,18 @@ public sealed record SourceProvenance(string SourcePath, long Bytes, string Sha2
 
 public sealed record LoadedMap(MapDocument Map, SourceProvenance Source);
 public sealed record LoadedScenario(S14Entry Metadata, ScenarioCityPreview Snapshot,
-    SourceProvenance ScenarioSource, SourceProvenance FixedDataSource);
+    SourceProvenance ScenarioSource, SourceProvenance FixedDataSource)
+{
+    /// <summary>A detached document shared by the new-game editor projections.
+    /// Original provenance remains the installed resource; fresh readers use
+    /// this composition of the player's accepted edits.</summary>
+    public S14Document? InitialScenarioDocument { get; init; }
+    public San14.Core.CampaignCrtRandomState? InitialRegisteredOfficerRandom { get; init; }
+    public RegisteredOfficerNewGameSelection? InitialRegisteredOfficerSelection { get; init; }
+    public bool InitialHistoricalOfficerEditsAdopted { get; init; }
+    public ItemEditorInitialState? InitialItemEditorState { get; init; }
+    public System.Collections.Immutable.ImmutableArray<San14.Core.CreatedPersonality>? InitialCreatedPersonalities { get; init; }
+}
 public sealed record LoadedPolicies(S14PolicyCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedDoctrines(S14DoctrineCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedCreditEffects(S14CreditEffectCatalog Catalog, SourceProvenance Source);
@@ -41,6 +52,9 @@ public sealed record LoadedTexture(RgbaTexture Texture, string SourceContainerPa
 {
     public SourceProvenance? OverrideSource { get; init; }
     public int TextureIndex { get; init; }
+    /// <summary>Actual file-backed G1T image metadata. Named RDB sources keep
+    /// their existing container owner; no external file is assigned an RDB ID.</summary>
+    public G1TextureImage? SourceImage { get; init; }
 }
 
 public sealed record LoadedRdbAsset(byte[] Bytes, string ResourceUri, string SourceContainerPath,
@@ -113,7 +127,12 @@ public sealed partial class GameResourceRepository
             .OrderBy(item => item.ResourceUri, StringComparer.OrdinalIgnoreCase).ToArray();
 
     public GameResourceRepository(string? sourceDirectory = null, string? overridesDirectory = null)
+        : this(sourceDirectory, overridesDirectory, null) { }
+
+    public GameResourceRepository(string? sourceDirectory, string? overridesDirectory,
+        Action<ResourceReadGeneration>? readGeneration)
     {
+        _readGeneration = readGeneration;
         string location = sourceDirectory ?? Environment.GetEnvironmentVariable("SAN14_SOURCE_DIR")
             ?? DefaultSource;
         SourceDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(location));
@@ -178,13 +197,22 @@ public sealed partial class GameResourceRepository
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
         };
         string relative = $"0001_{locale}/{basename}{suffix}.bin";
+        UiResourceRevision revision = UiRevision(GameResourceId.File(relative), SourcePath(relative));
+        LoadedMessages cached;
+        lock (_uiResourceCacheGate)
+        {
+            if (_uiMessages.TryGetValue(relative, out var entry) && entry.Revision == revision)
+                return CopyUiMessages(entry.Messages);
+        }
         (byte[] bytes, SourceProvenance source) = ReadSource(relative);
         try
         {
             Zp1Document container = Zp1Reader.Read(bytes);
             MessageDocument messages = MessageTableReader.Read(container.DecodedPayload, kind);
             string decodedHash = Convert.ToHexString(SHA256.HashData(container.DecodedPayload));
-            return new LoadedMessages(messages, container, source, decodedHash);
+            cached = new LoadedMessages(messages, container, source, decodedHash);
+            lock (_uiResourceCacheGate) _uiMessages[relative] = (revision, cached);
+            return CopyUiMessages(cached);
         }
         catch (InvalidDataException error)
         {
@@ -597,6 +625,23 @@ public sealed partial class GameResourceRepository
 
     public LoadedTexture LoadTexture(string archiveName, uint fileId, int textureIndex = 0)
     {
+        // UI atlases are reused across pages and across different sprite names.
+        // Other archives include large one-use scene texture banks.
+        if (archiveName != "ScreenLayout") return LoadUncachedTexture(archiveName, fileId, textureIndex);
+        var key = (fileId, textureIndex);
+        var revision = UiTextureRevision(archiveName, fileId);
+        lock (_uiResourceCacheGate)
+        {
+            if (_uiTextures.TryGetValue(key, out var entry) && entry.Revision == revision)
+                return CopyUiTexture(entry.Texture);
+        }
+        LoadedTexture loaded = LoadUncachedTexture(archiveName, fileId, textureIndex);
+        lock (_uiResourceCacheGate) _uiTextures[key] = (revision, loaded);
+        return CopyUiTexture(loaded);
+    }
+
+    private LoadedTexture LoadUncachedTexture(string archiveName, uint fileId, int textureIndex)
+    {
         LoadedRdbAsset asset = LoadRdbAsset(archiveName, fileId);
         return new LoadedTexture(G1TextureReader.Decode(asset.Bytes, textureIndex), asset.SourceContainerPath,
             asset.FileId, asset.DecodedSha256, asset.IndexSource)
@@ -821,6 +866,20 @@ public sealed partial class GameResourceRepository
         return index;
     }
 
+    /// <summary>Normal archive record/container presence. Payload parsing is
+    /// still performed by its ordinary resource loader when consumed.</summary>
+    public bool ContainsRdbAsset(string archiveName, uint fileId)
+    {
+        var id = GameResourceId.Rdb(archiveName, fileId);
+        string relative = $"0002/{archiveName}.rdb";
+        var index = LoadRdbIndex(archiveName);
+        if (!_assetRecords[relative].TryGetValue(fileId, out var record)) return false;
+        string container = RdbArchiveReader.ContainerPath(SourcePath(relative), index, record);
+        string inside = Path.GetRelativePath(SourceDirectory, container).Replace('\\', '/');
+        _ = SourcePath(inside);
+        return File.Exists(_overrides.Find(id) ?? container);
+    }
+
     public LoadedRdbAsset LoadRdbAsset(string archiveName, uint fileId)
     {
         GameResourceId resourceId = GameResourceId.Rdb(archiveName, fileId);
@@ -834,9 +893,23 @@ public sealed partial class GameResourceRepository
             .Replace('\\', '/');
         _ = SourcePath(containerRelative); // Reject references outside the installation.
         string? overridePath = _overrides.Find(resourceId);
-        byte[] decoded = overridePath is null
-            ? RdbArchiveReader.ReadPayload(rdbPath, index, record)
-            : File.ReadAllBytes(overridePath);
+        byte[] decoded;
+        if (_readGeneration is null)
+            decoded = overridePath is null
+                ? RdbArchiveReader.ReadPayload(rdbPath, index, record)
+                : File.ReadAllBytes(overridePath);
+        else
+        {
+            var generation = BeginResourceRead(resourceId, container, overridePath ?? container);
+            try
+            {
+                decoded = overridePath is null
+                    ? RdbArchiveReader.ReadPayload(rdbPath, index, record)
+                    : File.ReadAllBytes(overridePath);
+            }
+            catch { VerifyResourceRead(generation); throw; }
+            CompleteResourceRead(generation);
+        }
         string hash = Convert.ToHexString(SHA256.HashData(decoded));
         SourceProvenance? overrideSource = null;
         if (overridePath is not null)
@@ -895,7 +968,15 @@ public sealed partial class GameResourceRepository
         GameResourceId resourceId = GameResourceId.File(relative);
         string? overridePath = _overrides.Find(resourceId);
         string physicalPath = overridePath ?? SourcePath(relative);
-        byte[] data = File.ReadAllBytes(physicalPath);
+        byte[] data;
+        if (_readGeneration is null) data = File.ReadAllBytes(physicalPath);
+        else
+        {
+            var generation = BeginResourceRead(resourceId, SourcePath(relative), physicalPath);
+            try { data = File.ReadAllBytes(physicalPath); }
+            catch { VerifyResourceRead(generation); throw; }
+            CompleteResourceRead(generation);
+        }
         string hash = Convert.ToHexString(SHA256.HashData(data));
         var provenance = new SourceProvenance(relative, data.LongLength, hash)
         {

@@ -29,6 +29,7 @@ internal sealed class UnitSelectionDraft
     internal IReadOnlyList<Group> Groups => groups;
     internal int FirstWaypointIndex => groups.Count == 0 ? 0 : Math.Max(0, groups[0].Points.Count - 1);
     internal int[] UnitIds => rows.Where(row => row.Selected).Select(row => row.Member.UnitId).ToArray();
+    internal IReadOnlyList<int> RetainedUnitIds => rows.Select(row => row.Member.UnitId).ToArray();
     internal int[] Waypoints => groups.Count == 0 ? [] : groups[0].Points.Skip(1).ToArray();
     internal UnitSelectionMember? RetainedMember(int unitId) =>
         byUnit.TryGetValue(unitId, out var row) ? row.Member : null;

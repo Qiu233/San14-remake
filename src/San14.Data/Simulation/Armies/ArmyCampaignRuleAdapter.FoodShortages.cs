@@ -44,38 +44,89 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyFoodShortageR
                 reports.Add(new("food_unit_morale", shortage.ForceId, shortage.FoodCityId, shortage.OfficerId,
                     receipt.Before1A - receipt.After1A)
                 { UnitId = shortage.UnitId, RuleId = "CE-current-food-shortage-2CCBD0" });
-            //The numerical writer precedes its separate player-only App
-            //reports. Preserve the reached numerical state without pretending
-            //that5E3E/5E42 or their controller work has been played or admitted.
-            try
+            //Routing/destruction effects belong to their existing owner.
+            //Finish that source segment before this separate App report.
+            PublishPeople();
+            FlushDefeatEffects();
+            var commander = Commander();
+            ushort homeLocation = FoodShortageKnown(current.ReadPersonNativeValidity(commander), "report_Commander_validity")
+                ? FoodShortageKnown(current.ReadPersonFirstLocation(commander), "report_CommanderE2") : (ushort)0;
+            //22A730 does not test the post-routing Army or Base validity.
+            var home = BaseLookup.Find(homeLocation, current);
+            if (adjustment < 0)
             {
-                var home = current.FindArmyUnitCurrentBase(army);
-                if (adjustment < 0)
+                var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current)
+                    ?? throw FoodShortageMissing("report_player");
+                if (FoodShortageKnown(current.ReadForceNativeValidity(player), "report_player_validity"))
                 {
-                    var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current)
-                        ?? throw FoodShortageMissing("report_player");
-                    if (FoodShortageKnown(current.ReadForceNativeValidity(player), "report_player_validity"))
-                    {
-                        int raw = FoodShortageKnown(current.ReadBaseForceSlot(home), "report_Home_force");
-                        var owner = current.ReadForceTableReference(raw <= 51 ? raw : 0)
-                            ?? throw FoodShortageMissing("report_Home_force_pointer");
-                        if (owner == player) MissingReport("food_upkeep.Army_shortage.player_report_application_5E3E_5E42");
-                    }
+                    int raw = FoodShortageKnown(current.ReadBaseForceSlot(home), "report_Home_force");
+                    var owner = current.ReadForceTableReference(raw <= 51 ? raw : 0)
+                        ?? throw FoodShortageMissing("report_Home_force_pointer");
+                    if (owner == player) Report();
                 }
             }
-            catch (InvalidDataException missing) { MissingReport(missing.Message); }
 
-            void MissingReport(string missing) => reports.Add(new("food_shortage_report_unresolved",
-                shortage.ForceId, shortage.FoodCityId, shortage.OfficerId)
-            { UnitId = shortage.UnitId, MissingRuleKeys = [missing] });
+            int Commander()
+            {
+                ushort raw = FoodShortageKnown(current.ReadArmyUnitCommanderId(army), "report_Commander12");
+                return FoodShortageKnown((raw <= 6000 ? current.ReadPersonLookupReference(raw)
+                    : current.ReadTransferPersonTableReference(0))?.PhysicalSlot, "report_Commander_pointer");
+            }
+            void Report()
+            {
+                //22BB10 rereads Commander and its raw District after routing.
+                int freshCommander = Commander();
+                int districtSlot = FoodShortageKnown(current.ReadPersonNativeValidity(freshCommander), "report_District_Commander_validity")
+                    ? FoodShortageKnown(current.ReadPersonDistrictSlot(freshCommander), "report_CommanderE0") : 0;
+                var district = current.ReadDistrictTableReference(districtSlot <= 51 ? districtSlot : 0)
+                    ?? throw FoodShortageMissing("report_District_pointer");
+                var selection = new PersonDeathHistorySelection(working, current, pool, SearchAbilities(current),
+                    _governorInputs, (id, effect) => _baseCapacityInputs.ReadPanelModifier(working, id, effect));
+                var speaker = selection.Select(district);
+                int speakerPhysical = FoodShortageKnown(speaker.PhysicalSlot, "report_speaker_pointer");
+                int speakerId = FoodShortageKnown(current.ReadPersonIdentity(speakerPhysical), "report_speaker_identity");
+                ushort ruler = FoodShortageKnown(current.ReadMoraleWaveRuler22EAC0(current.ReadArmyUnitForceReference(army)), "report_ruler");
+                freshCommander = Commander();
+                ushort primaryHome = FoodShortageKnown(current.ReadPersonNativeValidity(freshCommander), "message_Commander_validity")
+                    ? FoodShortageKnown(current.ReadPersonFirstLocation(freshCommander), "message_CommanderE2") : (ushort)0;
+                var primary = FormatNormalTurnReport(working, current, 0x5E3E,
+                    new(Army0: army, Base0: primaryHome, Person0: speakerId, Person1: ruler), value => working = value);
+                working = primary.State;
+                var supplemental = FormatNormalTurnReport(working, current, 0x5E42,
+                    new(Army0: army, Base0: FoodShortageKnown(current.ReadBaseObjectLink(home), "history_Home4E")), value => working = value);
+                working = supplemental.State;
+                speakerId = FoodShortageKnown(current.ReadPersonIdentity(speakerPhysical), "history_speaker_identity");
+                var reportEffects = new List<CampaignEffectRequest>();
+                working = WriteHistory(working, current, new(5,
+                    FoodShortageKnown(current.ReadBaseDistrictSlot(home), "history_Home_virtual78"),
+                    ReadReportBaseMarker(current, home, FoodShortageMissing), Sampler().Day450,
+                    supplemental.Text, primary.Text, speakerId, MarkBit0: 1, MarkBit4: 1), reportEffects);
+                //Unlike the Garrison branch, Army queues event6 after history.
+                reportEffects.Add(new(null, null) { MonthlyMaintenance =
+                    new(MonthlyMaintenanceOperation.ControllerQueueEvent, 6, null, null) });
+                reportEffects.Add(new(null, null) { MonthlyMaintenance =
+                    new(MonthlyMaintenanceOperation.ConditionalSpeakerText, null,
+                        FoodShortageKnown(current.ReadPersonIdentity(speakerPhysical), "speech_speaker_identity"), primary.Text) });
+                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                    ?? throw FoodShortageMissing("report_effect_owner")).Append(CampaignEffectSource.MonthlyMaintenance,
+                        working.NativeMapSeason?.AdvancedCalendarSteps ?? throw FoodShortageMissing("report_calendar_revision"), reportEffects) };
+            }
         }
         PublishPeople();
         long revision = working.NativeMapSeason?.AdvancedCalendarSteps ?? throw FoodShortageMissing("calendar_revision");
         var pending = working.CampaignEffectRequests ?? throw FoodShortageMissing("effect_owner");
-        if (effects.Count != 0) pending = pending.Append(CampaignEffectSource.ArmyBattleDefeat, revision, effects);
         if (traitRefreshes.Count != 0) pending = pending.Append(CampaignEffectSource.ArmyTraitMaintenance, revision, traitRefreshes);
         return working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() }) with
         { PeriodReports = [.. working.PeriodReports, .. reports], CampaignEffectRequests = pending };
+
+        void FlushDefeatEffects()
+        {
+            if (effects.Count == 0) return;
+            working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                ?? throw FoodShortageMissing("effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                    working.NativeMapSeason?.AdvancedCalendarSteps ?? throw FoodShortageMissing("calendar_revision"), effects) };
+            effects.Clear();
+        }
 
         TacticSourceSamplerWorld Sampler() => sampler ??= Context(current).ReadCurrentSamplerWorld(working)
             ?? throw FoodShortageMissing("current_sampler");

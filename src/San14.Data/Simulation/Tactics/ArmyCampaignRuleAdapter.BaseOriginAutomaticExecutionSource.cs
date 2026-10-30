@@ -112,7 +112,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     //The target body and the real259360/295EE0 prefix already
                     //ran. Its successor answer resumes only this node's tail.
                     working = MarkBorrowedAutomaticTacticFatalFeedback(working);
-                    FinishArmyNode(resume.TargetUnitId, resume.TargetArmyPhysicalSlot, resume.TargetReceiverId,
+                    FinishArmyNode(Need(resume.TargetUnitId, "resume_target_ArmyId"),
+                        Need(resume.TargetArmyPhysicalSlot, "resume_target_Army_physical"),
+                        Need(resume.TargetReceiverId, "resume_target_Army_receiver"),
                         nodeHex, instruction, resume.RequestedLoss);
                     continue;
                 }
@@ -257,6 +259,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                                 sampler, (reached, recipient, district) => ApplyBaseOriginFatalCaptureCurrent(reached, current,
                                     recipient, district, sampler, date, revision, effects));
                             working = applied.State;
+                            if (HasNativeCampaignStop(working)) return new(working, true, 0);
                             if (applied.NativeReturn) working = MarkBorrowedAutomaticTacticFatalFeedback(working);
                         }
                         AddMarker(target, nodeHex, instruction.Index, unchecked((ushort)amount));

@@ -14,13 +14,20 @@ public partial class Main
     }
 
     private void ConfigureCurrentOfficerDetail(OfficerDetailsView view, GameState owner, int officer,
-        Action close, Func<bool> hostCurrent, Action<GameState>? adoptWorld = null)
+        Action close, Func<bool> hostCurrent, Action<GameState>? adoptWorld = null,
+        IReadOnlyList<int>? selectionIds = null,
+        Action<OfficerDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null)
     {
         var session = _session ?? throw new InvalidOperationException("The officer detail session is missing.");
         var composition = _campaignComposition ?? throw new InvalidOperationException("The officer detail rules are missing.");
         var map = _residentMap;
         var publication = ReadCurrentOfficerDetail(owner, officer);
         GameState current = owner;
+        RetainCommandDetailSpeechWorld(view, next => current = next);
+        int currentOfficer = officer;
+        var selectionRules = composition.PrepareArmyQueries(owner);
+        var selection = PrepareDetailSelection(selectionRules, owner, InformationListKind.Officers, officer, selectionIds)
+            with { InitialNameSortAscending = initialNameSortAscending };
         bool Admitted() => !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle &&
             ReferenceEquals(_session, session) && ReferenceEquals(session.World, current) &&
             ReferenceEquals(_residentMap, map) && hostCurrent();
@@ -28,7 +35,7 @@ public partial class Main
         {
             if (!Admitted() || session.HasPendingOperation) return;
             var before = current;
-            var result = session.Issue(new SetOfficerPriorityOrder(player, officer, choice), new(_presentationRandom.State));
+            var result = session.Issue(new SetOfficerPriorityOrder(player, currentOfficer, choice), new(_presentationRandom.State));
             if (!result.Accepted)
             {
                 _playMessage.Text = _ui.Format("play_order_rejected", result.MissingRuleKey is { } missing
@@ -43,7 +50,7 @@ public partial class Main
             if (current.CampaignAppRandom32 is { } random) _presentationRandom.InstallCommittedState(random.State);
             SynchronizeApplicationCrtRandom(current);
             _playMessage.Text = _ui.Get("play_order_accepted");
-            var updated = composition.PrepareArmyQueries(current).QueryOfficerDetail(current, player, officer);
+            var updated = composition.PrepareArmyQueries(current).QueryOfficerDetail(current, player, currentOfficer);
             if (updated.Available && updated.Value is { } next) view.ApplyCurrent(next);
             else
             {
@@ -53,6 +60,18 @@ public partial class Main
             }
             RefreshCurrentPlayWorld();
         }) : null;
-        view.Configure(_repository!, publication, _ui, close, Admitted, priority);
+        view.Configure(_repository!, publication, _ui, () =>
+        {
+            if (!Admitted()) return;
+            returnSelection?.Invoke(view.ReadSelectionReturn());
+            close();
+        }, Admitted, priority,
+            selection: selection, select: id => RunUiAction(() =>
+            {
+                if (!Admitted() || session.HasPendingOperation) return;
+                var next = ReadCurrentOfficerDetail(current, id);
+                view.SelectCurrent(next);
+                currentOfficer = id;
+            }));
     }
 }

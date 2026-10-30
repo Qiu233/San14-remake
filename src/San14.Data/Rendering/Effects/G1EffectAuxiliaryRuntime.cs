@@ -15,10 +15,16 @@ public sealed class G1EffectAuxiliaryRuntime
         internal readonly int FileOffset = fileOffset;
         internal readonly byte[] Bytes = bytes;
         internal readonly List<Node> Children = [];
+        internal int FrameOffset = -1;
+        internal bool FramePrepared;
+        internal Matrix4x4 Transform;
+        internal Matrix4x4 InverseTransform;
     }
     private readonly G1EffectContext context;
     private readonly List<Node> roots = [];
     private readonly Dictionary<int, Node> nodes = [];
+    private readonly Dictionary<int, List<Node>> ownedRoots = [];
+    private Matrix4x4? worldTransform;
 
     public G1EffectAuxiliaryRuntime(IReadOnlyList<G1EffectRecord> auxiliaries, G1EffectContext context)
     {
@@ -37,6 +43,23 @@ public sealed class G1EffectAuxiliaryRuntime
         foreach (Node root in roots) Advance(root, seconds);
     }
 
+    internal void SetWorldTransform(Matrix4x4 world) => worldTransform = world;
+
+    internal void RegisterOwned(int genericFileOffset, IReadOnlyList<G1EffectRecord> declarations)
+    {
+        if (declarations.Count == 0) return;
+        var owned = new List<Node>(declarations.Count);
+        foreach (var declaration in declarations)
+            owned.Add(ReadNode(declaration.FileOffset, declaration.Bytes));
+        ownedRoots.Add(genericFileOffset, owned);
+    }
+
+    internal void AdvanceOwned(int genericFileOffset, float seconds)
+    {
+        if (ownedRoots.TryGetValue(genericFileOffset, out var owned))
+            foreach (Node root in owned) Advance(root, seconds);
+    }
+
     /// <summary>Initial prepared auxiliary declarations, in parent-before-child order.
     /// The GPU object owner applies each fragment at its existing normal-resource coordinate.
     /// Views retain this owner's storage; the consumer must upload before its next update.</summary>
@@ -45,11 +68,17 @@ public sealed class G1EffectAuxiliaryRuntime
         foreach (var node in nodes.Values) yield return new(node.FileOffset, node.Bytes);
     }
 
-    /// <summary>The only animated field of the currently supported auxiliary dispatches is
-    /// elapsed time. Upload four bytes per node, without cloning the module each frame.</summary>
+    /// <summary>Upload elapsed time and the actual bound transform matrices where present,
+    /// without cloning the module or the complete field tree each frame.</summary>
     public IEnumerable<G1EffectObjectDataPatch> EnumerateLiveData()
     {
-        foreach (var node in nodes.Values) yield return new(checked(node.FileOffset + 0x10), node.Bytes.AsMemory(0x10, 4));
+        foreach (var node in nodes.Values)
+        {
+            yield return new(checked(node.FileOffset + 0x10), node.Bytes.AsMemory(0x10, 4));
+            if (node.FrameOffset >= 0 && node.FramePrepared)
+                yield return new(checked(node.FileOffset + node.FrameOffset + 0x10),
+                    node.Bytes.AsMemory(node.FrameOffset + 0x10, 0xC0));
+        }
     }
 
     public Vector4 Sample(int fileOffset, Vector4 position)
@@ -75,7 +104,16 @@ public sealed class G1EffectAuxiliaryRuntime
         {
             case 0:
                 if (I(bytes, 0x20) != 0)
-                    throw new NotSupportedException("A transformed auxiliary requires its prepared frame binding.");
+                {
+                    int at = checked(0x20 + I(bytes, 0x20));
+                    Require(bytes.Length, at, 0xF0);
+                    if (I(bytes, at) != 0xF0 || I(bytes, at + 4) != 0x01110000 ||
+                        I(bytes, at + 0xE0) != 0 || I(bytes, at + 0xE4) != 0)
+                        throw new NotSupportedException("Auxiliary requires an unsupported transform provider.");
+                    node.FrameOffset = at;
+                    BinaryPrimitives.WriteUInt64LittleEndian(bytes[(at + 8)..], 1);
+                    bytes.Slice(at + 0xD0, 16).Clear();
+                }
                 int count = I(bytes, 0x2C);
                 if (count < 0) throw new InvalidDataException("Negative force-field child count.");
                 for (int index = 0; index < count; index++)
@@ -97,8 +135,26 @@ public sealed class G1EffectAuxiliaryRuntime
         return node;
     }
 
-    private static void Advance(Node node, float seconds)
+    private void Advance(Node node, float seconds)
     {
+        if (node.FrameOffset >= 0)
+        {
+            Matrix4x4 next = worldTransform ??
+                throw new InvalidOperationException("Auxiliary has no current system transform owner.");
+            if (!Matrix4x4.Invert(next, out var inverse))
+                throw new InvalidDataException("Auxiliary transform owner is singular.");
+            Matrix4x4 velocity = default;
+            if (node.FramePrepared && seconds > 0)
+            {
+                velocity = G1EffectDistribution.Multiply(node.Transform, inverse);
+                velocity.M11 -= 1; velocity.M22 -= 1; velocity.M33 -= 1; velocity.M44 -= 1;
+                velocity *= -1f / seconds;
+            }
+            node.Transform = next; node.InverseTransform = inverse; node.FramePrepared = true;
+            WriteMatrix(node.Bytes, node.FrameOffset + 0x10, next);
+            WriteMatrix(node.Bytes, node.FrameOffset + 0x50, inverse);
+            WriteMatrix(node.Bytes, node.FrameOffset + 0x90, velocity);
+        }
         foreach (Node child in node.Children) Advance(child, seconds);
         // Types six and seven have genuinely empty value-update dispatches;
         // sampling still uses the live time advanced by the auxiliary owner.
@@ -112,6 +168,12 @@ public sealed class G1EffectAuxiliaryRuntime
         {
             case 0:
             {
+                if (node.FrameOffset >= 0)
+                {
+                    if (!node.FramePrepared)
+                        throw new InvalidOperationException("Auxiliary frame has not received its current owner transform.");
+                    position = Transform(position, node.InverseTransform);
+                }
                 Vector4 sum = default;
                 foreach (Node child in node.Children)
                 {
@@ -119,7 +181,9 @@ public sealed class G1EffectAuxiliaryRuntime
                     sum = new(sample.X + sum.X, sample.Y + sum.Y,
                         sample.Z + sum.Z, sample.W + sum.W);
                 }
-                return sum;
+                if (node.FrameOffset < 0) return sum;
+                var transformed = Transform(new(sum.X, sum.Y, sum.Z, 0), node.Transform);
+                return new(transformed.X, transformed.Y, transformed.Z, sum.W);
             }
             case 6:
             {
@@ -161,4 +225,16 @@ public sealed class G1EffectAuxiliaryRuntime
     { Require(bytes.Length, at, 4); return BinaryPrimitives.ReadSingleLittleEndian(bytes[at..]); }
     private static void PutF(Span<byte> bytes, int at, float value) =>
         BinaryPrimitives.WriteSingleLittleEndian(bytes[at..], value);
+    private static Vector4 Transform(Vector4 value, Matrix4x4 matrix) => new(
+        value.Y*matrix.M21 + value.X*matrix.M11 + value.Z*matrix.M31 + value.W*matrix.M41,
+        value.X*matrix.M12 + value.Y*matrix.M22 + value.Z*matrix.M32 + value.W*matrix.M42,
+        value.X*matrix.M13 + value.Y*matrix.M23 + value.Z*matrix.M33 + value.W*matrix.M43,
+        value.X*matrix.M14 + value.Y*matrix.M24 + value.Z*matrix.M34 + value.W*matrix.M44);
+    private static void WriteMatrix(Span<byte> bytes, int at, Matrix4x4 value)
+    {
+        PutF(bytes, at, value.M11); PutF(bytes, at+4, value.M12); PutF(bytes, at+8, value.M13); PutF(bytes, at+12, value.M14);
+        PutF(bytes, at+16, value.M21); PutF(bytes, at+20, value.M22); PutF(bytes, at+24, value.M23); PutF(bytes, at+28, value.M24);
+        PutF(bytes, at+32, value.M31); PutF(bytes, at+36, value.M32); PutF(bytes, at+40, value.M33); PutF(bytes, at+44, value.M34);
+        PutF(bytes, at+48, value.M41); PutF(bytes, at+52, value.M42); PutF(bytes, at+56, value.M43); PutF(bytes, at+60, value.M44);
+    }
 }

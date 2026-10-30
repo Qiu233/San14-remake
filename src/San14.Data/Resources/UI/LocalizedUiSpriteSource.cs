@@ -10,6 +10,8 @@ public sealed class LocalizedUiSpriteSource
 {
     private const string DefinitionsArchive = "KIDSSystemResource";
     private readonly GameResourceRepository _repository;
+    private readonly Dictionary<string, LoadedSprite> _externalPortraitSprites = [];
+    private int _portraitVersion = -1;
     private readonly Dictionary<uint, DokObject> _declarations;
     private readonly Dictionary<uint, DokObject> _textures;
     private readonly Dictionary<uint, uint> _names;
@@ -64,8 +66,48 @@ public sealed class LocalizedUiSpriteSource
 
     /// <summary>Loads a sprite from an explicit named texture-pack declaration.
     /// The caller owns stock, DLC, edit and availability routing decisions.</summary>
+    /// <summary>Normal declared atlas/texture ownership without decoding
+    /// image pixels. Application/content admission belongs to the caller.</summary>
+    public bool ContainsTexturePack(string resourceName)
+    {
+        if (GameResourceRepository.IsDlcPortraitResource(resourceName))
+            return _repository.ContainsDlcPortraitResource(resourceName);
+        if (GameResourceRepository.TryUserPortraitResource(resourceName, out _, out _, out _))
+            return _repository.ContainsUserPortraitResource(resourceName);
+        if (!_names.TryGetValue(ResourceNameHash.Compute(resourceName), out uint identity)) return false;
+        var declaration = _declarations[identity];
+        var visited = new HashSet<uint>();
+        while (true)
+        {
+            if (declaration.ClassId != 0x79991E79 || !visited.Add(declaration.ObjectId))
+                throw new InvalidDataException("Invalid wrapped UI texture declaration: " + resourceName);
+            uint wrapped = Word(declaration, 0x2856A1B3);
+            if (wrapped == 0) break;
+            declaration = _textures.TryGetValue(wrapped, out var target) ? target
+                : throw new InvalidDataException("Missing wrapped UI texture declaration: " + resourceName);
+        }
+        uint texture = Word(declaration, 0xC8BB66DA), atlas = Word(declaration, 0x2276FC56);
+        if (texture == 0 || atlas == 0)
+            throw new InvalidDataException("Incomplete UI texture declaration: " + resourceName);
+        return _repository.ContainsRdbAsset("ScreenLayout", texture) && _repository.ContainsRdbAsset("ScreenLayout", atlas);
+    }
+
     public LoadedSprite LoadTexturePackSprite(string resourceName,string spriteName)
     {
+        bool userPortrait = GameResourceRepository.TryUserPortraitResource(resourceName, out _, out _, out _);
+        if (userPortrait || GameResourceRepository.IsDlcPortraitResource(resourceName))
+        {
+            if (_portraitVersion != _repository.PortraitResourceVersion)
+            {
+                _externalPortraitSprites.Clear(); _portraitVersion = _repository.PortraitResourceVersion;
+            }
+            string key = resourceName + "/" + spriteName;
+            if (!_externalPortraitSprites.TryGetValue(key, out var portrait))
+                _externalPortraitSprites[key] = portrait = userPortrait
+                    ? _repository.LoadUserPortraitSprite(resourceName, spriteName)
+                    : _repository.LoadDlcPortraitSprite(resourceName, spriteName);
+            return portrait;
+        }
         uint declaration=_names[ResourceNameHash.Compute(resourceName)];
         return LoadDeclared(_declarations[declaration],spriteName);
     }

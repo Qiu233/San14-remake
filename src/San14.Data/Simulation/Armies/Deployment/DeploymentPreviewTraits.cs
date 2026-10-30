@@ -3,11 +3,12 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record DeploymentPreviewTraitInputs(int CommanderPhysicalSlot, int Troops,
-    int LandFormationId, int HexId, int NativeForceSlot);
-public sealed record DeploymentPreviewTraitEffects(IReadOnlyList<int> Effects, bool HasPotentialCommandAgeEffect);
+    int LandFormationId, int HexId, int NativeForceSlot, byte Status = 1);
+public sealed record DeploymentPreviewTraitEffects(IReadOnlyList<int> Effects);
 
 /// <summary>CE26A740's preview receiver: reset cache36, condition evaluation
-/// enabled and a temporary, unregistered commander receiver with status1.
+/// enabled and a temporary, unregistered commander receiver. The caller keeps
+/// its actual reset status (ordinary1 or transport2).
 /// This query never reads the commander's saved activation mask.</summary>
 public static class DeploymentPreviewTraits
 {
@@ -15,36 +16,25 @@ public static class DeploymentPreviewTraits
         DeploymentPreviewTraitInputs input)
     {
         var values = new int[127];
-        bool age = false;
         var zero = current.ReadPersonalityTableReference(0) ?? throw Missing("cache_zero_pointer");
         if (Need(current.ReadSkillPersonalityValidity(zero), "cache_zero_validity"))
-            for (int index = 0; index < 36; index++) Add(zero, true);
+            for (int index = 0; index < 36; index++) Add(zero);
         for (int index = 0; index < 9; index++)
         {
             var trait = TacticRemakeCurrentTraits.ResolveCommanderPersonality(current, input.CommanderPhysicalSlot, index)
                 ?? throw Missing("commander_personality_pointer");
             if (!Need(current.ReadSkillPersonalityValidity(trait), "commander_personality_validity")) continue;
-            //2A63B0 uses a different aggregation mode. Until its positive
-            //age branch is owned, prove that no possible input can supply it.
-            bool potentialAge = PairHasAge(trait, 0xB6, 0xB8) || PairHasAge(trait, 0xBA, 0xBC);
-            age |= potentialAge;
             ushort condition = Need(current.ReadPersonalityWord(trait, 0xB4), "condition");
-            if (condition == ushort.MaxValue || AcceptsSelf(trait)) Add(trait, false);
+            if (condition == ushort.MaxValue || AcceptsSelf(trait)) Add(trait);
         }
-        return new(Array.AsReadOnly(values), age);
+        return new(Array.AsReadOnly(values));
 
-        bool PairHasAge(PersonalityReference trait, int codeOffset, int amountOffset)
-        {
-            byte code = Need(current.ReadPersonalityByte(trait, codeOffset), "effect");
-            return code is 31 or 97 && unchecked((short)Need(current.ReadPersonalityWord(trait, amountOffset), "amount")) != 0;
-        }
-        void Add(PersonalityReference trait, bool cached)
+        void Add(PersonalityReference trait)
         {
             for (int pair = 0; pair < 2; pair++)
             {
                 byte code = Need(current.ReadPersonalityByte(trait, pair == 0 ? 0xB6 : 0xBA), "effect");
                 int amount = Math.Clamp((int)unchecked((short)Need(current.ReadPersonalityWord(trait, pair == 0 ? 0xB8 : 0xBC), "amount")), -100, 2000);
-                if (cached && (code is 31 or 97) && amount != 0) age = true;
                 if (code < values.Length) values[code] = unchecked(values[code] + amount);
             }
         }
@@ -53,9 +43,11 @@ public static class DeploymentPreviewTraits
             byte category = Need(current.ReadPersonalityByte(trait, 0xA4), "condition_category");
             switch (category)
             {
-                case 1: case 11: case 36: return true;
-                //Forced26.bit2, reset abnormal counters, status1, reset37=0.
-                case 4: case 5: case 6: case 7: case 8: case 13: case 25: case 41: return false;
+                case 1: return input.Status == 1;
+                case 11: case 36: return true;
+                case 13: return input.Status == 2;
+                //Forced26.bit2, reset abnormal counters and reset37=0.
+                case 4: case 5: case 6: case 7: case 8: case 25: case 41: return false;
                 //27E620 adds only manager-table targets. This unregistered
                 //preview receiver cannot occur in the final target list.
                 case 2: case 3: case 9: case 10: case 21: case 22: case 23: case 24: return false;
@@ -77,7 +69,7 @@ public static class DeploymentPreviewTraits
                     ushort raw = Need(current.ReadHexAreaSlot(hex), "condition_area");
                     var area = current.ReadAreaTableReference(raw <= 500 ? raw : 0) ?? throw Missing("condition_area_pointer");
                     return Need(current.ReadAreaCurrentForceSlot(area), "condition_area_force") == input.NativeForceSlot;
-                case 37: return TerrainCategory() != 4 && (FormationFlags() & 2) == 0;
+                case 37: return input.Status == 1 && TerrainCategory() != 4 && (FormationFlags() & 2) == 0;
                 case 26: case 31: case 32: case 38: throw Missing("nearby_condition_" + category);
                 default: return false; //The original101-slot dispatch is null here.
             }

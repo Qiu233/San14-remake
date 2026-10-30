@@ -22,7 +22,9 @@ public sealed partial class ArmyCampaignRuleAdapter
     public void PublishPendingApplicationServices(GameState committed)
     {
         var changes = committed.PendingCampaignServices;
-        if (changes.Events.Length == 0 && changes.Achievements.Length == 0 && !changes.Dirty) return;
+        if (changes.Events.Length == 0 && changes.Achievements.Length == 0 &&
+            changes.CompletedScenarios.Length == 0 && changes.CompletedEndingTracks.Length == 0 &&
+            changes.UnlockedBonusOfficerIndices.Length == 0 && changes.CompletedTutorialLessons.Length == 0 && !changes.Dirty) return;
         var store = applicationProfileStore ?? throw ApplicationProfileMissing("store");
         var before = store.Current;
         var operation = new CampaignServiceProfileOperation(before);
@@ -30,6 +32,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         var merged = operation.Materialize(changes);
         bool changed = changes.Events.Any(id => before.ReadEventFlag(id) != true) ||
             changes.Achievements.Any(write => before.ReadPrimaryFlag(write.Id) != true) ||
+            changes.CompletedScenarios.Any(id => before.ReadScenarioCompleted(id) != true) ||
+            changes.CompletedEndingTracks.Any(id => before.ReadEndingTrack(id) is not >= 1) ||
+            changes.UnlockedBonusOfficerIndices.Any(id => before.ReadBonusOfficerUnlocked(id) != true) ||
+            changes.CompletedTutorialLessons.Any(id => before.ReadTutorialCompleted(id) != true) ||
             changes.Dirty && before.DirtyFlag != 1;
         //Saved per-attempt clock observations must not become the live
         //profile's provider for a later, unrelated completion.
@@ -57,7 +63,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     public CampaignStoryBindings CreateNormalTurnStoryBindings(IS14AudioEventExecutionState audio,
-        Func<CampaignCameraSnapshot?> captureCamera, int? applicationUserIndex = null)
+        Func<CampaignCameraSnapshot?> captureCamera, int? applicationUserIndex = null, bool? modalParentPresent = null)
     {
         ArgumentNullException.ThrowIfNull(audio);
         ArgumentNullException.ThrowIfNull(captureCamera);
@@ -71,7 +77,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         };
         //No user-index value is fabricated when its service is absent; the
         //original short-circuit never reads BC on that route.
-        return new(audio, profile, false, mode, application.UserSelectionServicePresent, applicationUserIndex, captureCamera);
+        return new(audio, profile, false, mode, application.UserSelectionServicePresent, applicationUserIndex, captureCamera) { ModalParentPresent = modalParentPresent };
     }
 
     private static InvalidDataException ApplicationProfileMissing(string field) => new("application.profile." + field);

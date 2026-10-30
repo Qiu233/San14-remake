@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -11,7 +12,7 @@ struct Program {
     uint32_t combination{},vertex{},pixel{},vertexConstantBytes{},pixelConstantBytes{};
 };
 inline std::map<std::string,Program> read(const std::filesystem::path& path) {
-    std::ifstream input(path);std::map<std::string,Program> result;
+    NativePreparedInputFile input(path);std::map<std::string,Program> result;
     if(!input)throw std::runtime_error("Cloud program media absent");
     std::string name;Program p;
     while(input>>name) {

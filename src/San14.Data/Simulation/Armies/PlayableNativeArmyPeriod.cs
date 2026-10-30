@@ -89,8 +89,35 @@ public sealed partial class ArmyCampaignRuleAdapter
                     {
                         case NativeArmyProgressStage.PersonnelReturn:
                             var returned = ContinuePersonReturnCommands(working, date,
-                                resume?.PersonnelAfterSlot ?? -1, resume?.AwaitingDiplomacyTaskId);
+                                resume?.PersonnelAfterSlot ?? -1,
+                                resume?.AwaitingCaravanTaskId is not null || resume?.AwaitingStrategicTaskId is not null || resume?.AwaitingIntelligenceTaskId is not null ? null : resume?.AwaitingDiplomacyTaskId,
+                                resume?.AwaitingStrategicTaskId, resume?.AwaitingIntelligenceTaskId);
                             working = returned.State ?? throw PeriodMissing(returned.UnresolvedOwner ?? "stage0_personnel");
+                            if (returned.NextAfterSlot is int intelligenceAfter && returned.AwaitingIntelligenceTaskId is int intelligenceTask)
+                            {
+                                var held = working.NativePeriodContinuation ?? throw PeriodMissing("stage0_intelligence_preparation");
+                                var heldCursor = new NativePeriodCursor(cycle, stage, date, intelligenceAfter, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock)
+                                    { AwaitingIntelligenceTaskId = intelligenceTask };
+                                return new(working with { NativePeriodContinuation = held with { Cursor = heldCursor } }, stages);
+                            }
+                            if (returned.NextAfterSlot is int strategicAfter && returned.AwaitingStrategicTaskId is int strategicTask)
+                            {
+                                var held = working.NativePeriodContinuation ?? throw PeriodMissing("stage0_strategic_preparation");
+                                var heldCursor = new NativePeriodCursor(cycle, stage, date, strategicAfter, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock)
+                                    { AwaitingStrategicTaskId = strategicTask };
+                                return new(working with { NativePeriodContinuation = held with { Cursor = heldCursor } }, stages);
+                            }
+                            if (returned.NextAfterSlot is int caravanAfter && returned.AwaitingCaravanTaskId is int caravanTask)
+                            {
+                                var held = working.NativePeriodContinuation
+                                    ?? throw PeriodMissing("stage0_caravan_preparation");
+                                var heldCursor = new NativePeriodCursor(cycle, stage, date, caravanAfter, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock)
+                                    { AwaitingCaravanTaskId = caravanTask };
+                                return new(working with { NativePeriodContinuation = held with { Cursor = heldCursor } }, stages);
+                            }
                             if (returned.NextAfterSlot is int afterSlot && returned.AwaitingDiplomacyTaskId is int taskId)
                             {
                                 var continuation = working.NativePeriodContinuation
@@ -119,18 +146,22 @@ public sealed partial class ArmyCampaignRuleAdapter
                             resume = null;
                             working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedDuel
                                 ? completedDuel with { Cursor = null } : null };
+                            if (HasNativeCampaignStop(working)) return StopAtCurrentStage();
                             RequireInactiveDuelServiceForProgress(working);
                             break;
                         case NativeArmyProgressStage.ManualTacticIntervention:
                             var intervened = stages.AdvanceStage(working, moment);
                             working = intervened?.State ?? throw PeriodMissing("stage6_manual_manager");
+                            if (HasNativeCampaignStop(working)) return StopAtCurrentStage();
                             var tacticManager = working.ManualTacticIntervention
                                 ?? throw PeriodMissing("stage6_manual_manager_owner");
-                            if (tacticManager.EffectBusy && tacticManager.Effects.Length != 0)
+                            if (working.ManualTacticExecutionContinuation is not null ||
+                                tacticManager.Directions.Length != 0 ||
+                                tacticManager.EffectBusy && tacticManager.Effects.Length != 0)
                             {
-                                //17AA00's busy branch waits for the actual ordinary
-                                //effect nodes. Resuming starts at this same call;
-                                //the already reached waiting/duel prefix is not replayed.
+                                //Retain the real stage6 call for an internal Full,
+                                //ordinary busy nodes, or the independent Direction
+                                //application state. None replays waiting/duel.
                                 var suspendedTactic = working.NativePeriodContinuation
                                     ?? throw PeriodMissing("stage6_preparation");
                                 var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
@@ -186,6 +217,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             resume = null;
                             working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedCombat
                                 ? completedCombat with { Cursor = null } : null };
+                            if (HasNativeCampaignStop(working)) return StopAtCurrentStage();
                             //This saved field describes only the real Army
                             //selection count. Application itself ran above,
                             //including every reached mixed participant pair.
@@ -200,7 +232,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             var reports = defeated.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
                                 working.NativeClock!.UpdateOrdinal, receipt.UnitId, receipt.ForceId, receipt.PhysicalSlot));
                             working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [], .. reports] };
-                            if (working.ArmyDefeatContinuation is not null || working.BaseCaptureContinuation is not null)
+                            if (working.ArmyDefeatContinuation is not null || working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
                             {
                                 var suspendedPeriod = working.NativePeriodContinuation ?? throw PeriodMissing("stage25_preparation");
                                 var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
@@ -230,8 +262,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                             working = completed?.State ?? throw PeriodMissing("stage_" + stage + "_" + (NativeArmyProgressStage)stage);
                             break;
                     }
-                    if (working.NativePlayableTerminal is not null)
-                        throw PeriodMissing("terminal_phase_publication_at_stage_" + stage);
+                    if (HasNativeCampaignStop(working)) return StopAtCurrentStage();
                     if (stage != (byte)NativeArmyProgressStage.Waiting ||
                         !NativeArmyProgressAtomicRuntime.IsArmyWaitingDue(date)) continue;
                     var order = stages.ReadCompleteWaitingArmyOrder(working, moment)
@@ -240,6 +271,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var after = stages.AdvanceStage(working, moment with
                         { Boundary = NativeArmyProgressStageBoundary.AfterArmyWaiting });
                     working = after?.State ?? throw PeriodMissing("stage2_after_waiting_counters_or_landmark_consumer");
+
+                    NativeArmyPeriodCompletion StopAtCurrentStage()
+                    {
+                        //No later two-hour calendar write, pair, Army stage
+                        //or normal Turn is claimed complete. The small source
+                        //stop retains its actual pre-writer date and ordinal.
+                        var stopped = working with
+                        {
+                            NativePeriodStop = new(ordinal, date, stage),
+                            NativePeriodContinuation = working.NativePeriodContinuation is { } pendingPeriod
+                                ? pendingPeriod with { Cursor = null } : null,
+                            //These diagnostics describe completed calendar
+                            //blocks. The current partial block is represented
+                            //by NativePeriodStop, not a completed-phase count.
+                            NativeNormalArmyCombatCalendar = calendar
+                        };
+                        stages.PublishDerivedState(stopped);
+                        return new(stopped, stages);
+                    }
                 }
                 date = MapSeasonRuntime.StepCalendarWriter(date).Date;
             }
@@ -273,6 +323,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
                 throw PeriodMissing("unowned_stage_" + moment.SchedulerStageIndex);
             var owner = state.ManualTacticIntervention ?? throw PeriodMissing("manual_manager_owner");
+            if (state.ManualTacticExecutionContinuation is { } execution)
+            {
+                var resumed = campaign.TryExecuteManualTacticIntervention(state, moment, execution.Request,
+                    campaign._automaticPresentationAdmission);
+                state = resumed.State ?? throw PeriodMissing(resumed.UnresolvedOwner ?? "manual_execution_resume");
+                return new(state, "army.progress.manual-execution-resumed");
+            }
+            if (owner.Directions.Length != 0)
+                return new(state, "army.progress.direction-awaiting-actual-scene");
             if (owner.EffectBusy)
             {
                 if (owner.Effects.Length != 0)

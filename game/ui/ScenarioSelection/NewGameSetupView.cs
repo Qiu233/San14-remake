@@ -10,23 +10,27 @@ internal partial class NewGameSetupView : Control
 {
     private AdministrationPageChrome chrome = null!;
     private NewGameForceSelectionView forcePage = null!;
-    private Control settings = null!, languageCanvas = null!;
-    private OptionButton language = null!;
-    private Label chosenForce = null!;
+    private Control settings = null!;
     private NewGameSettingsView? settingsChoices;
+    private UiSourceRoundButton settingsAbort = null!;
+    private NewGameForcePageHeader scenarioHeader = null!;
+    private NewGameConfirmationView? confirmationPage;
+    private Func<NewGameForcePreview, LoadedSprite>? resolveConfirmationRuler;
+    private Func<NewGameConfirmationExtras>? resolveConfirmationExtras;
+    private Func<int>? confirmationScrollSpeed;
+    internal bool IsConfirmationPage => confirmationPage is not null;
     private Func<bool>? admitted;
     private Func<NewGameForcePreview, LoadedSprite?>? resolveRuler;
     private Action<int>? selectionChanged;
     private Action<int?>? previewChanged;
     private Action? returned;
     private Action<int, NewGameOptions>? accepted;
-    private Action<int>? languageChanged;
     private Action<Exception>? failed;
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private UiAssets rulerAssets = null!;
+    private MapFont? pageFont;
     private Shader rulerShader = null!;
-    private ImageTexture? previewMapTexture;
     private GovernanceRosterPage? governmentPage;
     private NewGameForceGovernancePreview? governmentPublication;
     private Func<int, NewGameForceGovernmentContent>? resolveGovernment;
@@ -49,39 +53,57 @@ internal partial class NewGameSetupView : Control
         IReadOnlyList<NewGameForceFaceContent> faces, Texture2D? map,
         Func<NewGameForcePreview, LoadedSprite?> resolveRuler, NewGameOptions initial, NewGameSettingsPreview settingsPublication,
         Func<bool> admitted, Action<int> selectionChanged, Action<int?> previewChanged,
-        Action returned, Action<int, NewGameOptions> accepted, Action<int> languageChanged, Action<Exception> failed)
+        Action returned, Action<int, NewGameOptions> accepted, Action<Exception> failed,
+        Action<string>? diagnostic = null)
     {
-        this.repository=repository;this.text=text;this.resolveRuler=resolveRuler;Draft=initial;
+        Mark(diagnostic,"setup-view-begin");
+        this.repository=repository;this.text=text;this.resolveRuler=resolveRuler;Draft=initial;scenarioHeader=header;
         this.admitted=admitted;this.selectionChanged=selectionChanged;this.previewChanged=previewChanged;
-        this.returned=returned;this.accepted=accepted;this.languageChanged=languageChanged;this.failed=failed;
+        this.returned=returned;this.accepted=accepted;this.failed=failed;
         Name="NewGameSetup";ZIndex=2;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(new ColorRect { Color=new("#292d2c"), AnchorRight=1, AnchorBottom=1,
             MouseFilter=MouseFilterEnum.Ignore });
         rulerAssets=new(repository);rulerShader=UiSourceSprite.CreateShader();
+        pageFont=new(repository,text.SourceLocale);
+        var resources=new AdministrationPageChrome.Resources(rulerAssets,pageFont,rulerShader);
         forcePage=new NewGameForceSelectionView();AddChild(forcePage);
+        Mark(diagnostic,"setup-settings-chrome-begin");
         chrome=new AdministrationPageChrome { Name="NewGameSettings" };AddChild(chrome);
-        chrome.Configure(repository,text,0xC3,RequestBack,RequestConfirm,showFooterHint:true);
-        chrome.Canvas.Theme=new Theme { DefaultFont=new SystemFont { FontNames=["Microsoft YaHei","DFKai-SB"] } };
+        chrome.Configure(repository,text,0xBB,RequestBack,RequestConfirm,showFooterHint:true,threeButtonFooter:true,resources:resources);
+        chrome.Canvas.Theme=new Theme();
+        var messages = new AdministrationMessages(repository, text.SourceLocale);
+        chrome.ApplyDefaultHint(messages.Format(0x2978));
+        chrome.ApplyReturnHint(messages.Format(0x297A));
+        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        settingsAbort = new UiSourceRoundButton { Name = "AbortNewGameSettings",
+            Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadSettingsAdmission };
+        chrome.Canvas.AddChild(settingsAbort);
+        settingsAbort.ConfigureAbort(repository, chrome.Assets, chrome.SpriteShader, text.SourceLocale, OpenAbortConfirmation);
+        settingsAbort.MouseEntered += () => { if (ReadSettingsAdmission()) chrome.ApplyHoverHint(messages.Format(0x297B)); };
+        settingsAbort.MouseExited += () => chrome.ApplyHoverHint(null);
         settings=new Control { Name="SettingsPage",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore };
         chrome.Canvas.AddChild(settings);
-        LabelAt(settings,"ScenarioCaption",header.Title,new(447,770),new(1026,38),28);
-        chosenForce=LabelAt(settings,"ChosenForce","",new(447,816),new(1026,38),28);
+        Mark(diagnostic,"setup-settings-chrome-end");
+        Mark(diagnostic,"setup-settings-rows-begin");
         ConfigureOptions(settingsPublication);
-        // Language remains available on both pages, using the same design canvas.
-        languageCanvas=new Control { Name="SetupLanguageCanvas",Size=new(1920,1080),
-            ZIndex=3,MouseFilter=MouseFilterEnum.Ignore };AddChild(languageCanvas);
-        language=new OptionButton { Name="SetupLanguage",Position=new(1580,105),Size=new(250,45) };
-        language.AddItem(text.LocaleSimplified);language.AddItem(text.LocaleTraditional);
-        language.Select(text.SourceLocale=="TC"?1:0);languageCanvas.AddChild(language);
-        language.ItemSelected+=index=>{if(ReadAdmission())this.languageChanged?.Invoke((int)index);};
-        Resized+=FitLanguage;FitLanguage();
+        Mark(diagnostic,"setup-settings-rows-end");
         chrome.Hide();
         // The host has already added this view to its live tree. The source
         // page's real default selection must pass the normal admission gate.
+        Mark(diagnostic,"setup-force-page-begin");
         forcePage.Configure(repository,text,publication,header,faces,map,CreateRulerPortrait,
             ()=>ReadAdmission()&&!IsSettingsPage,SelectForce,PreviewForce,
-            _=>SelectPage(true),()=>{if(ReadAdmission())this.returned?.Invoke();});
+            _=>SelectPage(true),()=>{if(ReadAdmission())this.returned?.Invoke();},resources);
+        Mark(diagnostic,"setup-force-page-end");
+
+        // The host may attach its opt-in request clock. Diagnostics neither
+        // survive Configure nor become a prerequisite for a normal page.
+        static void Mark(Action<string>? diagnostic, string stage)
+        {
+            try { diagnostic?.Invoke(stage); }
+            catch(Exception) { }
+        }
     }
 
     private void ConfigureOptions(NewGameSettingsPreview publication)
@@ -113,19 +135,10 @@ internal partial class NewGameSetupView : Control
     private void SelectForce(int id)
     {
         if(!ReadAdmission()||IsSettingsPage)return;
-        var row=Publication.ByForceId[id];
-        chosenForce.Text=text.Format("new_game_selected_force",row.RulerName??row.ForceDisplayName??text.Get("detail_unknown"));
         selectionChanged?.Invoke(id);
     }
     private void PreviewForce(int? id)
     {if(ReadAdmission()&&!IsSettingsPage)previewChanged?.Invoke(id);}
-    // The wrapper owns raster textures; the source view only borrows them.
-    internal void ApplyMap(ImageTexture texture)
-    {
-        if(abandoned){texture.Dispose();return;}
-        var previous=previewMapTexture;previewMapTexture=texture;
-        forcePage.ApplyMap(texture);previous?.Dispose();
-    }
 
     private bool CanConfirm() => SelectedForceId is int force&&Publication.ByForceId.GetValueOrDefault(force)?.CanConfirm==true;
     private void SelectPage(bool options)
@@ -133,13 +146,12 @@ internal partial class NewGameSetupView : Control
         if(!ReadAdmission()||options&&!CanConfirm())return;
         if(options&&!IsSettingsPage)forcePage.PreviewForce(null);
         IsSettingsPage=options;forcePage.Visible=!options;chrome.Visible=options;
-        chrome.ApplyTitle(text.Get("new_game_settings"));
-        chrome.ApplyDefaultHint(text.Get("new_game_settings_hint"));
         chrome.ApplyDecision(!busy&&CanConfirm(),true);
     }
     internal void RestoreSelection(int? forceId,bool settingsPage)
     {
         if(!ReadAdmission())return;
+        if (confirmationPage is not null) { CloseConfirmation(); return; }
         if(IsSettingsPage)SelectPage(false);
         if(forceId is int id)forcePage.SelectForce(id);
         if(settingsPage)SelectPage(true);
@@ -147,8 +159,9 @@ internal partial class NewGameSetupView : Control
     internal void RequestConfirm()
     {
         if(!ReadAdmission()||!CanConfirm())return;
-        if(!IsSettingsPage)forcePage.RequestConfirm();
-        else if(SelectedForceId is int force)accepted?.Invoke(force,Draft);
+        if (confirmationPage is { } review) review.RequestConfirm();
+        else if(!IsSettingsPage)forcePage.RequestConfirm();
+        else OpenConfirmation();
     }
     internal void RequestBack()
     {
@@ -158,23 +171,64 @@ internal partial class NewGameSetupView : Control
         if (ReadBaseAdmission() && geographicPage is { } geography) { CloseGeographicAdvantages(geography); return; }
         if(ReadBaseAdmission()&&governmentPage is { } government){CloseGovernment(government);return;}
         if(!ReadAdmission())return;
+        if (confirmationPage is not null) { CloseConfirmation(); return; }
         if(IsSettingsPage)SelectPage(false);
         else forcePage.RequestBack();
     }
     internal void SetBusy(bool value)
     {
         if(abandoned)return;
-        busy=value;forcePage.SetBusy(value||HasModal);chrome.ApplyReturn(!value&&!HasModal);
-        chrome.ApplyDecision(!value&&!HasModal&&CanConfirm(),true);language.Disabled=value||HasModal;
+        busy=value;forcePage.SetBusy(value||HasModal||mapLoading is not null);chrome.ApplyReturn(!value&&!HasModal);
+        settingsAbort.Disabled=value||HasModal;
+        chrome.ApplyDecision(!value&&!HasModal&&CanConfirm(),true);
         governmentPage?.SetBusy(value);geographicPage?.SetBusy(value);
         officersPage?.SetBusy(value);
         forcePickerPage?.SetBusy(value);
         if(abortConfirmation is { } question)question.ProcessMode=value?ProcessModeEnum.Disabled:ProcessModeEnum.Inherit;
         settingsChoices?.SetBusy(value||HasModal);
+        confirmationPage?.SetBusy(value||HasModal);
     }
     private bool ReadBaseAdmission()=>!abandoned&&!busy&&IsVisibleInTree()&&CanProcess()&&(admitted?.Invoke()??false);
-    private bool ReadAdmission()=>!HasModal&&ReadBaseAdmission();
-    private bool ReadSettingsAdmission()=>ReadAdmission()&&IsSettingsPage;
+    private bool ReadAdmission()=>mapLoading is null&&!HasModal&&ReadBaseAdmission();
+    private bool ReadSettingsAdmission()=>ReadAdmission()&&IsSettingsPage&&!IsConfirmationPage;
+    internal void ConfigureConfirmation(Func<NewGameForcePreview, LoadedSprite> ruler,
+        Func<NewGameConfirmationExtras> extras, Func<int> scrollSpeed)
+    { resolveConfirmationRuler = ruler; resolveConfirmationExtras = extras; confirmationScrollSpeed = scrollSpeed; }
+    private void OpenConfirmation()
+    {
+        if (!ReadSettingsAdmission() || !CanConfirm() || SelectedForceId is not int force || settingsChoices is null) return;
+        if (resolveConfirmationRuler is null || resolveConfirmationExtras is null || confirmationScrollSpeed is null)
+            throw new InvalidOperationException("The new-game confirmation owner is missing.");
+        NewGameConfirmationView? page = null;
+        try
+        {
+            var ruler = resolveConfirmationRuler(Publication.ByForceId[force]);
+            var extras = resolveConfirmationExtras();
+            var rows = settingsChoices.CaptureConfirmationSettings();
+            page = new NewGameConfirmationView(); confirmationPage = page; AddChild(page);
+            page.Configure(repository, text, scenarioHeader, Publication.ByForceId[force], ruler, rows, extras,
+                () => ReadAdmission() && confirmationPage == page,
+                () => { if (ReadAdmission() && confirmationPage == page) CloseConfirmation(); },
+                () => { if (ReadAdmission() && confirmationPage == page && SelectedForceId == force) accepted?.Invoke(force, Draft); },
+                OpenAbortConfirmation, confirmationScrollSpeed);
+            chrome.Hide();
+        }
+        catch (Exception error)
+        {
+            if (page is not null) CloseConfirmation();
+            if (failed is not { } report) throw;
+            report(error);
+        }
+    }
+    private void CloseConfirmation()
+    {
+        var page = confirmationPage; confirmationPage = null;
+        if (page is not null)
+        {
+            page.Abandon(); if (page.GetParent() == this) RemoveChild(page); page.QueueFree();
+        }
+        if (!abandoned) { chrome.Show(); SetBusy(busy); }
+    }
     internal void ConfigureGovernment(Func<int,NewGameForceGovernmentContent> resolver)
     {
         resolveGovernment=resolver;
@@ -204,7 +258,7 @@ internal partial class NewGameSetupView : Control
                 // Restore the parent's ordinary admission before entering its
                 // formal selection path. The picker never writes the world.
                 if (ReadAdmission() && force is int id) forcePage.SelectForce(id);
-            });
+            },confirmationScrollSpeed,()=>ReadBaseAdmission()&&forcePickerPage==page);
             SetBusy(busy);
         }
         catch (Exception error)
@@ -251,7 +305,7 @@ internal partial class NewGameSetupView : Control
     }
     private void OpenAbortConfirmation()
     {
-        if (!ReadAdmission() || IsSettingsPage) return;
+        if (!ReadAdmission()) return;
         var question = new DeploymentTargetConfirmation(); abortConfirmation = question; AddChild(question);
         try
         {
@@ -332,34 +386,24 @@ internal partial class NewGameSetupView : Control
     {
         if(abandoned)return;
         abandoned=true;ClearCallbacks();
+        CloseConfirmation();
         if(forcePickerPage is { } forces)CloseForcePicker(forces);
         if(officersPage is { } people)CloseOfficers(people);
         if(abortConfirmation is { } question)CloseAbortConfirmation(question);
         if(geographicPage is { } geography)CloseGeographicAdvantages(geography);
         if(governmentPage is { } government)CloseGovernment(government);
+        mapLoading?.Abandon();
         forcePage?.Abandon();chrome?.Abandon();
-        previewMapTexture?.Dispose();previewMapTexture=null;
         settingsChoices?.Abandon();
-        if(language is not null)language.Disabled=true;
         Hide();
     }
     private void ClearCallbacks()
-    {admitted=null;resolveRuler=null;resolveGovernment=null;resolveOfficers=null;resolveForcePicker=null;aborted=null;selectionChanged=null;previewChanged=null;returned=null;accepted=null;languageChanged=null;failed=null;}
+    {resolveConfirmationRuler=null;resolveConfirmationExtras=null;confirmationScrollSpeed=null;admitted=null;resolveRuler=null;resolveGovernment=null;resolveOfficers=null;resolveForcePicker=null;aborted=null;selectionChanged=null;previewChanged=null;returned=null;accepted=null;failed=null;}
     public override void _ExitTree()
     {
-        ClearCallbacks();forcePage?.ApplyMap(null);previewMapTexture?.Dispose();previewMapTexture=null;
-        rulerAssets?.Dispose();rulerShader?.Dispose();
-    }
-    private void FitLanguage()
-    {
-        if(languageCanvas is null)return;
-        float scale=Math.Min(Size.X/1920,Size.Y/1080);
-        languageCanvas.Scale=Vector2.One*scale;languageCanvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
-    }
-    private static Label LabelAt(Control parent,string name,string value,Vector2 position,Vector2 size,int fontSize)
-    {
-        var label=new Label { Name=name,Text=value,Position=position,Size=size,AutowrapMode=TextServer.AutowrapMode.WordSmart,
-            VerticalAlignment=VerticalAlignment.Top,MouseFilter=MouseFilterEnum.Ignore };
-        label.AddThemeFontSizeOverride("font_size",fontSize);parent.AddChild(label);return label;
+        ClearCallbacks();forcePage?.ApplyMap(null);
+        // Children retire their drawing owners before this page releases borrowed resources.
+        pageFont?.Dispose();pageFont=null;
+        rulerAssets?.Dispose();rulerAssets=null!;rulerShader?.Dispose();rulerShader=null!;
     }
 }

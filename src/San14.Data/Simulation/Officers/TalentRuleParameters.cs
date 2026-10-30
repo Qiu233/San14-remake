@@ -4,17 +4,18 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    /// <summary>Installs proved immutable TC rule data in an unused fresh
+    /// <summary>Installs independently proved immutable TC/SC rule data in an unused fresh
     /// allocation. Loading never overwrites saved parameter values.</summary>
     public GameState InstallFreshTalentRules(GameState state)
     {
-        if (Seed.Language != "TC") return state;
+        if (Seed.Language is not ("TC" or "SC")) return state;
         const string version = "simulation.talent.parameter-version";
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
             state.NativeArmySimulation is not { } simulation || simulation.Parameters.Int32Values.ContainsKey(version))
             throw new InvalidDataException("Talent parameters require an unused fresh allocation.");
-        //TC offline data constants and proved loader-zero rules. No original
-        //executable or current process is accessed by the game.
+        //These file-backed constants were independently extracted through
+        //each edition's real consumers. No executable/process is accessed.
+        //Both editions also have independently proved loader-zero rules.
         var data = new Dictionary<string, int>
         {
             [PersonReturnCommands.TalentSearchBookCostKey] = 1,
@@ -54,6 +55,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             [TalentRecruitParameters.Key("scenery-discovery-popularity")] = 10,
             [TalentRecruitParameters.Key("join-diplomacy-office-base")] = 10
         };
+        foreach (var (key, value) in SpecialSearchDefaults) data.Add(key, value);
         foreach (var (name, value) in TalentRecruitParameters.LoaderDefaults)
             data.Add(TalentRecruitParameters.Key(name), value);
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [version] = 1 };

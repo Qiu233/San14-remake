@@ -108,11 +108,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         int? waiting = unit.NativeTacticRuntime?.Waiting20;
         if (waiting is null) missing["waiting.counter"] = "unit.parameters.current_waiting_counter";
         bool? visible = tactics is null ? null : tactics.Count != 0;
-        // The display divisor is a separate original input. Existing waiting
-        // update-rate/calendar constants do not establish that display value.
-        if (visible != false) missing["waiting.days"] = "unit.parameters.waiting_display_divisor";
+        //904820 divides the actual byte by the independently extracted
+        //display constant4, then rounds upward. No simulation-time conversion.
+        int? waitingDays = visible == true && waiting is int count ? (count + 3) / 4 : null;
+        if (visible == true && waiting is null) missing["waiting.days"] = "unit.parameters.current_waiting_counter";
         missing["waiting.gauge"] = "unit.parameters.waiting_gauge_fraction";
-        return new(unitId, landSelected, tactics, waiting, null, visible, Missing());
+        return new(unitId, landSelected, tactics, waiting, waitingDays, visible, Missing());
 
         string Description(byte opcode)
         {

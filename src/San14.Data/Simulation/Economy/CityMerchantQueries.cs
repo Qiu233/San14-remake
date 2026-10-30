@@ -3,7 +3,10 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record CityMerchantCandidate(int OfficerId, int PhysicalSlot, string Name,
-    int? Intelligence, int? Politics, int? CapacityWeight);
+    int? Intelligence, int? Politics, int? CapacityWeight)
+{
+    public string? NameSortKey { get; init; }
+}
 
 public sealed record CityMerchantAmountOptions(CityMerchantMode Mode, IReadOnlyList<int> PresetAmounts,
     int Minimum, int Maximum, int Current);
@@ -31,6 +34,8 @@ public sealed class CityMerchantDraft : IDisposable
     private int amount;
     private bool closed;
     internal CityMerchantDraft(CityMerchantSource source) => this.source = source;
+    internal CityMerchantSource Source => !closed ? source : throw new InvalidDataException("city-merchant.closed");
+    internal IReadOnlyList<int> SelectedOfficerIds => Array.AsReadOnly(selected.ToArray());
 
     public AreaAdministrationQuery<CityMerchantPage> QueryPage()
     {

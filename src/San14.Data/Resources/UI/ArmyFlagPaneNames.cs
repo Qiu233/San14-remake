@@ -146,10 +146,11 @@ public static class ArmyFlagPaneNames
             !source.ScenarioSource.SourcePath.Equals(source.Snapshot.SourcePath, StringComparison.OrdinalIgnoreCase) ||
             !source.Metadata.SourcePath.Equals(source.Snapshot.SourcePath, StringComparison.OrdinalIgnoreCase))
             throw Error("fixed/scenario source paths differ from the explicitly selected CE locale");
-        S14Document scenario = S14Reader.Read(Read(source.ScenarioSource), true);
+        S14Document scenario = source.InitialScenarioDocument ?? S14Reader.Read(Read(source.ScenarioSource), true);
         S14Document fixedData = S14Reader.Read(Read(source.FixedDataSource), false);
         string scenarioSha = Hash(scenario.DecodedPayload);
-        if (scenarioSha != source.Metadata.DecodedSha256 || scenarioSha != source.Snapshot.DecodedSha256 ||
+        if (source.InitialScenarioDocument is null &&
+            (scenarioSha != source.Metadata.DecodedSha256 || scenarioSha != source.Snapshot.DecodedSha256) ||
             scenario.FormatMarker != 0x66 || fixedData.FormatMarker != 0x66)
             throw Error("scenario payload differs from the complete loaded source");
         var forces = S14ScenarioTables.ReadScenarioForces(scenario);

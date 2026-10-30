@@ -42,8 +42,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             !float.IsFinite(reached.NeighborFactor)) return null;
 
         BattleUnitCommonParameters? commonParameters = CommonParameters(state);
-        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
-            moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor);
+        var moraleCoefficients = reached.MoraleCoefficients;
         float? terrainFactor = TerrainFactor(state, formation, reached.NativeTerrainCode);
         var siegeSource = queries.ReadFormationCoefficient(state, army, formation, BattleUnitArmyStatKind.SiegeTroopAttack);
         var wallSource = queries.ReadFormationCoefficient(state, army, formation, BattleUnitArmyStatKind.WallAttack);
@@ -57,7 +56,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             scale = Parameter(state, SimulationParameterKeys.BattleAttributes.AttackCoefficientScale), wallLimit = Parameter(state, SimulationParameterKeys.BattleAttributes.WallAbilityLimit),
             wallStep = Parameter(state, SimulationParameterKeys.BattleAttributes.WallAbilityStep), leadDenominator = Parameter(state, SimulationParameterKeys.BattleAttributes.WallLeadershipDenominator),
             troopOffset = Parameter(state, SimulationParameterKeys.BattleAttributes.WallTroopOffset), troopDenominator = Parameter(state, SimulationParameterKeys.BattleAttributes.WallTroopDenominator);
-        if (commonParameters is null || moraleOffset is null || moraleDivisor is not > 0 || terrainFactor is null ||
+        if (commonParameters is null || moraleCoefficients.Divisor <= 0 || terrainFactor is null ||
             siegeSource is null || wallSource is null || percent is null || siegeBonus is null || wallBonus is null ||
             siegeLimit is null || siegeStep is null || scale is null || wallLimit is null || wallStep is null ||
             leadDenominator is null || troopOffset is null || troopDenominator is null) return null;
@@ -68,7 +67,7 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
         if (command is null) return null;
         float common = BattleUnitSourceMath.CommonFactor(new(full.Leadership, army.Troops,
             reached.FinalDescriptorDivisor14, reached.CappedNativeMorale, true, native.Abnormal23 != 0,
-            moraleOffset.Value, moraleDivisor.Value, reached.RegionFactor, terrainFactor.Value, reached.NeighborFactor),
+            moraleCoefficients.Offset, moraleCoefficients.Divisor, reached.RegionFactor, terrainFactor.Value, reached.NeighborFactor),
             commonParameters);
         int siegeCoefficient = BattleUnitSourceMath.FormationCoefficient(BattleUnitArmyStatKind.SiegeTroopAttack,
             siegeSource.NativeContainerByteCount, siegeSource.StaticField, siegeSource.EncodedQueryResult);

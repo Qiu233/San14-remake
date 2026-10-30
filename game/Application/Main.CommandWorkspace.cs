@@ -13,7 +13,7 @@ public partial class Main
 
     private void OpenCommandWorkspace(PlayableCommandDeck.Page page)
     {
-        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasCommandWorkspace ||
+        if (!DeveloperWorkspaceEnabled || _failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasCommandWorkspace ||
             HasMapSystemMenu || HasCampaignSavePage || HasAdministrationPage || HasMilitaryOrderPage ||
             _detailsView is not null || _periodReportView is not null || HasActionReport || HasPersonnelConfirmation || _repository is null ||
             _session is not { PlayerForceId: not null } session) return;

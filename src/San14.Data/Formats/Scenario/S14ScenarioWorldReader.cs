@@ -18,6 +18,7 @@ public sealed record S14ScenarioWorldDocument(int Offset, ushort RawEmperorPerso
     [JsonIgnore]
     public S14ScenarioSourceDate RawThirdDate => S14ScenarioSourceDate.Read(RawBytes, 38);
     public int? RawField48 { get; init; }
+    public int? RawHistoricalEventControl { get; init; }
     public S14ScenarioWorldExtension? Mode3Extension { get; init; }
     public S14ScenarioWorldBoundary? SourceBoundary { get; init; }
 }
@@ -145,7 +146,7 @@ public static class S14ScenarioWorldReader
             BinaryPrimitives.ReadUInt16LittleEndian(world[22..]),
             BinaryPrimitives.ReadInt16LittleEndian(world[33..]), mode, I32(world, 84), world.ToArray(),
             Convert.ToHexString(SHA256.HashData(source)), Convert.ToHexString(SHA256.HashData(world)))
-        { Mode3Extension = extension, RawField48 = I32(world,55) };
+        { Mode3Extension = extension, RawField48 = I32(world,55), RawHistoricalEventControl = I32(world,63) };
     }
 
     private static int ValidateSource(S14Document document)

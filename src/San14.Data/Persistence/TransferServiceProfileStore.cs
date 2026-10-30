@@ -10,12 +10,14 @@ namespace San14.Data;
 public sealed class TransferServiceProfileStore
 {
     private static readonly byte[] Magic = "S14P"u8.ToArray();
-    private const int Version = 2;
+    private const int Version = 5;
     private readonly string _path;
     private TransferServiceState _current;
 
-    private TransferServiceProfileStore(string path, TransferServiceState current)
-    { _path = Path.GetFullPath(path); _current = current; }
+    private TransferServiceProfileStore(string path, TransferServiceState current, bool legacyPreferencesImported = false)
+    { _path = Path.GetFullPath(path); _current = current; LegacyPreferencesImported = legacyPreferencesImported; }
+
+    public bool LegacyPreferencesImported { get; private set; }
 
     /// <summary>A private service copy for the next simulation operation.</summary>
     public TransferServiceState Current => _current.Copy();
@@ -29,13 +31,34 @@ public sealed class TransferServiceProfileStore
         service.InitializeConstructedDates();
         service.ResetLocalFields();
         var store = new TransferServiceProfileStore(path, service);
-        AtomicSaveFiles.Write(path, Encode(store._current), overwrite: false);
+        AtomicSaveFiles.Write(path, Encode(store._current, false), overwrite: false);
         return store;
     }
 
     /// <summary>Missing, unsupported or damaged existing data fails explicitly.
     /// Opening never creates, resets, upgrades or rewrites the file.</summary>
-    public static TransferServiceProfileStore OpenExisting(string path) => new(path, Decode(File.ReadAllBytes(path)));
+    public static TransferServiceProfileStore OpenExisting(string path)
+    {
+        var decoded = Decode(File.ReadAllBytes(path));
+        return new(path, decoded.State, decoded.LegacyPreferencesImported);
+    }
+
+    /// <summary>Moves only observed legacy progress into this one profile.
+    /// The progress and migration marker share one atomic durable replacement.</summary>
+    public TransferServiceState MergeLegacyProgress(IReadOnlyList<uint> tracks, IEnumerable<int> completedScenarios)
+    {
+        if (LegacyPreferencesImported) return Current;
+        if (tracks.Count != 3 || tracks.Any(value => value > 2))
+            throw new InvalidDataException("Legacy Ending progress has an invalid track shape.");
+        var next = _current.Copy();
+        for (int i = 0; i < 3; i++)
+            if (tracks[i] != 0 && (next.ReadEndingTrack(i) is not uint old || old < tracks[i]))
+                next.SetEndingTrack(i, tracks[i]);
+        foreach (int id in completedScenarios) next.SetScenarioCompleted(id, true);
+        AtomicSaveFiles.Write(_path, Encode(next, true));
+        _current = next; LegacyPreferencesImported = true;
+        return Current;
+    }
 
     /// <summary>Failure propagates without replacing the store's current owner
     /// or mutating the supplied pending result. The caller decides when to retry
@@ -44,13 +67,13 @@ public sealed class TransferServiceProfileStore
     {
         ArgumentNullException.ThrowIfNull(service);
         var next = service.Copy();
-        byte[] bytes = Encode(next); //Validate the complete profile before opening a temporary file.
+        byte[] bytes = Encode(next, LegacyPreferencesImported); //Validate before opening a temporary file.
         AtomicSaveFiles.Write(_path, bytes);
         _current = next; //No live owner changes before the durable replacement succeeds.
         return Current;
     }
 
-    private static byte[] Encode(TransferServiceState snapshot)
+    private static byte[] Encode(TransferServiceState snapshot, bool legacyPreferencesImported)
     {
         if (snapshot.PlatformPolicy != TransferServicePlatformPolicy.Absent)
             throw new InvalidDataException("The local application profile requires an explicitly absent platform service.");
@@ -75,6 +98,23 @@ public sealed class TransferServiceProfileStore
             writer.Write(known);
             if (known)
                 for (int word = 0; word < 16; word++) WriteBitmap(writer, bit => snapshot.ReadEventFlag(word * 64 + bit));
+            //Per-bit knowledge preserves actual writes imported into an older
+            //profile without inventing the other scenario completion bits.
+            for (int i = 0; i < 200; i++)
+                writer.Write(snapshot.ReadScenarioCompleted(i) switch { null => (byte)0, false => (byte)1, true => (byte)2 });
+            for (int i = 0; i < 3; i++)
+            {
+                uint? progress = snapshot.ReadEndingTrack(i);
+                writer.Write(progress.HasValue);
+                if (progress.HasValue) writer.Write(progress.Value);
+            }
+            writer.Write(legacyPreferencesImported);
+            for (int i = 0; i < 61; i++)
+                writer.Write(snapshot.ReadBonusOfficerUnlocked(i) switch { null => (byte)0, false => (byte)1, true => (byte)2 });
+            for (int i = 0; i < 20; i++)
+                writer.Write(snapshot.ReadTutorialCompleted(i) switch { null => (byte)0, false => (byte)1, true => (byte)2 });
+            for (int i = 0; i < 13; i++)
+                writer.Write(snapshot.ReadMainCommandSeen(i) switch { null => (byte)0, false => (byte)1, true => (byte)2 });
         }
         byte[] body = payload.ToArray();
         using var output = new MemoryStream();
@@ -86,7 +126,7 @@ public sealed class TransferServiceProfileStore
         return output.ToArray();
     }
 
-    private static TransferServiceState Decode(byte[] bytes)
+    private static (TransferServiceState State, bool LegacyPreferencesImported) Decode(byte[] bytes)
     {
         try
         {
@@ -94,11 +134,12 @@ public sealed class TransferServiceProfileStore
             using var reader = new BinaryReader(input, Encoding.UTF8, leaveOpen: true);
             bool magic = reader.ReadBytes(4).SequenceEqual(Magic);
             int version = reader.ReadInt32();
-            if (!magic || version is not (1 or Version))
+            if (!magic || version is not (1 or 2 or 3 or 4 or Version))
                 throw new InvalidDataException("Application profile format is unsupported.");
             int length = reader.ReadInt32();
             byte[] checksum = reader.ReadBytes(32);
-            if ((version == 1 ? length != 359 : length is not (360 or 488)) ||
+            if ((version == 1 ? length != 359 : version == 2 ? length is not (360 or 488) :
+                    version == 3 ? length is < 625 or > 765 : version == 4 ? length is < 645 or > 785 : length is < 658 or > 798) ||
                 length != input.Length - input.Position || checksum.Length != 32)
                 throw new InvalidDataException("Application profile payload is incomplete.");
             byte[] payload = reader.ReadBytes(length);
@@ -115,15 +156,53 @@ public sealed class TransferServiceProfileStore
                 var date = new TransferServiceDate(fields.ReadUInt16(), fields.ReadByte(), fields.ReadByte(), fields.ReadByte(), fields.ReadByte());
                 ValidateDate(date); service.SetDate(i, date);
             }
-            if (version == 2)
+            if (version >= 2)
             {
                 byte known = fields.ReadByte();
-                if (known > 1 || (known == 1 ? length != 488 : length != 360))
+                if (known > 1 || version == 2 && (known == 1 ? length != 488 : length != 360))
                     throw new InvalidDataException("Application event history presence is invalid.");
                 if (known == 1)
                     for (int word = 0; word < 16; word++) ReadBitmap(fields, (bit, value) => service.SetEventFlag(word * 64 + bit, value));
             }
-            return service;
+            bool legacyPreferencesImported = false;
+            if (version >= 3)
+            {
+                for (int i = 0; i < 200; i++) service.SetScenarioCompleted(i, fields.ReadByte() switch
+                {
+                    0 => null, 1 => false, 2 => true,
+                    _ => throw new InvalidDataException("Application scenario completion knowledge is invalid.")
+                });
+                for (int i = 0; i < 3; i++)
+                {
+                    byte known = fields.ReadByte();
+                    if (known > 1) throw new InvalidDataException("Application Ending track knowledge is invalid.");
+                    if (known == 1) service.SetEndingTrack(i, fields.ReadUInt32());
+                }
+                byte migrated = fields.ReadByte();
+                if (migrated > 1) throw new InvalidDataException("Application progress migration marker is invalid.");
+                legacyPreferencesImported = migrated == 1;
+                for (int i = 0; i < 61; i++) service.SetBonusOfficerUnlocked(i, fields.ReadByte() switch
+                {
+                    0 => null, 1 => false, 2 => true,
+                    _ => throw new InvalidDataException("Application bonus officer knowledge is invalid.")
+                });
+            }
+            if (version >= 4)
+                for (int i = 0; i < 20; i++) service.SetTutorialCompleted(i, fields.ReadByte() switch
+                {
+                    0 => null, 1 => false, 2 => true,
+                    _ => throw new InvalidDataException("Application tutorial completion knowledge is invalid.")
+                });
+            //Older profiles never owned these facts; construction intentionally
+            //leaves them unknown until a real launch establishes a seen bit.
+            if (version >= 5)
+                for (int i = 0; i < 13; i++) service.SetMainCommandSeen(i, fields.ReadByte() switch
+                {
+                    0 => null, 1 => false, 2 => true,
+                    _ => throw new InvalidDataException("Application main command discovery knowledge is invalid.")
+                });
+            if (body.Position != body.Length) throw new InvalidDataException("Application profile contains unexpected fields.");
+            return (service, legacyPreferencesImported);
         }
         catch (EndOfStreamException error)
         { throw new InvalidDataException("Application profile is truncated.", error); }

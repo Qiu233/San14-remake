@@ -42,11 +42,14 @@ public sealed partial class SourceWorldContext
         CopyTransactionTerrainDefinitionsTo(draft);
         Copy(_hexSurfaceCodes, draft._hexSurfaceCodes);
         Copy(_surfaceTypePointers, draft._surfaceTypePointers); Copy(_surfaceTypeFields2A, draft._surfaceTypeFields2A);
-        CopyArmyMapOccupancyTo(draft); Copy(_personTraitSlots150, draft._personTraitSlots150);
+        CopyArmyMapOccupancyTo(draft);
+        draft._initialPersonTraits = _initialPersonTraits;
+        Copy(_personTraitSlots150, draft._personTraitSlots150);
         Copy(_staticTablePointers, draft._staticTablePointers);
         Copy(_officerHealth, draft._officerHealth);
         Copy(_healthSourceIdentities, draft._healthSourceIdentities);
         Copy(_captureItemOwners4A, draft._captureItemOwners4A);
+        draft._initialPersonalities = _initialPersonalities;
         foreach (var row in _personalityFields) draft._personalityFields[row.Key] = row.Value.ToArray();
         foreach (var row in _personalityVectors)
             draft._personalityVectors[row.Key] = new() { Values = row.Value.Values.ToList(), Capacity = row.Value.Capacity };

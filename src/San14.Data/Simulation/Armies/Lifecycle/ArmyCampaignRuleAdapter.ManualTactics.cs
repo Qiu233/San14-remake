@@ -13,6 +13,10 @@ public interface IManualTacticPresentationAdmission
     /// <summary>168C40's current unique-direction admission. False is an
     /// explicitly rejected route, not a missing camera or settings owner.</summary>
     bool? ReadUniqueDirectionAdmission(GameState state, UnitState actor, int tacticId);
+    /// <summary>The same source receiver retained by an entered activation
+    /// after Full releases its Unit image. Hosts use the actual source view
+    /// lookup; they must not reconstruct an Army or a view from its Hex.</summary>
+    bool? ReadUniqueDirectionAdmission(GameState state, int casterUnitId, int armyPhysical, int tacticId) => null;
 }
 
 public sealed record ManualTacticExecutionResult(GameState? State, string? UnresolvedOwner);
@@ -24,27 +28,49 @@ public sealed partial class ArmyCampaignRuleAdapter
     public ManualTacticExecutionResult TryQueueManualTacticIntervention(GameState state,
         NativeArmyProgressStageMoment reached, ManualTacticRequest request, bool? progressAllowsReplacement)
     {
+        try{return TryQueueManualTacticIntervention(state,ReadManualCurrentPeriodCount(state,reached),request,progressAllowsReplacement);}
+        catch(InvalidDataException error){return new(null,error.Message);}
+    }
+
+    /// <summary>A stopped UI checkpoint already owns its current calendar.
+    /// Submission reads that period directly instead of inventing a moment.</summary>
+    public ManualTacticExecutionResult TryQueueManualTacticIntervention(GameState state,
+        int currentPeriod, ManualTacticRequest request, bool? progressAllowsReplacement)
+    {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(request);
         try
         {
             var manager = state.ManualTacticIntervention ?? throw ManualMissing("manager");
+            // A Full continuation retains the original request until its
+            // destruction decision resumes. It is an execution owner, not
+            // another queued command that a host pause may replace.
+            if (state.ManualTacticExecutionContinuation is not null) return new(state, null);
             if (manager.Pending is { } old && progressAllowsReplacement != true)
             {
-                //A valid old first pointer already proves the native all-three-
-                //invalid expression false, without inspecting later pointers.
-                if (ReadManualArmy(state, old.Actor, out _))
+                // 179D90 checks the old Army, tactic and Hex pointers in that
+                // order. Any valid pointer blocks a non-paused replacement;
+                // an invalid old Army alone does not make the command empty.
+                bool occupied = ReadManualArmy(state, old.Actor, out _);
+                if (!occupied)
+                {
+                    var oldDefinitions = CaptureCurrentDefinitions(state) ?? throw ManualMissing("current_definitions");
+                    occupied = ManualKnown(Context(oldDefinitions).ReadManualTacticValidity(state, old.TacticId),
+                        "previous_pending_tactic_validity");
+                    if (!occupied)
+                        occupied = old.Target is { Kind: ManualTacticTargetKind.Hex, Id: >= 0 and < 48400 };
+                }
+                if (occupied)
                 {
                     if (progressAllowsReplacement is null) throw ManualMissing("progress_replacement_gate");
                     return new(state, null);
                 }
-                throw ManualMissing("previous_pending_pointer_validity");
             }
             if (!ReadManualArmy(state, request.Actor, out UnitState? actor)) return new(state, null);
             var current = CaptureCurrentDefinitions(state) ?? throw ManualMissing("current_definitions");
             var context = Context(current);
             if (!ManualKnown(context.ReadManualTacticValidity(state, request.TacticId), "tactic_validity")) return new(state, null);
             if (!ManualKnown(context.ReadManualInterventionEligibility(state, actor!, request.TacticId,
-                    ReadManualCurrentPeriodCount(state, reached)), "eligibility")) return new(state, null);
+                    currentPeriod), "eligibility")) return new(state, null);
             //88DB00 publishes the selected Hex pointer. An Army is only the
             //command's input intent; later movement cannot retarget that pointer.
             //Reading its current Hex here does not admit/reject target validity.
@@ -64,9 +90,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         catch (InvalidDataException error) { return new(null, error.Message); }
     }
 
-    /// <summary>172DE0 and the finite zero-chain Army nondamage174020 path.
-    /// No Unit.Pending, ordinary automatic profile gate or target sorting is used.
-    /// The enclosing scheduler owns effect/Direction waits and publication.</summary>
+    /// <summary>172DE0/174020 execute the already selected command with the
+    /// shared ordered actor engine. Source stage6 owns its sampler and a Full
+    /// continuation resumes only the retained instruction/settlement tail.</summary>
     public ManualTacticExecutionResult TryExecuteManualTacticIntervention(GameState state,
         NativeArmyProgressStageMoment moment, ManualTacticRequest request,
         IManualTacticPresentationAdmission? presentation)
@@ -78,112 +104,78 @@ public sealed partial class ArmyCampaignRuleAdapter
                 moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
                 throw ManualMissing("stage6_moment");
             var manager = state.ManualTacticIntervention ?? throw ManualMissing("manager");
-            if (manager.Pending != request) throw ManualMissing("pending_identity");
-            if (!ReadManualArmy(state, request.Actor, out UnitState? actor)) return Cleared(state);
-            var current = CaptureCurrentDefinitions(state) ?? throw ManualMissing("current_definitions");
-            var context = Context(current);
-            if (!ManualKnown(context.ReadManualTacticValidity(state, request.TacticId), "tactic_validity")) return Cleared(state);
-            if (!ManualKnown(context.ReadManualInterventionEligibility(state, actor!, request.TacticId,
-                    ReadManualCurrentPeriodCount(state, moment)), "eligibility")) return Cleared(state);
+            var saved = state.ManualTacticExecutionContinuation;
+            if ((saved?.Request ?? manager.Pending) != request) throw ManualMissing("pending_identity");
+            if (saved is not null && (state.ArmyDefeatContinuation?.PendingCapturedRulerTreatment is not null ||
+                state.BaseCaptureContinuation?.PendingCapturedRulerTreatment is not null ||
+                state.PersonDeathContinuation is not null || state.AutomaticEmperorCapture?.PendingDecision is not null ||
+                AutomaticEmperorCaptureLifecycle.IsPresentationPending(state))) return new(state, null);
 
-            //174020 can reject the explicit target after172DE0's eligibility;
-            //the caller still consumes the pending request in that known case.
-            if (!ReadManualPrimary(state, context, request.Target, out UnitState? primary)) return Cleared(state);
-            if (context.CaptureManualInterventionUse(state, actor!, primary!, request.TacticId) is not { } use)
-                throw ManualMissing("instruction_targets");
-            if (use.Instructions.All(instruction => instruction.OrderedArmyIds.Length == 0)) return Cleared(state);
-            var sampler = NativeArmyCombatCycleSampler.CreateAtManualIntervention(state, moment)
-                ?? throw ManualMissing("reached_effect_sampler");
-            context = Context(current, sampler);
-            if (!context.HasManualEmptyChain(state, actor!, request.TacticId)) throw ManualMissing("linked_actors");
-            if (context.ResolveManualActivationWaiting(state, actor!, request.TacticId) is not { } waiting)
-                throw ManualMissing("waiting");
-            if (context.ResolveManualCapturedEffects(state, actor!, request.TacticId, use) is not { } effects)
-                throw ManualMissing("ordered_effects");
-
-            GameState working = GameStateCopy.Copy(state);
-            var units = new Dictionary<int, UnitState>(working.Units);
-            ICampaignResourceState? resources = working.ResourceState;
-            var orderedTargets = use.Program.Instructions.SelectMany(instruction =>
-                use.Instructions[instruction.Index].OrderedArmyIds.Select(id => (instruction.Index, Id: id))).ToArray();
-            if (orderedTargets.Length != effects.Steps.Length) throw ManualMissing("effect_instruction_order");
-            var presentationEffects = new List<TacticEffectPresentation>();
-            var instructionResults = new[] { new List<TacticResultPresentation>(), new List<TacticResultPresentation>() };
-            for (int ordinal = 0; ordinal < effects.Steps.Length; ordinal++)
+            UnitState? initialActor = null;
+            if (saved is null && !ReadManualArmy(state, request.Actor, out initialActor)) return Cleared(state);
+            var current = CaptureWritableTransportRouteCurrent(state);
+            if (saved is null)
             {
-                var step = effects.Steps[ordinal];
-                if (step.TargetUnitId != orderedTargets[ordinal].Id) throw ManualMissing("effect_instruction_order");
-                if (!units.TryGetValue(step.TargetUnitId, out UnitState? target)) throw ManualMissing("effect_target");
-                var targetReceiver = working.ArmyLifecycle?.Receivers.FindUnit(target.Id)?.ReceiverId
-                    ?? throw ManualMissing("effect_target_receiver");
-                int instructionIndex = orderedTargets[ordinal].Index;
-                int opcode = use.Program.Instructions[instructionIndex].Opcode;
-                //1763B0/1782F0 append zero for every valid recipient, even
-                //when morale is capped or its abnormal counters already clear.
-                //175FF0 appends only after the native gate succeeds; that
-                //resolver returns no status receipts on gate rejection.
-                //177ED0 carries its pre-saturation recovered amount, not
-                //the applied troop delta or a sum of abnormal-status effects.
-                bool appendResult = opcode switch
-                {
-                    15 or 19 or 20 => true,
-                    23 => step.Effects.Length != 0,
-                    0 => false,
-                    _ => throw ManualMissing("result_instruction_opcode")
-                };
-                if (appendResult)
-                {
-                    int amount = opcode == 20
-                        ? step.NativeResultAmount ?? throw ManualMissing("healing_result_operand") : 0;
-                    instructionResults[instructionIndex].Add(new(TacticResultTargetKind.ArmyReceiver,
-                        targetReceiver.Value, target.HexId, unchecked((ushort)amount)));
-                }
-                foreach (var effect in step.Effects)
-                {
-                    target = ApplyManualEffectReceipt(target, effect);
-                    presentationEffects.Add(new(orderedTargets[ordinal].Index, targetReceiver, effect.Kind, effect.Amount,
-                        effect.HealingResult, effect.NativeAbnormalAfter, effect.CurrentMoraleAfter));
-                }
-                if (target.Troops <= 0 || target.MoraleState.CurrentValue is not > 0)
-                    throw ManualMissing("effect_retirement");
-                units[target.Id] = target;
-                resources = step.ResourceStateAfter ?? resources;
+                var eligibility = Context(current);
+                if (!ManualKnown(eligibility.ReadManualTacticValidity(state, request.TacticId), "tactic_validity") ||
+                    !ManualKnown(eligibility.ReadManualInterventionEligibility(state, initialActor!, request.TacticId,
+                        ReadManualCurrentPeriodCount(state, moment)), "eligibility")) return Cleared(state);
             }
-            working = working with { Units = units, RandomState = effects.RandomState, ResourceState = resources };
-            var commander = context.ResolveOrdinaryActivationCommanderTail(working, units[actor!.Id],
-                request.TacticId, TryApplyNativePendingMerit) ?? throw ManualMissing("commander_merit_tail");
-            working = working with { Officers = new(working.Officers) { [commander.Id] = commander } };
-            var admission = presentation ?? throw ManualMissing("presentation_admission");
-            UnitState currentActor = units[actor.Id];
-            var native = currentActor.NativeTacticRuntime ?? throw ManualMissing("actor_waiting");
-            units[actor.Id] = currentActor with { NativeTacticRuntime = native with
+            var sampler = saved is null ? NativeArmyCombatCycleSampler.CreateAtManualIntervention(state, moment)
+                : NativeArmyCombatCycleSampler.RestoreManualIntervention(state, moment, saved.SampleDay, saved.SampleSalt);
+            if (sampler is null) throw ManualMissing("reached_effect_sampler");
+            var sample = sampler.Read(state) ?? throw ManualMissing("reached_sample");
+            long revision = moment.CalendarCycleOrdinal;
+            var working = state;
+            var effects = new List<CampaignEffectRequest>();
+            BorrowedAutomaticSelectedApplication applied;
+            int selectedHex;
+            int? primaryArmy, primaryBase;
+            if (saved is not null)
             {
-                Waiting20 = waiting.Waiting20, Waiting21 = waiting.Waiting21, Waiting22 = waiting.Waiting22,
-                PrimaryWaitingReadyAtUpdateOrdinal = waiting.Waiting20 == 0 ? working.NativeClock!.UpdateOrdinal : null
-            } };
-            working = working with { Units = units };
-            //174572 records manual use after all waiting writes; chain0
-            //does not enter32FED0's separate pre-waiting linked counter.
-            working = ApplyLinkedTacticAccountingCurrent(working, current,
-                actor.Id, 0, manual: true);
-
-            manager = working.ManualTacticIntervention! with { Pending = null };
-            //168C40 checks the ordinary effect count before either route.
-            //The finite nondamage callbacks never set the independent busy98.
-            if (manager.Effects.Length < 563)
-            {
-                bool direction = context.IsAutomaticSpecialPresentationTactic(request.TacticId) &&
-                    ManualKnown(admission.ReadUniqueDirectionAdmission(working, units[actor.Id],
-                        request.TacticId), "unique_direction_admission");
-                var results = instructionResults.Select(row => row.ToArray()).ToArray();
-                //The presentation receiver vectors project the actual native
-                //result records, not every attempted (possibly rejected) target.
-                var vectors = results.Select(row => row.Select(result => result.TargetId).ToArray()).ToArray();
-                manager = manager.Enqueue(direction ? TacticPresentationKind.UniqueDirection : TacticPresentationKind.OrdinaryEffects,
-                    [new(request.Actor, request.TacticId, request.Target, vectors)
-                    { InstructionResults = results, Effects = presentationEffects.ToArray() }]);
+                if (working.ArmyDefeatContinuation is not null)
+                    working = ResumeNormalCombatImmediateDefeatCurrent(working, current, moment.PreWriterThirdDate, revision);
+                else if (working.BaseCaptureContinuation is { SettlementIndex: -1 } ||
+                    working.CityCaptureEmperorTail is { SettlementIndex: -1 } || working.BaseWinnerEmperorTail is { SettlementIndex: -1 })
+                {
+                    var capture = ResumeImmediateBaseCaptureCurrent(working, current,
+                        moment.PreWriterThirdDate, revision, effects);
+                    working = capture.State;
+                    if (capture.IsPaused) return new(working, null);
+                    if (capture.NativeTerminal) return new(working with { ManualTacticExecutionContinuation = null,
+                        ManualTacticIntervention = working.ManualTacticIntervention! with { Pending = null } }, null);
+                }
+                selectedHex = saved.SelectedHexId;
+                primaryArmy = saved.PrimaryUnitId; primaryBase = saved.PrimaryBaseLocationId;
+                applied = ResumeBorrowedSelectedManual(working, current, Context(current, sampler), saved,
+                    sampler, moment.PreWriterThirdDate, revision, effects, presentation);
             }
-            return new(working with { ManualTacticIntervention = manager }, null);
+            else
+            {
+                var actor = initialActor!;
+                var context = Context(current, sampler);
+                if (request.Target is not { Kind: ManualTacticTargetKind.Hex } target)
+                    throw ManualMissing("selected_Hex_snapshot");
+                selectedHex = target.Id;
+                var captured = context.CaptureManualLinkedExecutionCurrent(state, current, actor, request.TacticId, selectedHex);
+                if (captured is null) return Cleared(state);
+                primaryArmy = captured.Primary.UnitId;
+                primaryBase = captured.Primary.Kind == 5 ? captured.Primary.PhysicalSlot
+                    : captured.Primary.Kind == 6 ? captured.Primary.PhysicalSlot + 51 : null;
+                applied = ApplyBorrowedSelectedManual(state, current, context, actor.Id,
+                    captured.Primary, captured.LinkedCenter, captured.MainSelected, sampler,
+                    moment.PreWriterThirdDate, revision, effects, presentation);
+            }
+            working = FlushNormalCombatEffects(applied.State, revision, effects);
+            var pool = current.ReadOwnedCurrentListPool() ?? throw ManualMissing("shared_pool");
+            working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() });
+            if (applied.Continuation is { } execution)
+                return new(working with { ManualTacticExecutionContinuation = new(request, selectedHex,
+                    primaryArmy, primaryBase, execution, sample.Day450, sample.Salt45C) }, null);
+            //172DE0 clears its three pending operands only after174020 really
+            //returns. A pause never reaches this cleanup and never reissues it.
+            return new(working with { ManualTacticExecutionContinuation = null,
+                ManualTacticIntervention = working.ManualTacticIntervention! with { Pending = null } }, null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }
@@ -205,18 +197,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         return true;
     }
 
-    private static bool ReadManualPrimary(GameState state, TacticRemakeCurrentContext context,
-        ManualTacticTarget? target, out UnitState? primary)
-    {
-        primary = null;
-        if (target is null) return false;
-        if (target.Kind == ManualTacticTargetKind.Hex)
-            return ManualKnown(context.ResolveManualPrimaryHex(state, target.Id, out primary), "primary_hex");
-        //The issuing owner canonicalizes supported intentions to a Hex. A
-        //restored non-Hex request cannot invent the old selected Hex snapshot.
-        throw ManualMissing("non_hex_primary_snapshot");
-    }
-
     private int ReadManualCurrentPeriodCount(GameState state, NativeArmyProgressStageMoment moment)
     {
         var world = state.CampaignEventWorld ?? throw ManualMissing("world_period_offset");
@@ -236,28 +216,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         if (date != moment.PreWriterThirdDate) throw ManualMissing("reached_date");
         return unchecked(world.ElapsedPeriodOffset + (int)periods);
-    }
-
-    private static UnitState ApplyManualEffectReceipt(UnitState target, PlayableTacticEffect effect)
-    {
-        if (effect.Kind == PlayableTacticEffectKind.ArmyHealing && effect.HealingResult is { } healing)
-            return target with { Troops = healing.TroopsAfter, WoundedTroops = healing.WoundedAfter };
-        if (effect.Kind == PlayableTacticEffectKind.NativeMoraleChange && effect.CurrentMoraleAfter is int morale)
-            return target with { MoraleState = target.MoraleState with { CurrentValue = morale } };
-        if (effect.Kind is not (PlayableTacticEffectKind.NativeAbnormalChange or PlayableTacticEffectKind.ClearAbnormalStatuses) ||
-            effect.NativeAbnormalAfter is not { } after || target.NativeTacticRuntime is not { } native)
-            throw ManualMissing("unsupported_effect");
-        var result = ArmyOverrideTargetWrites.Apply(target with { NativeTacticRuntime = native with
-        { Abnormal23 = after.Abnormal23, Abnormal24 = after.Abnormal24, Abnormal25 = after.Abnormal25,
-            ProvocationOwner = after.ProvocationOwner } }, after.OverrideTarget);
-        if (effect.Kind == PlayableTacticEffectKind.ClearAbnormalStatuses)
-        {
-            if (result.TacticRuntime is not { } runtime) throw ManualMissing("abnormal_status_owner");
-            result = result with { TacticRuntime = runtime with { Statuses = runtime.Statuses.Where(status =>
-                status.Kind is not (PlayableTacticEffectKind.Confused or PlayableTacticEffectKind.Immobilized or
-                    PlayableTacticEffectKind.Provoked)).ToArray() } };
-        }
-        return result;
     }
 
     private static bool ManualKnown(bool? value, string owner) => value ?? throw ManualMissing(owner);

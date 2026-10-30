@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Weather response is evaluated before the shared cloud animation clock.
 // Profiles and accepted conditions are ordinary values; binary layouts appear
 // only in their importers and in the reflected constant-buffer publisher.
@@ -118,7 +119,7 @@ inline const std::array<const char*,20> names{{"g_vBaseTexScale","g_vDetailTexSc
 struct LayoutWord {ShaderField field;uint32_t offset,count;};
 struct Layout {uint32_t byteCount{};std::vector<LayoutWord> fields;bool work{};};
 inline Layout readLayout(const std::filesystem::path& path,bool work){
-    Layout out;out.work=work;std::ifstream in(path);
+    Layout out;out.work=work;NativePreparedInputFile in(path);
     if(!(in>>out.byteCount))throw std::runtime_error("Cloud weather RDEF layout absent");
     uint32_t field,offset,count;while(in>>field>>offset>>count){
         if(field>=names.size()||offset+count*4>out.byteCount)throw std::runtime_error("Cloud weather RDEF range");

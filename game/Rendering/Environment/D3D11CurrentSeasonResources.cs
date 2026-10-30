@@ -33,8 +33,9 @@ public sealed class D3D11CurrentSeasonResources
     public CommonRenderSettings InitialCommonSettings { get; }
     internal SkyCloudShaderSettings CloudShaderSettings { get; }
     internal PatternCameraSettings PatternSettings { get; }
+    internal RainDropCameraSettings RainSettings { get; }
     internal IReadOnlyList<PatternLightTextureSource> PatternTextures { get; }
-    public SceneViewNativeMapSeasonResourceBundle Source { get; }
+    public SceneViewNativeMapSeasonResourceBundle Source { get; private set; }
     public MapSeasonSelection Selection => Source.Selection;
     public D3D11CurrentSeasonCpuResources? CpuResources { get; private set; }
     public float ControllerGeometry40 { get; }
@@ -58,6 +59,7 @@ public sealed class D3D11CurrentSeasonResources
         var selected = source.CameraSource.Selection.FirstPackage;
         CloudShaderSettings = SkyCloudShaderSettings.Import(selected);
         PatternSettings = PatternCameraSettingsImport.Load(selected);
+        RainSettings = RainDropCameraSettings.Import(selected);
         ViewDefaults = CameraViewSettingsImport.Load(selected);
         OceanWaves = OceanWaveSettingsImport.Load(selected);
         OceanSurface = OceanSurfaceSettingsImport.Load(selected);
@@ -67,6 +69,18 @@ public sealed class D3D11CurrentSeasonResources
         Stars = SkyStarSettings.Import(selected);
         HeightFog = HeightFogResourceImport.Load(selected);
         ControllerGeometry40 = Stars.ExposureScale;
+    }
+
+    /// <summary>Adopt only the real started calendar, retaining all loaded CPU
+    /// owners and settings. The caller installs it between native requests.</summary>
+    public void AdoptStartedCampaignCalendar(NativeMapSeasonState actualNativeState,
+        MainMapCameraFrame actualMain)
+    {
+        ArgumentNullException.ThrowIfNull(actualMain);
+        if(actualMain.Camera.ExecutableLocale!=Source.Locale)
+            throw new InvalidDataException("Calendar adoption cannot change the loaded season locale.");
+        var camera=Source.CameraSource.AdoptStartedCampaignCalendar(actualNativeState,actualMain);
+        Source=Source.WithAdoptedCamera(camera);
     }
 
     /// <summary>Bind the actual fresh Main/Aux default caller: force=-1,
@@ -129,6 +143,23 @@ public sealed class D3D11CurrentSeasonResources
     {
         var source = SceneViewNativeMapSeasonResourceBundle.Load(repository,
             ownedSeason, initialMain.Camera.ExecutableLocale, initialMain.Camera.FrameNumber);
+        return LoadSourceReadyCpu(repository, source, initialMain);
+    }
+
+    public static D3D11CurrentSeasonResources LoadScenarioPreviewSourceReadyCpu(
+        GameResourceRepository repository, MapSeasonScenarioPreviewFrame preview,
+        MainMapCameraFrame initialMain)
+    {
+        ArgumentNullException.ThrowIfNull(preview); MapSeasonRuntime.ValidateFrame(preview);
+        var source = SceneViewNativeMapSeasonResourceBundle.LoadScenarioPreview(repository,
+            preview.Source, initialMain.Camera.ExecutableLocale, initialMain.Camera.FrameNumber);
+        return LoadSourceReadyCpu(repository, source, initialMain);
+    }
+
+    private static D3D11CurrentSeasonResources LoadSourceReadyCpu(
+        GameResourceRepository repository, SceneViewNativeMapSeasonResourceBundle source,
+        MainMapCameraFrame initialMain)
+    {
         var declarations = source.DirectionalDeclarations;
         var providers = MapDirectionalLightProviderOwner.Load(repository, declarations);
         var white = SourceResourceRegistrationFixed.LoadWhite(repository);

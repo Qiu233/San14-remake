@@ -10,11 +10,18 @@ public partial class Main
         if (unitIds.Count == 1) { OpenUnitSourceDetails(unitIds[0], parent); return; }
         if (_unitOrderTarget != parent || _repository is not { } repository || _campaignComposition is not { } composition ||
             _session is not { } session || !ReferenceEquals(_unitOrderWorld, session.World) ||
-            unitIds.Count is < 2 or > 30) return;
-        var publication = composition.PrepareArmyQueries(session.World).QueryUnitSourceDetailsList(session.World, unitIds);
+            unitIds.Count is < 2 or > 30 || session.PlayerForceId is not int playerForceId) return;
+        var world = session.World;
+        var pages = composition.PrepareArmyQueries(world).PrepareArmyInformationPages(world, playerForceId, unitIds);
         var list = new ArmyDetailsListView();
-        OpenCommandDetails(list, close => list.Configure(repository, _ui, publication,
-            row => OpenUnitSourceDetails(row.UnitId, parent, list, row), close), parent);
+        bool Current() => _commandDetailsView == list && _unitOrderTarget == parent &&
+            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+        OpenCommandDetails(list, close =>
+        {
+            RetainCommandDetailSpeechWorld(list, next => world = next);
+            list.Configure(repository, _ui, pages, Current,
+                unitId => OpenUnitSourceDetails(unitId, parent, list), close, CurrentListScrollSpeed);
+        }, parent);
     }
 
     private void OpenUnitSourceDetails(int unitId, UnitOrderTargetView parent,
@@ -34,25 +41,80 @@ public partial class Main
     }
 
     private void ConfigureUnitSourceDetails(ArmyDetailsView view, GameState world,
-        ArmyCampaignRuleAdapter rules, int unitId, UnitSourceDetails initial, Action close)
+        ArmyCampaignRuleAdapter rules, int unitId, UnitSourceDetails initial, Action close,
+        MapInformationBrowserView? browser = null, Action<GameState>? adoptWorld = null)
     {
         var repository = _repository!;
         var composition = _campaignComposition!;
+        var session = _session!;
+        var map = _residentMap;
+        RetainCommandDetailSpeechWorld(view, next =>
+        {
+            world = next;
+            rules = composition.PrepareArmyQueries(next);
+        });
+        int player = session.PlayerForceId ?? throw new InvalidOperationException("Army information requires a player.");
+        var captives = rules.PrepareArmyCaptiveOfficerPages(world, player, unitId);
         var flag = initial.Identity is { ForceLookupId: int force }
             ? composition.DetailForces(world, [force]).GetValueOrDefault(force) : null;
         IReadOnlyList<LoadedSprite>? layers = null;
         if (initial.PortraitRoute is { } route)
         {
             var sprites = new LocalizedUiSpriteSource(repository);
-            layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-                .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+            layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         }
         static int PreviewKey(bool? land) => land is null ? -1 : land.Value ? 1 : 0;
         var detailsCache = new Dictionary<int, UnitSourceDetails>
             { [PreviewKey(initial.Formation?.LandSelected)] = initial };
         var parametersCache = new Dictionary<int, UnitSourceParameters>();
         var axesCache = new Dictionary<int, UnitSourceAxes>();
-        view.Configure(repository, _ui, Read, close, ReadParameters);
+        view.Configure(repository, _ui, Read, close, ReadParameters,
+            officer => RunUiAction(() => OpenOfficer(view, officer, [officer])),
+            () => RunUiAction(OpenCaptives));
+
+        bool Current(DetailsView page) => !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle &&
+            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world) && _residentMap == map &&
+            (browser is not null ? IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(page) : _commandDetailsView == page);
+
+        void ShowChild(DetailsView parent, DetailsView child, Action<Action> configure)
+        {
+            if (!Current(parent)) { child.Free(); return; }
+            if (browser is not null) browser.ShowDetail(child, configure);
+            else OpenNestedCommandDetails(parent, child, configure);
+        }
+
+        void Adopt(GameState next)
+        {
+            world = next;
+            rules = composition.PrepareArmyQueries(world);
+            initial = rules.QueryUnitSourceDetails(world, unitId);
+            captives = rules.PrepareArmyCaptiveOfficerPages(world, player, unitId);
+            flag = initial.Identity is { ForceLookupId: int forceId }
+                ? composition.DetailForces(world, [forceId]).GetValueOrDefault(forceId) : null;
+            layers = initial.PortraitRoute?.LoadSprites(new LocalizedUiSpriteSource(repository).LoadTexturePackSprite);
+            detailsCache.Clear(); parametersCache.Clear(); axesCache.Clear();
+            detailsCache[PreviewKey(initial.Formation?.LandSelected)] = initial;
+            if (browser is null && _commandDetailsUnitParent is not null) _unitOrderAdoptDetailWorld?.Invoke(next);
+            adoptWorld?.Invoke(next);
+            view.RefreshCurrent();
+        }
+
+        void OpenOfficer(DetailsView parent, int officer, IReadOnlyList<int> ids,
+            Action<OfficerDetailSelectionReturn>? returned = null, bool? nameSortAscending = null)
+        {
+            if (!Current(parent)) return;
+            var detail = new OfficerDetailsView();
+            ShowChild(parent, detail, back => ConfigureCurrentOfficerDetail(detail, world, officer, back,
+                () => Current(detail), Adopt, ids, returned, nameSortAscending));
+        }
+
+        void OpenCaptives()
+        {
+            if (!Current(view) || !captives.Available || captives.Value is not { } pages || pages.CurrentOfficerIds.Length == 0) return;
+            var list = new OfficerInformationListView();
+            ShowChild(view, list, back => ConfigureOfficerInformationList(list, world, rules, pages, back,
+                Current, (child, configure) => ShowChild(list, child, configure), Adopt));
+        }
 
         UnitSourceParameters ReadParameters(bool? land)
         {
@@ -99,10 +161,14 @@ public partial class Main
             values[69] = Number(details.Resources.WoundedTroops);
             values[87] = details.Cargo.IsApplicable == false ? "" : Number(details.Cargo.Gold);
             values[90] = details.Cargo.IsApplicable == false ? "" : Number(details.Cargo.Food);
+            foreach (var (node, formatted) in details.FormattedValues) values[node] = formatted;
             return new(values, details.Identity?.CommanderName ?? unknown, null, details.Identity?.NameplateVisible, flag, details.Formation?.Selected, layers,
                 details.Formation?.LandSelected, details.Formation?.LandFormationId is not null,
                 details.Formation?.NavalFormationId is not null, details.Resources.CurrentMorale, details.Resources.MaximumMorale,
-                new(RadarValues(axes.WithoutConditionalModifiers), RadarValues(axes.WithConditionalModifiers), RadarValues(axes.SignedModifiers)));
+                new(RadarValues(axes.WithoutConditionalModifiers), RadarValues(axes.WithConditionalModifiers), RadarValues(axes.SignedModifiers))) { NodePalettes = details.NodePalettes,
+                    CommanderId = details.Identity?.CommanderId,
+                    CaptivesAvailable = captives.Available ? captives.Value?.CurrentOfficerIds.Length > 0 : null,
+                    CaptivesUnresolvedOwner = captives.UnresolvedInput };
         }
 
         static int?[] RadarValues(UnitSourceAxisValues? axes) =>

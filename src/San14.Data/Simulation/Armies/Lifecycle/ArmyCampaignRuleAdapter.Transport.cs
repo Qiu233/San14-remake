@@ -19,7 +19,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
     private PlayableTransportCreationResolution? CreateTransportCore(GameState state,
         int officerId, int sourceCityId, UnitState projection,
         Func<SourceWorldContext, TransportArmyPacketResult> composePacket,
-        Action<string>? unresolved = null)
+        Action<string>? unresolved = null, Action? noAssignableReceiver = null)
     {
         state = ArmyIdentityAllocation.Initialize(state);
         if (state.ArmyIdentities!.Candidate != projection.Id) return Missing("current.transport_identity_candidate");
@@ -34,9 +34,9 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
             var world = CaptureOwnedArmyReturnWorld(state);
             var packet = composePacket(world.Context);
             if (packet.Packet is not { } selected) return Missing(packet.UnresolvedOwner ?? "current.transport_packet");
-            if (selected.CommandOrder is not null && projection.ForceId != selected.ForcePhysical)
+            if (selected.HasExplicitRequest && projection.ForceId != selected.ForcePhysical)
                 return Missing("current.transport_Force_domain_projection");
-            if (selected.CommandOrder is not null && (selected.Dwords[11] == 5
+            if (selected.HasExplicitRequest && (selected.Dwords[11] == 5
                 ? projection.Mission.DestinationCityId != selected.Dwords[12]
                 : selected.Dwords[11] == 9
                     ? projection.DestinationHexId != selected.Dwords[12]
@@ -46,22 +46,29 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 return Missing("current.transport_target_domain_projection");
             var prefix = TransportArmyCreationSource.FromLoadedSource(_creation.FormationWriterSource)
                 .Prepare(state, world.Context, selected);
+            if (prefix.NativeReturn == 0)
+            {
+                noAssignableReceiver?.Invoke();
+                return Missing("current.transport_no_assignable_receiver");
+            }
             if (prefix.Receipt is not { } receipt) return Missing(prefix.UnresolvedOwner ?? "current.transport_creation_prefix");
-            if (receipt.GovernorUpdateReached) return Missing("current.transport_governor_update");
             if (receipt.Fields.HomeSequence28 is null || receipt.FieldOwnersMissing.Count != 0)
                 return Missing(receipt.FieldOwnersMissing.FirstOrDefault() ?? "current.transport_HomeSequence28");
             var fields = receipt.Fields; var stocks = receipt.Resources;
             if (fields.CurrentHex2A != projection.HexId) return Missing("current.transport_source_Hex_projection");
             int? commandCost = ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.ArmyDestruction.TransportCommandCost);
-            int? primary = OwnedArmyLifecycleAuxiliaries.CurrentPlayerPrimaryDistrict(state, world.Context);
+            int? commandDistrict = selected.CommandDistrictId;
+            int? primary = commandDistrict ?? OwnedArmyLifecycleAuxiliaries.CurrentPlayerPrimaryDistrict(state, world.Context);
             if (commandCost is null || primary is not int districtId ||
                 !state.Districts.TryGetValue(districtId, out var district) || district.OrdersRemaining is not int remaining)
                 return Missing("current.transport_command_books");
             //The first player-command leaf uses its actual primary district.
             //The delegated wrapper is separate from this first-player leaf.
-            if (state.Cities[sourceCityId].DistrictId != districtId)
+            if (commandDistrict is null && state.Cities[sourceCityId].DistrictId != districtId)
                 return Missing("current.transport_delegated_source_wrapper");
-            if (remaining - CommandBookAvailability.Reserved(state, districtId) < commandCost.Value)
+            if (commandDistrict is not null && world.Context.ReadPersonDistrictSlot(selected.CommanderPhysical) != commandDistrict)
+                return Missing("current.transport_command_PersonE0");
+            if (commandDistrict is null && remaining - CommandBookAvailability.Reserved(state, districtId) < commandCost.Value)
                 return Missing("transport.insufficient_orders");
             var created = projection with
             {
@@ -77,6 +84,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 NativeMapUiByte13C = fields.MapUiByte13C,
                 NativeCommandControl140 = arena.Slots[fields.NativeSlot].CommandControl140,
                 NativeRouteHold56 = fields.Field56, NativeRouteGoal1F8 = arena.Slots[fields.NativeSlot].RouteGoal1F8,
+                AiActionFlags = arena.Slots[fields.NativeSlot].AiActionFlags,
                 OverrideTarget = fields.OverrideTarget,
                 CarriedStores = new(fields.Gold5C, fields.Supplies60),
                 NativeHomeSequence28 = fields.HomeSequence28,
@@ -93,8 +101,15 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                 return Missing("current.transport_initial_credit14");
             created = created with { March = created.March! with { MovementCredit = initialCredit } };
             CityState source = state.Cities[stocks.SourceCityPhysical];
+            var sourceBase = stocks.SourceBase ?? new BaseReference(BaseKind.City, stocks.SourceCityPhysical);
+            int sourceLocation = world.Context.ReadBaseObjectLink(sourceBase)
+                ?? throw new InvalidDataException("current.transport_source_Base_identity");
             var result = (state with { Cities = new(state.Cities) { [source.Id] = source with
-                    { Troops = stocks.TroopsAfter, Gold = stocks.GoldAfter, Supplies = stocks.SuppliesAfter } },
+                    { Troops = sourceBase.Kind == BaseKind.City ? stocks.TroopsAfter : source.Troops,
+                        Gold = stocks.GoldAfter, Supplies = stocks.SuppliesAfter } },
+                Gates = sourceBase.Kind == BaseKind.Gate
+                    ? new(state.Gates) { [sourceLocation] = state.Gates[sourceLocation] with { Troops = stocks.TroopsAfter } }
+                    : state.Gates,
                 Officers = new(state.Officers) { [person.Id] = person with { Deployed = true,
                     Behavior = OfficerBehaviorSourceAdapter.WithSourceFlags(person.Behavior, OfficerBehaviorSourceAdapter.MarkReturn(flags)),
                     LocationState = location with { Position = OfficerLocationSourceAdapter.DecodePosition(fields.CommanderSecondE4,
@@ -107,12 +122,26 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportCreation
                     TransportRouteSourceAdapter.Write(registered.ResourceState, created.Id, fields.Waypoints2C, fields.Choice41),
                     created.Id, fields.Formation1B, fields.Formation1C, fields.Action37, fields.Category40) }).WithArmyLifecycle(registered.Lifecycle);
             var currentRoute = CaptureWritableTransportRouteCurrent(result);
+            if (receipt.GovernorUpdateReached)
+            {
+                result = OCApplyGovernorTail(result, selected.CommanderPhysical);
+                currentRoute = CaptureWritableTransportRouteCurrent(result);
+            }
             var route = TransportArmyCreationRouteSource.Prepare(result, currentRoute, created);
             if (route.Receipt is not { } initialRoute) return Missing(route.UnresolvedOwner ?? "current.transport_initial_route");
             var routed = created with { March = created.March! with { NextStep =
                 ArmyMarchSourceAdapter.DecodeDestination(initialRoute.WrapperNextHex48Write ?? fields.InitialNextHex48) } };
             result = (result with { Units = new(result.Units) { [created.Id] = routed } }).WithArmyLifecycle(result.ReadArmyLifecycle()! with {
                     Indexes = currentRoute.ReadOwnedCurrentListPool()!.ExportOwnedState() });
+            if (selected.SelectedGroupPurpose is { } purpose)
+            {
+                //The normal request explicitly selected this transport mission.
+                //Only the actual registered creation supplies Army58 and admits
+                //the real group-zero receiver; no global group-zero order exists.
+                var purposeCurrent = CaptureOwnedArmyReturnWorld(result).Context;
+                result = ApplyOriginalAiTransportGroupPurposeCurrent(result, purposeCurrent,
+                    new ArmyUnitReference(fields.NativeSlot), purpose.Target.Id);
+            }
             return new(ArmyIdentityAllocation.Commit(result, created.Id), TransportCreationRevision);
         }
         catch (InvalidDataException error) { return Missing(error.Message); }

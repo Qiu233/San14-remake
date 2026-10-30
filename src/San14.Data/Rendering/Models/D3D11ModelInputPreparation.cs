@@ -9,14 +9,23 @@ namespace San14.Data;
 public sealed record D3D11ModelInputBoundary(int InstanceIndex,uint? DefinitionObjectId,int? DrawIndex,
     string Scope,string Reason);
 public sealed record D3D11ModelViewDraw(int PrimitiveIndex,int InstanceIndex,int DrawIndex,
-    ulong DistanceKey,ulong TableOwner,byte[] Vertex,byte[] Pixel);
+    ulong DistanceKey,ulong TableOwner,byte[] Vertex,byte[] Pixel)
+{
+    public int QueueIndex { get; init; } = 54;
+    public uint MatrixGroupFlags { get; init; }
+}
 public sealed record D3D11ModelViewPlan(IReadOnlyList<int> VisibleInstanceIndices,
     IReadOnlyList<int> VisibleUnsupportedInstanceIndices,IReadOnlyList<D3D11ModelViewDraw> Draws);
 public readonly record struct D3D11SourceModelMapping(int SceneInstanceIndex,int ModelOrdinal,int PrimitiveCount);
 public readonly record struct D3D11SourceModelShadowMapping(int SceneInstanceIndex,int ModelOrdinal,
     int PrimitiveCount,uint Exclusion78,int Flags10C,float OpacityB0);
+public readonly record struct D3D11SourceModelPrimitiveMapping(int SceneInstanceIndex,int DrawIndex,int TemplateIndex,ulong TableOwner);
 public readonly record struct D3D11SourceModelStencilPrimitive(int SceneInstanceIndex,int DrawIndex,
-    uint ExcludedGroups);
+    uint ExcludedGroups)
+{
+    public int QueueIndex { get; init; } = 54;
+    public bool GenericTree2 { get; init; }
+}
 public sealed record D3D11SourceModelShadowTemplate(int TemplateIndex,NamedModelShader FinalTable,
     ModelMatrixBindingInput Matrix,IReadOnlyList<string> VertexLayout);
 
@@ -26,7 +35,8 @@ public sealed record D3D11SourceModelShadowTemplate(int TemplateIndex,NamedModel
 /// Camera belong to the caller. WriteNativeInputs only writes this owner's
 /// prepared bytes. Generated geometry, shaders and textures are private local
 /// cache contents; they are not distributable project assets. This leaf does
-/// not select dynamic city/Army/effect owners, alpha55 or external materials.</summary>
+/// not select dynamic city/Army/effect owners or external materials. Actual Root
+/// Tree2 draws retain their alpha55 and current shared-wind ABI.</summary>
 public sealed class D3D11ModelInputPreparation
 {
     private readonly IReadOnlyDictionary<string,byte[]> files;
@@ -34,13 +44,13 @@ public sealed class D3D11ModelInputPreparation
     private readonly Primitive[] primitives;
     private readonly WorldPrimitiveOrderSource order;
 
-    private D3D11ModelInputPreparation(LoadedSceneResources scene,Dictionary<string,byte[]> preparedFiles,
+    private D3D11ModelInputPreparation(LoadedSceneResources scene,MapStaticModelAssetCatalog sourceAssets,ScenePlacements sourcePlacements,Dictionary<string,byte[]> preparedFiles,
         Instance[] preparedInstances,Primitive[] preparedPrimitives,WorldPrimitiveOrderSource sourceOrder,
         int templateCount,int assetCount,D3D11ModelInputBoundary[] sourceBoundaries,
         IReadOnlyDictionary<int,(uint Exclusion,int Flags,float Opacity)> shadowFields,
         IReadOnlyList<(int Index,NamedModelShader Final,ModelMatrixBindingInput Matrix,string Directory)> shadowTemplates,IReadOnlyDictionary<string,ulong> shaderTableOwners)
     {
-        Scene=scene;files=preparedFiles;instances=preparedInstances;primitives=preparedPrimitives;order=sourceOrder;
+        Scene=scene;SourceAssets=sourceAssets;SourcePlacements=sourcePlacements;files=preparedFiles;instances=preparedInstances;primitives=preparedPrimitives;order=sourceOrder;
         TemplateCount=templateCount;AssetCount=assetCount;Boundaries=Array.AsReadOnly(sourceBoundaries);
         ShaderTableOwners=new System.Collections.ObjectModel.ReadOnlyDictionary<string,ulong>(shaderTableOwners.ToDictionary(p=>p.Key,p=>p.Value,StringComparer.Ordinal));
         SourceModelMappings=Array.AsReadOnly(instances.Select((item,ordinal)=>
@@ -48,14 +58,21 @@ public sealed class D3D11ModelInputPreparation
         SourceShadowMappings=Array.AsReadOnly(instances.Select((item,ordinal)=>
             new D3D11SourceModelShadowMapping(item.Index,ordinal,item.PrimitiveCount,
                 shadowFields[item.Index].Exclusion,shadowFields[item.Index].Flags,shadowFields[item.Index].Opacity)).ToArray());
+        SourcePrimitiveMappings=Array.AsReadOnly(primitives.Select(item=>
+            new D3D11SourceModelPrimitiveMapping(item.InstanceIndex,item.DrawIndex,item.TemplateIndex,item.TableOwner)).ToArray());
         SourceStencilPrimitives=Array.AsReadOnly(primitives.Select(item=>
             new D3D11SourceModelStencilPrimitive(item.InstanceIndex,item.DrawIndex,
-                shadowFields[item.InstanceIndex].Exclusion)).ToArray());
+                shadowFields[item.InstanceIndex].Exclusion)
+                { QueueIndex=item.Profile.QueueIndex,GenericTree2=item.Profile.Tree2 }).ToArray());
         SourceShadowTemplates=Array.AsReadOnly(shadowTemplates.Select(template=>new D3D11SourceModelShadowTemplate(
             template.Index,template.Final,template.Matrix,Array.AsReadOnly(Encoding.UTF8.GetString(
                 files[Normalize(Path.Combine(template.Directory,"layout.txt"))]).Split(['\r','\n'],StringSplitOptions.RemoveEmptyEntries)))).ToArray());
     }
     public LoadedSceneResources Scene{get;}
+    /// <summary>Scene-owned source cache, including each real Model dependency
+    /// registration. Capture and SDF imports borrow this same resource generation.</summary>
+    public MapStaticModelAssetCatalog SourceAssets { get; }
+    public ScenePlacements SourcePlacements { get; }
     public int InstanceCount=>instances.Length;
     public int PrimitiveCount=>primitives.Length;
     public int TemplateCount{get;}
@@ -68,6 +85,7 @@ public sealed class D3D11ModelInputPreparation
     /// <summary>Complete ordinary primitives in the exact encoded model-bank
     /// order. Membership belongs to the View that consumes this generation.</summary>
     public IReadOnlyList<D3D11SourceModelStencilPrimitive> SourceStencilPrimitives{get;}
+    public IReadOnlyList<D3D11SourceModelPrimitiveMapping> SourcePrimitiveMappings { get; }
     public IReadOnlyList<D3D11SourceModelShadowTemplate> SourceShadowTemplates{get;}
     public IReadOnlyList<string> PreparedFilenames=>Array.AsReadOnly(files.Keys.ToArray());
 
@@ -85,12 +103,17 @@ public sealed class D3D11ModelInputPreparation
         if(placements.Scene.Scene.Source.ResourceUri!=scene.Scene.Source.ResourceUri||
             placements.Scene.Scene.Source.DecodedSha256!=scene.Scene.Source.DecodedSha256)
             throw new InvalidDataException("Model placements differ from the selected source scene.");
-        var assets=new MapStaticModelAssetCatalog(repo,scene);
+        var sdfDeclarations = D3D11SdfModelDeclarationPreparation.Load(repo, initialCamera.ExecutableLocale);
+        var assets=new MapStaticModelAssetCatalog(repo,scene,sdfDeclarations);
         var initial=new{Camera=initialCamera};
-        var queue=ModelRendererStateSourceReader.ReadQueue(repo.LoadRenderGraph("system",0x024496EE),54);
+        var graph=repo.LoadRenderGraph("system",0x024496EE);
+        var queue54=ModelRendererStateSourceReader.ReadQueue(graph,54);
+        var queue55=ModelRendererStateSourceReader.ReadQueue(graph,55);
         var shaderObjects=repo.LoadObjects("system",0x718CCB8B);
         var order=WorldPrimitiveOrderSource.LoadDefaultView0(repo);
         var fields=WorldPrimitiveSortDescriptor.ReadActualFields(order.Descriptor(WorldPrimitiveSortFamily.Opaque).ToArray());
+        var alphaFields=WorldPrimitiveSortDescriptor.ReadActualFields(order.Descriptor(WorldPrimitiveSortFamily.Alpha).ToArray());
+        if(!alphaFields.SequenceEqual(new[]{14}))throw new NotSupportedException("Current Model alpha sort is outside source distance14.");
         if(!fields.SequenceEqual(new[]{14,3}))throw new NotSupportedException("Current Model first-bank sort is outside opaque14->3.");
         var common=MapModelNativeVisibilitySources.ReadCommonViewTemplate(
             repo.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId),CommonRenderResources.SourceObjectId);
@@ -114,7 +137,7 @@ public sealed class D3D11ModelInputPreparation
             int index=placement.Source.Index;
             try
             {
-                var asset=assets.LoadSceneInstance(index);
+                var asset=assets.LoadSceneInstance(placement.Source);
                 var publication=freshPublication(placement)??throw new InvalidDataException("Actual fresh static publication is unavailable.");
                 if(publication.FreshConstructorBindPrefix!=true||publication.PrimaryDescriptorPresent!=true||publication.ParentBound!=false||
                     publication.SourceDefaultLocalPoseIsCurrent!=true||publication.CurrentTransform is not null||publication.CurrentPrimitiveLocalRows is not null||
@@ -157,19 +180,45 @@ public sealed class D3D11ModelInputPreparation
                             {
                                 var draw=asset.Draws[drawIndex];_ = G1ModelTriangleReader.Read(asset.RawTransforms.Geometry,draw);
                                 var named=ModelShaderResources.ResolveDrawBaseSource(bindings,drawIndex,shaderObjects);
-                                var selected=ModelShaderResources.ResolveType16Interface(named.Binding.Shader,queue.ShaderStateOffset);
+                                bool tree=named.Binding.Shader.Object.ClassId==0xAB9C4087;
+                                var selected=tree
+                                    ?new ModelShaderInterfaceSource(named.Binding.Shader,18,17,
+                                        ModelShaderResources.ReadDeclaredShader(shaderObjects,named.Binding.Shader.DependencyObjectHashes[17]))
+                                    :ModelShaderResources.ResolveType16Interface(named.Binding.Shader,queue54.ShaderStateOffset);
                                 var provider=selected.Provider??throw new NotSupportedException("Current ordinary18 provider is null.");
                                 var shader=ModelShaderResources.LoadDeclaredG1S(repo,provider);
+                                bool alphaModule=shader.ReadConfigurations().Records.Any(c=>c.Name is "AlphaTest" or "Dissolve");
+                                var queue=tree&&alphaModule?queue55:queue54;
                                 var type17=ModelMatrixBindingSourceReader.PrepareUnboundGroup(bindings,drawIndex)
                                     ??throw new NotSupportedException("Actual primitive needs indexed/nonrigid type17.");
                                 var matrix=ModelMatrixBindingSourceReader.Select(shader,type17);
-                                var selection=ModelShaderSelectionSourceReader.Read(provider,shader);
-                                var selectedPrograms=ModelShaderSelectionSourceReader.ResolveSingleOtherDimensionsInitialized(selection,
-                                    ModelShaderSelectionSourceReader.ReadInitialCache(selection),matrix,0);
-                                int vs=selectedPrograms.Combination.Stages.Single(p=>p.StageCode==1).Entry!.ProgramIndex;
-                                int ps=selectedPrograms.Combination.Stages.Single(p=>p.StageCode==0).Entry!.ProgramIndex;
-                                var ordinary=ModelOrdinaryQueueSelectionSource.ReadFreshSelected(queue,selected,shader);
-                                if(!ordinary.SourceQueueSelectsShader)throw new NotSupportedException("Actual renderer is not selected by opaque54; alpha55 remains outside this catalog.");
+                                G2ShaderCombination combination;
+                                string sourceEvidence;
+                                if(tree)
+                                {
+                                    // This source owner implements the generic Tree2 dispatcher,
+                                    // not the separately authenticated class18 type16 creator.
+                                    var generic=MapProceduralNativeStencilSource.ReadFreshSelected(queue,selected,shader);
+                                    if(!generic.UsesGenericTree2Renderer||shader.Source.FileId!=0xDBB601B0)
+                                        throw new NotSupportedException("Root Tree2 requires its actual noninstanced normal shader.");
+                                    combination=matrix.ResolveCombination(new uint[6],0);
+                                    sourceEvidence=generic.SourceEvidence;
+                                }
+                                else
+                                {
+                                    var selection=ModelShaderSelectionSourceReader.Read(provider,shader);
+                                    combination=ModelShaderSelectionSourceReader.ResolveSingleOtherDimensionsInitialized(selection,
+                                        ModelShaderSelectionSourceReader.ReadInitialCache(selection),matrix,0).Combination;
+                                    var ordinary=ModelOrdinaryQueueSelectionSource.ReadFreshSelected(queue,selected,shader);
+                                    if(!ordinary.SourceQueueSelectsShader)
+                                        throw new NotSupportedException("Actual class18 renderer is not selected by this opaque54 catalog.");
+                                    sourceEvidence=ordinary.SourceEvidence;
+                                }
+                                int vs=combination.Stages.Single(p=>p.StageCode==1).Entry!.ProgramIndex;
+                                int ps=combination.Stages.Single(p=>p.StageCode==0).Entry!.ProgramIndex;
+                                uint groupFlags=type17.UnboundGroupSource!.Flags;
+                                if(tree&&((groupFlags>>1)&15)!=0)
+                                    throw new NotSupportedException("Root Tree2 needs its current shared wind selector producer.");
                                 var material=ModelGbufferMaterialSourceReader.Read(shader,ModelShaderResources.ResolveDrawMaterials(bindings,drawIndex));
                                 var spec=ModelGbufferMaterialSourceReader.PrepareSpecular(material,0);
                                 if(!spec.WritesValue||spec.Value is null||material.MaterialId is null)
@@ -178,7 +227,18 @@ public sealed class D3D11ModelInputPreparation
                                 float? alpha=pd.Buffers.Single().Variables.Any(v=>v.Name.Text=="vATest")?
                                     ModelGbufferMaterialSourceReader.PrepareAlphaTest(material.SourceAlphaReference,queue.BackendAlphaEnabled):null;
                                 var transform=source.DrawTransforms[drawIndex];
-                                byte[] vb=ModelGbufferConstants.Vertex(vd,new byte[160],new(Rows(initial.Camera.SourceWorldToProjection),transform.NormalRows,transform.PositionRows)).Bytes;
+                                byte[] vb;
+                                Tree2MaterialParameters? treeMaterial=null;
+                                if(tree)
+                                {
+                                    Tree2ModelVertexSource.RequireLayout(vd);
+                                    vb=Tree2ModelVertexSource.WriteMatrices(new byte[272],
+                                        new(Rows(initial.Camera.SourceWorldToProjection),transform.NormalRows,transform.PositionRows));
+                                    treeMaterial=ProceduralTree2MaterialSource.Read(material.Draw);
+                                    ProceduralTree2MaterialSource.WriteStatic(vb,treeMaterial.Value);
+                                }
+                                else vb=ModelGbufferConstants.Vertex(vd,new byte[160],
+                                    new(Rows(initial.Camera.SourceWorldToProjection),transform.NormalRows,transform.PositionRows)).Bytes;
                                 byte[] pb=ModelGbufferConstants.Pixel(pd,new byte[80],new(spec.Value.Value,
                                     MapStaticModelTransforms.ToShaderAffineRows(initial.Camera.SourceWorldToView),material.MaterialId.Value,alpha)).Bytes;
                                 string tableKey=named.Binding.Shader.Objects.Source.ResourceUri+"/"+named.Binding.Shader.Object.ObjectId.ToString("X8");
@@ -189,15 +249,21 @@ public sealed class D3D11ModelInputPreparation
                                     table=(ulong)tableOwners.Count+1;tableOwners.Add(tableKey,table);
                                 }
                                 string directory=Path.Combine(output,"assets",$"{placement.Source.Definition.ObjectId:X8}","draw-"+drawIndex);
-                                mediaWriter.WritePacket(directory,Path.GetDirectoryName(directory)!,asset,drawIndex,shader,provider,
-                                    selectedPrograms.Combination.Index,vs,ps,vb,pb,bindings,queue,initial.Camera.Lens.ReverseDepth);
+                                if(tree)
+                                {
+                                    mediaWriter.WriteGeometryAndPrograms(directory,Path.GetDirectoryName(directory)!,asset.RawTransforms.Geometry,
+                                        draw,shader,vs,ps,vb,pb,bindings,queue,initial.Camera.Lens.ReverseDepth);
+                                    mediaWriter.WriteTree2Textures(directory,asset.TextureResources,drawIndex,provider,shader,combination.Index);
+                                }
+                                else mediaWriter.WritePacket(directory,Path.GetDirectoryName(directory)!,asset,drawIndex,shader,provider,
+                                    combination.Index,vs,ps,vb,pb,bindings,queue,initial.Camera.Lens.ReverseDepth);
                                 int template=templates.Count;templates.Add(Path.GetRelativePath(output,directory).Replace('\\','/'));
                                 shadowTemplates.Add((template,named.Binding.Shader,type17,Path.GetRelativePath(output,directory)));
-                                list.Add(new(drawIndex,template,table,vd,pd,spec.Value.Value,material.MaterialId.Value,alpha,inventory.DeclaredDistance,vb,pb));
+                                list.Add(new(drawIndex,template,table,vd,pd,spec.Value.Value,material.MaterialId.Value,alpha,inventory.DeclaredDistance,vb,pb,queue.Node.Index,groupFlags,tree,treeMaterial));
                                 imports.Add(new{definitionObjectId=placement.Source.Definition.ObjectId,model=asset.RawTransforms.Source.ResourceUri,
                                     drawIndex,template,tableKey,ownedTableAllocation=table,shader=shader.Source.ResourceUri,vs,ps,
                                     finalTable=named.Binding.Shader.Object.ObjectId,provider=provider.Object.ObjectId,type17,
-                                    actualDistance=inventory.DeclaredDistance,ordinary.SourceEvidence,
+                                    actualDistance=inventory.DeclaredDistance,SourceEvidence=sourceEvidence,queue=queue.Node.Index,groupFlags,tree,
                                     vertexWrites="mW2P0..63,mL2WT64..111,mL2W112..159",pixelWrites="cSpec0..15,mWV16..63,nMtrID64/68,optionalvATest64"});
                             }
                             catch(Exception error) when(error is InvalidDataException or NotSupportedException)
@@ -212,8 +278,9 @@ public sealed class D3D11ModelInputPreparation
                 foreach(var profile in list)
                 {
                     var transform=source.DrawTransforms[profile.DrawIndex];
-                    byte[] v=ModelGbufferConstants.Vertex(profile.VertexDefinitions,profile.VertexTemplate,
-                        new(Rows(initial.Camera.SourceWorldToProjection),transform.NormalRows,transform.PositionRows)).Bytes;
+                    var rows=new ModelGbufferVertexInputs(Rows(initial.Camera.SourceWorldToProjection),transform.NormalRows,transform.PositionRows);
+                    byte[] v=profile.Tree2?Tree2ModelVertexSource.WriteMatrices(profile.VertexTemplate,rows)
+                        :ModelGbufferConstants.Vertex(profile.VertexDefinitions,profile.VertexTemplate,rows).Bytes;
                     primitives.Add(new(index,profile.DrawIndex,profile.TemplateIndex,profile.TableOwner,v,profile.PixelTemplate.ToArray(),profile));
                 }
                 var distance=list.Count>0?list[0].Distance:ModelPrimitiveInventorySource.LoadStatic(asset).DeclaredDistance;
@@ -225,6 +292,7 @@ public sealed class D3D11ModelInputPreparation
         AddLines(Path.Combine(output,"models.txt"),templates);
         AddText(Path.Combine(output,"catalog.txt"),FormattableString.Invariant($"{instances.Count} {primitives.Count} {templates.Count} {common.Value}\n"));
         AddText(Path.Combine(output,"sort-fields.txt"),string.Join(' ',fields)+"\n");
+        AddText(Path.Combine(output,"sort-fields55.txt"),string.Join(' ',alphaFields)+"\n");
         CaptureBinary(Path.Combine(output,"instances.bin"),writer=>
         {
             foreach(var item in instances)
@@ -238,7 +306,19 @@ public sealed class D3D11ModelInputPreparation
         CaptureBinary(Path.Combine(output,"primitives.bin"),writer=>
         {
             foreach(var item in primitives)
-            {writer.Write(item.InstanceIndex);writer.Write(item.DrawIndex);writer.Write(item.TemplateIndex);writer.Write(item.TableOwner);writer.Write(item.Vertex);writer.Write(item.Pixel);}
+            {writer.Write(item.InstanceIndex);writer.Write(item.DrawIndex);writer.Write(item.TemplateIndex);writer.Write(item.TableOwner);writer.Write(item.Vertex.AsSpan(0,160));writer.Write(item.Pixel);}
+        });
+
+        CaptureBinary(Path.Combine(output,"primitive-profiles.bin"),writer=>
+        {
+            writer.Write(0x3152504Du); // MPR1, compatible extended primitive profiles.
+            writer.Write(1u);writer.Write((uint)primitives.Count);
+            foreach(var item in primitives)
+            {
+                writer.Write((uint)item.Profile.QueueIndex);writer.Write(item.Profile.GroupFlags);
+                writer.Write(item.Profile.Tree2?272u:0u);
+                if(item.Profile.Tree2)writer.Write(item.Vertex);
+            }
         });
 
         AddText(Path.Combine(output,"source.json"),JsonSerializer.Serialize(new{
@@ -246,7 +326,7 @@ public sealed class D3D11ModelInputPreparation
             sceneInstanceCount=scene.Instances.Count,declaredModels=placements.Instances.Count(p=>p.Model is not null),
             excludedEffects=placements.Instances.Where(p=>p.Model is null).Select(p=>p.Source.Index),
             loadedAssets=assets.LoadedAssetCount,instanceCount=instances.Count,primitiveCount=primitives.Count,templateCount=templates.Count,
-            common,sort=new{order.SourceIdentity,fields,tableOwners},imports,boundaries,
+            common,sort=new{order.SourceIdentity,fields,alphaFields,tableOwners},imports,boundaries,
             scope="caller-published fresh static/source LOCAL/unparented; no dynamic owners or external material setter"
         },new JsonSerializerOptions{WriteIndented=true,IncludeFields=true}));
         AddText(Path.Combine(output,"boundaries.json"),JsonSerializer.Serialize(new{boundaries,
@@ -254,7 +334,7 @@ public sealed class D3D11ModelInputPreparation
         AddText(Path.Combine(output,"shadow-source-worlds.json"),JsonSerializer.Serialize(new{
             scope="All source static candidates; caster admission and current per-view/OwnCamera/light gates are separate caller inputs",
             declarations=shadowDeclarations.Values,worlds=shadowWorlds},new JsonSerializerOptions{WriteIndented=true}));
-        return new(scene,files,instances.ToArray(),primitives.ToArray(),order,templates.Count,assets.LoadedAssetCount,
+        return new(scene,assets,placements,files,instances.ToArray(),primitives.ToArray(),order,templates.Count,assets.LoadedAssetCount,
             boundaries.ToArray(),shadowFields,shadowTemplates,tableOwners);
 
         void AddBytes(string path,byte[] bytes)=>files[Normalize(path)]=bytes.ToArray();
@@ -291,7 +371,7 @@ public sealed class D3D11ModelInputPreparation
 
     /// <summary>Pure CPU selection over the loaded source inventory. Used by
     /// callers that need a source plan; it performs no resource reads/hashes.</summary>
-    public D3D11ModelViewPlan PrepareView(MapCameraConstructionPacket camera)
+    public D3D11ModelViewPlan PrepareView(MapCameraConstructionPacket camera,Tree2WindFrameInputs? currentTree2Wind=null)
     {
         ArgumentNullException.ThrowIfNull(camera);
         var planes=TerrainFrustumMath.Create(camera.SourceWorldToProjection,camera.Lens.ReverseDepth);
@@ -306,16 +386,32 @@ public sealed class D3D11ModelInputPreparation
             ulong key=WorldPrimitiveDistanceKey.PrepareFirstCounter(range,distance,item.Distance.RegisterNormalZDistanceBias1A4);
             for(int p=item.FirstPrimitive;p<item.FirstPrimitive+item.PrimitiveCount;p++){insertion.Add(p);keys.Add(p,key);}
         }
-        var sorted=order.Sort(WorldPrimitiveSortFamily.Opaque,insertion,(p,field)=>field==14?keys[p]:primitives[p].TableOwner);
+        var sorted=new[]{WorldPrimitiveSortFamily.Opaque,WorldPrimitiveSortFamily.Alpha}.SelectMany(family=>
+            order.Sort(family,insertion.Where(p=>(primitives[p].Profile.QueueIndex==55)==(family==WorldPrimitiveSortFamily.Alpha)).ToArray(),
+                (p,field)=>field==14?keys[p]:primitives[p].TableOwner)).ToArray();
         var draws=new List<D3D11ModelViewDraw>();
         foreach(int p in sorted)
         {
             var item=primitives[p];var profile=item.Profile;
-            var v=ModelGbufferConstants.Vertex(profile.VertexDefinitions,item.Vertex,new(Rows(camera.SourceWorldToProjection),
-                FloatRows(item.Vertex,64,12),FloatRows(item.Vertex,112,12))).Bytes;
+            var rows=new ModelGbufferVertexInputs(Rows(camera.SourceWorldToProjection),
+                FloatRows(item.Vertex,64,12),FloatRows(item.Vertex,112,12));
+            byte[] v;
+            if(profile.Tree2)
+            {
+                if(currentTree2Wind is not { } wind)
+                    throw new NotSupportedException("Root Tree2 CPU view plan requires the actual current shared wind frame.");
+                if(wind.WindSelector!=(int)((profile.GroupFlags>>1)&15))
+                    throw new InvalidDataException("Root Tree2 current wind selector differs from its matrix group.");
+                v=Tree2ModelVertexSource.WriteMatrices(item.Vertex,rows);
+                // Material values are retained in the source template. Current
+                // wind writes are supplied by the actual shared View owner.
+                Tree2WindFrameSource.WriteVsParameters(v,wind,profile.TreeMaterial!.Value);
+            }
+            else v=ModelGbufferConstants.Vertex(profile.VertexDefinitions,item.Vertex,rows).Bytes;
             var b=ModelGbufferConstants.Pixel(profile.PixelDefinitions,item.Pixel,new(profile.Specular,
                 MapStaticModelTransforms.ToShaderAffineRows(camera.SourceWorldToView),profile.MaterialId,profile.Alpha)).Bytes;
-            draws.Add(new(p,item.InstanceIndex,item.DrawIndex,keys[p],item.TableOwner,v,b));
+            draws.Add(new(p,item.InstanceIndex,item.DrawIndex,keys[p],item.TableOwner,v,b)
+                { QueueIndex=profile.QueueIndex,MatrixGroupFlags=profile.GroupFlags });
         }
         return new(Array.AsReadOnly(visible.Select(i=>i.Index).ToArray()),
             Array.AsReadOnly(visible.Where(i=>i.HasUnsupported).Select(i=>i.Index).ToArray()),draws.AsReadOnly());
@@ -331,7 +427,7 @@ public sealed class D3D11ModelInputPreparation
             throw new NotSupportedException(role+" is not its exact empty original typed array; real material override producer required.");
     }
     record Profile(int DrawIndex,int TemplateIndex,ulong TableOwner,DxbcResourceDefinitions VertexDefinitions,DxbcResourceDefinitions PixelDefinitions,
-        Vector4 Specular,int MaterialId,float? Alpha,WorldPrimitiveModelDistance Distance,byte[] VertexTemplate,byte[] PixelTemplate);
+        Vector4 Specular,int MaterialId,float? Alpha,WorldPrimitiveModelDistance Distance,byte[] VertexTemplate,byte[] PixelTemplate,int QueueIndex,uint GroupFlags,bool Tree2,Tree2MaterialParameters? TreeMaterial);
     record Instance(int Index,uint Mode,MapModelNativeOrientedBounds Bounds,int FirstPrimitive,int PrimitiveCount,bool HasUnsupported,
         WorldPrimitiveModelDistance Distance);
     record Primitive(int InstanceIndex,int DrawIndex,int TemplateIndex,ulong TableOwner,byte[] Vertex,byte[] Pixel,Profile Profile);

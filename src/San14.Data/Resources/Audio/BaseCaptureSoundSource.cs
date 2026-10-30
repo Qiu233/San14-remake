@@ -62,10 +62,10 @@ public static class BaseCaptureSoundSource
         for (int i = 0; i < 4; i++)
         {
             int leaf = checked(group + (int)U(leafTable + i * 4));
-            if (U(leaf) != 0x941ECC07 || U(leaf + 4) != 0x4C || U(leaf + 12) != 0x10000 ||
+            if (U(leaf) != 0x941ECC07 || U(leaf + 4) != 0x4C || (U(leaf + 12) & ~0x7000u) != 0x10000 ||
                 U(leaf + 16) != 0 || F(leaf + 28) != 0 || F(leaf + 36) != 1 ||
                 F(leaf + 44) != 0 || F(leaf + 48) != 0 || F(leaf + 52) != 0 ||
-                F(leaf + 56) != 0 || U(leaf + 60) != 0 || U(leaf + 64) != 0)
+                U(leaf + 60) != 0 || U(leaf + 64) != 0)
                 throw new NotSupportedException("Base capture cue requires an unsupported sample scheduling branch.");
             float gain = groupGain * F(leaf + 32), rate = MathF.Pow(2, F(leaf + 40));
             if (!float.IsFinite(gain) || gain < 0 || !float.IsFinite(rate) || rate <= 0)
@@ -75,7 +75,9 @@ public static class BaseCaptureSoundSource
             //guessing a fade/stop interpretation in this resource reader.
             var tail = new Vector2(F(leaf + 68), F(leaf + 72));
             var input = MapTerritorySoundSource.SelectInternal(bank, U(leaf + 20));
-            layers.Add(new(new(input, gain, rate, distanceGain), tail));
+            layers.Add(new(new(input, gain, rate, distanceGain) { SourceCenterGain = Math.Clamp(F(leaf + 56), 0f, 1f),
+                    SourceChannelMask = MapTerritorySoundSource.ReadSpatialChannelMask(bank, U(leaf + 20), U(leaf + 24)),
+                    SourceSpatialModeFlags = U(leaf + 12) & 0x7000u }, tail));
         }
         return new(new(SelectionBankId, null, name, AudioLoopPolicy.Disabled), layers.AsReadOnly());
     }

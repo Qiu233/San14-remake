@@ -98,12 +98,14 @@ public sealed partial class GameSimulation
         if (operation == MonthlyMaintenanceOperation.EmperorSceneEnter)
         {
             if (scene.EventKind is not (6 or 45 or 55) ||
-                expectedSource == CampaignEffectSource.ArmyBattleDefeat && scene.EventKind != 55) return false;
+                expectedSource == CampaignEffectSource.ArmyBattleDefeat && scene.EventKind is not (45 or 55) ||
+                expectedSource == CampaignEffectSource.DiplomacyCommands && scene.EventKind != 55) return false;
             active = new(MonthlySceneFamily.Emperor, scene.EventKind.Value);
         }
         else
         {
-            if (scene.EventKind is not null || owner.ActiveMonthlyScene?.Family != MonthlySceneFamily.Emperor) return false;
+            if (scene.EventKind is not null || owner.ActiveMonthlyScene?.Family != MonthlySceneFamily.Emperor ||
+                expectedSource == CampaignEffectSource.DiplomacyCommands && owner.ActiveMonthlyScene.EventKind != 55) return false;
             active = null;
         }
         CompleteSourcePresentationHead(owner, pending, effects, batch, requestIndex, active, owner.CoalitionCameraPresentation);
@@ -111,7 +113,7 @@ public sealed partial class GameSimulation
     }
 
     private static bool TerminalSource(CampaignEffectSource source) =>
-        source is CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.ArmyBattleDefeat;
+        source is CampaignEffectSource.MonthlyMaintenance or CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.DiplomacyCommands;
 
     private bool TryReadSourcePresentationHead(GameState expectedOwner, CampaignEffectSource expectedSource,
         long batchSequence, int requestIndex, out GameState owner, out NormalPeriodOperation? pending,

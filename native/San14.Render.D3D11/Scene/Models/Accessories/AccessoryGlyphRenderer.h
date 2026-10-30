@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <array>
@@ -17,7 +18,7 @@ namespace accessory_glyph {
 using Microsoft::WRL::ComPtr;
 inline void check(HRESULT hr) { if (FAILED(hr)) throw std::runtime_error("accessory glyph D3D11 allocation/draw setup failed"); }
 inline std::vector<uint8_t> read(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary|std::ios::ate);
+    NativePreparedInputFile stream(path,std::ios::binary|std::ios::ate);
     if(!stream) throw std::runtime_error("accessory glyph input file missing");
     auto size=stream.tellg(); std::vector<uint8_t> bytes(static_cast<size_t>(size));
     stream.seekg(0);stream.read(reinterpret_cast<char*>(bytes.data()),size);

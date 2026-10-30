@@ -1,131 +1,209 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 using San14.Client.Gameplay;
 
-/// <summary>Selections are local to this publication. Only the owner can quote
-/// or confirm a transfer through the shared personnel command rules.</summary>
+internal sealed record PersonnelItemPageValues(PersonnelItemSelection? Selection, string ItemName,
+    int? ItemImageIndex, LoadedSprite? HolderPortrait, AreaAdministrationOfficerValues Target,
+    IReadOnlyDictionary<int, string> Text, IReadOnlyDictionary<int, bool> Visible,
+    bool CanChooseItem, bool CanChooseTarget, bool CanSubmit, string Guide)
+{
+    internal int? TargetLoyaltyAfter { get; init; }
+    internal int? TargetOfficerId { get; init; }
+}
+
+/// <summary>The ordinary item-transfer command body. Its owner supplies the
+/// retained draft and real quote; this view never calculates a transfer.</summary>
 internal partial class PersonnelItemPage : Control
 {
-    private AdministrationPageChrome? chrome;
-    private PersonnelCommandView source = null!;
+    private AdministrationPageChrome chrome = null!;
+    private UiSourceLayout source = null!;
+    private UiSourceCommandButton item = null!;
+    private AreaAdministrationOfficerView target = null!;
+    private Control itemImage = null!, holderFace = null!;
+    private readonly Dictionary<int, UiSourceText> fields = [];
+    private readonly List<(int Node, Control View)> body = [];
+    private GameResourceRepository repository = null!;
     private PreviewText ui = null!;
-    private OptionButton? mode;
-    private ItemList? inventory, recipients;
-    private UiSourceText holder = null!, cost = null!, loyalty = null!, status = null!;
-    private Action<PersonnelItemSelection?>? changed;
-    private PersonnelItemEvaluationView? evaluation;
+    private PersonnelItemPageValues? publication;
+    private Func<bool>? current;
+    private Action? returned, accepted;
+    private Texture2D? externalItemTexture;
+    private LoadedSprite? currentPortrait;
+    private int? currentImageIndex;
     private bool busy, abandoned;
+    private static readonly Vector2 Mount = new(464, 235);
 
-    internal PersonnelItemSelection? Selection
-    {
-        get
-        {
-            int item = inventory?.GetSelectedItems().FirstOrDefault(-1) ?? -1;
-            if ((uint)item >= (uint)source.Items.Count) return null;
-            bool revoke = mode?.GetSelectedId() == 1;
-            int officer = recipients?.GetSelectedItems().FirstOrDefault(-1) ?? -1;
-            int? recipient = revoke ? source.Items[item].HolderOfficerId :
-                officer >= 0 ? recipients!.GetItemMetadata(officer).AsInt32() : null;
-            return new(source.Items[item].Id, recipient, revoke);
-        }
-    }
+    internal PersonnelItemSelection? Selection => publication?.Selection;
+    internal AdministrationPageChrome.Resources SharedResources => new(chrome.Assets, chrome.Font, chrome.SpriteShader);
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, Theme theme,
-        PersonnelCommandView model, Action returned, Action accepted, Action<PersonnelItemSelection?> changed)
+    internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> current,
+        Action returned, Action accepted, Action chooseItem, Action chooseTarget)
     {
-        source = model; ui = text; this.changed = changed;
+        this.repository = repository; ui = text; this.current = current;
+        this.returned = returned; this.accepted = accepted;
         Name = "PersonnelItemPage"; MouseFilter = MouseFilterEnum.Stop; ZIndex = 3;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        chrome = new AdministrationPageChrome(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x223, returned, accepted);
-        chrome.ApplyTitle(text.Get("play_personnel_items_title"));
-        chrome.ApplyDefaultHint(text.Get("play_personnel_items_hint"));
-        var layout = new UiSourceLayout(repository, 0xAB6ADAA7);
-        var profile = MapFontProfile.FromNode(layout.Nodes.Single(node => node.Type == 2),
-            layout.Source.Source.ResourceUri).WithPreset(MapTextPresets.Create()[13]);
-        Line("PersonnelItemsCaption", text.Get("play_personnel_items_inventory"), new(320, 170));
-        mode = new OptionButton { Name = "PersonnelItemMode", Position = new(1120, 160), Size = new(400, 40), Theme = theme };
-        chrome.Canvas.AddChild(mode);
-        mode.AddItem(text.Get("play_personnel_grant"), 0); mode.AddItem(text.Get("play_personnel_revoke"), 1);
-        mode.ItemSelected += _ => { if (!busy && !abandoned) { RenderRecipients(); NotifyChanged(); } };
-        inventory = List("PersonnelItemInventory", new(320, 230), new(680, 420));
-        foreach (var item in model.Items)
-            inventory.AddItem(text.Format("play_personnel_items_row", item.Name, item.HolderName ?? text.Get("detail_unknown")));
-        inventory.ItemSelected += _ => NotifyChanged();
-        if (inventory.ItemCount > 0) inventory.Select(0);
-        Line("PersonnelItemRecipientCaption", text.Get("play_personnel_officer"), new(1120, 220));
-        recipients = List("PersonnelItemRecipients", new(1120, 270), new(600, 250));
-        recipients.ItemSelected += _ => NotifyChanged();
-        holder = Line("PersonnelItemHolder", "", new(320, 690));
-        cost = Line("PersonnelItemCost", "", new(1120, 560));
-        loyalty = Line("PersonnelItemLoyalty", "", new(1120, 610));
-        status = Line("PersonnelItemEvaluation", "", new(1120, 680));
-        Line("PersonnelItemCount", model.InventoryKnown ? text.Format("play_personnel_items_count", model.Items.Count) :
-            text.Get("play_personnel_inventory_unknown"), new(320, 740));
-        RenderRecipients(); NotifyChanged();
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
+        chrome = new(); AddChild(chrome);
+        chrome.Configure(repository, text, 0x246, RequestBack, RequestApply);
+        chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
+        source = new(repository, 0x49D2E4C6);
+        foreach (var node in source.Nodes)
+        {
+            if (node.Index == 7)
+            {
+                Rect2 box = source.Rectangle(7, Mount);
+                item = new() { Name = "ChoosePersonnelItem", Position = box.Position, Size = box.Size,
+                    InputAdmission = Admitted };
+                chrome.Canvas.AddChild(item);
+                item.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, "",
+                    () => { if (Admitted() && publication?.CanChooseItem == true) chooseItem(); });
+                continue;
+            }
+            if (node.Index == 14)
+            {
+                itemImage = new() { Name = "PersonnelItemImage", Position = source.Rectangle(14, Mount).Position,
+                    Size = source.Rectangle(14, Mount).Size, MouseFilter = MouseFilterEnum.Ignore };
+                chrome.Canvas.AddChild(itemImage); continue;
+            }
+            if (node.Index == 26)
+            {
+                holderFace = new() { Name = "PersonnelItemHolderPortrait", Position = source.Rectangle(26, Mount).Position,
+                    Size = source.Rectangle(26, Mount).Size, MouseFilter = MouseFilterEnum.Ignore };
+                chrome.Canvas.AddChild(holderFace); continue;
+            }
+            if (node.Index == 47)
+            {
+                target = new() { Name = "PersonnelItemTargetCard", Position = source.Rectangle(47, Mount).Position };
+                chrome.Canvas.AddChild(target);
+                target.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, text,
+                    () => { if (Admitted() && publication?.CanChooseTarget == true) chooseTarget(); }, chrome.Canvas);
+                continue;
+            }
+            if (Replaced(node.Index)) continue;
+            if (node.Type is 1 or 3)
+                body.Add((node.Index, source.Art(chrome.Canvas, node.Index, source.Rectangle(node.Index, Mount),
+                    chrome.Assets, chrome.SpriteShader)));
+            else if (node.Type == 6)
+                body.Add((node.Index, source.Blur(chrome.Canvas, node.Index, source.Rectangle(node.Index, Mount))));
+        }
+        var presets = MapTextPresets.Create();
+        foreach (var (node, caption) in new[] { (4, 0x246), (16, 0x452), (18, 0x411), (23, 0x425),
+            (36, 0x21D), (45, 0x542), (112, 0x21D), (122, 0x292) })
+            Field(node, Message(caption), presets[13]);
+        foreach (int node in new[] { 17, 19, 20, 24, 29, 30, 32, 33, 34, 37, 39, 40, 41,
+            113, 115, 116, 117, 124, 126, 127 })
+            Field(node, "", presets[node == 29 ? 13 : 0]);
+        foreach (int node in new[] { 31, 38, 112, 114 })
+            foreach (var entry in body.Where(entry => Within(entry.Node, node))) entry.View.Hide();
+        ApplyImage(999);
+        target.Apply(new(null, null, null, null, null), false);
+        chrome.ApplyDefaultHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x5869));
+        SetMeta("source_layout", source.Source.Source.ResourceUri);
+        SetMeta("source_mount_node", 0); RefreshAdmission();
 
-        ItemList List(string name, Vector2 position, Vector2 size)
+        void Field(int node, string value, MapTextPreset preset)
         {
-            var list = new ItemList { Name = name, Position = position, Size = size, Theme = theme };
-            chrome.Canvas.AddChild(list); return list;
-        }
-        UiSourceText Line(string name, string value, Vector2 position)
-        {
-            var line = new UiSourceText { Name = name, Position = position, Size = new(680, 36) };
-            chrome.Canvas.AddChild(line); line.Configure(chrome.Font, profile); line.Text = value; return line;
+            var label = source.Text(chrome.Canvas, node, Mount, value, chrome.Font, preset);
+            label.Name = "PersonnelItemField" + node;
+            fields.Add(node, label); body.Add((node, label));
         }
     }
 
-    private void RenderRecipients()
+    internal void Apply(PersonnelItemPageValues value)
     {
-        if (recipients is null) return;
-        int old = recipients.GetSelectedItems().FirstOrDefault(-1);
-        int? oldId = old >= 0 ? recipients.GetItemMetadata(old).AsInt32() : null;
-        recipients.Clear();
-        foreach (var officer in source.Officers.Where(person => person.Id != source.RulerId))
+        if (abandoned) return;
+        publication = value;
+        item.Caption = value.ItemName;
+        foreach (var (node, label) in fields)
+            if (value.Text.TryGetValue(node, out var text)) label.SetKnownColourLine(text);
+        fields[115].Configure(chrome.Font, MapFontProfile.FromNode(source.Nodes[115], source.Source.Source.ResourceUri)
+            .WithPreset(MapTextPresets.Create()[value.TargetLoyaltyAfter is >= 100 ? 17 : 0]));
+        foreach (var entry in body)
         {
-            recipients.AddItem(ui.Format("play_personnel_items_officer", officer.Name,
-                officer.Loyalty?.ToString() ?? ui.Get("detail_unknown")));
-            int row = recipients.ItemCount - 1; recipients.SetItemMetadata(row, officer.Id);
-            if (officer.Id == oldId) recipients.Select(row);
+            bool visible = true;
+            for (int? index = entry.Node; index is int at; index = source.Nodes[at].ParentIndex)
+                if (value.Visible.TryGetValue(at, out bool shown) && !shown) { visible = false; break; }
+            entry.View.Visible = visible;
         }
-        if (recipients.ItemCount > 0 && recipients.GetSelectedItems().Length == 0) recipients.Select(0);
-    }
-    private void NotifyChanged()
-    {
-        if (busy || abandoned) return;
-        var selected = Selection;
-        var item = selected is null ? null : source.FindItem(selected.ItemId);
-        holder.Text = ui.Format("play_personnel_items_holder", item?.HolderName ?? ui.Get("detail_unknown"));
-        changed?.Invoke(selected); RefreshEditors();
-    }
-    internal void ApplyEvaluation(PersonnelItemEvaluationView value)
-    {
-        evaluation = value;
-        cost.Text = ui.Format("play_personnel_confirm_cost", value.CommandBooks?.ToString() ?? ui.Get("detail_unknown"),
-            value.Gold?.ToString() ?? ui.Get("detail_unknown"));
-        loyalty.Text = ui.Format("play_personnel_confirm_loyalty", value.LoyaltyBefore?.ToString() ?? ui.Get("detail_unknown"),
-            value.LoyaltyAfter?.ToString() ?? ui.Get("detail_unknown"));
-        status.Text = value.Status; RefreshEditors();
-    }
-    internal void SetBusy(bool value) { busy = value; RefreshEditors(); }
-    internal void ApplyHint(string value) => chrome?.ApplyDefaultHint(value);
-    private void RefreshEditors()
-    {
-        bool blocked = busy || abandoned || !source.CanIssue;
-        chrome?.ApplyReturn(!busy); chrome?.ApplyDecision(!blocked && evaluation is { Allowed: true } && Selection is not null, true);
-        if (mode is not null) mode.Disabled = blocked;
-        if (inventory is not null)
+        ApplyImage(value.ItemImageIndex ?? 999);
+        if (!ReferenceEquals(currentPortrait, value.HolderPortrait))
         {
-            inventory.MouseFilter = blocked ? MouseFilterEnum.Ignore : MouseFilterEnum.Stop;
-            inventory.FocusMode = blocked ? FocusModeEnum.None : FocusModeEnum.All;
+            Clear(holderFace); currentPortrait = value.HolderPortrait;
+            if (currentPortrait is { } portrait)
+            {
+                var face = new UiSourcePortrait { Name = "ItemHolderFacePane", Size = holderFace.Size };
+                holderFace.AddChild(face);
+                face.ConfigureLayoutPane(repository, chrome.Assets, chrome.SpriteShader, portrait, source, 26);
+            }
         }
-        if (recipients is not null)
-        {
-            recipients.Visible = mode?.GetSelectedId() != 1;
-            recipients.MouseFilter = blocked ? MouseFilterEnum.Ignore : MouseFilterEnum.Stop;
-            recipients.FocusMode = blocked ? FocusModeEnum.None : FocusModeEnum.All;
-        }
+        // 85A230(NULL) hides the actual face pane; frame27 remains authored art.
+        holderFace.Visible = value.HolderPortrait is not null;
+        target.Apply(value.Target, !busy && value.CanChooseTarget);
+        chrome.ApplyDefaultHint(value.Guide); RefreshAdmission();
+        if (value.Selection is { } selected) SetMeta("item_id", selected.ItemId);
+        else RemoveMeta("item_id");
+        if (value.TargetOfficerId is int person) SetMeta("target_officer_id", person);
+        else RemoveMeta("target_officer_id");
     }
-    internal void Abandon() { abandoned = true; changed = null; SetBusy(true); chrome?.Abandon(); Hide(); }
+
+    private void ApplyImage(int index)
+    {
+        if (currentImageIndex == index) return;
+        Clear(itemImage); externalItemTexture?.Dispose(); externalItemTexture = null;
+        currentImageIndex = index;
+        if (itemImage.HasMeta("unresolved_owner")) itemImage.RemoveMeta("unresolved_owner");
+        if (index == 0) return; // The authored item image has a known empty slot.
+        Rect2 box = new(Vector2.Zero, itemImage.Size);
+        if (index is >= 201 and <= 401)
+        {
+            var custom = ItemEditorExternalImages.ReadImage(index);
+            if (custom.Texture is { } pixels)
+            {
+                using var image = Image.CreateFromData(pixels.Width, pixels.Height, false, Image.Format.Rgba8, pixels.Pixels);
+                externalItemTexture = ImageTexture.CreateFromImage(image);
+                itemImage.AddChild(new TextureRect { Name = "ItemArtwork", Size = box.Size, Texture = externalItemTexture,
+                    ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize, StretchMode = TextureRect.StretchModeEnum.Scale,
+                    MouseFilter = MouseFilterEnum.Ignore });
+                return;
+            }
+            itemImage.SetMeta("unresolved_owner", custom.Error ?? "information.Item.external_image_slot");
+            index = 999;
+        }
+        var route = CollectionImageRoute.ForItem(index);
+        source.Art(itemImage, 14, box, chrome.Assets, chrome.SpriteShader,
+            commonTexturePack: route.TexturePack, commonSpriteOverride: route.SpriteName);
+    }
+
+    private static void Clear(Control parent)
+    {
+        foreach (Node child in parent.GetChildren()) { parent.RemoveChild(child); child.QueueFree(); }
+    }
+    private bool Within(int node, int root)
+    {
+        for (int? index = node; index is int at; index = source.Nodes[at].ParentIndex)
+            if (at == root) return true;
+        return false;
+    }
+    private bool Replaced(int node) => Within(node, 7) || Within(node, 14) || Within(node, 26) || Within(node, 47);
+    private string Message(int id) => repository.LoadMessages(ui.SourceLocale, San14.Data.Formats.MessageKind.Data)
+        .Messages.Sections[1].Records[id].Text ?? throw new InvalidDataException($"Missing Item command caption {id:X}.");
+    private bool Admitted() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (current?.Invoke() ?? false);
+    private void RefreshAdmission()
+    {
+        item.Disabled = busy || publication?.CanChooseItem != true;
+        chrome.ApplyReturn(!busy); chrome.ApplyDecision(!busy && publication?.CanSubmit == true, true);
+    }
+    internal void SetBusy(bool value)
+    { busy = value; if (publication is { } page) target.Apply(page.Target, !busy && page.CanChooseTarget); RefreshAdmission(); }
+    internal void ApplyHint(string value) => chrome.ApplyDefaultHint(value);
+    internal void RequestBack() { if (Admitted()) returned?.Invoke(); }
+    private void RequestApply() { if (Admitted() && publication?.CanSubmit == true) accepted?.Invoke(); }
+    internal void Abandon()
+    {
+        abandoned = true; current = null; returned = null; accepted = null; publication = null;
+        item?.Abandon(); target?.Abandon(); chrome?.Abandon(); Hide();
+    }
+    public override void _ExitTree() { externalItemTexture?.Dispose(); externalItemTexture = null; }
 }

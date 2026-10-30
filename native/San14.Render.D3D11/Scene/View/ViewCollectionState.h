@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../Models/CityModelAdmission.h"
 #include <array>
 #include <filesystem>
@@ -9,7 +10,7 @@
 namespace San14::Render {
 struct ModelCollectionMasks {std::uint32_t first{},second{},shadow{};};
 inline ModelCollectionMasks readModelCollectionMasks(const std::filesystem::path& path) {
-    std::ifstream input(path);ModelCollectionMasks result;std::string extra;
+    NativePreparedInputFile input(path);ModelCollectionMasks result;std::string extra;
     if(!(input>>result.first>>result.second>>result.shadow)||(input>>extra))
         throw std::runtime_error("Model collection task masks absent or malformed");
     return result;

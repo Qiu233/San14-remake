@@ -46,15 +46,12 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             ? current.ResolveDimension(state, target.OfficerId, 0)
             : abilities.Resolve(state, target.OfficerId)?.Leadership;
         BattleUnitCommonParameters? commonParameters = CommonParameters(state);
-        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals
-                ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
-            moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals
-                ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor);
+        var moraleCoefficients = reached.MoraleCoefficients;
         float? terrain = TerrainFactor(state, formation, reached.NativeTerrainCode);
-        if (leadership is null || commonParameters is null || moraleOffset is null || moraleDivisor is not > 0 || terrain is null)
+        if (leadership is null || commonParameters is null || moraleCoefficients.Divisor <= 0 || terrain is null)
             return null;
         float common = BattleUnitSourceMath.CommonFactor(new(leadership.Value, target.Troops, 1,
-            reached.CappedNativeMorale, true, native.Abnormal23 != 0, moraleOffset.Value, moraleDivisor.Value,
+            reached.CappedNativeMorale, true, native.Abnormal23 != 0, moraleCoefficients.Offset, moraleCoefficients.Divisor,
             reached.RegionFactor, terrain.Value, reached.NeighborFactor), commonParameters);
 
         //Transport also traverses26A740; only its following type1 sum is

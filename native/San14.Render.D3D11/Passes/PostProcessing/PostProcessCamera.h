@@ -1,6 +1,7 @@
 // Original EB7BF8 current-camera LensProjection and exact post named CB fields.
 // CPU only. Prepare fixed loaded source/light once; update before post Begin.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cmath>
@@ -23,7 +24,7 @@ struct NativeNormalPostCameraProjection {
     bool sourceValid{},selectedLightPresent{};
 };
 inline NativeNormalPostCamera prepareNativeNormalPostCamera(const std::filesystem::path& source) {
-    NativeNormalPostCamera result;std::ifstream input(source/"projection-profile.bin",std::ios::binary);
+    NativeNormalPostCamera result;NativePreparedInputFile input(source/"projection-profile.bin",std::ios::binary);
     input.read(reinterpret_cast<char*>(&result.threshold),4);input.read(reinterpret_cast<char*>(&result.limit),4);
     input.read(reinterpret_cast<char*>(&result.epsilon),4);input.read(reinterpret_cast<char*>(&result.scale),4);
     input.read(reinterpret_cast<char*>(result.absentLightProjection.data()),16);

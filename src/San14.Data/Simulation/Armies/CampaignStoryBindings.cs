@@ -16,6 +16,7 @@ public sealed class CampaignStoryBindings(IS14AudioEventExecutionState audio, Tr
     public bool? SkipCamera { get; } = skipCamera;
     public TransferModeState? ExternalMode { get; } = externalMode;
     public bool? ApplicationPresent { get; } = applicationPresent;
+    public bool? ModalParentPresent { get; init; }
     public int? ApplicationUserIndex { get; } = applicationUserIndex;
     public CampaignCameraSnapshot CaptureCamera() => captureCamera?.Invoke() ?? throw new InvalidDataException("Story caller requires its actual campaign camera snapshot.");
     private readonly CampaignServiceProfileOperation service = new(profile);

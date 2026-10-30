@@ -62,7 +62,10 @@ internal sealed class TransportTargetPresenter : IDisposable
         view.ApplyTransportResources(amounts.RemainingTroops, amounts.RemainingGold, amounts.RemainingSupplies,
             setup.CommandBooks, setup.CommandBooksAfter, setup.CommandBookCost);
         view.RegisterHeader(headers); view.ConfigureSourceRoute(repository, projectMarker);
+        view.ConfigureReturnHint(new AdministrationMessages(repository,text.SourceLocale).Format(0x2733),Admitted);
         options = new TransportTargetOptionsView(); view.AddPolicyPanel(options);
+        options.InputAdmission=Admitted;
+        options.HintChanged=hint=>{if(Admitted())view.ApplyHint(hint);};
         options.Configure(repository, text, ChangeOption, SaveDefaults); RestoreOptions(); Refresh();
     }
     private bool Admitted() => !disposed && current() && confirmation is null;
@@ -103,7 +106,21 @@ internal sealed class TransportTargetPresenter : IDisposable
                     if (option.Action is not { } action) return;
                     var route = March(target);
                     savedSegments=segments.Append(route).ToArray();
-                    Draft.Assign(action, target, segments.Count == 0 ? route.Days : null);
+                    int? days = null;
+                    if (savedSegments.All(segment => segment.Status == DeploymentDraftRouteStatus.Found && segment.Path is not null))
+                    {
+                        //Each source segment omits exactly its last point;
+                        //integrate the assembled list once, never sum rounded days.
+                        var etaPath = savedSegments.SelectMany(segment =>
+                        {
+                            var path = segment.Path!;
+                            return path.Take(path.Count - 1);
+                        }).ToArray();
+                        var eta = routeQuery.QueryEta(etaPath);
+                        days = eta.Days;
+                        if (eta.UnresolvedInput is { } missing) unavailable(missing);
+                    }
+                    Draft.Assign(action, target, days);
                     segments.Clear();candidateSegment=null;routePublicationDirty=true; previewHex = null; Refresh();
                 }, option.WaypointOrdinal)).ToArray();
         if (entries.Length == 0) return;
@@ -184,6 +201,16 @@ internal sealed class TransportTargetPresenter : IDisposable
             Draft.SourceBehaviorChoice is not int behavior || behavior is < 1 or > 2) return;
         if (saveDefaults(returns, behavior, replacement =>
             {world=replacement;routeQuery=rules.CreateTransportDraftRouteQuery(world,source,Draft.Selection.OfficerId,Draft.Selection.Troops,Draft.Selection.NavalFormationId);})) RefreshOptions();
+    }
+    internal void AcceptPresentationWorld(GameState previous, GameState replacement)
+    {
+        if (disposed || !ReferenceEquals(world, previous))
+            throw new InvalidOperationException("Transport Target belongs to another world.");
+        world = replacement;
+        routeQuery = rules.CreateTransportDraftRouteQuery(world, source, Draft.Selection.OfficerId,
+            Draft.Selection.Troops, Draft.Selection.NavalFormationId);
+        // Keep the current menu, confirmation, edited options, waypoints and
+        // published route segments. Pure speech does not change those facts.
     }
     internal void HoverTarget(int? hex)
     {

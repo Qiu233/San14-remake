@@ -4,7 +4,8 @@ using San14.Data;
 
 /// <summary>Loaded Field and detached owned campaign to the complete current
 /// static CPU population. Normal initial descriptors use this locale's actual
-/// postload source and remain owned across dates. A changed city or facility without its writer fails explicitly;
+/// postload source and remain owned across dates. Current facilities reuse
+/// the real Object/connection presentation source; missing writers fail explicitly.
 /// this owner never fills the population with arbitrary undamaged models.</summary>
 public sealed class SceneViewNativeMapCpuSourceOwner
 {
@@ -13,12 +14,14 @@ public sealed class SceneViewNativeMapCpuSourceOwner
     private readonly LoadedMap map;
     private readonly MapStaticModelCurrentOwnedPopulation population;
     private readonly MapStaticModelGroundHeightSource ground;
+    private readonly UnitGeometry geometry;
     private readonly CityVisualOpeningEvidence? opening;
     private readonly CityVisualDescriptorOwner? cityDescriptors;
     private readonly MapStaticModelOwnedGateDefinition[] gates;
     private bool valid = true;
     public string SourceRevision { get; }
     public MapStaticModelAssetCatalog Assets => population.Assets;
+    public LoadedReflectionSceneRootSource SceneRoot {get;}
 
     private SceneViewNativeMapCpuSourceOwner(SceneViewNativeMapLoadInputs loaded,
         string viewIdentity, string revision, string? openingDescriptorJson)
@@ -41,13 +44,22 @@ public sealed class SceneViewNativeMapCpuSourceOwner
             variants).CreateCurrentDescriptorOwner(variants);
         ground = MapStaticModelGroundHeightSource.PrepareCurrentField(repository, loaded.Scene,
             UnitWorldGroundHeightFieldPreparationBranch.RetainedWrapperCreated, true, []);
-        var geometry = new UnitGeometry();
+        geometry = new UnitGeometry();
         geometry.MaterializeOriginXImageSeed(); geometry.InitializeOriginZ();
+        SceneRoot=LoadedReflectionSceneRootSource.Load(repository,loaded.Scene);
+        int extraIndex=loaded.Scene.Instances.Count;
+        // Root membership supplies the complete resource inventory; the
+        // separate VisibilitySet keeps its established index identities.
+        var rootInstances=SceneRoot.SourceReferences.Where(row=>row.ResolvedDefinition.ClassId is
+            ScenePlacementReader.ModelWorldPqClass or ScenePlacementReader.EffectWorldPqClass)
+            .Select(row=>new SceneInstance(row.VisibilitySetIndex??extraIndex++,row.Instance,row.InstanceDocument,
+                row.ResolvedDefinition,row.DefinitionDocument)).ToArray();
+        var rootPlacements=ScenePlacementReader.ReadSelected(loaded.Scene,rootInstances);
         population = MapStaticModelCurrentOwnedPopulation.CreateSourceCreated(repository, loaded.Scene,
             variants, geometry, revision, repository.LoadObjects("KIDSSystemResource", 0x6D011726),
             0x899F101B, viewIdentity, 0, _ => null,
             _ => MapModelNativeCurrentVisibilitySources.PrepareCurrentNullCustomSelection(
-                revision + "/owned-fresh-null-custom-selection", false, null, null));
+                revision + "/owned-fresh-null-custom-selection", false, null, null),rootPlacements);
         gates = loaded.Scenario.Gates.Where(g => g.Slot > 0).Select(g => {
             var area = loaded.Scenario.Areas.Single(a => a.Name == g.Name && a.HexId == g.HexId);
             byte[] remainder = Convert.FromHexString(area.StateRemainingBytesHex);
@@ -78,8 +90,14 @@ public sealed class SceneViewNativeMapCpuSourceOwner
         if (!valid || frame.SceneGeneration != loaded.InitialFrame.SceneGeneration ||
             frame.MainCamera.Camera.FrameNumber < 1)
             throw new InvalidDataException("Native static CPU preparation needs its retained source generation and current Main Camera.");
-        if (frame.World.Structures is not { } structures || structures.Count != 0)
-            throw new NotSupportedException("Current facility definition bindings are not yet produced by this initial source factory.");
+        if (frame.World.Structures is not { } structures)
+            throw new InvalidDataException("Current facility population is unknown.");
+        FacilitySceneModelFrame? facilities = null;
+        if (loaded.CaptureFacilityModels is { } captureFacilities)
+            facilities = captureFacilities(frame.World, population.Assets, geometry, ground,
+                frame.FacilityConnections ?? throw new InvalidDataException("Current facility connection lifetime was not captured."));
+        else if (structures.Count != 0)
+            throw new InvalidDataException("Current facility model query owner is absent.");
         // SceneView already owns this detached world for the render attempt.
         // Static models need its current complete city/gate/facility/force
         // records, not another whole campaign JSON round trip or fingerprint.
@@ -87,7 +105,8 @@ public sealed class SceneViewNativeMapCpuSourceOwner
             frame.SourceProvenance+";actual-captured-World/request="+frame.RequestNumber);
         return population.PrepareCapturedOwnedWorld(new(current, frame.MainCamera, loaded.PlayerForceSlot, ground,
             null, opening, frame.World.PeriodNumber == 0, gates, [],
-            new Dictionary<string, MapStaticModelPublication>()){CurrentCityDescriptors=cityDescriptors});
+            new Dictionary<string, MapStaticModelPublication>())
+            {CurrentCityDescriptors=cityDescriptors, CurrentFacilitySceneModels=facilities});
     }
     public void Invalidate(string actualWriter)
     { ArgumentException.ThrowIfNullOrWhiteSpace(actualWriter); valid = false; population.Invalidate(); }

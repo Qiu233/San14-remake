@@ -8,7 +8,11 @@ public sealed record S14AbilityBonus(byte Leadership, byte Strength, byte Intell
 
 public sealed record S14RankDefinition(int Id, string Name, string Pinyin, string Description,
     ushort CommandLimit, S14AbilityBonus AbilityBonus, byte Raw156,
-    string RawTailHex, string RawBytesHex);
+    string RawTailHex, string RawBytesHex)
+{
+    /// <summary>Fixed rank flags used by the normal main-command layout.</summary>
+    public byte? MainCommandFlags { get; init; }
+}
 
 public sealed record S14OfficeDefinition(int Id, string Name, string Pinyin,
     ushort CommandLimit, S14AbilityBonus AbilityBonus, byte Raw38, byte Raw39,
@@ -72,7 +76,8 @@ public static class S14RankReader
                 ReadText(row.Slice(52, 102)),
                 BinaryPrimitives.ReadUInt16LittleEndian(row.Slice(154, 2)),
                 ReadBonus(row.Slice(157, 5)), row[156],
-                Convert.ToHexString(row[162..]), Convert.ToHexString(row)));
+                Convert.ToHexString(row[162..]), Convert.ToHexString(row))
+            { MainCommandFlags = row[162] });
         }
 
         var offices = new List<S14OfficeDefinition>(OfficeCount);

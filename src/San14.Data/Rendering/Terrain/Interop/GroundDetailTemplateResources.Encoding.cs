@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace San14.Data;
 
 public sealed partial class GroundDetailTemplateResources
@@ -40,21 +38,6 @@ public sealed partial class GroundDetailTemplateResources
             writer.WriteStaticTextures(directory, asset.TextureResources, draw, provider, shader, combination);
             return;
         }
-        var plan = ProceduralTree2TextureSource.Resolve(asset.TextureResources, draw, provider, shader, combination);
-        var textureRows = new List<string>();
-        var samplerRows = new List<string>();
-        foreach (var binding in plan.Bindings)
-        {
-            var image = ModelStageTextures.LoadImage(repository, plan, binding.TextureRegister);
-            var formats = ModelTextureFormatMath.Resolve(image.Image.PixelFormat, (byte)(image.Image.RawHeader[19] & 1));
-            string texture = $"ps-t{binding.TextureRegister}.tex";
-            media[$"{directory}/{texture}"] = D3D11ModelResourceWriter.EncodeTexture(image.Container, image.Image, formats.ShaderViewFormat);
-            string sampler = $"ps-s{binding.SamplerRegister}.bin";
-            media[$"{directory}/{sampler}"] = image.Sampler.EncodeD3D11Descriptor();
-            textureRows.Add(FormattableString.Invariant($"{binding.TextureRegister} {formats.ResourceFormat} {formats.ShaderViewFormat} {texture}"));
-            samplerRows.Add(FormattableString.Invariant($"{binding.SamplerRegister} {sampler}"));
-        }
-        media[$"{directory}/textures-native.txt"] = Encoding.UTF8.GetBytes(string.Join('\n', textureRows) + "\n");
-        media[$"{directory}/samplers-native.txt"] = Encoding.UTF8.GetBytes(string.Join('\n', samplerRows) + "\n");
+        writer.WriteTree2Textures(directory, asset.TextureResources, draw, provider, shader, combination);
     }
 }

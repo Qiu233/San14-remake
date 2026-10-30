@@ -57,7 +57,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 try
                 {
                     move = selection.SelectedOfficerIds.Count != 0;
-                    if (move == true) RequireMenuTutorialGate();
+                    if (move == true) move = MenuTutorialGate();
                     if (move == true && selection.SelectedOfficerIds.Count == 1 &&
                         CurrentPosition(selection.SelectedOfficerIds[0]) == hexId && selection.HasActiveRouteGroup)
                     {
@@ -98,15 +98,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             return !EmptyMoveNeed(current.ReadObjectDefinitionValidity(definition), "object_definition_validity") ||
                 EmptyMoveNeed(current.ReadObjectDefinitionRaw2C(definition), "object_definition_passage") == 4;
         }
-        void RequireMenuTutorialGate()
+        bool MenuTutorialGate()
         {
             // 7E4890 consults tutorial target qualification only after a
             // selected row and accepted press. It is not a 7E3400/7E3890 gate.
-            var parameters = state.NativeArmySimulation?.Parameters ?? throw EmptyMoveMissing("parameters");
-            if (parameters.Int32Values.GetValueOrDefault(TacticRemakeCurrentBattleControl.VersionKey) != 1 ||
-                !parameters.Int32Values.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorial))
-                throw EmptyMoveMissing("tutorial_owner");
-            if (tutorial != 0) throw EmptyMoveMissing("active_tutorial_target_gate");
+            return TutorialTargetQualification.AllowsHex(ReadTutorialControlState(state), current, hexId,
+                selection.HasActiveRouteGroup ? selection.FirstActiveWaypointIndex : null);
         }
         int? Person(int id)
         {

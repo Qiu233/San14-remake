@@ -11,6 +11,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         int physical = CommanderNeed(current.ReadForcePhysicalSlot(force), "capacity_Force_identity");
         _moraleWaveInputs.BindCurrent(state, current);
         int rank = CommanderNeed(current.ReadMoraleWaveForceRank47(physical), "capacity_Force47");
+        return ApplyPlayerCommanderCapacityForRankCurrent(state, current, force, rank);
+    }
+
+    private GameState ApplyPlayerCommanderCapacityForRankCurrent(GameState state, SourceWorldContext current,
+        ForceReference force, int rank)
+    {
+        if (!CommanderNeed(current.ReadForceNativeValidity(force), "capacity_Force_validity") ||
+            !TalentForceIsPlayerCurrent(state, current, force)) return state;
         //2EE410 falls back to Rank0 for an overflowing rank. Rank0's native
         //validity is false, so it leaves the existing count untouched.
         if (rank is < 1 or > 12) return state;
@@ -35,7 +43,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public CommanderSelectionView QueryCommanderCards(GameState state, int forceId)
         => QueryCommanderSelectionCurrent(state, forceId, false);
 
-    private CommanderSelectionView QueryCommanderSelectionCurrent(GameState state, int forceId, bool includeCandidates)
+    private CommanderSelectionView QueryCommanderSelectionCurrent(GameState state, int forceId, bool includeCandidates, SourceWorldContext? captured = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         int? capacity = state.CommanderSelection?.ActiveCount;
@@ -44,7 +52,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var cards = new List<CommanderSelectionCard>();
         try
         {
-            var current = CaptureOwnedArmyReturnWorld(state).Context;
+            var current = captured ?? CaptureOwnedArmyReturnWorld(state).Context;
             var selection = ReadCommanderSelectionCurrent(state, current, forceId);
             capacity = selection.Count;
             slots = selection.Storage.Select((row, ordinal) =>
@@ -96,7 +104,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 cards.Add(new(person.OfficerId, person.Name, person.Abilities, person.PortraitAppearanceIndex,
                     row.Period, location.HexId, location.Available, location.UnresolvedOwner));
             }
-            return new(forceId, capacity, candidates.AsReadOnly(), Array.AsReadOnly(slots), cards.AsReadOnly(), null);
+            return new(forceId, capacity, candidates.AsReadOnly(), Array.AsReadOnly(slots), cards.AsReadOnly(), null)
+            {
+                PageSource = includeCandidates ? PrepareCommanderSelectionPages(state, forceId,
+                    candidates.Select(person => person.OfficerId).ToArray(), cards.Select(card => card.OfficerId).ToArray()) : null,
+                GuideText = includeCandidates ? PrepareCommanderSelectionGuide() : null
+            };
 
             int CardPriority(int physical) => CommanderNeed(current.ReadPersonStatus(physical), "card_PersonE6") switch
                 { 1 => 0, 3 => 1, _ => 2 };

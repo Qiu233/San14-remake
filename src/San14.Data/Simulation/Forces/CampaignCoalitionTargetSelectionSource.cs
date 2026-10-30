@@ -55,9 +55,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         int selector = CoalitionTargetNeed(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selector");
         int difficulty = CoalitionTargetNeed(BattleRemakeCurrentSettings.ReadInt32(state,
             selector == 0 ? 0x134 : 0x28), "difficulty3EB240");
-        //TC typed/data.tsv141A4ABC4/D0/DC/E8 records these four
-        //immutable thresholds. Runtime never reads an original executable.
-        int threshold = difficulty switch { 0 => 500000, 1 => 425000, 2 => 350000, _ => 275000 };
+        //Both editions independently consume the same file-backed thresholds.
+        string rule = difficulty switch { 0 => "0", 1 => "1", 2 => "2", _ => "other" };
+        int threshold = NormalTurnCoalitionParameters.Read(state, "target-troops-" + rule,
+            difficulty switch { 0 => 500000, 1 => 425000, 2 => 350000, _ => 275000 });
         if (total < threshold) return None();
 
         int? strongestOpponent = null;

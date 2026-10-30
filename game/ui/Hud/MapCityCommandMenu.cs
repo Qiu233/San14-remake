@@ -20,6 +20,8 @@ internal partial class MapCityCommandMenu : Control
     private readonly Dictionary<CityCommandMenuCommand, Control> childPanes = [];
     private int generation;
     private int cityId;
+    internal int? CurrentCityId => Visible ? cityId : null;
+    internal bool CancellationOpen { get; set; }
     internal event Action<int, MapCityCommand>? Command;
 
     internal void Configure(GameResourceRepository repository, PreviewText text)
@@ -37,6 +39,7 @@ internal partial class MapCityCommandMenu : Control
 
     internal void Close()
     {
+        CancellationOpen=false;
         generation++;
         foreach (var abandon in abandonButtons) abandon();
         abandonButtons.Clear(); childPanes.Clear();
@@ -119,6 +122,7 @@ internal partial class MapCityCommandMenu : Control
             ?? throw new InvalidDataException("City command caption is unavailable.");
         void Prepare(UiSourceButton button, CityCommandMenuEntry entry, bool editorSupported)
         {
+            button.InputAdmission=()=>generation==currentGeneration&&Visible&&!CancellationOpen;
             button.Disabled = !entry.SourceEnabled.Available || !entry.SourceEnabled.Value || !editorSupported;
             button.SetMeta("source_unknown", entry.SourceEnabled.UnresolvedInput ?? "");
             button.SetMeta("source_enabled", entry.SourceEnabled.Available && entry.SourceEnabled.Value);
@@ -152,10 +156,12 @@ internal partial class MapCityCommandMenu : Control
     private static MapCityCommand? EditorRoute(CityCommandMenuCommand command) => command switch
     {
         CityCommandMenuCommand.Deploy => MapCityCommand.Deploy,
+        CityCommandMenuCommand.CancelDeployment => MapCityCommand.CancelDeployment,
         CityCommandMenuCommand.Transport => MapCityCommand.Transport,
         CityCommandMenuCommand.AreaAdministration => MapCityCommand.Administration,
         CityCommandMenuCommand.CityDomestic => MapCityCommand.CityDomestic,
         CityCommandMenuCommand.Merchant => MapCityCommand.Merchant,
+        CityCommandMenuCommand.Investment => MapCityCommand.Investment,
         CityCommandMenuCommand.Transfer => MapCityCommand.Move,
         CityCommandMenuCommand.Summon => MapCityCommand.Summon,
         CityCommandMenuCommand.CityInformation => MapCityCommand.CityInformation,

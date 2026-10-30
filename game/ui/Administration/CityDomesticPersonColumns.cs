@@ -41,6 +41,7 @@ internal static class CityDomesticPersonColumns
         new(35,104,0x03D4,0x01,1,false),
         new(6,76,0x021D,0x21,3,false),
         new(21,132,0x021C,0x11,2,true),
+        new(22,90,0x03D2,0x21,3,false),
         new(23,76,0x0429,0x21,3,false),
         new(7,76,0x021E,0x21,3,false),
     ]);

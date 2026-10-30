@@ -11,16 +11,22 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// <summary>Explicit strategy-entry refresh. Accepted pairs, source flags
     /// and unconsumed effects publish together, without running App admission.</summary>
     public NormalCombatRefreshResult TryRefreshNormalCombatEngagements(GameState state)
+        => TryRefreshNormalCombatEngagementsCurrent(state, null);
+
+    internal NormalCombatRefreshResult TryRefreshNormalCombatEngagementsCurrent(GameState state, SourceWorldContext? borrowed)
     {
         try
         {
             var previous = state.NormalCombatRefresh ?? throw NormalCombatMixedProducer.Missing("saved_refresh_owner");
             if (previous.Generation == long.MaxValue) throw NormalCombatMixedProducer.Missing("refresh_generation_exhausted");
-            var current = CaptureWritableTransportRouteCurrent(state);
-            OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
-            OwnedArmyDestructionCurrent.BindOwnedCurrentContext(state, current);
-            CaptureBaseThreatInputs.BindCurrent(state, current);
-            PersonReturnCommands.BindCurrent(state, current);
+            var current = borrowed ?? CaptureWritableTransportRouteCurrent(state);
+            if (borrowed is null)
+            {
+                OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
+                OwnedArmyDestructionCurrent.BindOwnedCurrentContext(state, current);
+                CaptureBaseThreatInputs.BindCurrent(state, current);
+                PersonReturnCommands.BindCurrent(state, current);
+            }
             current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
             var tactics = Context(current);
             var queries = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,

@@ -9,7 +9,7 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     private readonly DeploymentSetupView view;
     private readonly GameResourceRepository repository;
     private readonly PreviewText text;
-    private readonly GameState world;
+    private GameState world;
     private readonly ScenarioCityPreview scenario;
     private readonly ArmyCampaignRuleAdapter rules;
     private readonly int source;
@@ -18,14 +18,60 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     private readonly Func<int>? scrollSpeed;
     private readonly UiSourceHeaderStack headers;
     private readonly Dictionary<int,LoadedSprite?> portraits=[];
+    private readonly Dictionary<int,AreaAdministrationQuery<DeploymentOfficerPanePublication>> officerPanes=[];
+    private int? displayedOfficer;
     private DeploymentPersonSelectionView? modal;
     private DeploymentCalculatorDialog? batchCalculator;
     private DeploymentAutomaticMenu? automaticMenu;
     private DeploymentAutomaticOptions? automaticOptions;
     private DeploymentBatchTroopEditor? batchTroops;
     private IReadOnlyList<int> batchOfficers=[];
+    private long officerSelectionChanges;
+    private Func<IReadOnlyList<int>,bool>? officerSelectionAdmission;
+    private Func<IReadOnlyList<DeploymentDraftRow>,bool>? decisionAdmission;
+    private bool ordinaryDecisionAllowed;
     private bool disposed;
     internal DeploymentSetupDraft Draft {get;}
+    internal bool IsOfficerSelectionOpen=>!disposed&&modal?.IsVisibleInTree()==true;
+    internal bool OfficerSelectionActive=>!disposed&&modal?.IsSelectionActive==true;
+    //UnitMakeRootAction+180 is the five-strategy automatic pulldown.
+    internal bool IsAutomaticMenuOpen=>!disposed&&automaticMenu?.IsVisibleInTree()==true;
+    internal IReadOnlyList<int> OfficerSelectionSelectedOfficerIds=>modal?.SelectedOfficerIds??[];
+    internal long OfficerSelectionChangedSequence=>officerSelectionChanges+(modal?.SelectionChangedSequence??0);
+    internal Func<IReadOnlyList<int>,bool>? OfficerSelectionAdmission
+    {
+        get=>officerSelectionAdmission;
+        set {officerSelectionAdmission=value;modal?.RefreshAdmission();}
+    }
+    internal bool FormationSelectionActive=>!disposed&&view.UnitInformation.FormationSelectionActive;
+    internal bool UnitConfigurationPresent=>!disposed&&!view.UnitInformation.IsQueuedForDeletion()&&
+        view.UnitInformation.IsInsideTree();
+    internal bool UnitConfigurationActive=>UnitConfigurationPresent&&view.UnitInformation.IsVisibleInTree()&&
+        view.UnitInformation.CanProcess()&&modal is null&&batchCalculator is null&&automaticMenu is null&&
+        !view.UnitInformation.HasCalculator;
+    internal int? SelectedFormationId=>view.UnitInformation.SelectedFormationId;
+    internal DeploymentTroopMarker? TroopMarker=>view.UnitInformation.TroopMarker;
+    internal bool TryApplyTutorialTacticCue(int? markerId,bool enabled)=>
+        UnitConfigurationPresent&&view.UnitInformation.TryApplyTutorialTacticCue(markerId,enabled);
+    internal IReadOnlyList<DeploymentDraftRow> Rows=>Draft.Rows;
+    internal int? FocusedOfficerId=>Draft.FocusedOfficerId;
+    internal long OfficerSelectionAcceptedSequence {get;private set;}
+    internal IReadOnlyList<int> LastAcceptedOfficerIds {get;private set;}=[];
+    internal long LandFormationAcceptedSequence {get;private set;}
+    internal DeploymentDraftRow? LastAcceptedLandFormationRow {get;private set;}
+    internal long TroopsAcceptedSequence {get;private set;}
+    internal IReadOnlyList<DeploymentDraftRow> LastAcceptedTroopsRows {get;private set;}=[];
+    internal long SettingsChangedSequence {get;private set;}
+    internal IReadOnlyList<DeploymentDraftRow> LastChangedRows {get;private set;}=[];
+    // These counters belong to this presenter instance. Restoring or binding
+    // rows does not accept an operation. This is a local draft handoff only.
+    internal long SetupAcceptedSequence {get;private set;}
+    internal IReadOnlyList<DeploymentDraftRow> LastAcceptedRows {get;private set;}=[];
+    internal Func<IReadOnlyList<DeploymentDraftRow>,bool>? DecisionAdmission
+    {
+        get=>decisionAdmission;
+        set {decisionAdmission=value;RefreshDecisionAdmission();}
+    }
 
     internal DeploymentSetupPresenter(DeploymentSetupView view,GameResourceRepository repository,PreviewText text,
         GameState world,ScenarioCityPreview scenario,ArmyCampaignRuleAdapter rules,int sourceLocationId,
@@ -41,6 +87,12 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         RefreshAll();
     }
 
+    internal void AdoptSpeechWorld(GameState expected,GameState replacement)
+    {
+        if(disposed||!ReferenceEquals(world,expected))return;
+        Draft.AdoptSpeechWorld(expected,replacement);world=replacement;
+    }
+
     internal void OpenOfficerSelection()
     {
         if(disposed||modal is not null||batchCalculator is not null||automaticMenu is not null||view.UnitInformation.HasCalculator)return;
@@ -52,9 +104,14 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             Draft.Rows.Select(row=>row.Request.OfficerId),scrollSpeed?.Invoke()??0,result=>
             {
                 if(disposed||modal!=selection)return;
+                officerSelectionChanges+=selection.SelectionChangedSequence;
                 modal=null;selection.Hide();selection.QueueFree();
                 if(result is null)return;
+                var previous=Draft.Rows;
                 if(Draft.SelectOfficers(result) is { } error){unavailable(error);return;}
+                LastAcceptedOfficerIds=Array.AsReadOnly(Draft.Rows.Select(row=>row.Request.OfficerId).ToArray());
+                OfficerSelectionAcceptedSequence++;
+                RecordSettingsChange(previous);
                 RefreshAll();
             },(rows,column,ascending)=>rules.QueryDeploymentPersonOrder(world,rows,column,ascending),unavailable,
             ids=>rules.QueryDeploymentPersonFormationCapabilities(world,ids),
@@ -65,7 +122,8 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             (rows,slot,ascending)=>rules.QueryDeploymentPersonTacticOrder(world,rows,slot,ascending),
             id=>world.Tactics.GetValueOrDefault(id)?.Name,
             ids=>rules.QueryDeploymentPersonTraits(world,ids),
-            (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed);
+            (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed,
+            selectionAdmission:ids=>OfficerSelectionAdmission?.Invoke(ids)??true,commonBackdrop:view.CommonBackdrop);
         selection.RegisterHeader(headers);
     }
 
@@ -109,16 +167,35 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             portraits.GetValueOrDefault(row.Request.OfficerId),figures[row.Request.OfficerId])).ToArray();
         view.ApplyDraftSummaries(repository,contents,Draft.FocusedOfficerId,officer=>
         {if(disposed)return;Draft.FocusOfficer(officer);RefreshAll();},officer=>
-        {if(disposed)return;if(Draft.RemoveOfficer(officer) is { } error)unavailable(error);else RefreshAll();},OpenOfficerSelection,
+        {
+            if(disposed)return;
+            var previous=Draft.Rows;
+            if(Draft.RemoveOfficer(officer) is { } error)unavailable(error);
+            else {RecordSettingsChange(previous);RefreshAll();}
+        },OpenOfficerSelection,
             scrollSpeed?.Invoke()??0,scrollSpeed);
         RefreshUnit();RefreshHeader();
     }
 
     private void RefreshUnit()
     {
+        //The campaign world is borrowed and immutable for this setup. Read
+        //each selected Person once; troop/formation/tactic edits reuse its pane.
+        if (displayedOfficer != Draft.FocusedOfficerId)
+        {
+            displayedOfficer = Draft.FocusedOfficerId;
+            if (displayedOfficer is int id)
+            {
+                if (!officerPanes.TryGetValue(id,out var pane))
+                    officerPanes[id] = pane = rules.QueryDeploymentOfficerPane(world,id);
+                view.OfficerInformation.Apply(pane);
+            }
+            else view.OfficerInformation.Apply(null);
+        }
         if(Draft.FocusedOfficerId is not int officer)
         {
-            view.UnitInformation.ApplySelection(null,null,null,null,null);return;
+            view.UnitInformation.ApplySelection(null,null,null,null,null);
+            view.UnitInformation.ApplyTacticChoices(null,null);return;
         }
         if(Draft.WorkingRow is not { } working)
         {
@@ -126,7 +203,8 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             string reason=Draft.PaneUnresolvedInput??"deployment.land_edit.unavailable";
             view.UnitInformation.ApplySelection(row,null,new(officer,null,null,null,reason,reason,reason),
                 portraits.GetValueOrDefault(officer),null);
-            view.UnitInformation.ApplyLandFormationChoices(null,0,null);return;
+            view.UnitInformation.ApplyLandFormationChoices(null,0,null);
+            view.UnitInformation.ApplyTacticChoices(null,null);return;
         }
         var rows=Draft.Rows.Select(row=>row.Request.OfficerId==officer?working:row).ToArray();
         int ordinal=Array.FindIndex(rows,row=>row.Request.OfficerId==officer);
@@ -135,19 +213,43 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         view.UnitInformation.ApplySelection(working,info,figures,portraits.GetValueOrDefault(officer),value=>
         {
             if(disposed)return;
+            var previous=Draft.Rows;
             if(Draft.SetTroops(value) is { } error){unavailable(error);RefreshUnit();return;}
+            RecordTroopsAccepted(previous);
             RefreshEditedSummary(officer,value);RefreshUnit();RefreshHeader();
         },result=>
         {
             if(disposed)return;
             int value=result??working.Request.Troops;
+            var previous=Draft.Rows;
             if(Draft.SetTroops(value) is { } error){unavailable(error);RefreshUnit();return;}
+            // The ordinary cancel path restores the old value. It is not an
+            // accepted calculator operation, even when that write succeeds.
+            if(result.HasValue)RecordTroopsAccepted(previous);
             RefreshEditedSummary(officer,value);
             RefreshUnit();RefreshHeader();
         });
         view.UnitInformation.ApplyLandFormationChoices(rules.QueryDeploymentLandFormationChoices(world,officer),
             working.Request.FormationId,formation=>
-            {if(disposed)return;if(Draft.SetLandFormation(formation) is { } error)unavailable(error);else RefreshAll();});
+            {
+                if(disposed)return;
+                var previous=Draft.Rows;
+                if(Draft.SetLandFormation(formation) is { } error)unavailable(error);
+                else
+                {
+                    LastAcceptedLandFormationRow=Draft.Rows.Single(row=>row.Request.OfficerId==officer);
+                    LandFormationAcceptedSequence++;
+                    RecordSettingsChange(previous);RefreshAll();
+                }
+            });
+        view.UnitInformation.ApplyTacticChoices(rules.QueryDeploymentTacticChoices(world,officer,
+            working.Request.FormationId,working.Request.TacticIds),occurrence=>
+            {
+                if(disposed)return;
+                var previous=Draft.Rows;
+                if(Draft.ToggleTacticOccurrence(occurrence) is { } error)unavailable(error);
+                else {RecordSettingsChange(previous);RefreshAll();}
+            });
     }
 
     private void RefreshHeader()
@@ -156,11 +258,24 @@ internal sealed class DeploymentSetupPresenter : IDisposable
         bool canDecide=Draft.Rows.Count>0&&Draft.Rows.All(row=>row.Request.Troops>0)&&
             resources.Gold is {RemainingGold:>=0}&&resources.DecisionCommandBooks is int books&&
             books>=Draft.Rows.Count;
-        view.ApplyDraftDecision(canDecide,()=>{if(!disposed)accepted(Draft.Rows);});
+        ordinaryDecisionAllowed=canDecide;RefreshDecisionAdmission();
         var batch=ReadBatchTroops();
         // Ordinary Make always exposes the parent menu, including empty Make.
         // Only its five choices depend on the automatic producer's results.
         view.ApplyBatchActions(true,batch.Enabled==true,batch.Enabled==true,RequestBatch,Draft.Rows.Count>0);
+    }
+
+    internal void RefreshDecisionAdmission()=>view.ApplyDraftDecision(CanAcceptDecision(),AcceptSetupDraft);
+
+    private bool CanAcceptDecision()=>!disposed&&ordinaryDecisionAllowed&&
+        (decisionAdmission?.Invoke(Draft.Rows)??true);
+
+    private void AcceptSetupDraft()
+    {
+        if(!CanAcceptDecision())return;
+        var rows=Draft.Rows;
+        accepted(rows);
+        LastAcceptedRows=rows;SetupAcceptedSequence++;
     }
 
     private DeploymentBatchTroopEditor ReadBatchTroops()
@@ -187,15 +302,18 @@ internal sealed class DeploymentSetupPresenter : IDisposable
             if(!options.Available){unavailable(options.UnresolvedInput??"deployment.automatic.unavailable");return;}
             OpenAutomaticMenu(options.Options!.Select(option=>option.Enabled).ToArray(),ordinal=>
             {
+                var previous=Draft.Rows;
                 if(Draft.ComposeAutomatically((DeploymentAutomaticStyle)ordinal) is { } error)
                     unavailable(error);
-                else RefreshAll();
+                else {RecordSettingsChange(previous);RefreshAll();}
             });
         }
         else if(action==DeploymentSetupBatchAction.MaximumTroops)
         {
             if(ReadBatchTroops().Enabled!=true)return;
-            if(Draft.MaximizeTroops() is { } error)unavailable(error);else RefreshAll();
+            var previous=Draft.Rows;
+            if(Draft.MaximizeTroops() is { } error)unavailable(error);
+            else {RecordTroopsAccepted(previous);RefreshAll();}
         }
         else if(action==DeploymentSetupBatchAction.TroopsTogether)
         {
@@ -210,11 +328,33 @@ internal sealed class DeploymentSetupPresenter : IDisposable
                     if(disposed||batchCalculator!=dialog)return;
                     batchCalculator=null;dialog.QueueFree();
                     if(result is not int troops)return;
-                    if(Draft.SetAllTroops(troops) is { } error)unavailable(error);else RefreshAll();
+                    var previous=Draft.Rows;
+                    if(Draft.SetAllTroops(troops) is { } error)unavailable(error);
+                    else {RecordTroopsAccepted(previous);RefreshAll();}
                 },new(351,612));
             }
             catch{batchCalculator=null;dialog.QueueFree();throw;}
         }
+    }
+
+    private void RecordTroopsAccepted(IReadOnlyList<DeploymentDraftRow> previous)
+    {
+        LastAcceptedTroopsRows=Draft.Rows;TroopsAcceptedSequence++;
+        RecordSettingsChange(previous);
+    }
+
+    private void RecordSettingsChange(IReadOnlyList<DeploymentDraftRow> previous)
+    {
+        var rows=Draft.Rows;
+        bool changed=previous.Count!=rows.Count||previous.Zip(rows).Any(pair=>
+        {
+            var before=pair.First.Request;var after=pair.Second.Request;
+            return before.OfficerId!=after.OfficerId||before.FormationId!=after.FormationId||
+                before.Troops!=after.Troops||pair.First.NavalFormationId!=pair.Second.NavalFormationId||
+                before.Behavior!=after.Behavior||!before.TacticIds.SequenceEqual(after.TacticIds);
+        });
+        if(!changed)return;
+        LastChangedRows=rows;SettingsChangedSequence++;
     }
 
     private void RefreshEditedSummary(int officer,int troops)
@@ -228,9 +368,11 @@ internal sealed class DeploymentSetupPresenter : IDisposable
     public void Dispose()
     {
         if(disposed)return;disposed=true;
-        if(modal is { } selection){modal=null;selection.Abandon();selection.QueueFree();}
+        if(modal is { } selection)
+        {officerSelectionChanges+=selection.SelectionChangedSequence;modal=null;selection.Abandon();selection.QueueFree();}
         if(batchCalculator is { } calculator){batchCalculator=null;calculator.Abandon();calculator.QueueFree();}
         if(automaticMenu is { } automatic){automaticMenu=null;automatic.Abandon();automatic.QueueFree();}
         view.UnitInformation.AbandonInteraction();
+        view.OfficerInformation.Abandon();officerPanes.Clear();
     }
 }

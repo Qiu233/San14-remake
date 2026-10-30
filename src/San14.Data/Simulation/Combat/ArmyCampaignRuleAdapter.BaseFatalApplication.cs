@@ -1,4 +1,4 @@
-﻿using San14.Core;
+using San14.Core;
 
 namespace San14.Data;
 
@@ -6,6 +6,9 @@ public sealed record BaseFatalAdmissionReceipt(BaseReference Target, int Attacke
     int AttackerPhysicalSlot, DistrictReference CurrentAttackerDistrict, CombatSettlementAdmissionKind AdmissionKind)
 {
     public bool ImmediateFallback => AdmissionKind == CombatSettlementAdmissionKind.Full;
+    //The retained actor identity is diagnostic only for this receipt. There
+    //is no winning Army or District in the corresponding settlement packet.
+    public bool HasNoWinner { get; init; }
 }
 public sealed record NormalBaseFatalApplicationReceipt(int LocationId, BaseKind Kind,
     int RequestedLoss, int AppliedLoss, PersonNormalArmyRewardResult AttackerReward,
@@ -37,12 +40,15 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// ordinary operation's current/pool. Unknown requires discarding both.</summary>
     internal NormalBaseFatalApplicationResult ApplyBorrowedNormalBaseFatalApplication(GameState input,
         int attackerArmyId, int locationId, int requestedLoss,
-        NativeArmyCombatCycleSampler? operationSampler, SourceWorldContext current)
+        NativeArmyCombatCycleSampler? operationSampler, SourceWorldContext current,
+        NativeMapSeasonDate? operationDate = null, List<CampaignEffectRequest>? operationEffects = null,
+        long? immediateRevision = null)
     {
         ArgumentNullException.ThrowIfNull(current);
         BaseKind kind = locationId <= 51 ? BaseKind.City : BaseKind.Gate;
         var result = TryApplyNativeNormalBaseApplication(input, attackerArmyId, kind, locationId,
-            requestedLoss, operationSampler, allowFatal: true, operationCurrent: current);
+            requestedLoss, operationSampler, allowFatal: true, operationCurrent: current,
+            operationDate: operationDate, operationEffects: operationEffects, immediateRevision: immediateRevision);
         var r = result.Receipt;
         return new(result.Outcome, result.State, r is null ? null : new(r.LocationId, kind,
             r.RequestedLoss, r.AppliedLoss, r.AttackerReward, r.TroopDebit, r.Wounded,

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanDrawMaterialState.h"
 #include <cstdint>
 #include <cstring>
@@ -48,7 +49,7 @@ struct OceanMaterialStageLayout {
 };
 struct OceanMaterialLayout { OceanMaterialStageLayout vertex, pixel; };
 inline OceanMaterialLayout readOceanMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     auto word = [&]() {
         std::uint32_t value{};
         stream.read(reinterpret_cast<char*>(&value),sizeof(value));

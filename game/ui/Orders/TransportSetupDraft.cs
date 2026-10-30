@@ -66,6 +66,19 @@ internal sealed class TransportSetupDraft
         return new(OfficerId!.Value, Quantities!.Troops!.Value, Quantities.Gold!.Value, Quantities.Supplies!.Value,
             Setup.DefaultNavalFormationId!.Value, Setup.DefaultReturnOfficerToSource, Setup.DefaultSourceBehaviorChoice);
     }
+    internal void AcceptFoodWarningWorld(GameState previous, GameState replacement)
+    {
+        if (!ReferenceEquals(world, previous)) throw new InvalidOperationException("Transport Make belongs to another world.");
+        var edited = Quantities;
+        int? person = OfficerId;
+        world = replacement;
+        //The quote may retire pending Armies and refresh their source stocks
+        //and people. Keep the edited packet, bounded by its new real capacity.
+        Setup = rules.QueryTransportSetup(world, source, person);
+        Quantities = Setup.SelectedOfficerId is int officer && edited is { Troops: int troops, Gold: int gold, Supplies: int food }
+            ? rules.QueryTransportQuantities(world, source, officer, troops, gold, food) : Setup.InitialQuantities;
+    }
+
     internal void AcceptPreferenceWorld(GameState previous, GameState replacement)
     {
         if (!ReferenceEquals(world, previous)) throw new InvalidOperationException("Transport Make belongs to another world.");

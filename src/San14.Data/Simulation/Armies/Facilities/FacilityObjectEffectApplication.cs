@@ -13,9 +13,10 @@ internal sealed partial class TrapEffectApplication
         State = latest;
         var reference = Definition(facility);
         if (!Need(Current.ReadObjectDefinitionValidity(reference), "ordinary_definition_validity")) return;
-        if (Need(Current.ReadObjectDefinitionRaw2C(reference), "ordinary_definition_category") != 2 || kind != 5)
+        if (Need(Current.ReadObjectDefinitionRaw2C(reference), "ordinary_definition_category") != 2 || kind is not (3 or 4 or 5 or 6 or 8 or 15))
             throw Missing("ordinary_definition_category_kind");
-        PrepareFacilityProjectiles(facility, channels);
+        if(kind is 5 or 6 or 15)PrepareFacilityProjectiles(facility, channels);
+        else if(kind is 3 or 4)PrepareFacilitySupportAuras(facility,kind,channels);
         victimForces = Current.CreateNearbyTemporary();
         try
         {
@@ -34,10 +35,18 @@ internal sealed partial class TrapEffectApplication
                     if (!Need(Current.ReadObjectDefinitionValidity(dispatchReference), "ordinary_dispatch_definition_validity")) continue;
                     var definition = Current.ReadFacilityEffectDefinition(dispatchReference)
                         ?? throw Missing("ordinary_dispatch_definition_fields");
-                    if (definition.Channel(channel).Effect != 1)
-                        throw Missing("ordinary_effect_" + definition.Channel(channel).Effect);
-                    ApplyDamage(facility, Need(dispatchReference.PhysicalSlot, "ordinary_dispatch_definition_identity"),
-                        channel, copy, category: 2);
+                    int dispatchKind=Need(dispatchReference.PhysicalSlot,"ordinary_dispatch_definition_identity");
+                    switch(definition.Channel(channel).Effect)
+                    {
+                        case 1: ApplyDamage(facility,dispatchKind,channel,copy,category:2);break;
+                        case 2: ApplyAbnormal(facility,dispatchKind,channel,copy,0);break;
+                        case 8: ApplyFacilityStatistics(facility,channel,copy,3,true);break;
+                        case 16: ApplyFacilityNegativeMorale(facility,copy,definition.Channel(channel).Amount);break;
+                        //192920 has no case18. The collected descriptor still
+                        //has its real copy/dispatch/destructor lifecycle.
+                        case 18: break;
+                        default:throw Missing("ordinary_effect_"+definition.Channel(channel).Effect);
+                    }
                 }
                 finally { Current.ClearNearbyTemporary(copy, true); }
             }
@@ -47,34 +56,7 @@ internal sealed partial class TrapEffectApplication
     }
 
     private void PrepareFacilityProjectiles(ObjectReference facility, HexListHandle[] channels)
-    {
-        if (!Need(Current.ReadObjectNativeValidity(facility), "projectile_Object_validity")) return;
-        byte kind = (Current.ReadPhysicalObject(Need(facility.PhysicalSlot, "projectile_Object_pointer"))
-            ?? throw Missing("projectile_Object_record")).RawField12;
-        if (kind != 5) throw Missing("projectile_Object_kind");
-        foreach (var channel in channels)
-            foreach (var hex in FacilityEffectTargets.ReadHexes(Current, channel))
-            {
-                int identity = Need(Current.ReadHexPhysicalSlot(hex), "projectile_Hex_identity");
-                var indexed = Current.ReadHexTableReference(identity < 48400 ? identity : 0)
-                    ?? throw Missing("projectile_indexed_Hex_pointer");
-                if (!indexed.PhysicalSlot.HasValue) continue;
-                int selected = unchecked((short)Need(Current.ReadHexRaw1C(indexed), "projectile_indexed_signed1C"));
-                if (selected is < 1 or > 500) continue;
-                //231660 independently reads the original Hex after2C6D20.
-                //Neither call tests the Army's native validity or active Unit.
-                int raw = unchecked((short)Need(Current.ReadHexRaw1C(hex), "projectile_original_signed1C"));
-                if (raw < 0) throw Missing("projectile_negative_Army_pointer");
-                var army = Current.ReadArmyUnitTableReference(raw <= 500 ? raw : 0)
-                    ?? throw Missing("projectile_Army_pointer");
-                var arena = State.ReadArmyLifecycle() ?? throw Missing("projectile_Army_lifecycle");
-                int physical = Need(army.PhysicalSlot, "projectile_Army_physical");
-                var receiver = arena.Slots[physical].ReceiverId;
-                Feedback.Requests.Add(new(null, null) { FacilityProjectile = new(Feedback.Receiver(facility), receiver,
-                    Need(Current.ReadObjectHexIndex(facility), "projectile_source_Hex10"),
-                    Need(Current.ReadArmyUnitRawHex2A(army), "projectile_target_Hex2A")) });
-            }
-    }
+        => FacilityProjectilePresentationSource.AppendCurrent(State, Current, facility, channels, Feedback.Requests);
 
     internal GameState CompleteOrdinaryFacilityEffects(GameState latest)
     {

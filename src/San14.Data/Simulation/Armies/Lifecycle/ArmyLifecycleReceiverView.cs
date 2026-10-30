@@ -38,6 +38,8 @@ public sealed record ArmyLifecycleReceiverView(ArmyReceiverSourceSlot Source, Ar
     }
     public byte? RouteHold56 { get => Source.RouteHold56; init => Source = Source with { RouteHold56 = value }; }
     public ushort? RouteGoal1F8 { get => Source.RouteGoal1F8; init => Source = Source with { RouteGoal1F8 = value }; }
+    public ushort? AiActionFlags { get => Source.AiActionFlags; init => Source = Source with { AiActionFlags = value }; }
+    public uint? AiEvaluation { get => Source.AiEvaluation; init => Source = Source with { AiEvaluation = value }; }
     public bool? GroupAssignmentReady { get => Receiver.GroupAssignmentReady; init => Receiver = Receiver with { GroupAssignmentReady = value }; }
     public int? OccupancyBindingId { get => Receiver.OccupancyBindingId; init => Receiver = Receiver with { OccupancyBindingId = value }; }
 }

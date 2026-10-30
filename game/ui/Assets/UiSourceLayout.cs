@@ -4,7 +4,7 @@ using San14.Data.Formats;
 
 /// <summary>Size, local transform origin and scale written by a source caller.</summary>
 internal sealed record UiSourceNodeGeometry(Vector2? Size = null, Vector2? Origin = null, Vector2? Scale = null,
-    Vector2? Offset = null);
+    Vector2? Offset = null, float? RotationRadians = null);
 
 /// <summary>Source geometry for mounted UI children. Each child root is
 /// replaced by its caller's mount; designer root offsets are never added twice.</summary>
@@ -51,6 +51,12 @@ internal sealed class UiSourceLayout
             float x=f[3],y=f[4],z=f[5],w=f[6];
             Vector2 basisX=new(1-2*(y*y+z*z),-2*(x*y+z*w));
             Vector2 basisY=new(-2*(x*y-z*w),1-2*(x*x+z*z));
+            if (current?.RotationRadians is float rotation)
+            {
+                if (!float.IsFinite(rotation)) throw new InvalidDataException("Source UI rotation is not finite.");
+                var rotated = new Transform2D(rotation, Vector2.Zero);
+                basisX = rotated.X; basisY = rotated.Y;
+            }
             Vector2 scale = current?.Scale ?? new(f[7],f[8]);
             var local=new Transform2D(basisX*scale.X,basisY*scale.Y,attachment);
             local.Origin-=local.BasisXform(Anchor((byte)node.Value48)*size);
@@ -60,13 +66,19 @@ internal sealed class UiSourceLayout
         }
     }
 
+    internal Rect2 AuthoredRootRectangle()
+    {
+        var root=Nodes[0];var f=root.HeaderValues;Vector2 size=new(root.Value44,root.Value46);
+        return new(new Vector2(f[0],-f[1])-Anchor((byte)root.Value48)*size,size);
+    }
+
     internal Rect2 Rectangle(int index, Vector2 mount = default) => new(rectangles[index].Position + mount, rectangles[index].Size);
     internal Transform2D NodeTransform(int index, Vector2 mount = default)
     {
         var transform = transforms[index]; transform.Origin += mount; return transform;
     }
 
-    internal UiSourceType6Parameters Type6(int index) => UiSourceType6Parameters.Read(Nodes[index]);
+    internal UiSourceType6Parameters Type6(int index) => UiSourceType6Parameters.Read(Source.Layout,Nodes[index]);
 
     internal UiSourceType6 Blur(Control parent, int index, Rect2 rectangle, float? weightInput = null)
     {
@@ -177,8 +189,10 @@ internal sealed class UiSourceLayout
     internal Control Art(CanvasItem parent, int index, Rect2 rectangle, UiAssets assets, Shader shader,
         MapCornerColors? colors = null, string? commonSpriteOverride = null, bool expansionCommonSprite = false,
         UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null,
-        bool localCoordinates = false)
+        bool localCoordinates = false, bool sourceMaterial = false)
     {
+        var material = sourceMaterial ? UiSourceStaticArtMaterial.Read(Nodes, index) : null;
+        if (material is not null) blend = material.Blend;
         var node = Nodes[index];
         var transform=localCoordinates ? Transform2D.Identity : transforms[index];
         bool projected = Math.Abs(transform.X.Y)>0.00001f||Math.Abs(transform.Y.X)>0.00001f;
@@ -216,10 +230,14 @@ internal sealed class UiSourceLayout
             // complete scale/rotation is applied by SourceProjection. Using
             // the world AABB here would swap margins on a quarter turn.
             Vector2 scale = projected ? Vector2.One : new(Math.Abs(transform.X.X),Math.Abs(transform.Y.Y));
-            if (m.Any(v => v < 0) || (m[2] + m[3])*scale.X > drawSize.X || (m[0] + m[1])*scale.Y > drawSize.Y)
+            if (m.Any(v => v < 0) || (m[2] + m[3])*scale.X > drawSize.X ||
+                !source.HorizontalSlicesOnly && (m[0] + m[1])*scale.Y > drawSize.Y)
                 throw new InvalidDataException($"Source UI nine-part margins exceed {node.Name}.");
             xs = [0, m[2]*scale.X, drawSize.X - m[3]*scale.X, drawSize.X];
-            ys = [0, m[0]*scale.Y, drawSize.Y - m[1]*scale.Y, drawSize.Y];
+            // The source horizontal mode enables only groups1/4/7 and gives
+            // each the full pane height. Its top/bottom margins are not cuts.
+            ys = source.HorizontalSlicesOnly ? [0, 0, drawSize.Y, drawSize.Y] :
+                [0, m[0]*scale.Y, drawSize.Y - m[1]*scale.Y, drawSize.Y];
         }
         foreach (var segment in source.Groups)
         {
@@ -250,7 +268,11 @@ internal sealed class UiSourceLayout
             }
             // Runtime common-sprite rebinding replaces the texture description;
             // it preserves the authored geometry, margins and local UVs.
-            Texture2D texture=commonSpriteOverride is null
+            AtlasTexture? addressedTexture=null;UiAssets.SourceSampling addressing=default;
+            bool addressed=blend==UiSourceSprite.Blend.Ordinary&&commonSpriteOverride is null&&!constantU&&!constantV&&
+                (uv.TopLeft.U<0||uv.TopLeft.V<0||uv.BottomRight.U>1||uv.BottomRight.V>1)&&
+                assets.TrySrgbLayoutAddressedSprite(Source,part.SpriteName,uv,out addressedTexture,out addressing);
+            Texture2D texture=addressed?addressedTexture!:commonSpriteOverride is null
                 ?assets.SrgbLayoutSpritePart(Source,part.SpriteName,uv)
                 :commonTexturePack is not null
                     ?assets.SrgbTexturePackSpritePart(commonTexturePack,commonSpriteOverride,uv)
@@ -258,6 +280,15 @@ internal sealed class UiSourceLayout
             var image = new UiSourceSprite { Position = new(xs[x], ys[y]), Size = new(xs[x + 1] - xs[x], ys[y + 1] - ys[y]) };
             canvas.AddChild(image);
             image.Configure(shader,texture,blend,colors);
+            if(material is not null)
+            {
+                image.SetMaterialColorScale(material.ColorScale);
+                image.SetMaterialColorOffset(material.ColorOffset);
+                image.SetMaterialSaturation(material.Saturation);
+                image.SetSourceAlpha(material.Alpha);
+            }
+            if(addressed)image.SetAddressedSampling(new(new(uv.TopLeft.U,uv.TopLeft.V),
+                new(uv.BottomRight.U-uv.TopLeft.U,uv.BottomRight.V-uv.TopLeft.V)),addressing.AddressU,addressing.AddressV);
             if(constantU||constantV)image.SetSamplingRectangle(new(new(sampledUv.TopLeft.U,sampledUv.TopLeft.V),
                 new(sampledUv.BottomRight.U-sampledUv.TopLeft.U,sampledUv.BottomRight.V-sampledUv.TopLeft.V)));
             image.SetUvFlip(flipU,flipV);
@@ -265,7 +296,62 @@ internal sealed class UiSourceLayout
         return group;
     }
 
-    internal UiSourceText Text(Control parent, int index, Vector2 mount, string value, MapFont font,
+    // Explicit consumer of the source's same-quad colour0/alpha-mask13 pair.
+    // This is not an ordinary Art fallback: both original parts are required.
+    internal Control AlphaMaskedArt(CanvasItem parent,int index,Rect2 rectangle,UiAssets assets,Shader shader,
+        float? maskRotationDegrees=null)
+    {
+        var node=Nodes[index];var source=LcskSpriteNodeReader.Read(Source.Layout,node);
+        if(node.Type!=1||source.Groups.Count!=1||source.Groups[0].ComponentCount!=2)
+            throw new InvalidDataException("Source alpha-mask artwork requires one two-component type1 pane.");
+        var parts=source.Groups[0].Parts;
+        if(parts.Count!=2||parts[0].RawBytes[6]!=0||parts[0].RawBytes[7]!=0||parts[0].RawBytes[8]!=0||
+            parts[1].RawBytes[6]!=13||parts[1].RawBytes[7]!=0||parts[1].RawBytes[8]!=0)
+            throw new InvalidDataException("Source alpha-mask artwork requires its actual colour0/mask13 composition.");
+        var transform=transforms[index];
+        if(Math.Abs(node.HeaderValues[2])>0.00001f)
+            throw new InvalidDataException("Source alpha-mask artwork has unsupported depth.");
+        bool projected=Math.Abs(transform.X.Y)>0.00001f||Math.Abs(transform.Y.X)>0.00001f;
+        var group=new Control{Name=node.Name,Position=rectangle.Position,Size=rectangle.Size,
+            MouseFilter=Control.MouseFilterEnum.Ignore};parent.AddChild(group);
+        Node canvas=group;Vector2 drawSize=rectangle.Size;
+        if(projected)
+        {
+            Vector2 ratio=rectangle.Size/rectangles[index].Size;
+            var projection=new Node2D{Name="SourceProjection",Transform=new(transform.X*ratio,transform.Y*ratio,
+                (transform.Origin-rectangles[index].Position)*ratio)};
+            group.AddChild(projection);canvas=projection;drawSize=nodeSizes[index];
+        }
+        else
+        {
+            Vector2 orientation=new(Math.Sign(transform.X.X),Math.Sign(transform.Y.Y));
+            group.Scale=orientation;
+            group.Position+=new Vector2(orientation.X<0?rectangle.Size.X:0,orientation.Y<0?rectangle.Size.Y:0);
+        }
+        var colour=Load(parts[0],out var colourFlip);var mask=Load(parts[1],out var maskFlip);
+        AreaMarkerColor Tint(int offset)=>MapSpritePalettes.FromAuthored(System.Buffers.Binary.BinaryPrimitives
+            .ReadUInt32LittleEndian(source.RawTintBytes.AsSpan(offset,4)));
+        var image=new UiSourceSprite{Name="SourceAlphaMaskedSprite",Size=drawSize};canvas.AddChild(image);
+        image.Configure(shader,colour,UiSourceSprite.Blend.TranslatedAlphaMask,
+            new MapCornerColors(Tint(0),Tint(4),Tint(8),Tint(12)));
+        image.SetUvFlip(colourFlip.X<0,colourFlip.Y<0);
+        image.SetClipping(colour,mask,new(new(maskFlip.X<0?drawSize.X:0,maskFlip.Y<0?drawSize.Y:0),drawSize*maskFlip));
+        if(maskRotationDegrees is float degrees)image.SetMaskUvRotation(degrees);
+        group.SetMeta("source_node_index",index);group.SetMeta("source_layout",Source.Source.ResourceUri);
+        group.SetMeta("source_component_count",2);group.SetMeta("source_mask_mode",13);
+        return group;
+
+        Texture2D Load(LcskSpriteNodePart part,out Vector2 flip)
+        {
+            var uv=part.Uv;bool u=uv.BottomRight.U<uv.TopLeft.U,v=uv.BottomRight.V<uv.TopLeft.V;
+            if(u)uv=new(uv.TopRight,uv.TopLeft,uv.BottomRight,uv.BottomLeft);
+            if(v)uv=new(uv.BottomLeft,uv.BottomRight,uv.TopLeft,uv.TopRight);
+            flip=new(u?-1:1,v?-1:1);
+            return assets.SrgbLayoutSpritePart(Source,part.SpriteName,uv);
+        }
+    }
+
+    internal UiSourceText Text(CanvasItem parent, int index, Vector2 mount, string value, MapFont font,
         MapTextPreset? preset = null, Rect2? rectangle = null)
     {
         Rect2 box = rectangle ?? Rectangle(index, mount);

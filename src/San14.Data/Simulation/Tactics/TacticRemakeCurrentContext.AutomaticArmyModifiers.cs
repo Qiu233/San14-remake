@@ -135,7 +135,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal AutomaticArmyAllModifierPrefix BeginBorrowedAutomaticArmyAllModifiers(GameState state,
         SourceWorldContext current, TacticRemakeCurrentContext context, int casterId, int stageOrdinal)
     {
-        var caster = state.Units.GetValueOrDefault(casterId) ?? throw AutomaticAllModifierMissing("source_Army_image");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         var army = current.ReadArmyUnitTableReference(AutomaticAllModifierKnown(caster.NativeArmyOrigin?.NativeSlotIndex, "source_physical"))
             ?? throw AutomaticAllModifierMissing("source_Army_pointer");
         if (!AutomaticAllModifierKnown(current.ReadArmyUnitNativeValidity(army), "source_prefix_Army_validity"))
@@ -159,7 +159,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var army = current.ReadArmyUnitTableReference(AutomaticAllModifierKnown(target.NativeArmyOrigin?.NativeSlotIndex, "target_physical"))
             ?? throw AutomaticAllModifierMissing("target_Army_pointer");
         if (!AutomaticAllModifierKnown(current.ReadArmyUnitNativeValidity(army), "target_Army_validity")) return new(state, false);
-        var caster = state.Units.GetValueOrDefault(casterId) ?? throw AutomaticAllModifierMissing("source_Army_image");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         var amount = context.ResolveAutomaticArmyAllModifierInput(state, caster, target, source, instruction, prefix);
         var native = target.NativeTacticRuntime ?? throw AutomaticAllModifierMissing("target_runtime");
         if (native.StatModifiers4A is not { Length: 6 } || native.StatDurations50 is not { Length: 6 })
@@ -197,7 +197,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     /// <summary>2EC6A0's signed32 merge, before its separate byte caps.
     /// Incoming strength is not narrowed or clamped before its energy term.</summary>
-    private static (sbyte Modifier, byte Duration) MergeAutomaticArmyModifier(sbyte beforeModifier,
+    internal static (sbyte Modifier, byte Duration) MergeAutomaticArmyModifier(sbyte beforeModifier,
         byte beforeDuration, int requestedModifier, int requestedDuration)
     {
         unchecked

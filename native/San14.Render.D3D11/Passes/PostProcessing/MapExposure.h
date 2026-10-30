@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Common node1 Exposure. This independent2x1 float owner is not post193
 // Exposure61. Static installed programs/resources are imported once.
 #include "../../Camera/CameraState.h"
@@ -19,7 +20,7 @@ struct Packet {std::array<float,8> texels{};float mode{},luminance{};bool halfRe
 struct CameraInputs {float exposure{},luminance{};};
 inline float F(uint32_t bits){float v;std::memcpy(&v,&bits,4);return v;}
 inline Profile readProfile(const std::filesystem::path& source){
-    std::ifstream input(source/"profile.bin",std::ios::binary);auto p=source_camera::read<Profile>(input);
+    NativePreparedInputFile input(source/"profile.bin",std::ios::binary);auto p=source_camera::read<Profile>(input);
     if(input.peek()!=std::char_traits<char>::eof()||!p.customPixelAbsent||(p.flags8&((1u<<22)|(1u<<23))))
         throw std::runtime_error("Map Exposure fixed stock/mode-invariant source profile differs");return p;
 }
@@ -74,7 +75,7 @@ struct NativeMapExposure {
 static NativeMapExposure prepareNativeMapExposure(ID3D11Device* device,const fs::path& source){
     NativeMapExposure out;out.profile=source_map_exposure::readProfile(source);
     UINT resource,sampled,target,width,height;
-    std::ifstream descriptor(source/"target.txt");descriptor>>resource>>sampled>>target>>width>>height;
+    NativePreparedInputFile descriptor(source/"target.txt");descriptor>>resource>>sampled>>target>>width>>height;
     if(!descriptor||resource!=1||sampled!=2||target!=2||width!=2||height!=1)throw std::runtime_error("Map Exposure native1/2/2 2x1 target differs");
     D3D11_TEXTURE2D_DESC td{};td.Width=width;td.Height=height;td.MipLevels=td.ArraySize=1;
     td.Format=DXGI_FORMAT(resource);td.SampleDesc.Count=1;td.Usage=D3D11_USAGE_DEFAULT;

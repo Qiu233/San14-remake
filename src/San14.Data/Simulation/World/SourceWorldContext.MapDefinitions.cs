@@ -8,6 +8,15 @@ public sealed partial class SourceWorldContext
     // into old governor/home/transaction adapters. All definitions are immutable.
     private MapTopology? _hexIdentityDefinitions, _hexAreaDefinitions, _hexTerrainDefinitions;
     private bool _emptyHexObjectLinksKnown;
+    private IReadOnlyDictionary<int, TerritoryState>? _currentTerritoryOwnership;
+
+    internal bool BindCurrentTerritoryOwnership(IReadOnlyDictionary<int, TerritoryState> territory)
+    {
+        if (territory.Count != 48400) return false;
+        _hexForces.Clear();
+        _currentTerritoryOwnership = territory;
+        return true;
+    }
 
     internal void BindMapIdentityDefinitions(MapTopology topology)
         => _hexIdentityDefinitions = topology;
@@ -22,6 +31,7 @@ public sealed partial class SourceWorldContext
     {
         draft._hexIdentityDefinitions = _hexIdentityDefinitions;
         draft._hexAreaDefinitions = _hexAreaDefinitions;
+        draft._currentTerritoryOwnership = _currentTerritoryOwnership;
         //Home did not carry terrain or object-link inputs. Do not broaden it.
     }
 

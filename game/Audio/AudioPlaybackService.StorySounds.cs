@@ -12,7 +12,7 @@ public partial class AudioPlaybackService
     /// <summary>Accept a real source request into the shared manager. Its actual
     /// reservation occupies a slot while the decoder prepares the voice. A
     /// completed event does not cancel an already admitted sound.</summary>
-    internal void QueueStorySound(int managerId, NormalSoundPreparation source, object owner, CancellationToken sceneToken)
+    internal void QueueStorySound(int managerId, NormalSoundPreparation source, object owner, CancellationToken sceneToken, float? fadeInMilliseconds=null)
     {
         RequireEngineThread(); sceneToken.ThrowIfCancellationRequested();
         if (_decoder is null) throw new InvalidOperationException("story.audio.sound_decoder_owner");
@@ -20,6 +20,7 @@ public partial class AudioPlaybackService
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(sceneToken, _lifetime.Token);
         var effect = ReserveEffect(managerId, owner, lifetime);
         if (effect is null) { lifetime.Dispose(); return; } //Source duplicate/full-pool suppression.
+        effect.FadeInMilliseconds=fadeInMilliseconds;
         _ = PrepareStorySoundAsync(effect, source, lifetime);
     }
 
@@ -29,17 +30,36 @@ public partial class AudioPlaybackService
         AudioClip? clip = null;
         try
         {
-            clip = await PrepareInputAsync(source.Input, AudioLoopPolicy.SourceIfPresent, lifetime.Token).ConfigureAwait(false);
+            if (source.StereoPartner is { } right)
+            {
+                var decoder = _decoder ?? throw new InvalidOperationException("story.audio.sound_decoder_owner");
+                var leftAudio = await decoder.DecodeInputAsync(source.Input, lifetime.Token).ConfigureAwait(false);
+                var rightAudio = await decoder.DecodeInputAsync(right.Input, lifetime.Token).ConfigureAwait(false);
+                ValidateComponent(leftAudio, source.Playback.Sample);
+                ValidateComponent(rightAudio, right.Playback.Sample);
+                clip = await InvokeOnEngineThreadAsync(() => OriginalOutputs.SpeakerLayout == GameAudioSpeakerLayout.Surround51
+                    ? AudioStreamFactory.CreateSynchronousSurroundSpeakerPair(leftAudio, source.Playback, rightAudio, right.Playback, OriginalOutputs.SurroundDeviceRoute)
+                    : AudioStreamFactory.CreateSynchronousSpeakerPair(leftAudio, source.Playback, rightAudio, right.Playback, OriginalOutputs.EffectsStereoRoute),
+                    lifetime.Token, cancelled => cancelled.Dispose()).ConfigureAwait(false);
+                clip = clip with { Components = new[] {
+                    new AudioClipComponent(Selection(source), leftAudio.Provenance),
+                    new AudioClipComponent(Selection(right), rightAudio.Provenance) } };
+            }
+            else
+                clip = await PrepareInputAsync(source.Input, AudioLoopPolicy.SourceIfPresent, lifetime.Token).ConfigureAwait(false);
             var timing = source.Playback.Sample;
-            if (clip.SampleRate != timing.SampleRate || clip.Channels != timing.Channels || clip.SampleFrames != timing.DeclaredSamples)
+            if (source.StereoPartner is null && (clip.SampleRate != timing.SampleRate ||
+                clip.Channels != timing.Channels || clip.SampleFrames != timing.DeclaredSamples))
                 throw new InvalidDataException("audio.normal_sound.decoded_timing");
             clip = clip with
             {
-                StaticPlayback = source.Playback,
-                Selection = new(source.SampleName, source.BankUri, source.BankHash, source.Playback.Sound.SoundId,
-                    source.SampleOffset, source.SampleBytes),
+                // Synchronous component gains are applied to their own unchanged
+                // stems. The shared voice owns only the parameter-group gain.
+                StaticPlayback = source.StereoPartner is null ? source.Playback :
+                    source.Playback with { LinearGain = source.Playback.Group.LinearGain },
+                Selection = source.StereoPartner is null ? Selection(source) : null,
                 Cue = new(source.Playback.Sound.CueName, source.Playback.Sound.CueId,
-                    source.Playback.Sound.CueSectionOffset, source.Playback.Sound.LeafOffset)
+                    source.Playback.Sound.CueSectionOffset, source.StereoPartner is null ? source.Playback.Sound.LeafOffset : null)
             };
             AudioClip ready = clip;
             await InvokeOnEngineThreadAsync(() =>
@@ -74,6 +94,17 @@ public partial class AudioPlaybackService
         }
     }
 
+    private static AudioClipSelection Selection(NormalSoundPreparation source) =>
+        new(source.SampleName, source.BankUri, source.BankHash, source.Playback.Sound.SoundId,
+            source.SampleOffset, source.SampleBytes);
+
+    private static void ValidateComponent(DecodedAudio decoded, AudioCueStaticSampleTiming timing)
+    {
+        if (decoded.Wave.Channels != timing.Channels || decoded.Wave.SampleRate != timing.SampleRate ||
+            decoded.Wave.SampleFrames != timing.DeclaredSamples)
+            throw new InvalidDataException("audio.normal_sound.decoded_component_timing");
+    }
+
     private async Task RetireStoryPreparationAsync(EffectVoice effect, CancellationTokenSource lifetime)
     {
         try
@@ -92,7 +123,7 @@ public partial class AudioPlaybackService
     {
         RequireEngineThread();
         if ((uint)slot >= (uint)_effects.Length) return; //Source out-of-range stop returns0.
-        if (_effects[slot] is { } effect) RemoveEffect(effect);
+        if (_effects[slot] is { } effect) ReleaseEffect(effect);
     }
 
     internal void StopActiveOrdinarySounds()
@@ -100,7 +131,9 @@ public partial class AudioPlaybackService
         RequireEngineThread();
         //The reached -3 queries actual playing flags, excluding queued/reserved
         //requests. StopAllEffects has the distinct all62 semantics.
-        _normalSounds.StopActive(slot => QueryEffectHandle(slot, includeReservation: false), RetireEffect);
+        foreach (var effect in _effects)
+            if (effect is not null && QueryEffectHandle(effect.Slot, includeReservation: false).Active)
+                ReleaseEffect(effect);
     }
 
     internal void StopOrdinarySoundsOwnedBy(object owner)

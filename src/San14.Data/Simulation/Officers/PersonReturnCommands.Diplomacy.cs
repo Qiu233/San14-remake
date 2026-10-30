@@ -8,7 +8,8 @@ public static partial class PersonReturnCommands
     //are actual Bases, while its travel calls231670 with a known-null Force.
     internal static GameState StartDiplomacyTask(GameState state, SourceWorldContext current,
         PrepareDiplomaticOrder order, DiplomacySubmission packet, NativeMapSeasonDate date,
-        Func<GameState, BaseReference, GameState> repairGovernor)
+        Func<GameState, BaseReference, GameState> repairGovernor,
+        Func<GameState,SourceWorldContext,PrepareDiplomaticOrder,(GameState State,int Outcome)> readDispatchAdvice)
     {
         var owner = CurrentCommandOwner(state, current);
         if (owner.Diplomacies is null) throw Missing("saved diplomacy task owner");
@@ -18,7 +19,8 @@ public static partial class PersonReturnCommands
             order.ForceId, order.SourceCityId, packet.SourceDistrictId, order.TargetForceId,
             packet.TargetRulerOfficerId, packet.TargetCapitalCityId, packet.AllianceMonths,
             order.TargetCityId, new(order.GiftGold, order.GiftSupplies, order.GiftItemId, order.GiftAreaId), 48400, 48400,
-            date, new(0, 1, 1, 0), false, false, false, false, false, true);
+            date, new(0, 1, 1, 0), false, false, false, false, false, true)
+        { RequestedCaptiveOfficerIds=order.RequestedCaptiveOfficerIds, RequestedOffer=order.RequestedOffer };
         owner = owner with { NextTaskId = checked(id + 1), AvailableDispatchSlots = owner.AvailableDispatchSlots[1..],
             Diplomacies = new(owner.Diplomacies) { [id] = task } };
         var handle = current.OwnedIndexes?.AssociatedTaskHandle ?? throw Missing("diplomacy association index");
@@ -75,6 +77,14 @@ public static partial class PersonReturnCommands
         var officer = working.Officers.GetValueOrDefault(order.ExecutorOfficerId) ?? throw Missing("diplomacy actor domain");
         working = working with { Officers = new(working.Officers) { [officer.Id] = officer with { Behavior = current.ReadPersonBehavior(actor) } } };
         working = OfficerLocationSourceAdapter.PublishPosition(working, officer.Id, current);
+        var advice=readDispatchAdvice(working,current,order);
+        working=advice.State;
+        owner=current.ReadOwnedPersonCommandManager()??throw Missing("dispatch advice task owner");
+        task=(owner.Diplomacies?.GetValueOrDefault(id)??throw Missing("dispatch advice task"))
+            with {AdvisorOutcomeAtDispatch=advice.Outcome};
+        owner=owner with {Diplomacies=new(owner.Diplomacies!){[id]=task}};
+        current.SetOwnedPersonCommandManager(owner);
+        working=working with {PersonnelCommands=owner};
         BindCurrent(working, current);
         return working;
 

@@ -58,8 +58,8 @@ public sealed class OwnedArmyGovernorComparatorInputs
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
-        byte[] bytes = File.ReadAllBytes(path);
-        var people = ReadSourceRows(S14Reader.Read(bytes, true), language);
+        var document = source.InitialScenarioDocument ?? S14Reader.Read(File.ReadAllBytes(path), true);
+        var people = ReadSourceRows(document, language);
         foreach (var office in ranks.Offices)
         {
             byte[] row = Convert.FromHexString(office.RawBytesHex);
@@ -120,13 +120,13 @@ public sealed class OwnedArmyGovernorComparatorInputs
 
     public byte? ReadCurrentPriority160(GameState state, int physical) =>
         Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length &&
-        state.Officers.GetValueOrDefault(_people[physical].PersonId)?.Id is int id &&
-        _identities.ResolveOfficer(id) == physical ? ReadByte(state, PersonFlags160Key(physical)) : null;
+        CurrentPerson(state, physical)?.Id is int id &&
+        CurrentPhysical(id) == physical ? ReadByte(state, PersonFlags160Key(physical)) : null;
 
     internal ushort? ReadCurrentWord166(GameState state, int physical) =>
         Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length &&
-        state.Officers.GetValueOrDefault(_people[physical].PersonId)?.Id is int id &&
-        _identities.ResolveOfficer(id) == physical ? ReadWord(state, PersonWord166Key(physical)) : null;
+        CurrentPerson(state, physical)?.Id is int id &&
+        CurrentPhysical(id) == physical ? ReadWord(state, PersonWord166Key(physical)) : null;
 
     //253520 reads the current physical receiver's word; it does not join the
     //static scenario Person ID or consume the other governor-comparator fields.
@@ -137,9 +137,8 @@ public sealed class OwnedArmyGovernorComparatorInputs
     public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(GameState state, int physical)
     {
         if (!Bound(state) || ReadInt(state, VersionKey) != 1 || (uint)physical >= _people.Length) return null;
-        var source = _people[physical];
-        if (!state.Officers.TryGetValue(source.PersonId, out var person) || person.Id != source.PersonId ||
-            _identities.ResolveOfficer(person.Id) != physical) return null;
+        var person = CurrentPerson(state, physical);
+        if (person is null || CurrentPhysical(person.Id) != physical) return null;
         byte? currentOffice = OfficerAppointmentSourceAdapter.ReadOfficeId(person.Appointment);
         if (currentOffice is not byte office) return null;
         //Core retains ordinary0..100 loyalty and its actual personnel writes.
@@ -155,6 +154,11 @@ public sealed class OwnedArmyGovernorComparatorInputs
             ReadByte(state, OfficeFlags3DKey(office)), ReadByte(state, OfficeOrder37Key(office)), office,
             ReadWord(state, PersonWord166Key(physical)), loyalty, leadership);
     }
+
+    private OfficerState? CurrentPerson(GameState state, int physical) =>
+        PostRegistrationLookups.RegisteredPersonIdAtPhysical(physical) is int registered && state.Officers.TryGetValue(registered, out var person)
+            ? person : (uint)physical < _people.Length ? state.Officers.GetValueOrDefault(_people[physical].PersonId) : null;
+    private int? CurrentPhysical(int id) => PostRegistrationLookups.RegisteredPersonPhysicalSlot(id) ?? _identities.ResolveOfficer(id);
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } p &&
         p.Language == _language && p.RuleVersion == _ruleVersion &&

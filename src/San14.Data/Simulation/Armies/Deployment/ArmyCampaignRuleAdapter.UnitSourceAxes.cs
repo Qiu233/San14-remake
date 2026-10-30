@@ -14,14 +14,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     public UnitSourceAxes QueryUnitSourceAxes(GameState state, int unitId, bool? landSelected = null)
     {
         ArgumentNullException.ThrowIfNull(state);
-        var missing = new Dictionary<string, string>();
-        var empty = new UnitSourceAxisValues(null, null, null, null, null);
-        if (!state.Units.TryGetValue(unitId, out var army))
-            return new(unitId, landSelected, null, null, null, empty, empty, null,
-                new ReadOnlyDictionary<string, string>(new Dictionary<string, string> { ["army"] = "unit.axes.army_owner" }));
-        UnitSourceAxisValues? signed = army.NativeTacticRuntime is { StatModifiers4A.Length: 6 } header
-            ? new(header.StatModifiers4A[1], header.StatModifiers4A[2], header.StatModifiers4A[4],
-                header.StatModifiers4A[0], header.StatModifiers4A[3]) : null;
+        if (!state.Units.ContainsKey(unitId))
+            return ReadUnitSourceAxesCurrent(state, unitId, landSelected, null, null, null, null);
         SourceWorldContext? current = null;
         TacticRemakeCurrentContext? rules = null;
         TacticRemakeCurrentAbilities? abilities = null;
@@ -36,6 +30,23 @@ public sealed partial class ArmyCampaignRuleAdapter
             rules = new(current, _catalog, _map, _terrain, _usage, Revision, abilities);
         }
         catch (InvalidDataException error) { captureMissing = error.Message; current = null; }
+        return ReadUnitSourceAxesCurrent(state, unitId, landSelected, current, rules, abilities, captureMissing);
+    }
+
+    private UnitSourceAxes ReadUnitSourceAxesCurrent(GameState state, int unitId, bool? landSelected,
+        SourceWorldContext? current, TacticRemakeCurrentContext? rules, TacticRemakeCurrentAbilities? abilities,
+        string? captureMissing, bool listPreview = false, bool? conditionalModifiers = null,
+        Func<int, int, int?>? abilityPanelReader = null, bool? commonModifiers = null,
+        BattleUnitArmyStatKind? requestedStat = null, Action<BattleUnitArmyStatKind, float>? rawStatObserver = null)
+    {
+        var missing = new Dictionary<string, string>();
+        var empty = new UnitSourceAxisValues(null, null, null, null, null);
+        if (!state.Units.TryGetValue(unitId, out var army))
+            return new(unitId, landSelected, null, null, null, empty, empty, null,
+                new ReadOnlyDictionary<string, string>(new Dictionary<string, string> { ["army"] = "unit.axes.army_owner" }));
+        UnitSourceAxisValues? signed = army.NativeTacticRuntime is { StatModifiers4A.Length: 6 } header
+            ? new(header.StatModifiers4A[1], header.StatModifiers4A[2], header.StatModifiers4A[4],
+                header.StatModifiers4A[0], header.StatModifiers4A[3]) : null;
         SourceWorldContext C() => current ?? throw new InvalidDataException(captureMissing!);
         T K<T>(T? value, string input) where T : struct => value ?? throw AxisMissing(input);
         T? Read<T>(string input, Func<T> read) where T : struct
@@ -74,7 +85,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             bool actualNaval = K(TacticRemakeCurrentFormations.ReadRawByte(state,
                 K(currentFormation, "current_formation"), 0x7E), "current_formation_kind") == 2;
             bool land = K(selectedLand, "formation_selection");
-            return land && actualNaval ? (byte)14 : !land && !actualNaval ? (byte)16 : K(surface, "current_surface");
+            return land && actualNaval ? (byte)(listPreview ? 16 : 14)
+                : !land && !actualNaval ? (byte)(listPreview ? 14 : 16) : K(surface, "current_surface");
         });
         int? effectivePreview = Read("formation.preview_current", () =>
         {
@@ -139,16 +151,24 @@ public sealed partial class ArmyCampaignRuleAdapter
             int Trait(int index) => traits is { Length: 127 } ? traits[index] : throw AxisMissing("traits");
             var runtime = army.NativeTacticRuntime;
             bool statusOne = runtime?.Status10 == 1;
-            int Command() => !statusOne || Trait(31) == 0 && Trait(97) == 0 ? 0 : throw AxisMissing("command_age_effect");
+            int? command = null;
+            int Command()
+            {
+                if(!statusOne)return 0;
+                command ??= ArmyCommandAgeEffectSource.ReadCurrent(state,C(),army,
+                    traits is{Length:127}?traits:throw AxisMissing("traits"));
+                return command.Value;
+            }
             sbyte Raw(int index) => runtime is { StatModifiers4A.Length: 6 } ? runtime.StatModifiers4A[index] : throw AxisMissing("status_modifiers");
-            int Leadership() => K(abilities?.ResolveDimension(state, army.OfficerId, 0), "leadership");
+            int Leadership() => K(abilities?.ResolveDimension(state, army.OfficerId, 0, abilityPanelReader), "leadership");
+            bool applyCommonModifiers = commonModifiers ?? modifiers;
             float? common = Read(prefix + ".common", () =>
             {
                 if (runtime is null) throw AxisMissing("army_header");
-                bool alternate = K(BattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state), "morale_settings");
+                var moraleCoefficients = K(BattleRemakeCurrentSettings.ReadCommonMoraleCoefficients(state), "morale_settings");
                 int morale = Math.Min(K(ArmyMoraleSourceAdapter.Read(army), "morale"), K(rules?.ForceMoraleMaximum(state, K(forcePhysical, "force_receiver")), "morale_maximum"));
                 float region = 1f, neighbor = 1f;
-                if (modifiers)
+                if (applyCommonModifiers)
                 {
                     var factor = new BattleRemakeCurrentRegionFactor(_regionSeed, rules!, C(), Revision,
                         new DeploymentPreviewContextFactors.RegionPolicies(C()));
@@ -156,10 +176,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var adjacent = ArmyNeighborCurrentFactor.Read(state, C(), army);
                     neighbor = adjacent.Factor ?? throw new InvalidDataException(adjacent.UnresolvedOwner!);
                 }
-                return BattleUnitSourceMath.CommonFactor(new(Leadership(), army.Troops, 1, morale, modifiers,
+                return BattleUnitSourceMath.CommonFactor(new(Leadership(), army.Troops, 1, morale, applyCommonModifiers,
                     runtime.Abnormal23 != 0,
-                    P(alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
-                    P(alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor),
+                    moraleCoefficients.Offset, moraleCoefficients.Divisor,
                     region, BattleUnitSourceMath.FormationTerrainFactor(K(effectivePreview, "preview_effective_formation"), K(preview, "preview_surface"),
                         P(SimulationParameterKeys.BattleAttributes.Formation6TerrainPercent), P(SimulationParameterKeys.BattleAttributes.Formation14TerrainPercent), 100f), neighbor),
                     new(_battleSeed.CommonPowerExponent, P(SimulationParameterKeys.BattleAttributes.CommonRootDivisor),
@@ -173,22 +192,23 @@ public sealed partial class ArmyCampaignRuleAdapter
                 float value = BattleUnitSourceMath.ArmyStat(kind, new(K(common, "common"), Coefficient(kind), bonus, Percent(), statusOne,
                     Command(), statusOne ? Trait(effect) : 0, statusOne ? Trait(19) : 0, modifiers, Raw(raw), false, doctrine),
                     new(P(limit), P(step), P(step), P(scale), 100f, 1f));
+                rawStatObserver?.Invoke(kind, value);
                 return BattleUnitSourceMath.TruncateSingleToInt32(value);
             }
             int Bonus(int bit, int selected, string key) => (K(forceFlags, "force_flags") & bit) != 0 && formation == selected ? P(key) : 0;
-            int? field = Read(prefix + ".field", () => Stat(BattleUnitArmyStatKind.FieldAttack, 5, 0, 1,
+            int? field = requestedStat is not null && requestedStat != BattleUnitArmyStatKind.FieldAttack ? null : Read(prefix + ".field", () => Stat(BattleUnitArmyStatKind.FieldAttack, 5, 0, 1,
                 SimulationParameterKeys.BattleAttributes.AttackAbilityLimit, SimulationParameterKeys.BattleAttributes.AttackAbilityStep, SimulationParameterKeys.BattleAttributes.AttackCoefficientScale));
-            int? siege = Read(prefix + ".siege", () => Stat(BattleUnitArmyStatKind.SiegeTroopAttack, 6, Bonus(2, 5, SimulationParameterKeys.BattleAttributes.SiegeAbilityBonus), 2,
+            int? siege = requestedStat is not null && requestedStat != BattleUnitArmyStatKind.SiegeTroopAttack ? null : Read(prefix + ".siege", () => Stat(BattleUnitArmyStatKind.SiegeTroopAttack, 6, Bonus(2, 5, SimulationParameterKeys.BattleAttributes.SiegeAbilityBonus), 2,
                 SimulationParameterKeys.BattleAttributes.SiegeAbilityLimit, SimulationParameterKeys.BattleAttributes.SiegeAbilityStep, SimulationParameterKeys.BattleAttributes.AttackCoefficientScale));
-            int? defense = Read(prefix + ".defense", () => Stat(BattleUnitArmyStatKind.Defense, 7, Bonus(0x20, 7, SimulationParameterKeys.BattleAttributes.Formation7ForceFlagBonus), 3,
+            int? defense = requestedStat is not null && requestedStat != BattleUnitArmyStatKind.Defense ? null : Read(prefix + ".defense", () => Stat(BattleUnitArmyStatKind.Defense, 7, Bonus(0x20, 7, SimulationParameterKeys.BattleAttributes.Formation7ForceFlagBonus), 3,
                 SimulationParameterKeys.BattleAttributes.DefenseAbilityLimit, SimulationParameterKeys.BattleAttributes.DefenseAbilityStep, SimulationParameterKeys.BattleAttributes.DefenseCoefficientScale));
-            int? wall = Read(prefix + ".wall", () => BattleUnitSourceMath.TruncateSingleToInt32(BattleUnitSourceMath.ArmyWallAttack(
+            int? wall = requestedStat is not null && requestedStat != BattleUnitArmyStatKind.WallAttack ? null : Read(prefix + ".wall", () => BattleUnitSourceMath.TruncateSingleToInt32(BattleUnitSourceMath.ArmyWallAttack(
                 new(Leadership(), army.Troops, Coefficient(BattleUnitArmyStatKind.WallAttack), Bonus(2, 5, SimulationParameterKeys.BattleAttributes.WallAbilityBonus),
                     Percent(), statusOne, Command(), statusOne ? Trait(8) : 0, statusOne ? Trait(19) : 0, modifiers, Raw(4)),
                 new(P(SimulationParameterKeys.BattleAttributes.WallTroopOffset), P(SimulationParameterKeys.BattleAttributes.WallTroopDenominator),
                     P(SimulationParameterKeys.BattleAttributes.WallLeadershipDenominator), new(P(SimulationParameterKeys.BattleAttributes.WallAbilityLimit),
                         P(SimulationParameterKeys.BattleAttributes.WallAbilityStep), P(SimulationParameterKeys.BattleAttributes.WallAbilityStep), 0, 100f, 1f)))));
-            int? mobility = Read(prefix + ".mobility", () =>
+            int? mobility = requestedStat is not null ? null : Read(prefix + ".mobility", () =>
             {
                 if (runtime is not { Status10: 1 or 2 }) throw AxisMissing("ordinary_army_status");
                 if (P(TacticRemakeCurrentBattleControl.VersionKey) != 1 || P(TacticRemakeCurrentBattleControl.HeaderKey) != 0) throw AxisMissing("mobility_tutorial");
@@ -224,7 +244,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             });
             return new(field, siege, wall, mobility, defense);
         }
-        var without = Axes(false); var with = Axes(true);
+        var without = conditionalModifiers == true ? empty : Axes(false);
+        var with = conditionalModifiers == false ? empty : Axes(true);
         if (signed is null) missing["signed_modifiers"] = "unit.axes.status_modifiers";
         return new(unitId, selectedLand, formation, surface, preview, without, with, signed, new ReadOnlyDictionary<string, string>(missing));
     }

@@ -61,7 +61,8 @@ public static class ScenarioInitializer
             if (person.FamilyName is string surname && person.GivenName is string given &&
                 !string.Equals(person.Name, surname + given, StringComparison.Ordinal))
                 throw new InvalidDataException("Scenario character name parts conflict with its display name.");
-        ItemProjection itemProjection = ItemProjection.Create(source, loaded.Metadata.FormatMarker);
+        ItemProjection itemProjection = ItemProjection.Create(source, loaded.Metadata.FormatMarker,
+            loaded.InitialItemEditorState?.Appearances);
         ScenarioTerritory territory = ScenarioTerritory.Build(map.Map, source);
         static int? OptionalId(int id) => id == 0 ? null : id;
         // Original office 73 is a known "none" definition. Code 0 and the
@@ -99,7 +100,7 @@ public static class ScenarioInitializer
             issues.Add("officers.unresolved_policies");
         if (source.Characters.Any(person => person.CharacterId != 0 && person.RawPolicyBaseCost is null))
             issues.Add("officers.unresolved_policy_costs");
-        if (source.Characters.Any(person => person.CharacterId != 0 && OfficeId(person.RawOfficeId) is null))
+        if (source.Characters.Any(person => person.CharacterId != 0 && person.StatusCode != 9 && OfficeId(person.RawOfficeId) is null))
             issues.Add("officers.unresolved_offices");
         if (personalDoctrines.Values.Any(id => id is null)) issues.Add("officers.unresolved_doctrines");
         if (source.Cities.Any(city => city.Slot != 0 && city.HexId is null)) issues.Add("cities.map_position");
@@ -134,6 +135,7 @@ public static class ScenarioInitializer
             MapHeight = map.Map.Height,
             Date = new PeriodDate(year, month, day),
             Phase = TurnPhase.Initializing,
+            CreatedPersonalities = loaded.InitialCreatedPersonalities ?? [],
             RandomState = randomSeed,
             //326230 clears the ten groups' fifty member slots at world construction.
             PersonnelGroups = new(Enumerable.Repeat(ImmutableArray<int>.Empty, 10).ToImmutableArray()),
@@ -221,6 +223,7 @@ public static class ScenarioInitializer
                     CurrentGivenNameSortKey = person.GivenNameSortKey,
                     DialogueStyle = person.DialogueStyle,
                     VoiceType = person.VoiceType,
+                    SpecialVoiceType = person.SpecialVoiceType,
                     BirthYear = person.BirthYear,
                     FamilyGeneration = person.FamilyGeneration,
                     CurrentSurname = person.FamilyName,

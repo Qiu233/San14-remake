@@ -46,6 +46,15 @@ public static class SpatialEffectSoundSource
             cue = selected.Cue;
             layers = selected.Layers;
         }
+        else if (managerId is 194 or 195 or 196 or >= 198 and <= 201)
+        {
+            // Construct start/finish have no distance parameter. Destruction
+            // and the reached trap notices carry one authored distance curve.
+            var selected = TacticSoundSource.ReadSingleLayerPlayback(bank, managerId,
+                managerId is 194 or 195 ? 0u : 1u);
+            cue = selected.Cue;
+            layers = selected.Layers;
+        }
         else throw new InvalidDataException("Spatial effect sound manager identity is unsupported.");
         var group = ReadGroup(bank, cue.ExactCueName);
         if (categories.ResourceUri != GameResourceId.Rdb("RRPreview", NarrationVoiceSelection.OutputResourceId).ToString())

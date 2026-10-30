@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "SkyMaterialState.h"
 #include <cstdint>
 #include <cstring>
@@ -19,7 +20,7 @@ inline SkySamplingPresence decodeSkySamplingPresence(std::span<const std::uint8_
     return {(words[1]&1u)!=0,(words[1]&2u)!=0,(words[1]&4u)!=0};
 }
 inline SkySamplingPresence readSkySamplingPresence(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);std::array<std::uint8_t,8> bytes{};
+    NativePreparedInputFile stream(path,std::ios::binary);std::array<std::uint8_t,8> bytes{};
     stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!stream||stream.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Main Sky sampling presence absent or malformed");
@@ -51,7 +52,7 @@ inline SkyMaterialState decodeSkyInitialState(std::span<const std::uint8_t> byte
     return result;
 }
 inline SkyMaterialState readSkyInitialState(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);std::array<std::uint8_t,472> bytes;
+    NativePreparedInputFile stream(path,std::ios::binary);std::array<std::uint8_t,472> bytes;
     stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!stream||stream.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Main Sky initial state absent or malformed");
     return decodeSkyInitialState(bytes);
@@ -69,7 +70,7 @@ struct SkyMaterialStageLayout {
 };
 struct SkyMaterialLayout { SkyMaterialStageLayout vertex,pixel; };
 inline SkyMaterialLayout readSkyMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     auto word=[&]() {std::uint32_t value{};stream.read(reinterpret_cast<char*>(&value),4);
         if(!stream)throw std::runtime_error("Incomplete Main Sky layout");return value;};
     if(word()!=0x314C4D53u||word()!=2)throw std::runtime_error("Main Sky material layout SML1 version");

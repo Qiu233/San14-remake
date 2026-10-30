@@ -53,7 +53,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 state = state.WithArmyLifecycle(OwnedArmyDestructorFlags.PublishCurrent(state.ReadArmyLifecycle()!, current));
                 if (N(current.ReadArmyReturnUnitStatus10(army), "occupation_Army10") != 1) continue;
                 var image = Image(physical);
-                state = package.OccupyOrdinaryNeutralTerrain(state, current, image, physical).State;
+                state = package.OccupyOrdinaryNeutralTerrain(state, current, image, physical,
+                    state.NativeMapSeason?.ThirdDate ?? throw Missing("occupation_source_date")).State;
             }
         }
 

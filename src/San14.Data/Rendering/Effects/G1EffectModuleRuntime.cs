@@ -41,6 +41,7 @@ internal sealed class G1EffectModuleRuntime : IDisposable
                     motion.Apply(record, slot, dt);
                 };
                 generic.ModuleEmissionScale = lifetime.Strength;
+                generic.NestedAuxiliaryAdvance = seconds => motion.AdvanceOwnedAuxiliaries(generic.Record.FileOffset, seconds);
             }
             foreach (var emitter in declaration.Records.Where(record => record.Table == G1EffectTable.Emitter))
                 emitters.Add(new(declaration, G1EffectEmitterDeclaration.Read(declaration, emitter),
@@ -50,6 +51,7 @@ internal sealed class G1EffectModuleRuntime : IDisposable
     }
 
     internal IReadOnlyList<G1EffectGenericRuntime> Generics => generics;
+    internal Func<int, int, Matrix4x4?>? EmitterTransformProvider { get; set; }
     private static IEnumerable<G1EffectGenericRuntime> Tree(G1EffectGenericRuntime node)
     { yield return node; foreach (var child in node.Children) foreach (var next in Tree(child)) yield return next; }
     internal bool Enabled => lifetime.Enabled;
@@ -80,8 +82,8 @@ internal sealed class G1EffectModuleRuntime : IDisposable
         foreach (var generic in Generics) generic.ModuleEmissionScale = lifetime.Strength;
         foreach (var emitter in emitters)
             Run(emitter, emitter.Scheduler.Declaration.Record.FileOffset, "EmitterFrame",
-                () => emitter.PrepareFrame(seconds, world));
-        Run(motion, declaration.FileOffset, "AuxiliaryUpdate", () => motion.Advance(seconds));
+                () => emitter.PrepareFrame(seconds, world, EmitterTransformProvider));
+        Run(motion, declaration.FileOffset, "AuxiliaryUpdate", () => motion.Advance(seconds, world));
         foreach (var generic in roots)
             Run(generic, generic.Record.FileOffset, "GenericUpdate", () => generic.Advance(seconds));
         foreach (var emitter in emitters)

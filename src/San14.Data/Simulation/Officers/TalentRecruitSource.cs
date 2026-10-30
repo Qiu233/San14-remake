@@ -7,13 +7,13 @@ internal sealed record TalentRecruitTrialResult(bool Accepted, int SampleAfter,
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //TC278900. The enclosing operation owns current, its shared pool and any
+    //Paired TC/SC recruit trial. The operation owns current, its shared pool and any
     //final publication. This query has real temporary-list allocator effects.
     internal TalentRecruitTrialResult TryRecruitCurrent(GameState state,
         SourceWorldContext current, int targetPhysical, int executorPhysical,
         int savedSample, Func<TacticSourceSamplerWorld> readSampler)
     {
-        if (Seed.Language != "TC") throw RecruitMissing("SC_trial_owner");
+        if (Seed.Language is not ("TC" or "SC")) throw RecruitMissing("trial_edition_owner");
         return new RecruitTrial(this, state, current, targetPhysical, executorPhysical,
             savedSample, readSampler).Run();
     }
@@ -235,9 +235,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
 internal static class TalentRecruitParameters
 {
-    //TC loader-zero scalars. Their complete cached instruction references
-    //only read them, and the surrounding scalar block has no address escape.
-    //These rules are established by initialization, not a process snapshot.
+    //TC/SC loader-zero scalars. Each edition's own PE virtual data tail
+    //initializes these integers; the surrounding scalar owner has only reads,
+    //with no writes or escaped address in the qualified offline references.
+    //No executable, original process or proof scan is used by the game.
     internal static readonly IReadOnlyDictionary<string, int> LoaderDefaults = new Dictionary<string, int>
     {
         ["player-hard-bonus"] = 0,
@@ -254,12 +255,12 @@ internal static class TalentRecruitParameters
     internal static int Read(GameState state, string name)
     {
         string key = Key(name);
-        if (state.NativeArmySimulation?.Parameters is { Language: "TC" } bank &&
+        if (state.NativeArmySimulation?.Parameters is { Language: "TC" or "SC" } bank &&
             !bank.Float32Values.ContainsKey(key))
         {
             if (bank.Int32Values.TryGetValue(key, out int value)) return value;
-            //Only the two proved immutable rules cover an older save's
-            //absent key. Every other missing current parameter stays unknown.
+            //Saved integers take precedence. Both supported editions have
+            //independently proved immutable initialization values for these keys.
             if (LoaderDefaults.TryGetValue(name, out value)) return value;
         }
         throw new InvalidDataException("talent-recruit.current_parameter_" + key);

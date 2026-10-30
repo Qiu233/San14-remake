@@ -82,15 +82,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (physical == 0 || physical >= 21 || (mask & (1u << physical)) == 0) continue;
             if (LearnNeed(TacticRemakeCurrentFormations.ReadRawByte(state, physical, 0x7E), "Formation7E") == 2)
             {
-                //042950: this admitted learner is known non-special. The Force
-                //native-validity gate precedes its actual15E formation byte.
-                var force = current.ReadPersonForce(person.Physical) ?? throw LearnMissing("formation_Person_Force");
-                int selected = 11;
-                if (LearnNeed(current.ReadForceNativeValidity(force), "formation_Force_validity"))
-                {
-                    int forcePhysical = LearnNeed(force.PhysicalSlot, "formation_Force_physical");
-                    selected = LearnForceFormationCurrent(state, forcePhysical);
-                }
+                int selected = PersonNavalFormationSelection.Resolve(state, current, person.Physical);
                 if (selected == physical) return true;
             }
             else
@@ -256,14 +248,6 @@ public sealed partial class ArmyCampaignRuleAdapter
     private static bool LearnOrdinaryTacticGroup(int physical) => physical is >= 31 and <= 130 or >= 140 and <= 200;
     private static string LearnTacticName(GameState state, int physical)
         => state.Tactics.GetValueOrDefault(physical)?.Name ?? throw LearnMissing("Tactic_name");
-    private static byte LearnForceFormationCurrent(GameState state, int force)
-    {
-        var bank = state.NativeArmySimulation?.Parameters ?? throw LearnMissing("Force_formation_bank");
-        string key = BattleRemakeCurrentForcePolicies.ForceFieldKey(force, 0x15E);
-        if (bank.Float32Values.ContainsKey(key) || !bank.Int32Values.TryGetValue(key, out int value) || (uint)value > 255)
-            throw LearnMissing("Force_formation15E");
-        return (byte)value;
-    }
     private static int LearnArmyParameter(GameState state, string key, int tcValue)
     {
         var bank = state.NativeArmySimulation?.Parameters ?? throw LearnMissing("parameter_owner");

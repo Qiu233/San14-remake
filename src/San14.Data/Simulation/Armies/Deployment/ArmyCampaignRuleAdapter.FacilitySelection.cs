@@ -76,31 +76,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                     string? rejected = null;
                     if (!FacilityConstructionLegality.CheckCommander(state, current, person, site, reference, reason => rejected = reason))
                         return Result(false, rejected ?? "structure.site.unavailable", null);
-                    //7EC870's category3 branch creates a placement state with
-                    //the captured target as its initial endpoint. A single-Hex
-                    //consumer must not impersonate that distinct operation.
-                    if (definition.Category == 3) throw Missing("selection_category3_multi_placement");
                     return Result(true, null, null);
                 }
 
-                // 2C4E30's Force-policy requirement is independent of the
-                // eventual site. Use the same current level reader as the
-                // accepted construction legality consumer.
-                if (definition.RequiredPolicyEffect != 0)
-                {
-                    if (!state.PolicyEffects.ContainsKey(definition.RequiredPolicyEffect))
-                        throw Missing("selection_policy_definition");
-                    int level = K(BattleRemakeCurrentForcePolicies.ReadForceLevel(state, force,
-                        definition.RequiredPolicyEffect), "selection_policy_current_level");
-                    if (level < definition.RequiredPolicyLevel)
-                        return Result(false, "structure.selection.policy", null);
-                }
+                if (slot is >= 15 and <= 17 && K(ReadConstructionTutorialQualification(state), "selection_tutorial_owner"))
+                    return Result(true, null, null);
 
-                // A nonzero +32 also reaches 2307D0's collected personalities
-                // in 2C4E30. CommanderHasEffect only covers 2C5830's nine
-                // current slots and cannot stand in for that collector.
-                if (definition.RequiredTrait != 0)
-                    throw Missing("selection_required_trait_collector");
+                if(definition.RequiredTrait!=0 && !K(TacticRemakeCurrentTraits.CommanderHasEffect(
+                    current,person,definition.RequiredTrait),"selection_intrinsic_trait"))
+                    return Result(false,"structure.selection.trait",null);
+                if(!FacilityConstructionQualification.PersonQualifies(state,current,person,definition))
+                    return Result(false,"structure.selection.commander_or_policy",null);
                 return Result(true, null, null);
             }
             catch (InvalidDataException error) { return Result(null, null, error.Message); }

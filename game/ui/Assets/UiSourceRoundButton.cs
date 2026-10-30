@@ -19,7 +19,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, string caption, Action? pressed = null, UiAudioCue cue = UiAudioCue.ButtonSelect)
     {
-        var declared = new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale, caption);
+        var declared = assets.PrepareCommonCaption(locale, caption);
         ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed, cue);
     }
 
@@ -33,7 +33,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
             "TC" => "tw", "SC" => "ch",
             _ => throw new NotSupportedException($"UI artwork locale {locale} is not supported.")
         };
-        var declared = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(
+        var declared = assets.DeclaredSprites.LoadTexturePackSprite(
             $"texture_lang_{language}", $"{language}_000_cmn_txt_decision_kakunin");
         ConfigureSource(repository, assets, shader, 0x2F276C90, declared, pressed, UiAudioCue.ButtonSelect);
         SetMeta("source_style", 3);
@@ -43,7 +43,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     internal void ConfigureScenarioReturn(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, Action pressed)
     {
-        var declared = new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale, "000_cmn_txt_decision_modoru");
+        var declared = assets.DeclaredSprites.LoadCommonCaption(locale, "000_cmn_txt_decision_modoru");
         ConfigureSource(repository, assets, shader, 0x2F276C90, declared, pressed, UiAudioCue.Cancel);
         SetMeta("source_style", 1);
         SetMeta("source_guide_message", 0x3BC);
@@ -54,7 +54,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     {
         string language = locale switch { "TC" => "tw", "SC" => "ch",
             _ => throw new NotSupportedException($"UI artwork locale {locale} is not supported.") };
-        var declared = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(
+        var declared = assets.DeclaredSprites.LoadTexturePackSprite(
             $"texture_lang_{language}", $"{language}_000_cmn_txt_decision_chushi");
         ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed, UiAudioCue.ButtonSelect);
         SetMeta("source_style", 2);
@@ -63,7 +63,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     internal void ConfigureContinue(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, Action pressed)
     {
-        var declared=new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale,"000_cmn_txt_decision_next");
+        var declared=assets.DeclaredSprites.LoadCommonCaption(locale,"000_cmn_txt_decision_next");
         ConfigureSource(repository,assets,shader,0xAD4A3EFA,declared,pressed,UiAudioCue.ButtonSelect,captionNode:17);
         SetMeta("source_style",10);
     }
@@ -73,7 +73,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     {
         string language = locale switch { "TC" => "tw", "SC" => "ch",
             _ => throw new NotSupportedException($"UI artwork locale {locale} is not supported.") };
-        var declared = new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(
+        var declared = assets.DeclaredSprites.LoadTexturePackSprite(
             $"texture_ce_lang_{language}", $"{language}_000_cmn_txt_kansho");
         ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed, UiAudioCue.ButtonSelect);
         SetMeta("source_caption", 15);
@@ -82,7 +82,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     internal void ConfigureDiplomaticReply(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, bool accepted, Action pressed)
     {
-        var declared = new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale,
+        var declared = assets.DeclaredSprites.LoadCommonCaption(locale,
             accepted ? "000_cmn_txt_decision_shoudaku" : "000_cmn_txt_decision_kyohi");
         ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed,
             accepted ? UiAudioCue.ButtonSelect : UiAudioCue.Cancel);
@@ -92,7 +92,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     internal void ConfigureSelfRecommendationReply(GameResourceRepository repository, UiAssets assets, Shader shader,
         string locale, bool accepted, Action pressed)
     {
-        var declared = new LocalizedUiSpriteSource(repository).LoadCommonCaption(locale,
+        var declared = assets.DeclaredSprites.LoadCommonCaption(locale,
             accepted ? "000_cmn_txt_decision_jyudaku" : "000_cmn_txt_decision_kyohi");
         ConfigureSource(repository, assets, shader, 0xAD4A3EFA, declared, pressed,
             accepted ? UiAudioCue.ButtonSelect : UiAudioCue.Cancel);
@@ -104,7 +104,7 @@ internal partial class UiSourceRoundButton : UiSourceButton
     {
         this.cue = cue;
         sourceActivation = pressed;
-        var layout = new UiSourceLayout(repository, file);
+        var layout = assets.SourceLayout(file);
         Size = new(layout.Nodes[0].Value44, layout.Nodes[0].Value46);
         Control[] states = new[] { 3, 5, 8, 12, 14 }
             .Select(index => layout.Art(this, index, layout.Rectangle(index), assets, shader)).ToArray();

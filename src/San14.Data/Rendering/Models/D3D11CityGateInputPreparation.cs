@@ -5,7 +5,7 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
-/// <summary>Import the complete declared City/Gate/Area primary resource roster.
+/// <summary>Import the complete declared City/Gate/Area/facility primary resource roster.
 /// Current population, registration, visibility and counters belong to their
 /// normal runtime owners and are not supplied by this static bank.</summary>
 public static class D3D11CityGateInputPreparation
@@ -36,11 +36,12 @@ public static class D3D11CityGateInputPreparation
         var tables=fieldShaderTableOwners.ToDictionary(p=>p.Key,p=>p.Value,StringComparer.Ordinal);
         ulong nextTable=tables.Values.DefaultIfEmpty(0UL).Max();
         var profiles=new List<AssetProfile>();var modelDirectories=new List<string>();
-        for(int category=11;category<=60;category++)
+        for(int category=11;category<=88;category++)
         {
             try
             {
-                var asset=category<=54?assets.LoadCityCategory(category):category<=58?assets.LoadGate(category):assets.LoadCapitalCategory(category);
+                var asset=category<=54?assets.LoadCityCategory(category):category<=58?assets.LoadGate(category):
+                    category<=60?assets.LoadCapitalCategory(category):assets.LoadFacilityCategory(category);
                 var definition=asset.TextureResources.CatalogDefinition??throw new InvalidDataException("Primary WorldPQ definition is absent.");
                 RequireEmpty(asset.TextureResources.ModelObject,43,0x6C3B792D,"Model material overrides");
                 RequireEmpty(definition,34,0x34CF9E5C,"World material pair bank");

@@ -8,7 +8,11 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
 {
     private readonly Dictionary<int, int?> _hexPointers = [], _areaPointers = [];
     private readonly Dictionary<int, ushort?> _hexAreas = [], _areaHexes = [];
-    private readonly Dictionary<int, byte?> _hexForces = [], _areaValidityCodes = [], _areaCities = [];
+    private readonly Dictionary<int, byte?> _hexForces = [], _areaValidityCodes = [];
+    // 220900 clears the Area constructor's DWORD34, including current City35.
+    // The zero receiver never enters the registered Area assignment writer,
+    // but City-focus181050 still reads it for sea/unassigned Hex12==0.
+    private readonly Dictionary<int, byte?> _areaCities = new() { [0] = 0 };
     private readonly Dictionary<int, byte?> _areaFacilityCapacities = [];
     internal void SetAreaFacilityCapacity(int physical, byte? value)
     { Check(physical, 501, "area facility capacity"); _areaFacilityCapacities[physical] = value; }
@@ -64,8 +68,16 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
         return _hexAreas.TryGetValue(physical, out ushort? area) ? area :
             _hexAreaDefinitions is not null ? (ushort)_hexAreaDefinitions.Tile(physical).AreaId : null;
     }
-    public byte? ReadHexForceSlot(HexReference reference) =>
-        _hexForces.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 48400, "hex"));
+    public byte? ReadHexForceSlot(HexReference reference)
+    {
+        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        if (_hexForces.TryGetValue(physical, out byte? changed)) return changed;
+        if (_currentTerritoryOwnership is null ||
+            !_currentTerritoryOwnership.TryGetValue(physical, out var cell) || cell.Id != physical ||
+            cell.ForceId is < 0 or > 51 ||
+            _hexAreaDefinitions is null || (cell.AreaId ?? 0) != _hexAreaDefinitions.Tile(physical).AreaId) return null;
+        return (byte)(cell.ForceId ?? 0);
+    }
     public AreaReference? ReadAreaTableReference(int slot)
     { Check(slot, 501, "area lookup slot"); return _areaPointers.TryGetValue(slot, out int? physical) ? new(physical) : null; }
     public bool? ReadAreaNativeValidity(AreaReference reference)

@@ -145,6 +145,7 @@ public sealed class MapSourceCreatedViewCameraFields
         FrameNumber = camera.FrameNumber; CameraObjectId = camera.Source.Camera.ObjectId;
         prefix = camera.Prefix.ToArray(); ViewSignedA00 = a00; ViewA28 = a28; ViewA3C = a3c;
         StatisticalOceanGroupIdAC0 = ocean; RainDropGroupId12A8 = rain; SourceProvenance = provenance;
+        ReflectionProbeRsmCaptureMode15A0 = camera.SourceReflectionProbeRsmCaptureMode15A0;
     }
     public long FrameNumber { get; }
     public uint CameraObjectId { get; }
@@ -153,12 +154,14 @@ public sealed class MapSourceCreatedViewCameraFields
     public uint ViewA3C { get; }
     public uint StatisticalOceanGroupIdAC0 { get; }
     public uint RainDropGroupId12A8 { get; }
+    public uint ReflectionProbeRsmCaptureMode15A0 { get; }
     public bool SelectedCamera1808Present => false;
     public string SourceProvenance { get; }
     internal void Validate(MapCameraConstructionPacket camera)
     {
         var accepted = camera.CopyAcceptedSnapshot();
         if (FrameNumber != accepted.FrameNumber || CameraObjectId != accepted.Source.Camera.ObjectId ||
+            ReflectionProbeRsmCaptureMode15A0 != accepted.SourceReflectionProbeRsmCaptureMode15A0 ||
             !prefix.AsSpan().SequenceEqual(accepted.Prefix.Span))
             throw new InvalidDataException("View source fields require the same accepted Camera bytes and frame.");
     }

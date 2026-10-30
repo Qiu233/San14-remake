@@ -1,6 +1,7 @@
 namespace San14.Core;
 
 public enum PersonnelActionKind { GrantItem, RevokeItem, SetOffice }
+public sealed record PreparePersonnelItemTransferOrder(int ForceId, int ItemId, int RecipientOfficerId) : GameOrder(ForceId);
 public sealed record GrantItemOrder(int ForceId, int ItemId, int RecipientOfficerId) : GameOrder(ForceId);
 public sealed record RevokeItemOrder(int ForceId, int ItemId, int OwnerOfficerId) : GameOrder(ForceId);
 public sealed record SetOfficerOfficeOrder(int ForceId, int OfficerId, int OfficeId) : GameOrder(ForceId);
@@ -16,13 +17,47 @@ public sealed record PersonnelQuote(int? DistrictId, int? GoldCityId, int Comman
     // Optional source-backed custody flag write; legacy/custom quotes omit it.
     public byte? ItemFlagsAfter { get; init; }
 }
+/// <summary>A current item transfer query. Ability values use the normal full
+/// current ability resolver; they are preview results, never saved caches.</summary>
+public sealed record PersonnelItemOfficerPreview(int OfficerId, int? LoyaltyBefore,
+    int? LoyaltyAfter, OfficerAbilities AbilitiesBefore, OfficerAbilities AbilitiesAfter)
+{
+    public bool IsRuler { get; init; }
+    public bool LoyaltyChangeVisible { get; init; }
+    public int? DisplayLoyaltyChangeMagnitude { get; init; }
+    public int? DisplayLoyaltyBefore { get; init; } = LoyaltyBefore;
+    public int? DisplayLoyaltyAfter { get; init; } = LoyaltyAfter;
+    public OfficerAbilities DisplayAbilitiesAfter { get; init; } = AbilitiesAfter;
+}
+public sealed record PersonnelItemTransferAnnouncement(int ForceId, int ItemId,
+    int PreviousHolderId, int NextHolderId, IReadOnlyList<CampaignEffectRequest> Requests);
+public sealed record PersonnelItemTransferPreview(int ItemId,
+    PersonnelItemOfficerPreview PreviousHolder, PersonnelItemOfficerPreview NextHolder,
+    int DistrictId, int CommandBooksCost, int DistrictBooksBefore,
+    long ReservedCommandBooks, long AvailableCommandBooks, int DistrictBooksAfter)
+{
+    public int AbilityKind { get; init; }
+}
 public sealed record PersonnelEvaluation(bool? Allowed, PersonnelQuote? Quote = null,
-    string? MissingRuleKey = null, string? Reason = null);
+    string? MissingRuleKey = null, string? Reason = null)
+{
+    public PersonnelItemTransferPreview? ItemTransferPreview { get; init; }
+}
 
 public interface IPersonnelCommandRules
 {
     PersonnelEvaluation Evaluate(GameState state, ForceState force,
         PersonnelChange change, CommandContext context);
+}
+
+/// <summary>Completes the source-owned custody/accounting projections after
+/// the common command has applied its evaluated item transfer.</summary>
+public interface IPersonnelItemTransferCommandRules : IPersonnelCommandRules
+{
+    CommandResult PrepareItemTransfer(GameState state, ForceState force, PersonnelChange change,
+        PersonnelItemTransferPreview transfer, CommandContext context);
+    CommandResult CompleteItemTransfer(GameState state, ForceState force, PersonnelChange change,
+        PersonnelItemTransferPreview transfer, CommandContext context);
 }
 
 public sealed class UnresolvedPersonnelRules : IPersonnelCommandRules

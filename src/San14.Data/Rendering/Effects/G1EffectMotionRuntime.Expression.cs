@@ -36,6 +36,14 @@ public sealed partial class G1EffectMotionRuntime
                 float scale = BitConverter.Int32BitsToSingle(Word(bytes, ref cursor));
                 return new(scale * value.X, scale * value.Y, scale * value.Z, scale * value.W);
             }
+            case 19:
+            {
+                float x = ExpressionScalar(bytes, ref cursor, generic, particle, source);
+                float y = ExpressionScalar(bytes, ref cursor, generic, particle, source);
+                float z = ExpressionScalar(bytes, ref cursor, generic, particle, source);
+                float w = BitConverter.Int32BitsToSingle(Word(bytes, ref cursor));
+                return new(x, y, z, w);
+            }
             case 39:
             {
                 int pointerField = Word(bytes, ref cursor);
@@ -83,6 +91,51 @@ public sealed partial class G1EffectMotionRuntime
                 float numerator = ExpressionScalar(bytes, ref cursor, generic, particle, source),
                     denominator = ExpressionScalar(bytes, ref cursor, generic, particle, source);
                 return numerator / (denominator == 0 ? 1.1754944e-38f : denominator);
+            }
+            case 30:
+            {
+                float value = ExpressionScalar(bytes, ref cursor, generic, particle, source);
+                int table = cursor, count = Word(bytes, ref cursor);
+                if (count < 1) throw new InvalidDataException("Particle linear curve has no points.");
+                int length = checked((2 * count + 1) * 4);
+                Require(bytes.Length, table, length);
+                cursor = checked(table + length);
+                float previousX = F(bytes, table + 4), previousY = F(bytes, table + 8);
+                if (value < previousX) return previousY;
+                for (int index = 1; index < count; index++)
+                {
+                    int at = checked(table + 4 + index * 8);
+                    float nextX = F(bytes, at), nextY = F(bytes, at + 4);
+                    if (value < nextX)
+                        return ((nextY - previousY) * (value - previousX)) / (nextX - previousX) + previousY;
+                    previousX = nextX; previousY = nextY;
+                }
+                return previousY;
+            }
+            case 31:
+            {
+                float value = ExpressionScalar(bytes, ref cursor, generic, particle, source);
+                int table = cursor, count = Word(bytes, ref cursor);
+                if (count < 1) throw new InvalidDataException("Particle cubic curve has no intervals.");
+                int length = checked((5 * count + 3) * 4);
+                Require(bytes.Length, table, length);
+                cursor = checked(table + length);
+                float start = F(bytes, table + 4);
+                if (value < start) return F(bytes, table + 12);
+                for (int index = 0; index < count; index++)
+                {
+                    int at = checked(table + 8 + index * 20);
+                    float end = F(bytes, at);
+                    if (value < end)
+                    {
+                        float time = value - start, square = time * time;
+                        float linear = F(bytes, at + 4) + time * F(bytes, at + 8);
+                        float cubic = (square * F(bytes, at + 16)) * time;
+                        return (square * F(bytes, at + 12) + linear) + cubic;
+                    }
+                    start = end;
+                }
+                return F(bytes, checked(table + 8 + count * 20));
             }
             case 39:
             {

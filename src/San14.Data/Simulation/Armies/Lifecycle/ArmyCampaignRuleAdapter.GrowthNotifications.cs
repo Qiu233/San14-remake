@@ -21,7 +21,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             throw new InvalidDataException("Growth notifications require actual stage30 entry.");
         try
         {
-            var current = CaptureWritableTransportRouteCurrent(state);
+            return PrepareOfficerGrowthNotifications(state, CaptureWritableTransportRouteCurrent(state),
+                reached => StatusCampaignDay(reached, moment), moment.CalendarCycleOrdinal);
+        }
+        catch (InvalidDataException error) { return new(null, null, 0, error.Message); }
+    }
+
+    internal OfficerGrowthNotificationResult TryAdvanceProposalGrowthNotifications(
+        GameState state, SourceWorldContext current) => PrepareOfficerGrowthNotifications(state, current,
+        reached => (ReadArmyDestructionSampler(reached, current) ?? throw GrowthMissing("proposal_current_day")).Day450,
+        state.NativeMapSeason?.AdvancedCalendarSteps ?? throw GrowthMissing("proposal_current_calendar"));
+
+    private OfficerGrowthNotificationResult PrepareOfficerGrowthNotifications(GameState state,
+        SourceWorldContext current, Func<GameState, int> readDay, long calendarCycleOrdinal)
+    {
+        try
+        {
             //32EF60 precedes even an empty notice tree.
             var primary = ReadGrowthPlayerPrimaryDistrict(state, current);
             var clear = new List<OfficerState>();
@@ -80,7 +95,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         }
                         //All context values continue through fresh history inputs.
                         int officer = GrowthIdentity(state, current, physical, person.Id);
-                        int day = StatusCampaignDay(state, moment);
+                        int day = readDay(state);
                         ushort first = GrowthKnown(current.ReadPersonFirstLocation(physical), "growth_report_first_location");
                         var target = BaseLookup.Find(first, current);
                         byte raw = GrowthKnown(current.ReadPersonDistrictSlot(physical), "growth_report_raw_district");
@@ -101,7 +116,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var pending = working.CampaignEffectRequests;
             if (requests.Count != 0)
                 pending = (pending ?? throw GrowthMissing("growth_pending_owner"))
-                    .Append(CampaignEffectSource.OfficerGrowthNotifications, moment.CalendarCycleOrdinal, requests);
+                    .Append(CampaignEffectSource.OfficerGrowthNotifications, calendarCycleOrdinal, requests);
             var officers = new Dictionary<int, OfficerState>(state.Officers);
             foreach (var person in clear)
                 officers[person.Id] = person with { Growth = person.Growth is { } growth

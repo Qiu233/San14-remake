@@ -111,8 +111,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var previewTraits = modifiers ? DeploymentPreviewTraits.Read(state, current,
                 new(person, troops, explicitFormation, hexId, forceId)) : null;
             IReadOnlyList<int> traits = previewTraits?.Effects ?? PermanentTraits(person);
-            if (modifiers ? previewTraits!.HasPotentialCommandAgeEffect : traits[31] != 0 || traits[97] != 0)
-                throw FigureMissing("command_age_effect");
+            int command = ArmyCommandAgeEffectSource.ReadResetPreview(state, current, person,
+                commanderOnly: !modifiers, unconditionalEffects: traits);
             int percent = FormationPercent(effectiveFormation);
             float regionFactor = 1f, neighborFactor = 1f;
             if (modifiers)
@@ -127,10 +127,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
                 neighborFactor = DeploymentPreviewContextFactors.ReadEmptyNeighborFactor(state, current, person, hexId);
             }
-            bool alternate = F(BattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state), "morale_settings");
+            var moraleCoefficients = F(BattleRemakeCurrentSettings.ReadCommonMoraleCoefficients(state), "morale_settings");
             float common = BattleUnitSourceMath.CommonFactor(new(full.Leadership, troops, 1, morale,
-                modifiers, false, P(alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
-                P(alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor),
+                modifiers, false, moraleCoefficients.Offset, moraleCoefficients.Divisor,
                 regionFactor, BattleUnitSourceMath.FormationTerrainFactor(effectiveFormation, terrainCode,
                     P(SimulationParameterKeys.BattleAttributes.Formation6TerrainPercent), P(SimulationParameterKeys.BattleAttributes.Formation14TerrainPercent), 100f), neighborFactor),
                 new(_battleSeed.CommonPowerExponent, P(SimulationParameterKeys.BattleAttributes.CommonRootDivisor),
@@ -145,7 +144,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 SimulationParameterKeys.BattleAttributes.SiegeAbilityLimit, SimulationParameterKeys.BattleAttributes.SiegeAbilityStep, SimulationParameterKeys.BattleAttributes.AttackCoefficientScale);
             int wallBonus = (forceFlags & 2) != 0 && explicitFormation == 5 ? P(SimulationParameterKeys.BattleAttributes.WallAbilityBonus) : 0;
             float wall = BattleUnitSourceMath.ArmyWallAttack(new(full.Leadership, troops,
-                Coefficient(BattleUnitArmyStatKind.WallAttack), wallBonus, percent, true, 0, traits[8], traits[19], modifiers, 0),
+                Coefficient(BattleUnitArmyStatKind.WallAttack), wallBonus, percent, true, command, traits[8], traits[19], modifiers, 0),
                 new(P(SimulationParameterKeys.BattleAttributes.WallTroopOffset), P(SimulationParameterKeys.BattleAttributes.WallTroopDenominator), P(SimulationParameterKeys.BattleAttributes.WallLeadershipDenominator),
                     new(P(SimulationParameterKeys.BattleAttributes.WallAbilityLimit), P(SimulationParameterKeys.BattleAttributes.WallAbilityStep), P(SimulationParameterKeys.BattleAttributes.WallAbilityStep), 0, 100f, 1f)));
             int defenseBonus = (forceFlags & 0x20) != 0 && explicitFormation == 7 ? P(SimulationParameterKeys.BattleAttributes.Formation7ForceFlagBonus) : 0;
@@ -174,7 +173,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return BattleUnitSourceMath.FormationCoefficient(kind, value.NativeContainerByteCount, value.StaticField, value.EncodedQueryResult);
             }
             float Stat(BattleUnitArmyStatKind kind, int effect, int bonus, string limit, string step, string scale) =>
-                BattleUnitSourceMath.ArmyStat(kind, new(common, Coefficient(kind), bonus, percent, true, 0, effect, traits[19], modifiers, 0, false, 0),
+                BattleUnitSourceMath.ArmyStat(kind, new(common, Coefficient(kind), bonus, percent, true, command, effect, traits[19], modifiers, 0, false, 0),
                     new(P(limit), P(step), P(step), P(scale), 100f, 1f));
             float Mobility()
             {
@@ -186,7 +185,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int raw = F(TacticRemakeCurrentFormations.ReadParameter(state, explicitFormation, 0x7F), "mobility_coefficient");
                 int coefficient = (bytes & ~3) == 32 ? Math.Clamp(raw, 1, 30) : raw;
                 if ((forceFlags & 2) != 0 && explicitFormation == 5) coefficient = unchecked(coefficient + P(SimulationParameterKeys.ArmyMobility.FormationFiveMobilityBonus));
-                int trait = unchecked(traits[4] + traits[19]);
+                int trait = unchecked(traits[4] + traits[19] + command);
                 int limit = P(SimulationParameterKeys.ArmyMobility.TraitMobilityLimit);
                 int capped = trait < -limit ? -limit : trait > limit ? limit : trait;
                 float value = (float)unchecked(P(SimulationParameterKeys.ArmyMobility.TraitMobilityStep) * capped) / 100f + 1f;

@@ -59,18 +59,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
 
     private bool AutomaticTargetAtHome(GameState state, SourceWorldContext current, ArmyUnitReference army)
-    {
-        int physical = ArmyPhysical(army);
-        if (MaintenanceKnown(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "candidate_home233560")) return false;
-        int force = current.ReadArmyUnitRawForceSlot(army);
-        if (force > 51) force = 0;
-        if (force == 51) return false;
-        if (force is >= 46 and <= 50) throw MaintenanceMissing("candidate_special_force_home232860");
-        var unit = FArmy(state, physical);
-        int home = MaintenanceKnown(new ArmyLogisticsPreparation(Context(current), current, _map, _terrain)
-            .ReadCommanderBaseHex(state, unit), "candidate_current_home");
-        return home == MaintenanceKnown(current.ReadArmyUnitRawHex2A(army), "candidate_current2A");
-    }
+        => MaintenanceKnown(ReadArmyAtHomeCurrent(state, current, ArmyPhysical(army)), "candidate_current_at_home");
 
     //009410 copy passed by value to28E910. Sorting reorders real allocated
     //nodes; it neither allocates new payloads nor assumes a transitive comparer.

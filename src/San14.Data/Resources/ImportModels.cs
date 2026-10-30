@@ -89,6 +89,8 @@ public sealed record CityPreviewRecord(int Slot, string Name, ushort OfficerSlot
 {
     // Legacy property name: this retains City+46, a base capacity input.
     // Current CE durability belongs to the associated Object+14 source field.
+    public IReadOnlyList<byte>? RawNeighborSlots58 { get; init; }
+    public byte? RawField68 { get; init; }
     public byte? RawValidityFlag69 { get; init; }
     public byte? RawAutomaticTactics48 { get; init; }
 }
@@ -98,6 +100,8 @@ public sealed record GatePreviewRecord(int Slot, int LocationSlot, string Name,
     ushort OfficerSlot, string? OfficerName, byte DistrictSlot, byte ForceSlot,
     uint Amount0, uint Amount1, uint Troops, string StateRemainingBytesHex)
 {
+    public IReadOnlyList<byte>? RawNeighborSlots58 { get; init; }
+    public byte? RawField68 { get; init; }
     public byte? RawValidityFlag69 { get; init; }
     public byte? RawAutomaticTactics48 { get; init; }
     public byte? RawMorale44 { get; init; }
@@ -130,6 +134,7 @@ public sealed record CharacterPreviewRecord(int Slot, string Name, byte District
     public byte? RawSexCode { get; init; }
     public byte? DialogueStyle { get; init; }
     public byte? VoiceType { get; init; }
+    public byte? SpecialVoiceType { get; init; }
     public ushort? BirthYear { get; init; }
     public byte? FamilyGeneration { get; init; }
     public string? FamilyName { get; init; }

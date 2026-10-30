@@ -47,23 +47,27 @@ public static class NativeSubdayStateValidation
     {
         NativeArmySimulationStateValidation.Validate(state);
         NativeMapSeasonStateValidation.Validate(state);
+        NativePeriodStopCheckpointValidation.Validate(state);
         if (state.LandmarkInvestments is { } investments && (investments.Count != 101 ||
             Enumerable.Range(0, 101).Any(id => !investments.TryGetValue(id, out var item) || item is null)))
             throw new InvalidDataException("Landmark investment lifecycle is incomplete.");
         if (state.PendingMapMusicIntent is { } music &&
             (music.CalendarCycleOrdinal < 0 || state.NativeMapSeason is not { } season ||
-             music.CalendarCycleOrdinal > (operationContext?.Moment.CalendarCycleOrdinal ?? season.AdvancedCalendarSteps) || music.SourceSlot is < 0 or >= 28 ||
+             music.CalendarCycleOrdinal > (operationContext?.Moment.CalendarCycleOrdinal ??
+                state.NativePeriodStop?.CalendarCycleOrdinal ?? season.AdvancedCalendarSteps) || music.SourceSlot is < 0 or >= 28 ||
              music.FadeInMilliseconds is < 0 or > 30000 || music.FadeOutMilliseconds is < 0 or > 30000))
             throw new InvalidDataException("Pending map music selection is invalid.");
         if (state.PendingArmyFireAnnouncements is null ||
             state.PendingArmyFireAnnouncements.Any(item => item is null || item.UnitId < 1 ||
-                item.OfficerId is < 0 or > 6000 || item.PersonalityId is < 0 or > 355))
+                item.OfficerId is < 0 or > 6000 || item.PersonalityId is < 0 or > 355 ||
+                !FirePresentationValidation.ValidAnnouncementSnapshot(item.SourceSnapshot)))
             throw new InvalidDataException("Pending army fire announcements are invalid.");
         if (state.PendingForceRelationAnnouncements is null || state.PendingForceRelationAnnouncements.Any(item => item is null ||
             item.FirstForceId is < 1 or > 45 || item.SecondForceId is < 1 or > 45 || item.FirstForceId == item.SecondForceId || item.Level is < 0 or > 5))
             throw new InvalidDataException("Pending force relation announcements are invalid.");
         if (state.PendingArmyFireCasts is null || state.PendingArmyFireCasts.Any(item => item is null ||
-            item.UnitId < 1 || item.OfficerId is < 0 or > 6000 || item.HexId < 0 || item.HexId >= state.MapWidth * state.MapHeight))
+            item.UnitId < 1 || item.OfficerId is < 0 or > 6000 || item.HexId < 0 || item.HexId >= state.MapWidth * state.MapHeight ||
+            !FirePresentationValidation.ValidCastSnapshot(item.SourceSnapshot)))
             throw new InvalidDataException("Pending army fire casts are invalid.");
         if (state.NativeClock is { } clock &&
             (clock.UpdateOrdinal < 0 || clock.UpdatesIntoPeriod is < 0 or > UpdatesPerPeriod ||

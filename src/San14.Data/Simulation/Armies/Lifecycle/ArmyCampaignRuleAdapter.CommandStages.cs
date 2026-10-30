@@ -183,7 +183,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var saved = slot.SavedCommand is { Kind: ArmySavedCommandKind.Stored, Command: not null } owner
                     ? owner.Command : throw CommandStageMissing("restoration_complete_saved_command");
                 var arena = working.ReadArmyLifecycle()!;
-                var target = ArmyTargetSourceAdapter.Encode(saved.Target, null, new(arena), current.CurrentMapObjectDirectory);
+                var target = ReadSavedArmyCommandTarget(working, current, slot.ReceiverId, saved);
                 byte targetKind = RestorationNeed(target.Kind38, "restoration_saved_target_kind");
                 ushort targetId = saved.Action.Id == 13
                     ? RestorationNeed(current.ReadArmyUnitRawHex2A(army), "restoration_stay_current_Hex")
@@ -206,6 +206,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                         { SavedCommand = ArmySavedCommandState.Cleared }) });
                 working = RestorationWriteImage(working, slot, image) with
                     { ResourceState = ArmyConfigurationSourceAdapter.WriteAction(working.ResourceState, image.Id, restoredAction) };
+                working = working with { ResourceState = CampaignSourceKnowledge.From(working.ResourceState)
+                    .WithArmySavedTargetLookupAlias(slot.ReceiverId, null) };
             }
             //25 alone decides whether to clear override/Next and call301DD0.
             //The five intermediate points are neither restored nor cleared.

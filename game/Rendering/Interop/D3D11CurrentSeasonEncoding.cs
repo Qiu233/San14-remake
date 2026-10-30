@@ -23,15 +23,25 @@ internal static class D3D11CurrentSeasonEncoding
         // optional HLC1 typed lighting inputs and OCC1 contact occlusion inputs,
         // without shader layouts.
         byte[] hdrBytes = hdr is null ? [] : D3D11HdrFrameEncoding.Write(frame, hdr);
+        byte[] specialBytes = D3D11SpecialEffectEncoding.Write(frame);
+        byte[] rainBytes = D3D11RainDropEncoding.Write(frame);
         byte[] occlusionBytes = D3D11ContactOcclusionEncoding.Write(frame);
-        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length + occlusionBytes.Length];
+        byte[] result = new byte[HeaderBytes + MainPrefixBytes + frame.PreparedWords.Count * MainWordBytes + frame.Lights.Count * (LightHeaderBytes + LightNumericBytes) + D3D11CurrentAtmosphereFrame.ByteLength + D3D11CurrentExposureEncoding.ByteLength + OceanTextureMaterialEncoding.ByteLength + OceanBubbleMaterialEncoding.ByteLength + CommonRenderPolicyEncoding.ByteLength + HeightFogSettingsEncoding.ByteLength + SkyStarCurrentEncoding.ByteLength + 4 + frame.Lights.Count * ShadowReceiverBiasEncoding.ByteLength + 4 + PatternCurrentEncoding.CameraByteLength + frame.Lights.Count * PatternCurrentEncoding.ModifierByteLength + hdrBytes.Length + specialBytes.Length + rainBytes.Length + occlusionBytes.Length];
         var bytes = result.AsSpan();
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)frame.MainMode);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], (uint)frame.SeasonIndex);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[8..], (uint)frame.PreparedWords.Count);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[12..], (uint)frame.Lights.Count);
         BinaryPrimitives.WriteInt64LittleEndian(bytes[16..], frame.Mode.AcceptedMainFrame.Camera.FrameNumber);
-        BinaryPrimitives.WriteInt64LittleEndian(bytes[24..], frame.WorldSeason.ProcessedNativeOrdinal);
+        // This transport field is retained metadata, not a shader input. A
+        // scenario preview has no simulation ordinal; do not fabricate epoch0.
+        long worldOrdinal = frame.Calendar switch
+        {
+            MapSeasonRuntimeFrame live => live.State.ProcessedNativeOrdinal,
+            MapSeasonScenarioPreviewFrame => -1,
+            _ => throw new InvalidDataException("Unsupported season calendar transport owner.")
+        };
+        BinaryPrimitives.WriteInt64LittleEndian(bytes[24..], worldOrdinal);
         frame.PreparedMain.Span.CopyTo(bytes[HeaderBytes..]);
         int at = HeaderBytes + MainPrefixBytes;
         foreach (var word in frame.PreparedWords)
@@ -83,6 +93,10 @@ internal static class D3D11CurrentSeasonEncoding
         }
         hdrBytes.CopyTo(bytes[at..]);
         at += hdrBytes.Length;
+        specialBytes.CopyTo(bytes[at..]);
+        at += specialBytes.Length;
+        rainBytes.CopyTo(bytes[at..]);
+        at += rainBytes.Length;
         occlusionBytes.CopyTo(bytes[at..]);
         return result;
     }

@@ -40,7 +40,9 @@ public static class D3D11OwnedRuleInputPreparation
             throw new InvalidDataException("View stencil inputs require the same prepared Field model scene.");
         var common = D3D11TimingInputPreparation.LoadSourceCommon(repository);
         var terrain = TerrainViewPublicationSource.ReadFieldScene(TerrainParameterResources.Read(scene));
-        var queue = ModelRendererStateSourceReader.ReadQueue(repository.LoadRenderGraph("system", 0x024496EE), 54);
+        var graph = repository.LoadRenderGraph("system", 0x024496EE);
+        var queue = ModelRendererStateSourceReader.ReadQueue(graph, 54);
+        var alphaQueue = ModelRendererStateSourceReader.ReadQueue(graph, 55);
         var records = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(directional);
         if(records.Count>32)
             throw new NotSupportedException("Native model stencil membership supports at most 32 ordered View records.");
@@ -59,14 +61,19 @@ public static class D3D11OwnedRuleInputPreparation
             writer.Write(record.DeclaredGroupMask); writer.Write(record.MaxPrimitiveNum);
             writer.Write((uint)record.SourceLightDataF20);
         }
-        var selectedRecords=records.Select((record,index)=>(Record:record,Index:index))
-            .Where(item=>ModelOrdinaryDispatcherStencilSource.PrepareResourceRoute(queue,
-                item.Record.DeclaredGroupMask,common.ModelGroupSelector400,actualContextFlags).RecordSelected).ToArray();
+        // Source nodes54/55 differ only by Flag bit3, which is not read by
+        // D43190's sign/prefix/stencil route. Keep profile.bin's existing54 ABI;
+        // native may share these settings after each provider's own source
+        // validation (generic Tree2 is validated when its model is loaded).
+        var selectedRecords = new[] { queue, alphaQueue }.ToDictionary(q => q.Node.Index,
+            q => records.Select((record,index)=>(Record:record,Index:index))
+                .Where(item=>ModelOrdinaryDispatcherStencilSource.PrepareResourceRoute(q,
+                    item.Record.DeclaredGroupMask,common.ModelGroupSelector400,actualContextFlags).RecordSelected).ToArray());
         using(var stencil=new BinaryWriter(File.Create(Path.Combine(directory,"model-stencil-catalog.bin"))))
             foreach(var primitive in fieldModels.SourceStencilPrimitives)
             {
                 uint excluded=primitive.ExcludedGroups|commonExclusion,membership=0;
-                foreach(var item in selectedRecords)
+                foreach(var item in selectedRecords[primitive.QueueIndex])
                     if((item.Record.DeclaredGroupMask&excluded)==0)membership|=1u<<item.Index;
                 stencil.Write(primitive.SceneInstanceIndex);stencil.Write(primitive.DrawIndex);
                 stencil.Write(excluded);stencil.Write(membership);

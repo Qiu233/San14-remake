@@ -14,11 +14,14 @@ public sealed class RenderResourceDescriptor
         (Source, Object, Scope) = (source, declaration, scope);
         if (declaration.Kind == DokObjectKind.Inline && declaration.ClassId == RenderBlendStateDeclaration.ClassId)
             BlendState = RenderBlendStateDeclaration.Read(declaration);
+        if (declaration.Kind == DokObjectKind.Inline && declaration.ClassId == ReflectionCaptureFieldSource.ClassId)
+            ReflectionCaptureField = ReflectionCaptureFieldSource.Read(source, declaration.ObjectId);
     }
     public LoadedObjects Source { get; }
     public DokObject Object { get; }
     public ulong Scope { get; }
     public RenderBlendStateDeclaration? BlendState { get; }
+    public ReflectionCaptureFieldDefinition? ReflectionCaptureField { get; }
 }
 
 /// <summary>The namespace observed by a resource initialization phase. Later

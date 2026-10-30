@@ -26,6 +26,10 @@ internal partial class PersonnelCreditView : Control
     private string chooseCaption = "";
     private bool rankup, busy, abandoned;
     private int currentPage;
+    internal bool IsRankup => rankup;
+    internal PersonnelCreditPage? CurrentPublication => publication;
+    internal Func<bool>? DecisionAdmission { get; set; }
+    internal Func<bool>? ReturnAdmission { get; set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text, bool rankup,
         Func<bool> admitted, Action returned, Action accepted, Action choosePeople,
@@ -34,6 +38,7 @@ internal partial class PersonnelCreditView : Control
         this.rankup = rankup; this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         Name = rankup ? "PersonnelCreditRankup" : "PersonnelCreditGive"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, rankup ? 0x81E : 0x820, RequestBack, RequestApply);
         var source = new UiSourceLayout(repository, rankup ? 0x2CC45ACFu : 0x9DF18E97u);
@@ -140,13 +145,18 @@ internal partial class PersonnelCreditView : Control
         if (previous is not null) previous.Disabled = busy || currentPage == 0;
         if (next is not null) next.Disabled = busy || publication is null || (currentPage + 1) * 2 >= publication.People.Count;
         foreach (var button in automatic) button.Disabled = busy || publication?.CanChoose != true;
-        chrome.ApplyDecision(!busy && publication?.CanSubmit == true, true); chrome.ApplyReturn(!busy);
+        chrome.ApplyDecision(!busy && publication?.CanSubmit == true && (DecisionAdmission?.Invoke() ?? true), true);
+        chrome.ApplyReturn(!busy && (ReturnAdmission?.Invoke() ?? true));
     }
     internal void SetBusy(bool value)
     {
         busy = value; if (publication is { } current) Apply(current); else if (chrome is not null) RefreshAdmission();
     }
-    internal void RequestBack() { if (ReadAdmission()) returned?.Invoke(); }
-    private void RequestApply() { if (ReadAdmission() && publication?.CanSubmit == true) accepted?.Invoke(); }
-    internal void Abandon() { abandoned = true; admitted = null; returned = accepted = null; publication = null; chrome?.Abandon(); Hide(); }
+    internal void RefreshTutorialAdmission() => RefreshAdmission();
+    internal void RequestBack() { if (ReadAdmission() && (ReturnAdmission?.Invoke() ?? true)) returned?.Invoke(); }
+    private void RequestApply()
+    { if (ReadAdmission() && publication?.CanSubmit == true && (DecisionAdmission?.Invoke() ?? true)) accepted?.Invoke(); }
+    internal void Abandon()
+    { abandoned = true; admitted = null; returned = accepted = null; DecisionAdmission = ReturnAdmission = null;
+        publication = null; chrome?.Abandon(); Hide(); }
 }

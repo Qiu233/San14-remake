@@ -82,13 +82,19 @@ public sealed partial class ArmyCampaignRuleAdapter
                 State = PublishCurrentObjectDurability(State, current, target, stored);
             }
             if (result == 0) Relations(own, other, -P("sabotage-detection-relation-loss", 5));
-            //The final tutorial bit40 completion belongs to its actual host.
+            //1F9F70's actual domain completion writes bitmap byte4 bit6.
+            //It is distinct from closing the ordinary report window.
             if (package.ReadApplicationTutorialActive() is not bool tutorial) throw StrategyMissing("sabotage_tutorial_service");
             if (tutorial)
             {
                 var app = package.ReadApplicationGameplay() ?? throw StrategyMissing("sabotage_Application");
-                if (app.SpecialModeServicePresent is not bool present) throw StrategyMissing("sabotage_special_service_presence");
-                if (present) throw StrategyMissing("sabotage_special_service_bit40");
+                if (app.TutorialServicePresent is not bool present) throw StrategyMissing("sabotage_tutorial_service_presence");
+                if (present)
+                {
+                    bool bitmap = TacticRemakeCurrentBattleControl.ReadBitmapPresence(package.ReadTutorialControlState(State))
+                        ?? throw StrategyMissing("sabotage_tutorial_bitmap_presence");
+                    if (bitmap) State = package.SetTutorialLessonEventCurrent(State, 38, true);
+                }
             }
             return result;
 

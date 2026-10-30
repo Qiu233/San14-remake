@@ -12,6 +12,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
             ?? throw DiplomacyMissing("negotiation_player");
         bool recipient = player.PhysicalSlot == task.TargetForceId;
+        if(task.NativeKind is 7 or 19)throw DiplomacyMissing("direct_reply_saved_negotiation");
         var q = new DiplomacyQuery(this, state, current, task);
         bool? forced = null;
         int probability;

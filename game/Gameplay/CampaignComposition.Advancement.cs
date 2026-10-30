@@ -25,12 +25,16 @@ public sealed partial class CampaignComposition
     private CampaignComposition(GameResourceRepository repository, CampaignComposition source)
     {
         _repository = repository;
+        _originalAiStrategy = source._originalAiStrategy;
         _saveCodec = new ResourceSaveCodec(repository);
         _applicationGameplay = source._applicationGameplay;
         _applicationProfile = source._applicationProfile;
+        _endingBindings = source._endingBindings;
         _baseCaptureTerrain = source._baseCaptureTerrain;
         _baseCaptureTerrainBound = source._baseCaptureTerrainBound;
         _armyTraitSpeechViews = source._armyTraitSpeechViews;
+        _facilityPeriodicArmyViews = source._facilityPeriodicArmyViews;
+        _armyFireViews = source._armyFireViews;
         _tacticPresentationViews = Volatile.Read(ref source._tacticPresentationViews);
         // Loaded definitions and these read-only views are shared. Mutable
         // resource caches, Army captures and rule services belong to the worker.
@@ -114,7 +118,7 @@ public sealed partial class CampaignComposition
             if (voiceSettings is not null) composition.ConfigurePersonnelNarrationVoice(voiceSettings);
             PreparedRules prepared = composition.PrepareRules(simulation.PendingNormalPeriod?.Candidate ?? simulation.State, player);
             var session = GameplaySession.FromSimulationFork(simulation, prepared.Rules, player,
-                Calendar(prepared.Army), composition._saveCodec);
+                Calendar(prepared.Army), composition._saveCodec, sourceSession.CommandPlannerFactory);
             composition._army = prepared.Army;
             prepared.Army?.ConfigureNormalTurnStoryBindings(storyBindings);
             prepared.Army?.ConfigurePeriodPresentation(candidate =>

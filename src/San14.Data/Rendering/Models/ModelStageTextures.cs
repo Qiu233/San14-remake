@@ -41,7 +41,7 @@ public sealed record ModelStageTextureImage(ModelStageTextureBinding Binding,
 /// Roles come from numeric source registrations and actual selected PS RDEF.
 /// Source names never determine a role. Runtime variant selection remains external.
 /// </summary>
-public static class ModelStageTextures
+public static partial class ModelStageTextures
 {
     /// <summary>Native system0 modern-header selector, independent of texture role and proxy TID.</summary>
     public static uint ReadNativeViewFormat(G1TextureImage image)
@@ -66,6 +66,12 @@ public static class ModelStageTextures
     public static ModelStageTexturePlan Resolve(LoadedModelTextureResources model, int drawIndex,
         NamedModelShader provider, LoadedShaderContainer shader, int explicitCombinationIndex,
         ModelStageTextureRuntime runtime)
+        => ResolveCore(model, drawIndex, provider, shader, explicitCombinationIndex, runtime, false);
+
+    private static ModelStageTexturePlan ResolveCore(LoadedModelTextureResources model, int drawIndex,
+        NamedModelShader provider, LoadedShaderContainer shader, int explicitCombinationIndex,
+        ModelStageTextureRuntime runtime, bool reflectionCapture, G2ShaderTextureBases? selectedBases = null,
+        bool nativeReflectionNullSrv = false)
     {
         ArgumentNullException.ThrowIfNull(model); ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(shader); ArgumentNullException.ThrowIfNull(runtime);
@@ -77,33 +83,36 @@ public static class ModelStageTextures
             provider.ShaderFileHash != shader.Source.FileId ||
             shader.Source.ResourceUri != GameResourceId.Rdb("system", provider.ShaderFileHash).ToString())
             throw Error("provider G1S reference does not identify the supplied shader source");
-        if (explicitCombinationIndex is not (0 or 1))
+        if (!reflectionCapture && explicitCombinationIndex is not (0 or 1))
             throw Error("only explicit PB2 combinations 0 and 1 are supported");
         G1ShaderResourceBindings metadata = shader.ReadG1ResourceBindings(explicitCombinationIndex);
-        G2ShaderTextureBases descriptor = G2ShaderTextureBaseReader.Read(shader.Source.Bytes);
-        if (descriptor.ModeValue != 0 || descriptor.DescriptorFlags != 0x28 || descriptor.DescriptorTextureCount != 1)
+        G2ShaderTextureBases descriptor = selectedBases ?? G2ShaderTextureBaseReader.Read(shader.Source.Bytes);
+        if (descriptor.ModeValue != 0 || descriptor.DescriptorFlags != (reflectionCapture ? 0x828u : 0x28u) || descriptor.DescriptorTextureCount != 1)
             throw Error("unsupported PB2 source texture constructor descriptor or metadata header");
         G2ShaderCombinationStage pixel = metadata.Combination.Stages.Single(s => s.StageCode == 0);
         if (pixel.Entry is null) throw Error("selected combination has no original pixel program");
         DxbcResourceDefinitions rdef = shader.ReadResourceDefinitions(pixel.Entry.ProgramIndex);
-        DxbcRdefBinding[] textures = rdef.Bindings.Where(b => b.InputType == 2).OrderBy(b => b.BindPoint).ToArray();
-        DxbcRdefBinding[] samplers = rdef.Bindings.Where(b => b.InputType == 3).OrderBy(b => b.BindPoint).ToArray();
+        uint captureCubeRegister = reflectionCapture ? CaptureAmbientCubeRegister(metadata, nativeReflectionNullSrv) : 0;
+        if (reflectionCapture) RequireReflectionCaptureCube(shader, rdef, captureCubeRegister);
+        DxbcRdefBinding[] textures = rdef.Bindings.Where(b => b.InputType == 2 && (!reflectionCapture || b.BindPoint != captureCubeRegister)).OrderBy(b => b.BindPoint).ToArray();
+        DxbcRdefBinding[] samplers = rdef.Bindings.Where(b => b.InputType == 3 && (!reflectionCapture || b.BindPoint != captureCubeRegister)).OrderBy(b => b.BindPoint).ToArray();
         int textureCount=textures.Length;
+        var materialEntries = reflectionCapture ? CaptureMaterialRegistrations(metadata, nativeReflectionNullSrv) : metadata.Entries;
         string[] expectedNames=textureCount switch{4=>["sStage0","sRefRough","sOcc","sNMap"],
             3=>["sStage0","sRefRough","sNMap"],_=>[]};
         uint[] registers=Enumerable.Range(0,textureCount).Select(i=>(uint)i).ToArray();
         if (expectedNames.Length==0 || samplers.Length != textureCount ||
-            metadata.RawHeaderWord2!=(uint)(textureCount-2) ||
+            metadata.RawHeaderWord2!=(uint)(textureCount-2+(reflectionCapture?3:0)) ||
             !textures.Select(b => b.Name.Text).SequenceEqual(expectedNames) ||
             !textures.Select(b => b.BindPoint).SequenceEqual(registers) ||
             !samplers.Select(b => b.BindPoint).SequenceEqual(registers) ||
             textures.Any(b => b.BindCount != 1 || b.Dimension != 4) || samplers.Any(b => b.BindCount != 1))
             throw Error("selected PB2 pixel program must declare the exact supported three/four individual 2D texture and sampler profile");
         short[] slots=Enumerable.Range(1,textureCount-1).Select(i=>(short)i).ToArray();
-        if (metadata.Entries.Count != textureCount-1 || metadata.Entries.Any(e => e.SlotIndex < 1 || e.SlotIndex >= textureCount || e.RawAuxiliary != 0) ||
-            !metadata.Entries.Select(e => e.SlotIndex).Order().SequenceEqual(slots))
+        if (materialEntries.Count != textureCount-1 || materialEntries.Any(e => e.SlotIndex < 1 || e.SlotIndex >= textureCount || e.RawAuxiliary != 0) ||
+            !materialEntries.Select(e => e.SlotIndex).Order().SequenceEqual(slots))
             throw Error("unsupported PB2 resource registration profile");
-        foreach (G1ShaderResourceBinding entry in metadata.Entries)
+        foreach (G1ShaderResourceBinding entry in materialEntries)
             if (entry.Name != textures[entry.SlotIndex].Name.Text)
                 throw Error($"metadata entry {entry.Index} does not identify selected PS texture register {entry.SlotIndex}");
 

@@ -91,6 +91,8 @@ public static class GroundDetailInputEncoding
     private static void WriteWind(string directory, GroundDetailWindResources wind)
     {
         Directory.CreateDirectory(Path.Combine(directory, "shader"));
+        File.WriteAllText(Path.Combine(directory, "tree2-view-interaction.txt"),
+            wind.ViewInteraction.ExportNativeDeclaration());
         File.WriteAllBytes(Path.Combine(directory, "interaction-vector-r8uint.bin"), wind.Initial.InteractionVectorSides[0].InitialBytes);
         File.WriteAllBytes(Path.Combine(directory, "interaction-height-r16float.bin"), wind.Initial.InteractionHeightSides[0].InitialBytes);
         File.WriteAllBytes(Path.Combine(directory, "wind-phase-r32float.bin"), wind.Initial.WindPhaseSides[0].InitialBytes);

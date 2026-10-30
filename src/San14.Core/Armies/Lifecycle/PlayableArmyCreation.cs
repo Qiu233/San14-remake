@@ -34,6 +34,7 @@ public sealed record PlayableArmyCreationResolution(NativeArmyTacticRuntime Runt
     public byte? NativeCommandControl140 { get; init; }
     public byte? NativeRouteHold56 { get; init; }
     public ushort? NativeRouteGoal1F8 { get; init; }
+    public ushort? AiActionFlags { get; init; }
     public ushort? NativeHomeSequence28 { get; init; }
     /// <summary>Explicit commander location write from the source creator.
     /// Core applies the receipt without deriving a native location encoding.</summary>
@@ -93,7 +94,7 @@ public static class PlayableArmyCreation
     /// An existing clock is preserved and never reset during loading or deployment.</summary>
     public static GameState InitializeClock(GameState state, string revision)
     {
-        StateValidator.Validate(state);
+        if (state is null) throw new InvalidDataException("Game state is missing.");
         if (string.IsNullOrWhiteSpace(revision))
             throw new InvalidDataException("Army construction clock revision is missing.");
         if (state.NativeClock is not null) return state;
@@ -103,7 +104,6 @@ public static class PlayableArmyCreation
         {
             NativeClock = new(state.Date, 0, 0, revision), NativeSubdayReports = []
         };
-        StateValidator.Validate(next);
         return next;
     }
 
@@ -129,6 +129,7 @@ public static class PlayableArmyCreation
             NativeCommandChoice41 = result.NativeCommandChoice41,
             NativeRouteHold56 = result.NativeRouteHold56,
             NativeRouteGoal1F8 = result.NativeRouteGoal1F8,
+            AiActionFlags = result.AiActionFlags,
             NativeHomeSequence28 = result.NativeHomeSequence28,
             OverrideTarget = result.OverrideTarget,
             March = result.March,

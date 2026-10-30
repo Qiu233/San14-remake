@@ -66,18 +66,5 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private static GameState DWriteDiplomaticItem(GameState state, SourceWorldContext current,
         int physical, int holder, bool clearReservationFlag)
-    {
-        var items = state.Items ?? throw DiplomacyNumericMissing("settlement_Item_inventory");
-        var item = items.GetValueOrDefault(physical) ?? throw DiplomacyNumericMissing("settlement_Item_owner");
-        var lifecycle = item.Lifecycle;
-        if (clearReservationFlag)
-        {
-            byte flags = DNeed(lifecycle?.RetainedFlags, "settlement_Item4F");
-            lifecycle = lifecycle! with { RetainedFlags = (byte)(flags & 0xF7) };
-        }
-        int owner = Math.Min(holder, 6000);
-        current.SetCaptureItemOwner4A(physical, (ushort)owner);
-        return state with { Items = new(items) { [physical] = item with
-            { Holder = new(owner == 0 ? null : owner), Lifecycle = lifecycle } } };
-    }
+        => WriteDirectItemHolderCurrent(state, current, physical, holder, clearReservationFlag);
 }

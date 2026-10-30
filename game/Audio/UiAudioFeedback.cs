@@ -5,7 +5,12 @@ internal enum UiAudioAvailability { Loading, Ready, Unavailable }
 internal enum UiAudioCue { ButtonSelect, Tab, Cancel, None }
 internal sealed record UiAudioSource(string BankUri, string BankHash, int SelectFrames, int CancelFrames, int TabFrames);
 internal sealed record UiAudioFeedbackStatus(UiAudioAvailability Availability = UiAudioAvailability.Loading,
-    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null, int? TabCount = null);
+    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null, int? TabCount = null)
+{
+    internal string? SpeakerLayoutError { get; init; }
+    internal GameAudioSpeakerLayout? RequestedSpeakerLayout { get; init; }
+    internal GameAudioSpeakerLayout? ActualSpeakerLayout { get; init; }
+}
 
 /// <summary>Owns one UI feedback lifetime: source preparation, a shared playback
 /// service, attached button subscriptions and the prepared clips. Scene cues
@@ -25,6 +30,31 @@ internal sealed class UiAudioFeedback : IDisposable
     private UiAudioClips? _clips;
     private AudioClip? _effectsPreview;
     private AudioVolumeOptions _volumes = new();
+    private bool _windowFocused = true;
+
+    internal void SetWindowFocused(bool focused)
+    {
+        _windowFocused = focused;
+        if (!_token.IsCancellationRequested && _service is { } service &&
+            GodotObject.IsInstanceValid(service) && service.IsInsideTree())
+            service.SetWindowFocused(focused);
+    }
+    private GameAudioSpeakerLayout _initialSpeakerLayout = GameAudioSpeakerLayout.Stereo;
+
+    internal void SetInitialSpeakerLayout(GameAudioSpeakerLayout layout)
+    {
+        if (_subscribed || !Enum.IsDefined(layout)) throw new InvalidOperationException("audio.output.initial_speaker_layout");
+        _initialSpeakerLayout = layout;
+    }
+
+    //Called only after the real preference write succeeds. A saved51 choice
+    //that cannot run on a changed device is never silently overwritten here.
+    internal void SpeakerLayoutPreferenceCommitted(GameAudioSpeakerLayout layout)
+    {
+        if (_service is null || _service.CurrentSpeakerLayout != layout)
+            throw new InvalidOperationException("audio.output.preference_not_applied");
+        Publish(Status with { RequestedSpeakerLayout = layout, ActualSpeakerLayout = layout, SpeakerLayoutError = null });
+    }
 
     public void SetVolumes(AudioVolumeOptions volumes)
     {
@@ -71,6 +101,7 @@ internal sealed class UiAudioFeedback : IDisposable
             var audioRepository = new AudioRepository(_sourceDirectory, _overridesDirectory);
             service.Configure(audioRepository, decoder!);
             service.SetVolumes(_volumes);
+            service.SetWindowFocused(_windowFocused);
             // Separate source cache from map and scenario loading.
             var source = new GameResourceRepository(_sourceDirectory, _overridesDirectory);
             var graphs = await Task.Run(() =>
@@ -82,7 +113,20 @@ internal sealed class UiAudioFeedback : IDisposable
             }, _token);
             _token.ThrowIfCancellationRequested();
             if (!_acceptPreparedClips()) return;
-            service.ConfigureOriginalOutputs(graphs.Music, graphs.Effects, OriginalAudioDeviceProfile.WindowsStereo);
+            var actualLayout = _initialSpeakerLayout;
+            string? speakerError = null;
+            if (actualLayout == GameAudioSpeakerLayout.Surround51 &&
+                OriginalAudioOutputs.QuerySurroundAvailability() is { Available: false } unsupported)
+            {
+                speakerError = unsupported.UnresolvedOwner;
+                actualLayout = GameAudioSpeakerLayout.Stereo;
+                GD.PushWarning("Saved5.1 output cannot be applied: " + speakerError +
+                    ". Stereo output is active; the saved preference is retained for explicit recovery in Environment.");
+            }
+            service.ConfigureOriginalOutputs(graphs.Music, graphs.Effects,
+                OriginalAudioDeviceProfile.WindowsStereo with { Layout = actualLayout });
+            Publish(Status with { RequestedSpeakerLayout = _initialSpeakerLayout,
+                ActualSpeakerLayout = actualLayout, SpeakerLayoutError = speakerError });
             ServiceReady?.Invoke(service);
             UiAudioClips clips = await UiAudioClips.LoadAsync(service, source, audioRepository, _token);
             if (_token.IsCancellationRequested || !_acceptPreparedClips())

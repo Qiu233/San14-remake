@@ -6,6 +6,9 @@ internal static class BaseCombatSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 181 && Captures(state).Any(request => request["HasNoWinner"] is JsonNode flag &&
+            (flag is not JsonValue value || !value.TryGetValue<bool>(out bool none) || none)))
+            throw new InvalidDataException("Legacy Base capture contains a future no-winner operation.");
         if (version < 180 && (Captures(state).Any(request => request["WinnerDistrictId"] is not null) ||
             Effects(state).Any(request => request["BaseAbnormalFeedback"] is not null)))
             throw new InvalidDataException("Legacy world contains future Base battle operands.");
@@ -15,6 +18,9 @@ internal static class BaseCombatSaveFields
     {
         foreach (var capture in Captures(state))
         {
+            if (version < 181) capture["HasNoWinner"] = false;
+            if (capture["HasNoWinner"] is not JsonValue flag || !flag.TryGetValue<bool>(out bool noWinner) ||
+                noWinner && (capture["WinnerUnitId"] is not null || capture["WinnerDistrictId"] is not null)) throw Invalid();
             if (version < 180) { capture["WinnerDistrictId"] = null; continue; }
             if (!capture.ContainsKey("WinnerDistrictId") || capture["WinnerDistrictId"] is not null &&
                 (!Integer(capture["WinnerDistrictId"], 0, 51) || capture["WinnerUnitId"] is not null)) throw Invalid();

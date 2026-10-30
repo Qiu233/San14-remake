@@ -22,6 +22,9 @@ public sealed class PlayableDiplomaticOfficerGuard(IOrderRules next) : IOrderRul
             SetAreaAdministrationOrder { Changes: not null } administration => administration.Changes
                 .Where(change => change is not null && change.OverseerId is not null)
                 .Select(change => change.OverseerId!.Value),
+            ApplyAreaAdministrationOrder { Changes: not null } ordered => ordered.Changes
+                .Where(change => change is not null && change.OverseerId is not null)
+                .Select(change => change.OverseerId!.Value),
             _ => []
         };
         if (requested.Any(id => PlayableDiplomacy.IsOfficerOnMission(state, id)))

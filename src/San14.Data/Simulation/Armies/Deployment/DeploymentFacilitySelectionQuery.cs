@@ -24,12 +24,15 @@ public sealed record DeploymentFacilityPlacement(int ClickedHexId, string Defini
 public sealed class DeploymentFacilitySelectionQuery
 {
     private readonly Func<string, int, DeploymentFacilityPlacement> placement;
+    private readonly Func<string,int,int,DeploymentFacilityPlacement> continuousPlacement;
     internal DeploymentFacilitySelectionQuery(UnitFacilityDirectory directory,
         IReadOnlyList<string>? preselectedDefinitionKeys, string? preselectionUnresolvedInput,
-        Func<string, int, DeploymentFacilityPlacement> placement)
+        Func<string, int, DeploymentFacilityPlacement> placement,
+        Func<string,int,int,DeploymentFacilityPlacement> continuousPlacement)
     {
         Directory = directory; PreselectedDefinitionKeys = preselectedDefinitionKeys;
         PreselectionUnresolvedInput = preselectionUnresolvedInput; this.placement = placement;
+        this.continuousPlacement=continuousPlacement;
     }
     public UnitFacilityDirectory Directory { get; }
     /// <summary>Pointer matches in the visible list. Empty means known no
@@ -42,4 +45,6 @@ public sealed class DeploymentFacilitySelectionQuery
         ArgumentNullException.ThrowIfNull(definitionKey);
         return placement(definitionKey, clickedHexId);
     }
+    public DeploymentFacilityPlacement QueryContinuousPlacement(string definitionKey,int firstHexId,int finalHexId)
+        =>continuousPlacement(definitionKey,firstHexId,finalHexId);
 }

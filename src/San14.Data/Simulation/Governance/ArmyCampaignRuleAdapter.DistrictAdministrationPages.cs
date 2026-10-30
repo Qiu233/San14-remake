@@ -47,6 +47,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 (settings, policy, cities) => ReadDistrictAdministrationPolicyChoiceCurrent(state, current, forceId, settings, policy, cities),
                 Summary, Leader, Confirmation, district => district is int id ? ReadDistrictAdministrationIntelligenceCurrent(current, id) : 0)
             {
+                SelectionSource = new(state, current),
                 Policies = Enumerable.Range(1, 5).Select(id => new DistrictAdministrationOption(id, ReadHistoryDataText(0, 0x175 + id))).ToArray(),
                 Priorities = Enumerable.Range(1, 4).Select(id => new DistrictAdministrationOption(id, ReadHistoryDataText(0, 0x17B + id))).ToArray(),
                 ResourceUsageChoices = Enumerable.Range(0, 3).Select(id => new DistrictAdministrationOption(id, ReadHistoryDataText(0, 0x180 + id))).ToArray(),

@@ -6,10 +6,13 @@ internal readonly record struct UiSourceTextRun(string Text,uint? Colour=null);
 /// <summary>A single original UI text line, borrowing its owning view's G1N font.</summary>
 internal partial class UiSourceText : Control, IUiSourceDrawing
 {
+    private static readonly MapTextPresets InlinePresets = MapTextPresets.Create();
     private MapFont _font = null!;
     private MapFontProfile _profile = null!;
     private HorizontalAlignment _alignment;
     private string _text = "";
+    private string? _personnelPreviewLine;
+    private bool _officePreviewColours;
     private uint? _firstGlyphColour;
     private uint?[]? _glyphColours;
     internal MapFontProfile LayoutProfile => _font.Source.FitToWidth(_text, _profile, Size.X);
@@ -25,6 +28,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         get => _text;
         set
         {
+            _personnelPreviewLine = null;
             if (_text == value && _glyphColours is null) return;
             _font.Prepare([value], _profile);
             _text = value;_glyphColours=null;
@@ -34,11 +38,61 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
 
     internal void SetRuns(params UiSourceTextRun[] runs)
     {
+        _personnelPreviewLine = null;
         string text=string.Concat(runs.Select(run=>run.Text));
         _font.Prepare([text],_profile);
         _text=text;_glyphColours=runs.SelectMany(run=>Enumerable.Repeat(run.Colour,run.Text.Length)).ToArray();
         _firstGlyphColour=null;
         QueueRedraw();
+    }
+
+    // The personnel preview writer emits only these two controls. App's
+    // colour7 callback uses (argument-1), so ~1~ takes preset0's body;
+    // it does not change the font, stroke or shadow. Preset0 is solid at
+    // all four corners. A null run restores the owning row's current body.
+    internal void SetPersonnelPreviewLine(string source)=>SetPreviewColourLine(source,false);
+
+    //309990 encodes preset+1. The office writers use presets65/67,
+    //therefore their actual source controls carry arguments66/68.
+    internal void SetOfficePreviewLine(string source)=>SetPreviewColourLine(source,true);
+
+    private void SetPreviewColourLine(string source,bool officeColours)
+    {
+        if (_personnelPreviewLine == source && _officePreviewColours == officeColours) return;
+        var runs = new List<UiSourceTextRun>();
+        var text = new System.Text.StringBuilder();
+        uint? colour = null;
+        for (int index = 0; index < source.Length; index++)
+        {
+            if (source[index] == '^')
+            {
+                Flush();
+                if(source.AsSpan(index).StartsWith("^00~0~",StringComparison.Ordinal))
+                {colour=null;index+=5;}
+                else if(source.AsSpan(index).StartsWith("^07~",StringComparison.Ordinal))
+                {
+                    int end=source.IndexOf('~',index+4);
+                    if(end<0 || !int.TryParse(source.AsSpan(index+4,end-index-4),out int argument) ||
+                        !(argument==1 || officeColours && argument is 66 or 68))
+                        throw new InvalidDataException("Unresolved preview body-colour argument.");
+                    colour=InlinePresets[argument-1].LT.CpuPacked;index=end;
+                }
+                else throw new InvalidDataException("Unresolved personnel preview text control.");
+            }
+            else if (source[index] == '~')
+                throw new InvalidDataException("Unresolved personnel preview text argument.");
+            else text.Append(source[index]);
+        }
+        Flush();
+        if (runs.All(run => run.Colour is null)) Text = string.Concat(runs.Select(run => run.Text));
+        else SetRuns(runs.ToArray());
+        _personnelPreviewLine = source;_officePreviewColours=officeColours;
+
+        void Flush()
+        {
+            if (text.Length == 0) return;
+            runs.Add(new(text.ToString(), colour));text.Clear();
+        }
     }
 
     /// <summary>The ordinary Fit2 report line removes line breaks, then

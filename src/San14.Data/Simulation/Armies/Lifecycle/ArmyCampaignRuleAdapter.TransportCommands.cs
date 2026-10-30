@@ -42,6 +42,25 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportArmyComm
     /// Command books and stock publication stay in the shared source writer.</summary>
     public CommandResult IssueTransportArmy(GameState state, DispatchTransportArmyOrder order)
     {
+        if (order.GroupPurpose is { } purpose && (order.DistrictId is null ||
+            purpose.Kind != ArmyGroupPurposeKind.TransportToFoothold ||
+            purpose.Target.Kind != ArmyGroupPurposeTargetKind.Foothold ||
+            order.Action is not { ActionKey: "enter", Target.Kind: DeploymentTargetKind.Location } ||
+            purpose.Target.Id != order.Action.Target.Id))
+            return CommandResult.Reject("Transport group purpose must name its selected entry destination.", "transport.group_purpose");
+        if (order.DistrictId is int district)
+        {
+            try
+            {
+                var current = CaptureDeploymentPersonSelectionCurrent(state);
+                if (!ValidateDistrictTransportPacketCurrent(state, current, order, district))
+                    return CommandResult.Reject("Transport packet no longer satisfies its current source capability.", "transport.district_packet");
+            }
+            catch (InvalidDataException error)
+            { return CommandResult.RuleUnavailable(error.Message, "Current district transport inputs are unresolved."); }
+        }
+        else
+        {
         //The same source quantity capability used by Make is authoritative at
         //submission too. Its UI min operation must never alter this command.
         var quantities = QueryTransportQuantities(state, order.SourceCityId, order.OfficerId,
@@ -54,6 +73,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableTransportArmyComm
             quantities.Gold != order.Gold || quantities.Supplies != order.Supplies)
             return CommandResult.Reject("Transport quantities exceed their current capacity or are empty.",
                 "transport.quantity_capacity");
+        }
         state = ArmyIdentityAllocation.Initialize(state);
         if (!state.Cities.TryGetValue(order.SourceCityId, out var source) || source.HexId is not int sourceHex ||
             source.Morale is not int morale)

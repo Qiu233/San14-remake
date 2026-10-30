@@ -10,8 +10,19 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState InstallFreshForeignTradeProgress(GameState state)
     {
         var native = state.NativeArmySimulation ?? throw ForeignTradeMissing("fresh_native_owner");
+        if (Seed.Language is not ("SC" or "TC") || native.Parameters.Language != Seed.Language ||
+            native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
+            throw ForeignTradeMissing("fresh_rule_profile");
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0)
             throw ForeignTradeMissing("fresh_boundary");
+        const string unacquiredFloorKey = "simulation.foreign-trade.unacquired-friendship-floor";
+        var parameters = native.Parameters;
+        if (parameters.Float32Values.ContainsKey(unacquiredFloorKey))
+            throw ForeignTradeMissing("integer_parameter_unacquired-friendship-floor");
+        // Each locale's qualified static scalar owner starts at zero.
+        // Install only here; existing saved integers keep their current value.
+        if (!parameters.Int32Values.ContainsKey(unacquiredFloorKey))
+            parameters = parameters with { Int32Values = new(parameters.Int32Values) { [unacquiredFloorKey] = 0 } };
         var forces = native.Forces.ToDictionary(pair => pair.Key, pair => pair.Value with
         {
             BestAdministrationLevelSum = 0,
@@ -22,6 +33,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         });
         return state with { ForceProcessingOrder = new(Array.Empty<int>()), NativeArmySimulation = native with
         {
+            Parameters = parameters,
             Forces = forces,
             World = native.World with { PlayerCoalitionCooldownDate = new(0, 1, 1, 0), LeadingDoctrineYearCount = 0 }
         } };
@@ -31,7 +43,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     //each one. There is no extra Force validity filter or duplicate removal.
     internal GameState ApplyNormalTurnSeasonalForeignTradeCurrent(GameState state, SourceWorldContext current)
     {
-        if (Seed.Language != "TC") throw ForeignTradeMissing("locale_rules");
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw ForeignTradeMissing("parameter_owner");
+        if (Seed.Language is not ("SC" or "TC") || parameters.Language != Seed.Language ||
+            parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
+            throw ForeignTradeMissing("locale_rule_profile");
         for (int slot = 0; slot < 5; slot++)
         {
             var definition = current.ReadStaticTableReference(0x85A20, slot) ?? throw ForeignTradeMissing("country_pointer");
@@ -55,8 +70,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     1 => Parameter("first-friendship-floor", 1),
                     2 => Parameter("second-friendship-floor", 150),
                     3 => Parameter("third-friendship-floor", 300),
-                    4 => 0,
-                    _ => Parameter("other-friendship-floor", 500)
+                    // The historical key owns the actual fourth-level floor.
+                    4 => Parameter("other-friendship-floor", 500),
+                    _ => 0
                 };
                 int reduced = unchecked(trade.FriendshipPoints[country] - Parameter("seasonal-friendship-decay", 5));
                 //2F5DD0 compares the signed intermediate with the acquired

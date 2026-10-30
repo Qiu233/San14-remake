@@ -1,7 +1,7 @@
 /// <summary>Current HDR lighting inputs, independent of selected programs and layouts.</summary>
 internal static class D3D11HdrFrameEncoding
 {
-    internal const int ByteLength = 240;
+    internal const int ByteLength = 544;
 
     /// <summary>Modifiers follow the same ordered light records in the season
     /// packet. The native lighting owner prepares actual outer/inner values.</summary>
@@ -35,6 +35,26 @@ internal static class D3D11HdrFrameEncoding
         {
             writer.Write(light.Lighting.Modifier.OcclusionRates.X);
             writer.Write(light.Lighting.Modifier.OcclusionRates.Y);
+        }
+        // HMP1 extends the ordered light transport. Null is an unknown
+        // material publication; unused payload words do not imply defaults.
+        writer.Write(0x31504D48u);
+        foreach(var light in frame.Lights)
+        {
+            var material=light.Lighting.Modifier.Material;
+            writer.Write(material is null ? 0u : 1u);
+            if(material is null)
+            {
+                for(int i=0;i<14;i++)writer.Write(0f);
+                continue;
+            }
+            var h=material.Hatching;
+            writer.Write(h.RampScale);writer.Write(h.RampFade.X);writer.Write(h.RampFade.Y);
+            writer.Write(h.IndexedRampScale);writer.Write(h.OccScale);
+            writer.Write(h.OccFade.X);writer.Write(h.OccFade.Y);
+            writer.Write(h.UVRepeat.X);writer.Write(h.UVRepeat.Y);writer.Write(h.UVRot);
+            writer.Write(h.UVVelocity.X);writer.Write(h.UVVelocity.Y);writer.Write(h.UVUpdateInterval);
+            writer.Write(material.ShadowMaskFade);
         }
         return stream.ToArray();
     }

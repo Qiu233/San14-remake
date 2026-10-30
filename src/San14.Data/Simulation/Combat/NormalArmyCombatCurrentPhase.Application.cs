@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public enum NormalArmyPairApplicationPrefixOutcome
 {
-    CurrentInputsUnresolved, AwaitingApplicationTail, ZeroTroopsCleanupRequired, NativePairSkipped, AwaitingPlayerDecision
+    CurrentInputsUnresolved, AwaitingApplicationTail, ZeroTroopsCleanupRequired, NativePairSkipped, AwaitingPlayerDecision, NativeStopped
 }
 
 public sealed record NormalArmyPairApplicationPrefixResult(
@@ -38,6 +38,8 @@ public sealed partial class NormalArmyCombatCurrentPhase
             return new(NormalArmyPairApplicationPrefixOutcome.NativePairSkipped, current,
                 null, null, null, null);
         var automatic = TryApplyAutomaticTacticPrefix(current, pairIndex);
+        if (automatic.Outcome == AutomaticTacticPrefixOutcome.NativeStopped)
+            return new(NormalArmyPairApplicationPrefixOutcome.NativeStopped, automatic.State, automatic, null, null, null);
         if (automatic.Outcome == AutomaticTacticPrefixOutcome.AwaitingPlayerDecision)
             return new(NormalArmyPairApplicationPrefixOutcome.AwaitingPlayerDecision, automatic.State,
                 automatic, null, null, null) { PendingAutomaticExecution = automatic.PendingAutomaticExecution };

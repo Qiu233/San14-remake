@@ -14,6 +14,9 @@ internal partial class DeploymentTargetConfirmation : Control
     private Shader? shader;
     private Control canvas=null!;
     private Action<bool>? close;
+    private UiSourceParagraph? wrappedMessage;
+    internal void ApplyWrappedMessage(string message)
+    { if(close is not null) wrappedMessage?.Apply(message); }
     internal void RequestCancel()=>Finish(false);
     internal void Abandon(){close=null;Hide();}
 
@@ -56,6 +59,7 @@ internal partial class DeploymentTargetConfirmation : Control
         {
             var paragraph=new UiSourceParagraph{Name="ConfirmationMessage",Position=body.Position,Size=body.Size};
             canvas.AddChild(paragraph);paragraph.Configure(font,profile);paragraph.Apply(message);
+            wrappedMessage=paragraph;
         }
         else
         {

@@ -14,11 +14,15 @@ public sealed record SceneViewNativeMapFrameCapture(
     // Presentation time comes only from this SceneView's eligible Godot
     // process updates. Coalescing requests must not lose elapsed animation
     // time or apply an earlier queued delta twice after another frame commits.
+    public CgQuality? CgQuality { get; init; }
     public double PresentationElapsedSeconds { get; init; }
     public float PresentationDeltaSeconds { get; init; }
     /// <summary>Immutable CPU triangle snapshot for this captured patch set.
     /// It stays valid when the preview replaces or retires its mesh cache.</summary>
     public TerrainPicker? TerrainPicker { get; init; }
+    /// <summary>Actual ordered connection lifetime, captured with this World.
+    /// Later model preparation never reads mutable SceneView pair state.</summary>
+    public IReadOnlyList<FacilitySceneConnection>? FacilityConnections { get; init; }
 
     public SceneViewNativeMapFrameCapture WithPresentationDeltaSince(double acceptedElapsedSeconds)
     {
@@ -48,7 +52,11 @@ public sealed record SceneViewNativeMapLoadInputs(
     LoadedTerrainResources Terrain, LoadedTerrainInitialHeightResources InitialHeight,
     LoadedTerrainGbiMapResources TerrainMaterial, MapWorldProjection Projection,
     ScenarioCityPreview Scenario, int PlayerForceSlot,
-    SceneViewNativeMapFrameCapture InitialFrame);
+    SceneViewNativeMapFrameCapture InitialFrame)
+{
+    public Func<GameState, MapStaticModelAssetCatalog, UnitGeometry, MapStaticModelGroundHeightSource,
+        IReadOnlyList<FacilitySceneConnection>, FacilitySceneModelFrame>? CaptureFacilityModels { get; init; }
+}
 
 public sealed record SceneViewNativeMapResizeInputs(
     IReadOnlyDictionary<uint, Vector2I> TerrainExtents,
@@ -226,7 +234,8 @@ public partial class MapSceneView
         return new(_nativeMapDetachedWorld!, frame with { Camera = frame.Camera.CopyAcceptedSnapshot() },
             Array.AsReadOnly(groups), display, _sceneLoadGeneration, checked(++_nativeMapRequestNumber),
             "SceneView-loaded-current-source;scene-generation=" + _sceneLoadGeneration)
-            { PresentationElapsedSeconds = _nativeMapPresentationElapsedSeconds, TerrainPicker = CurrentTerrainPicker };
+            { CgQuality = _cgQualityApplied ? _cgQuality : null, PresentationElapsedSeconds = _nativeMapPresentationElapsedSeconds, TerrainPicker = CurrentTerrainPicker,
+                FacilityConnections = _facilityModelQuery is null ? null : CaptureFacilitySceneConnections(_nativeMapDetachedWorld!) };
     }
 
     private SceneViewNativeMapFrameCapture RequireNativeMapAcceptedCapture(NativeMapFrameContext context)
@@ -270,7 +279,7 @@ public partial class MapSceneView
         if (!_embedded || !_loaded || _nativeMapInitializing) return;
         if(UseD3D11Map)
         {
-            await InitializeD3D11MapAsync(sceneGeneration);
+            await InitializeD3D11MapAsync(sceneGeneration, _cgQualityApplied ? _cgQuality : null);
             return;
         }
         int generation = _nativeMapGeneration;
@@ -310,7 +319,8 @@ public partial class MapSceneView
                 throw new InvalidDataException("SceneView production map sources are not yet loaded.");
             loaded = new(_repository, _loadedSceneResources, TerrainMeshes.Source, _sceneTerrain!.InitialHeight,
                 _sceneTerrain!.Gbi!.Source, _projection, _sourceSnapshot, player,
-                CaptureNativeMapFrame(_nativeMapPendingExtent).WithPresentationDeltaSince(_nativeMapAcceptedPresentationSeconds));
+                CaptureNativeMapFrame(_nativeMapPendingExtent).WithPresentationDeltaSince(_nativeMapAcceptedPresentationSeconds))
+                { CaptureFacilityModels = _facilityModelQuery };
             await _nativeMapRetirement;
             await _nativeMapGate.WaitAsync();
             gateHeld = true;
@@ -430,10 +440,6 @@ public partial class MapSceneView
     {
         var request = package.PrepareTerrainFrame(capture)
             ?? throw new InvalidDataException("Current production terrain writer returned no frame.");
-        if (request.Camera != capture.MainCamera.Camera.SceneInputs ||
-            request.Batches.Count != capture.TerrainBatches.Count || request.Batches.Where((batch, i) =>
-                batch.Coarse != capture.TerrainBatches[i].Coarse || !batch.Patches.SequenceEqual(capture.TerrainBatches[i].Patches)).Any())
-            throw new InvalidDataException("Production frame writer changed the captured camera or source-selected terrain batch.");
         return request;
     }
 
@@ -467,7 +473,7 @@ public partial class MapSceneView
             var capture = CaptureNativeMapFrame(_nativeMapPendingExtent);
             var prior = _nativeMapLastQueuedCapture;
             if (prior is not null && ReferenceEquals(capture.World, prior.World) &&
-                capture.PresentationElapsedSeconds == prior.PresentationElapsedSeconds &&
+                capture.PresentationElapsedSeconds == prior.PresentationElapsedSeconds && capture.CgQuality == prior.CgQuality &&
                 capture.DisplayExtent == prior.DisplayExtent && capture.SceneGeneration == prior.SceneGeneration &&
                 capture.MainCamera.Camera.Prefix.Span.SequenceEqual(prior.MainCamera.Camera.Prefix.Span) &&
                 capture.TerrainBatches.Count == prior.TerrainBatches.Count &&

@@ -16,7 +16,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal GameState Run()
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw Missing("shared_current_pool");
-            if (package.Seed.Language != "TC") throw Missing("locale_rules");
+            if (package.Seed.Language is not ("TC" or "SC")) throw Missing("locale_rules");
             AreaFlagsSourceAdapter.BindMutation(current, () => state, value => state = value);
             package._personAssignmentPrecallInputs.BindAreaAdministrationScalars(state, current);
             package._baseCapacityInputs.BindCurrent(state, current);

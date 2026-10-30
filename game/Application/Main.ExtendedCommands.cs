@@ -16,6 +16,9 @@ public partial class Main
         _playCommandDeck.Content(PlayableCommandDeck.Page.Military).AddChild(_militaryOrders);
         _tacticOrders = new TacticOrdersPanel();
         _playCommandDeck.Content(PlayableCommandDeck.Page.Military).AddChild(_tacticOrders);
+        _nativeManualTacticEntry=new Button{Name="NativeManualTacticCommands"};
+        _nativeManualTacticEntry.Pressed+=()=>RunUiAction(()=>OpenManualTacticCommands(SelectionId(_playUnit)));
+        _playCommandDeck.Content(PlayableCommandDeck.Page.Military).AddChild(_nativeManualTacticEntry);
         _diplomacyOrders = new DiplomacyOrdersPanel();
         _playCommandDeck.Content(PlayableCommandDeck.Page.Diplomacy).AddChild(_diplomacyOrders);
         _personnelOrders = new PersonnelOrdersPanel();
@@ -28,6 +31,7 @@ public partial class Main
         _tacticOrders.Configure(_ui.Get, _ui.TacticReason, command => RunPlayAction(() => ApplyPlayableOrder(command)),
             (force, unit, tactic, target) => TacticCommandQuery.ForTarget(_world, force, unit, tactic, target,
                 _playRules?.TacticRules ?? UnresolvedTacticRules.Instance, _playRules?.Routes));
+        _nativeManualTacticEntry.Text=_ui.Get("play_tactic_active_title");
         _diplomacyOrders.Configure(_ui.Get, command => RunPlayAction(() => ApplyPlayableOrder(command)),
             officer => RunUiAction(() => OpenCommandOfficerDetails(officer)),
             force => RunUiAction(() => OpenCommandForceDetails(force)),
@@ -50,8 +54,10 @@ public partial class Main
         int? unit = _playUnit.Selected >= 0 ? _playUnit.GetSelectedId() : null;
         int? city = _playCity.Selected >= 0 ? _playCity.GetSelectedId() : null;
         _militaryOrders.Refresh(_militaryViews.Create(_world, unit, _playerForceId), _selectedCell?.Id);
-        _tacticOrders.Refresh(_world, unit, _playerForceId, _playRules?.TacticRules ?? UnresolvedTacticRules.Instance,
+        _tacticOrders.Visible=_world?.NativeArmySimulation is null;
+        if(_tacticOrders.Visible)_tacticOrders.Refresh(_world, unit, _playerForceId, _playRules?.TacticRules ?? UnresolvedTacticRules.Instance,
             _playRules?.Routes, _selectedCell?.Id);
+        RefreshManualTacticCommands(_advancingPeriod?_periodPlayback?.Candidate:_world);
         _diplomacyOrders.Refresh(_world, _playerForceId, city);
         _personnelOrders.Refresh(_world, _playerForceId);
         RefreshMilitaryDeploymentComposition();

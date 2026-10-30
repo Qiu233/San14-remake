@@ -20,9 +20,10 @@ public:
         publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
         populationPrepared_=true;
     }
+    template<class Root>
     void bindFieldDisplay(FieldDisplay& display,const source_far_main::Profile& source,
-        const NativeModelContinuous& field) const {
-        display.bind(source,field,cameras_);
+        const NativeModelContinuous& field,const Root& root) const {
+        display.bind(source,field,cameras_,root);
     }
     void prepareRaster(const fs::path& source) {
         raster_[0]=loadNativeShadowRasterSource(source/"initial");
@@ -32,6 +33,9 @@ public:
         const NativeCityAreaPrimary& primary,const StaticModelResources& models) {
         publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
         if(models.hasGeometry())connectNativeCityAreaJointShadowGeometry(population_,models.geometry(),primary);
+        // Animation can publish a new roster before the next accepted Main.
+        // Keep this consumer pending until its own GPU profile is rebound.
+        primaryCatalogBindingPending_=true;
     }
     void selectFamily(int renderMode) {family_=renderMode==0?0u:1u;}
     void publishSeason(const source_current_season::Frame& season) {
@@ -65,10 +69,11 @@ public:
     void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
         ground_details::GroundDetails& ground,TerrainPass& terrain) {
         gpu_=prepareNativeShadowCameraGpu(device,parameters_[family_],cameras_[family_],population_.catalog,population_.allModels,source,raster_);
+        primaryCatalogBindingPending_=false; // Initial creation bound this exact catalog.
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
         NativeSourceDepthState logical{};
         if(gpu_.profile.shadowClass!=5)throw std::runtime_error("Ground caster requires the imported depth shadow family");
-        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,
+        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,ground,
             [&](const NativeShadowRasterGpu& raster){
                 auto draws=ground.drawShadows(context,frame_,raster,family_);
                 return draws+terrain.drawShadows(context,frame_,raster,family_);
@@ -78,11 +83,14 @@ public:
     void updateAcceptedFrame(ID3D11DeviceContext* context,NativeSourceDepthState& logical,
         bool populationChanged,const source_current_season::Frame* season,const source_camera::Frame& camera,
         ground_details::GroundDetails& ground,TerrainPass& terrain) {
-        if(populationChanged)source_shadow_gpu::bindCatalog(gpu_.profile,population_.catalog);
+        if(populationChanged||primaryCatalogBindingPending_) {
+            source_shadow_gpu::bindCatalog(gpu_.profile,population_.catalog);
+            primaryCatalogBindingPending_=false; // Clear only after successful binding.
+        }
         source_shadow_gpu::setCurrentParameters(gpu_.profile,parameters_[family_]);
         updateNativeShadowRasterGpu(context,gpu_.raster,family_,raster_[family_]);
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
-        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,
+        executeNativeShadowCameraGpu(context,logical,gpu_,frame_,plan_,population_.catalog,population_.allModels,family_,ground,
             [&](const NativeShadowRasterGpu& raster){
                 auto draws=ground.drawShadows(context,frame_,raster,family_);
                 return draws+terrain.drawShadows(context,frame_,raster,family_);
@@ -90,6 +98,7 @@ public:
         map_=gpu_.map;
         if(receiver_)updateReceiver(*receiver_,camera);
         if(waterReceiver_)updateReceiver(*waterReceiver_,camera);
+        if(lateReceiver_)updateReceiver(*lateReceiver_,camera);
     }
     void prepareContact(ID3D11Device* device,const fs::path& source,
         const D3D11_RASTERIZER_DESC& raster,const D3D11_BLEND_DESC& blend,
@@ -114,6 +123,9 @@ public:
     void prepareWaterReceiver(const source_camera::Frame& camera) {
         waterReceiver_.emplace(receiverResources_,119);updateReceiver(*waterReceiver_,camera);
     }
+    void prepareLateReceiver(const source_camera::Frame& camera) {
+        lateReceiver_.emplace(receiverResources_,163);updateReceiver(*lateReceiver_,camera);
+    }
     void executeGeometryReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
         NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,std::uint32_t depthObject,
         const source_current_season::Frame& current,const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
@@ -126,7 +138,22 @@ public:
         executeSourceShadowReceiver(device,context,logical,waterReceiver_.value(),receiverResources_,map_.view.Get(),
             depth,depthObject,current,view,palette,commonClock);
     }
+    void executeLateReceiver(ID3D11Device* device,ID3D11DeviceContext* context,
+        NativeSourceDepthState& logical,ID3D11ShaderResourceView* depth,std::uint32_t depthObject,
+        const source_current_season::Frame& current,const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
+        executeSourceShadowReceiver(device,context,logical,lateReceiver_.value(),receiverResources_,map_.view.Get(),
+            depth,depthObject,current,view,palette,commonClock);
+    }
     const source_shadow_camera::Frame& frame() const {return frame_;}
+    const std::vector<unsigned>& currentReflectionSortFields() const {return parameters_[family_].sortFields;}
+    std::optional<std::uint64_t> currentReflectionPriorTupleKey(bool primary,unsigned ordinal) const {
+        if(!populationPrepared_||!cityGate_)throw std::runtime_error("Reflection borrowed Shadow tuple owner before preparation");
+        const auto index=std::size_t(ordinal)+(primary?cityGate_->fieldOwners:0u);
+        if((!primary&&ordinal>=cityGate_->fieldOwners)||index>=frame_.admissions.size())
+            throw std::runtime_error("Reflection source model does not belong to the actual current Shadow roster");
+        const auto& actual=frame_.admissions[index];
+        return actual.mask?std::optional<std::uint64_t>(actual.firstAcceptedDistanceKey):std::nullopt;
+    }
     const source_shadow_camera::Profile& compactCpuProvider() const {
         if (!populationPrepared_) throw std::runtime_error("HDR shadow CPU provider has not been prepared");
         return cameras_[family_];
@@ -149,6 +176,7 @@ private:
     std::array<NativeShadowRasterSource,2> raster_;
     unsigned family_=0;
     bool populationPrepared_{};
+    bool primaryCatalogBindingPending_{};
     source_current_season_shadow::Parameters season_;
     source_shadow_camera::Frame frame_;
     source_shadow_camera::Owner history_;
@@ -157,6 +185,6 @@ private:
     source_shadow_gpu::Plan plan_;
     ContactOcclusionRenderer contact_;
     NativeShadowReceiverResources receiverResources_;
-    std::optional<NativeSourceShadowReceiver> receiver_,waterReceiver_;
+    std::optional<NativeSourceShadowReceiver> receiver_,waterReceiver_,lateReceiver_;
 };
 } // namespace San14::Render

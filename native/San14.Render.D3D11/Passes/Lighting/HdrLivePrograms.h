@@ -1,8 +1,11 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Include after the HDR GPU and camera/refraction numeric helpers.
 #include "HdrCurrentSelection.h"
 #include "CurrentClusterLights.h"
 #include "HdrHeightFogState.h"
+#include "HdrMaterialModifiers.h"
+#include "HdrShaderModules.h"
 #include "Interop/HdrProgramBankInput.h"
 #include "Interop/HdrProgramBindingInputs.h"
 #include <map>
@@ -21,6 +24,7 @@ struct HdrProgramRecipe {
     std::vector<NativeWaterRefractionWrite> refraction;
     std::vector<HdrHeightFogWrite> heightFog;
     std::vector<HdrClusterWrite> cluster;
+    std::vector<HdrMaterialWrite> materialWrites;
     std::vector<HdrTextureRecipe> textures;
     std::vector<HdrSamplerRecipe> samplers;
     std::vector<char> material;
@@ -33,7 +37,7 @@ struct HdrInstalledRoute {
 class FreshHdrCausticsModule {
 public:
     explicit FreshHdrCausticsModule(const fs::path& path) {
-        std::ifstream input(path); std::string width, height;
+        NativePreparedInputFile input(path); std::string width, height;
         if (!(input >> width >> height)) throw std::runtime_error("HDR Caustics Main dimensions are absent");
         width_ = std::stof(width); height_ = std::stof(height);
     }
@@ -55,12 +59,13 @@ class HdrLivePrograms {
 public:
     void prepare(ID3D11Device* device, const fs::path& directory, unsigned node,
         ID3D11Texture2D* hdr, const std::array<ComPtr<ID3D11Texture2D>, 5>& gbuffer,
-        const std::array<DXGI_FORMAT, 6>& formats, ID3D11Texture2D* ggx) {
+        const std::array<DXGI_FORMAT, 6>& formats, ID3D11Texture2D* ggx,HdrShaderModuleBank& modules) {
         device_ = device;
         auto imported = Interop::readHdrProgramBank(directory / std::to_string(node) / "bank.bin");
         if (imported.bank.node() != node || (node != 78 && node != 123 && node != 166))
             throw std::runtime_error("HDR entry requires an implemented normal bank");
         root_ = directory / std::to_string(node);
+        modules_=&modules.borrow(root_/"shader-module.bin");
         imported_ = std::move(imported);
         if (imported_->bank.caustics()) caustics_.emplace(directory / "caustics.txt");
         auto makeView = [&](ID3D11Texture2D* texture, DXGI_FORMAT format) {
@@ -77,7 +82,7 @@ public:
         for (unsigned i = 0; i < passes_.gbuffer.size(); ++i) passes_.gbuffer[i] = makeView(gbuffer[i].Get(), formats[i]);
         passes_.ggx = makeView(ggx, DXGI_FORMAT_R16G16_FLOAT);
         std::string key; unsigned resource{}, shader{}, target{}, width{}, height{};
-        std::ifstream declaration(directory / "target.txt");
+        NativePreparedInputFile declaration(directory / "target.txt");
         declaration >> key >> resource >> shader >> target >> width >> height;
         if (!declaration) throw std::runtime_error("HDR bank actual Scene target declaration is absent");
         D3D11_TEXTURE2D_DESC td{}; hdr->GetDesc(&td);
@@ -105,6 +110,8 @@ public:
         if (!color) { passes_.passes.clear(); routes_.clear(); return; }
         const auto settings = prepareHdrSelectionSettings(*current.hdrSelection, view, definition.common, phaseFlags, *color);
         const auto associations = prepareHdrAssociations(imported.bank, definition.common, view, current, imported.bank.ocean());
+        if(!modules_)throw std::runtime_error("HDR shader module owner has not been prepared");
+        auto moduleCandidate=*modules_;
         std::vector<NativeSourceHdrPass> pending;
         std::vector<HdrInstalledRoute> pendingRoutes;
         std::optional<HdrFeatureScratch> scratch;
@@ -122,9 +129,12 @@ public:
             const auto& inner = current.lights[association.inner].lighting;
             const auto& modifier = inner.modifier.present ? inner : outer;
             if (caustics_) caustics_->update(view, modifier);
-            if ((recipe.hasHatching && !modifier.preservesFreshHatching) ||
-                (recipe.hasShadowFade && !modifier.preservesFreshShadowFade))
-                throw std::runtime_error("Selected HDR program requires an unimplemented live Hatching or Fade setter");
+            const bool fadeAllowed=imported.bank.ocean()||!settings.context.sharedTargets||
+                (definition.common.present&&(definition.common.featureFlags&0x40)!=0);
+            if(recipe.materialWrites.empty()&&
+                ((recipe.hasHatching&&!modifier.preservesFreshHatching)||
+                 (recipe.hasShadowFade&&!modifier.preservesFreshShadowFade&&fadeAllowed)))
+                throw std::runtime_error("Selected HDR program requires its current material semantic layout");
             auto old = std::find_if(routes_.begin(), routes_.end(), [&](const auto& prior) {
                 return prior.recipe == recipeId && prior.current.association.outer == association.outer &&
                     prior.current.association.inner == association.inner;
@@ -141,6 +151,17 @@ public:
                 pass.fixedPixelViews[texture.slot]=specular.views[side];
             }
             auto& constant = pass.constants.at(pass.lightingConstantIndex);
+            // 97E590 visits the shader's entire module chain on every real
+            // Prepare, including a selected program which does not read UV.
+            std::optional<HdrHatchingValues> hatching;
+            if(moduleCandidate.hasHatching) {
+                if(!modifier.preservesFreshHatching&&!modifier.modifier.material)
+                    throw std::runtime_error("Current Hatching module has no selected modifier data");
+                HdrMaterialModifier reset;reset.rampStart=-1;reset.repeat={1,1};
+                const auto& input=modifier.preservesFreshHatching?reset:*modifier.modifier.material;
+                hatching=prepareHdrHatching(input,commonClock,moduleCandidate.hatching);
+            }
+            writeHdrMaterialModifiers(recipe.materialWrites,modifier,fadeAllowed,hatching,constant.bytes);
             for(const auto& texture:recipe.textures) {
                 const int lane=clusterLane(texture.role);
                 if(lane<0)continue;
@@ -189,6 +210,7 @@ public:
         // All selected resources and CPU packets succeeded before replacing
         // the installed associations. Failed preparation leaves the old set.
         passes_.passes.swap(pending); routes_.swap(pendingRoutes);
+        *modules_=moduleCandidate;
         heightFog_=std::move(heightCandidate);
         for (auto& pass : passes_.passes) for (auto& constant : pass.constants)
             context->UpdateSubresource(constant.buffer.Get(), 0, nullptr, constant.bytes.data(), 0, 0);
@@ -209,17 +231,17 @@ private:
     }
     static HdrProgramRecipe readRecipe(const fs::path& directory) {
         HdrProgramRecipe result;
-        std::ifstream unsupported(directory / "unsupported.txt");
+        NativePreparedInputFile unsupported(directory / "unsupported.txt");
         if (!unsupported) throw std::runtime_error("HDR program recipe capability declaration is absent");
         result.unsupported.assign(std::istreambuf_iterator<char>(unsupported), {});
         if (result.unsupported.find_first_not_of(" \t\r\n") != std::string::npos) return result;
         result.unsupported.clear();
         unsigned hatching{}, fade{};
-        std::ifstream policy(directory / "policy.txt"); policy >> hatching >> fade;
+        NativePreparedInputFile policy(directory / "policy.txt"); policy >> hatching >> fade;
         if (!policy || hatching > 1 || fade > 1) throw std::runtime_error("HDR program live writer policy format");
         result.hasHatching = hatching != 0; result.hasShadowFade = fade != 0;
         std::string stage, file; unsigned slot{};
-        std::ifstream constants(directory / "cbuffers.txt");
+        NativePreparedInputFile constants(directory / "cbuffers.txt");
         if (!constants) throw std::runtime_error("HDR program constant declarations are absent");
         while (constants >> stage >> slot >> file) {
             if ((stage != "VS" && stage != "PS") || slot >= 14) throw std::runtime_error("HDR program constant stage or slot");
@@ -230,7 +252,7 @@ private:
         if (!constants.eof()) throw std::runtime_error("HDR program constant declarations are truncated");
         result.lighting = Interop::readHdrLightingLayout(directory / "hdr-lighting-layout.bin");
         auto fields = [&](const char* name, auto& writes, const auto& widths) {
-            std::ifstream input(directory / name);
+            NativePreparedInputFile input(directory / name);
             if (!input) throw std::runtime_error("HDR selected semantic layout is absent");
             typename std::remove_reference_t<decltype(writes)>::value_type write;
             while (input >> write.kind >> write.offset >> write.sourceOffset >> write.bytes) {
@@ -246,8 +268,10 @@ private:
         fields("height-fog-writes.txt", result.heightFog, std::array<unsigned, 4>{12,48,48,240});
         // Older prepared banks predate the live cluster writer. They cannot
         // contain a ready Cluster role, and do not require an empty new file.
-        if(fs::exists(directory/"cluster-writes.txt"))
+        if(fs::exists(nativePreparedFilePath(directory/"cluster-writes.txt")))
             fields("cluster-writes.txt",result.cluster,std::array<unsigned,4>{16,8,4,8});
+        if(fs::exists(nativePreparedFilePath(directory/"material-writes.txt")))
+            fields("material-writes.txt",result.materialWrites,std::array<unsigned,4>{16,16,28,4});
         result.textures=Interop::readHdrTextureRecipes(directory / "textures.txt");
         for (const auto& file:Interop::readHdrSamplerFiles(directory / "samplers.txt")) {
             HdrSamplerRecipe sampler;sampler.slot=file.slot;sampler.paired=file.paired;
@@ -264,7 +288,7 @@ private:
             if(!file.paired)sampler.descriptions[1]=sampler.descriptions[0];
             result.samplers.push_back(sampler);
         }
-        if (fs::exists(directory / "material-table.bin")) result.material = load(directory / "material-table.bin");
+        if (fs::exists(nativePreparedFilePath(directory / "material-table.bin"))) result.material = load(directory / "material-table.bin");
         return result;
     }
     NativeSourceHdrPass createPass(const HdrProgramRecipe& recipe, HdrProgramReference program) {
@@ -348,6 +372,7 @@ private:
     std::optional<Interop::ImportedHdrProgramBank> imported_;
     std::optional<FreshHdrCausticsModule> caustics_;
     HdrHeightFogState heightFog_;
+    HdrShaderModules* modules_{};
     std::map<std::uint32_t, HdrProgramRecipe> recipes_;
     std::map<std::uint32_t, std::vector<char>> vertexBytes_, pixelBytes_;
     std::map<std::uint32_t, ComPtr<ID3D11VertexShader>> vertices_;

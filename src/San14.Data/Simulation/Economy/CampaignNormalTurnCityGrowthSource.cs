@@ -142,9 +142,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = state.NativeArmySimulation?.Parameters ?? throw Missing("parameters");
             if (bank.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
-            if (package.Seed.Language != "TC") throw Missing("locale_parameter_" + name);
-            //Offline CE_TC data literals retained as application rule data.
-            //No executable, disassembly or cached execution is read at runtime.
+            if (package.Seed.Language is not ("TC" or "SC")) throw Missing("locale_parameter_" + name);
+            //Complete TC/SC population and idle-area bodies independently
+            //read these same nine file-backed signed integers. Saved values
+            //remain first; runtime reads no executable or execution cache.
             return name switch {
                 "population-rate-base" => 3, "population-cap-divisor" => 4,
                 "population-maximum-step" => 2000, "population-step-cap-threshold" => 40000,

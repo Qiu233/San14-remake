@@ -20,6 +20,12 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
     internal IReadOnlyList<float> Baselines => baselines;
     public void SetDrawingVisibilityLayer(uint layer) => font.SetDrawingVisibilityLayer(this, layer);
 
+    /// <summary>The formatted-message caller wraps the expanded text and then
+    /// explicitly selects width-fit mode 3 and literal character mode 2. These
+    /// runtime setters replace the authored text node's initial modes.</summary>
+    internal void ConfigureFormattedMessage(MapFont sourceFont, MapFontProfile resourceProfile) =>
+        Configure(sourceFont, resourceProfile with { WidthFitMode = 3, RawCharacterMode = 2 });
+
     internal void Configure(MapFont sourceFont, MapFontProfile profile)
     {
         // These are the ordinary 30D290 cells. Ruby, font switches and other

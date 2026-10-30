@@ -54,20 +54,34 @@ public static class NormalSoundSource
         var matches = bank.Cues.Where(cue => cue.CueId == hash).Take(2).ToArray();
         if (matches.Length != 1 || matches[0].Name is not { Length: > 0 } name)
             throw new InvalidDataException("audio.normal_sound.unique_cue");
-        var playback = AudioCueGraphResources.ReadSingleStaticNonSpatialReference(bank, name);
-        var gain = AudioCueGraphResources.ReadStaticGainCategoryIds(categories, playback.Group.ClassificationId);
-        if (gain.Count != 1 || gain[0] is not (0xF4E09144 or 0x2A9C5558))
-            throw new NotSupportedException("audio.normal_sound.dynamic_gain_categories");
-        var samples = bank.Samples.Where(sample => sample.SampleId == playback.Sound.SoundId).Take(2).ToArray();
-        if (samples.Length != 1 || samples[0].Name is not { Length: > 0 } sampleName)
-            throw new InvalidDataException("audio.normal_sound.unique_sample");
-        if ((samples[0].Flags & 0x10000) != 0)
-            throw new NotSupportedException("audio.normal_sound.external_stream_bank");
-        return new(AudioSelectionResources.SelectInternalSample(bank, sampleName).AsDecodeInput(),
-            playback, gain[0], sampleName, bank.Source.ResourceUri, bank.Source.DecodedSha256,
-            samples[0].SectionOffset, samples[0].SectionBytes);
+        var references = AudioCueGraphResources.ReadStaticNonSpatialReferences(bank, name);
+        var first = PrepareReference(references[0]);
+        if (references.Count == 1) return first;
+        var second = PrepareReference(references[1]);
+        if (first.GainCategoryId != second.GainCategoryId ||
+            first.Playback.PlaybackRate != second.Playback.PlaybackRate)
+            throw new NotSupportedException("audio.normal_sound.synchronous_component_rate_or_category");
+        return first with { StereoPartner = second };
+
+        NormalSoundPreparation PrepareReference(AudioCueStaticPlaybackReference playback)
+        {
+            var gain = AudioCueGraphResources.ReadStaticGainCategoryIds(categories, playback.Group.ClassificationId);
+            if (gain.Count != 1 || gain[0] is not (0xF4E09144 or 0x2A9C5558))
+                throw new NotSupportedException("audio.normal_sound.dynamic_gain_categories");
+            var samples = bank.Samples.Where(sample => sample.SampleId == playback.Sound.SoundId).Take(2).ToArray();
+            if (samples.Length != 1 || samples[0].Name is not { Length: > 0 } sampleName)
+                throw new InvalidDataException("audio.normal_sound.unique_sample");
+            if ((samples[0].Flags & 0x10000) != 0)
+                throw new NotSupportedException("audio.normal_sound.external_stream_bank");
+            return new(AudioSelectionResources.SelectInternalSample(bank, sampleName).AsDecodeInput(),
+                playback, gain[0], sampleName, bank.Source.ResourceUri, bank.Source.DecodedSha256,
+                samples[0].SectionOffset, samples[0].SectionBytes);
+        }
     }
 }
 
 public sealed record NormalSoundPreparation(AudioDecodeInput Input, AudioCueStaticPlaybackReference Playback,
-    uint GainCategoryId, string SampleName, string BankUri, string BankHash, int SampleOffset, int SampleBytes);
+    uint GainCategoryId, string SampleName, string BankUri, string BankHash, int SampleOffset, int SampleBytes)
+{
+    public NormalSoundPreparation? StereoPartner { get; init; }
+}

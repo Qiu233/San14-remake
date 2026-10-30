@@ -27,15 +27,19 @@ public static class TacticPresentationSource
     {
         ArgumentNullException.ThrowIfNull(row);
         byte category = row.ReadNativeFixedByte(0x40);
-        int voice = category switch
+        return new(row.Slot, row.Name, category, ReadArmyVoiceEvent(row.Slot, category), usesNeutralNamePreset);
+    }
+
+    /// <summary>16E6C0's current classification and physical tactic identity.
+    /// Both the fixed ordinary declaration and Direction's current owner use
+    /// this mapping; neither method selects a variant or admits a voice.</summary>
+    public static int ReadArmyVoiceEvent(int tacticId, byte category) => category switch
         {
             2 => 15, 3 => 16, 4 => 17,
-            5 => row.Slot == 13 ? 18 : row.Slot is 14 or 15 ? 19 : 20,
-            6 => row.Slot == 18 ? 21 : row.Slot == 19 ? 22 : 23,
-            7 => row.Slot == 21 ? 24 : row.Slot == 22 ? 25 : 26,
+            5 => tacticId == 13 ? 18 : tacticId is 14 or 15 ? 19 : 20,
+            6 => tacticId == 18 ? 21 : tacticId == 19 ? 22 : 23,
+            7 => tacticId == 21 ? 24 : tacticId == 22 ? 25 : 26,
             8 => 27,
             _ => 14
         };
-        return new(row.Slot, row.Name, category, voice, usesNeutralNamePreset);
-    }
 }

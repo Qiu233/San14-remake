@@ -5,6 +5,10 @@ using San14.Core;
 
 namespace San14.Data;
 
+/// <summary>The actual lookup operand captured with one saved command.
+/// No row means unknown; zero remains a known source operand.</summary>
+public sealed record ArmySavedTargetLookupAlias(ArmyReceiverId ReceiverId, ushort LookupAlias);
+
 /// <summary>Unmapped source knowledge belongs to the resource adapter. It never
 /// supplies a game location or a district identity by interpreting unknown codes.</summary>
 public sealed record OfficerLocationSourceResidue
@@ -63,6 +67,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     private readonly IReadOnlyDictionary<int, OfficerAftermathSourceResidue> _aftermath;
     private readonly IReadOnlyDictionary<ArmyReceiverId, ArmyTargetSourceResidue> _armyTargets;
     private readonly IReadOnlyDictionary<ArmyOverrideSourceOwner, ArmyOverrideTargetSourceResidue> _armyOverrides;
+    private readonly IReadOnlyDictionary<ArmyReceiverId, ArmySavedTargetLookupAlias> _armySavedTargets;
     private readonly IReadOnlyDictionary<int, ArmyPositionSourceResidue> _armyPositions;
     private readonly ReadOnlyDictionary<TransportRouteSourceOwner, TransportRouteSourceKnowledge> _transportRoutes;
     private readonly ReadOnlyDictionary<ArmyTraitSourceOwner, ArmyTraitSourceKnowledge> _armyTraits;
@@ -71,7 +76,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     public ArmyConfigurationSourceKnowledge? FindArmyConfiguration(int unitId) => _armyConfigurations.GetValueOrDefault(new(unitId));
     public CampaignSourceKnowledge ReplaceArmyConfigurations(IEnumerable<ArmyConfigurationSourceKnowledge> rows) =>
         new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
-            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, rows, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, rows, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithArmyConfiguration(ArmyConfigurationSourceKnowledge row) => ReplaceArmyConfigurations(
         _armyConfigurations.Values.Where(item => item.Owner != row.Owner).Concat(
             row.ActionCode is null && row.CategoryCode is null && row.UnmappedLandCode is null && row.UnmappedNavalCode is null ? [] : new[] { row }));
@@ -80,7 +85,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     public IReadOnlyCollection<ArmyTraitSourceKnowledge> ArmyTraits => _armyTraits.Values;
     public ArmyTraitSourceKnowledge? FindArmyTraits(int unitId) => _armyTraits.GetValueOrDefault(new(unitId));
     public CampaignSourceKnowledge ReplaceArmyTraits(IEnumerable<ArmyTraitSourceKnowledge> rows) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, rows, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, rows, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithArmyTraits(ArmyTraitSourceKnowledge row) => ReplaceArmyTraits(
         _armyTraits.Values.Where(item => item.Owner != row.Owner).Concat(row.UnmappedTraits.Count == 0 ? [] : new[] { row }));
     public CampaignSourceKnowledge WithoutArmyTraits(int unitId) => _armyTraits.ContainsKey(new(unitId))
@@ -90,7 +95,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     public IReadOnlyCollection<TransportRouteSourceKnowledge> TransportRoutes => _transportRoutes.Values;
     public TransportRouteSourceKnowledge? FindTransportRoute(int unitId) => _transportRoutes.GetValueOrDefault(new(unitId));
     public CampaignSourceKnowledge ReplaceTransportRoutes(IEnumerable<TransportRouteSourceKnowledge> rows) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, rows, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, rows, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithTransportRoute(TransportRouteSourceKnowledge row) =>
         ReplaceTransportRoutes(_transportRoutes.Values.Where(item => item.Owner != row.Owner).Append(row));
 
@@ -119,8 +124,11 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
         IEnumerable<ArmyConfigurationSourceKnowledge>? armyConfigurations,
         MapObjectSourceState? mapObjectSource,
         IEnumerable<CityDistrictSourceResidue>? cityDistricts,
-        IEnumerable<AreaFlagsSourceResidue>? areaFlags)
+        IEnumerable<AreaFlagsSourceResidue>? areaFlags,
+        IEnumerable<ArmySavedTargetLookupAlias>? savedArmyTargets = null)
     {
+        _armySavedTargets = new ReadOnlyDictionary<ArmyReceiverId, ArmySavedTargetLookupAlias>(
+            (savedArmyTargets ?? []).ToDictionary(row => row.ReceiverId));
         _areaFlags = new ReadOnlyDictionary<int, AreaFlagsSourceResidue>((areaFlags ?? []).ToDictionary(row => row.AreaId));
         _officers = new ReadOnlyDictionary<int, OfficerLocationSourceResidue>(officers.ToDictionary(item => item.OfficerId));
         _aftermath = new ReadOnlyDictionary<int, OfficerAftermathSourceResidue>(
@@ -145,6 +153,7 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
         _areaFlags = areaFlags;
         _officers = source._officers; _aftermath = source._aftermath;
         _armyTargets = source._armyTargets; _armyOverrides = source._armyOverrides;
+        _armySavedTargets = source._armySavedTargets;
         _armyPositions = source._armyPositions; _cityDistricts = source._cityDistricts;
         _transportRoutes = source._transportRoutes; _armyTraits = source._armyTraits;
         _armyConfigurations = source._armyConfigurations;
@@ -158,38 +167,56 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     public CityDistrictSourceResidue? FindCityDistrict(int cityId) => _cityDistricts.GetValueOrDefault(cityId);
     public CampaignSourceKnowledge ReplaceCityDistricts(IEnumerable<CityDistrictSourceResidue> rows) =>
         new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
-            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, rows, _areaFlags.Values);
+            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, rows, _areaFlags.Values, _armySavedTargets.Values);
     public OfficerLocationSourceResidue? Find(int officerId) => _officers.GetValueOrDefault(officerId);
     public OfficerAftermathSourceResidue? FindAftermath(int officerId) => _aftermath.GetValueOrDefault(officerId);
     public ArmyTargetSourceResidue? FindArmyTarget(ArmyReceiverId receiverId) => _armyTargets.GetValueOrDefault(receiverId);
     public IReadOnlyCollection<ArmyTargetSourceResidue> ArmyTargets => _armyTargets.Values.ToArray();
+    public IReadOnlyCollection<ArmySavedTargetLookupAlias> SavedArmyTargets => _armySavedTargets.Values.ToArray();
+    public ushort? FindArmySavedTargetLookupAlias(ArmyReceiverId receiver) =>
+        _armySavedTargets.TryGetValue(receiver, out var saved) ? saved.LookupAlias : null;
+    public CampaignSourceKnowledge WithArmySavedTargetLookupAlias(ArmyReceiverId receiver, ushort? alias)
+    {
+        if (receiver.Value <= 0) throw new InvalidDataException("Saved command lookup owner is invalid.");
+        if (_armySavedTargets.TryGetValue(receiver, out var previous))
+        {
+            if (alias == previous.LookupAlias) return this;
+        }
+        else if (alias is null) return this;
+        IEnumerable<ArmySavedTargetLookupAlias> rows = _armySavedTargets.Values.Where(row => row.ReceiverId != receiver);
+        if (alias is ushort raw) rows = rows.Append(new(receiver, raw));
+        return new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
+            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values,
+            MapObjectSource, _cityDistricts.Values, _areaFlags.Values, rows);
+    }
+
     public ArmyOverrideTargetSourceResidue? FindArmyOverride(ArmyOverrideSourceOwner owner) => _armyOverrides.GetValueOrDefault(owner);
     public IReadOnlyCollection<ArmyOverrideTargetSourceResidue> ArmyOverrides => _armyOverrides.Values.ToArray();
     public CampaignSourceKnowledge ReplaceArmyOverrides(IEnumerable<ArmyOverrideTargetSourceResidue> rows) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, rows, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, rows, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithArmyOverride(ArmyOverrideTargetSourceResidue row) => ReplaceArmyOverrides(
         _armyOverrides.Values.Where(item => item.Owner != row.Owner).Append(row)
-            .Where(item => item.KindCode is not null || item.IdentityCode is not null));
+            .Where(item => item.KindCode is not null || item.IdentityCode is not null || item.MapObjectLookupAlias is not null));
     public CampaignSourceKnowledge WithArmyTarget(ArmyTargetSourceResidue residue) => new(
         _officers.Values, _aftermath.Values, _armyTargets.Values.Where(item => item.ReceiverId != residue.ReceiverId)
-            .Append(residue).Where(item => item.KindCode is not null || item.IdentityCode is not null || item.MapObjectLookupAlias is not null), _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+            .Append(residue).Where(item => item.KindCode is not null || item.IdentityCode is not null || item.MapObjectLookupAlias is not null), _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge ReplaceArmyTargets(IEnumerable<ArmyTargetSourceResidue> rows) => new(
-        _officers.Values, _aftermath.Values, rows, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        _officers.Values, _aftermath.Values, rows, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public ArmyPositionSourceResidue? FindArmyPosition(int unitId) => _armyPositions.GetValueOrDefault(unitId);
     public IReadOnlyCollection<ArmyPositionSourceResidue> ArmyPositions => _armyPositions.Values.ToArray();
     IEnumerable<int> IArmyIdentityReferences.ReferencedArmyIds => _armyConfigurations.Keys.Select(owner => owner.UnitId).Concat(_armyTraits.Keys.Select(owner => owner.UnitId)).Concat(_transportRoutes.Keys.Select(owner => owner.UnitId)).Concat(_armyPositions.Keys).Concat(
         _armyOverrides.Keys.Where(owner => owner.UnitId.HasValue).Select(owner => owner.UnitId!.Value));
     public CampaignSourceKnowledge ReplaceArmyPositions(IEnumerable<ArmyPositionSourceResidue> rows) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, rows, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, rows, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithArmyPosition(ArmyPositionSourceResidue row) =>
         ReplaceArmyPositions(_armyPositions.Values.Where(item => item.UnitId != row.UnitId).Append(row));
     public CampaignSourceKnowledge WithoutArmyPosition(int unitId) =>
         ReplaceArmyPositions(_armyPositions.Values.Where(item => item.UnitId != unitId));
     public CampaignSourceKnowledge WithArmyLifecycleSource(ArmyLifecycleSourceState? source) =>
-        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, source, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, source, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithMapObjectSource(MapObjectSourceState? source) =>
         new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
-            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, source, _cityDistricts.Values, _areaFlags.Values);
+            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, source, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     ICampaignResourceState IArmyHistoryResourceState.RecordWithdrawnArmies(ICampaignResourceState? current, int defeatedForceId, IEnumerable<int> unitIds)
     {
         var ids = unitIds.ToHashSet();
@@ -214,12 +241,28 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
     public IReadOnlyCollection<OfficerAftermathSourceResidue> Aftermath => _aftermath.Values.ToArray();
     public CampaignSourceKnowledge With(OfficerLocationSourceResidue residue) => new(
         _officers.Values.Where(item => item.OfficerId != residue.OfficerId).Append(residue)
-            .Where(item => item.LocationCode is not null || item.DistrictCode is not null), _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+            .Where(item => item.LocationCode is not null || item.DistrictCode is not null), _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
+    // Merge the publication as one immutable owner. Last occurrence wins,
+    // including removal, in the same order as successive Officer With calls.
+    internal CampaignSourceKnowledge WithOfficerLocations(IReadOnlyCollection<OfficerLocationSourceResidue> updates)
+    {
+        if (updates.Count == 0) return this;
+        var incoming = updates.ToArray();
+        var last = new Dictionary<int, int>();
+        for (int index = 0; index < incoming.Length; index++) last[incoming[index].OfficerId] = index;
+        return new(_officers.Values.Where(row => !last.ContainsKey(row.OfficerId) &&
+                (row.LocationCode is not null || row.DistrictCode is not null))
+            .Concat(incoming.Where((row, index) => last[row.OfficerId] == index &&
+                (row.LocationCode is not null || row.DistrictCode is not null))),
+            _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
+            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values,
+            MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
+    }
     public CampaignSourceKnowledge WithAftermath(OfficerAftermathSourceResidue residue) => new(
         _officers.Values, _aftermath.Values.Where(item => item.OfficerId != residue.OfficerId).Append(residue)
-            .Where(item => item.UnmappedResentmentTarget is not null || item.PreviousForceCode is not null || item.CaptureResetCode is not null), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+            .Where(item => item.UnmappedResentmentTarget is not null || item.PreviousForceCode is not null || item.CaptureResetCode is not null), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
     public CampaignSourceKnowledge WithoutAftermath(int officerId) => new(
-        _officers.Values, _aftermath.Values.Where(item => item.OfficerId != officerId), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values);
+        _officers.Values, _aftermath.Values.Where(item => item.OfficerId != officerId), _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values, ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
 }
 
 internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
@@ -245,15 +288,18 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
         var overrides = new JsonArray();
         foreach (var row in locations.ArmyOverrides)
             overrides.Add(new JsonObject { ["ReceiverId"] = row.Owner.ReceiverId?.Value, ["UnitId"] = row.Owner.UnitId,
-                ["KindCode"] = row.KindCode, ["IdentityCode"] = row.IdentityCode });
+                ["KindCode"] = row.KindCode, ["IdentityCode"] = row.IdentityCode, ["MapObjectLookupAlias"] = row.MapObjectLookupAlias });
+        var savedArmyTargets = new JsonArray();
+        foreach (var row in locations.SavedArmyTargets)
+            savedArmyTargets.Add(new JsonObject { ["ReceiverId"] = row.ReceiverId.Value, ["LookupAlias"] = row.LookupAlias });
         var cityDistricts = new JsonArray();
         foreach (var row in locations.CityDistricts.OrderBy(row => row.CityId))
             cityDistricts.Add(new JsonObject { ["CityId"] = row.CityId, ["DistrictCode"] = (int)row.DistrictCode });
         var areaFlags = new JsonArray();
         foreach (var row in locations.AreaFlags.OrderBy(row => row.AreaId))
             areaFlags.Add(new JsonObject { ["AreaId"] = row.AreaId, ["Flags38"] = (int)row.Flags38 });
-        return new() { ["Kind"] = "campaign-source-knowledge", ["Version"] = 12,
-            ["AreaFlags"] = areaFlags,
+        return new() { ["Kind"] = "campaign-source-knowledge", ["Version"] = 14,
+            ["AreaFlags"] = areaFlags, ["SavedArmyTargets"] = savedArmyTargets,
             ["CityDistricts"] = cityDistricts,
             ["Locations"] = rows, ["Aftermath"] = aftermath, ["ArmyTargets"] = targets, ["ArmyOverrides"] = overrides, ["ArmyPositions"] = ArmyPositionSourceKnowledge.Encode(locations.ArmyPositions),
             ["ArmyLifecycleSource"] = locations.ArmyLifecycleSource is null ? null : JsonSerializer.SerializeToNode(locations.ArmyLifecycleSource),
@@ -268,10 +314,12 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
             document["Version"] is not JsonValue versionValue || !versionValue.TryGetValue<int>(out int version))
             throw new InvalidDataException("Campaign resource state identity is invalid.");
         bool legacy = kind == "officer-location-source-residues" && version == 1;
-        if ((!legacy && (kind != "campaign-source-knowledge" || version is not (2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12))) ||
+        if ((!legacy && (kind != "campaign-source-knowledge" || version is not (2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14))) ||
             document[legacy ? "Officers" : "Locations"] is not JsonArray rows ||
             (legacy && (document.ContainsKey("Locations") || document.ContainsKey("Aftermath"))) ||
             (!legacy && (document["Aftermath"] is not JsonArray || document.ContainsKey("Officers"))) ||
+            (version >= 14 && document["SavedArmyTargets"] is not JsonArray) ||
+            (version < 14 && document.ContainsKey("SavedArmyTargets")) ||
             (version >= 3 && document["ArmyTargets"] is not JsonArray) ||
             (version < 3 && document.ContainsKey("ArmyTargets")) ||
             (version >= 4 && document["ArmyOverrides"] is not JsonArray) ||
@@ -332,7 +380,8 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
             foreach (var node in (JsonArray)document["ArmyOverrides"]!)
             {
                 if (node is not JsonObject row || !row.ContainsKey("ReceiverId") || !row.ContainsKey("UnitId") ||
-                    !row.ContainsKey("KindCode") || !row.ContainsKey("IdentityCode"))
+                    !row.ContainsKey("KindCode") || !row.ContainsKey("IdentityCode") ||
+                    (version >= 14 ? !row.ContainsKey("MapObjectLookupAlias") : row.ContainsKey("MapObjectLookupAlias")))
                     throw new InvalidDataException("Saved override source knowledge is incomplete.");
                 int? receiver = Read(row["ReceiverId"], int.MaxValue), unit = Read(row["UnitId"], int.MaxValue);
                 if (receiver == 0 || receiver is null && unit is null)
@@ -340,7 +389,20 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
                 ArmyOverrideSourceOwner owner = new(receiver is int r ? new(r) : null, unit);
                 if (overrides.Any(item => item.Owner == owner)) throw new InvalidDataException("Saved override source owner is duplicated.");
                 int? category = Read(row["KindCode"], byte.MaxValue), identity = Read(row["IdentityCode"], ushort.MaxValue);
-                overrides.Add(new(owner, category is int k ? (byte)k : null, identity is int i ? (ushort)i : null));
+                int? alias = version >= 14 ? Read(row["MapObjectLookupAlias"], ushort.MaxValue) : null;
+                overrides.Add(new(owner, category is int k ? (byte)k : null, identity is int i ? (ushort)i : null)
+                    { MapObjectLookupAlias = alias is int a ? (ushort)a : null });
+            }
+        var savedArmyTargets = new List<ArmySavedTargetLookupAlias>();
+        if (version >= 14)
+            foreach (var node in (JsonArray)document["SavedArmyTargets"]!)
+            {
+                if (node is not JsonObject row || row.Count != 2 ||
+                    Read(row["ReceiverId"], int.MaxValue) is not int receiver || receiver <= 0 ||
+                    Read(row["LookupAlias"], ushort.MaxValue) is not int alias ||
+                    savedArmyTargets.Any(old => old.ReceiverId.Value == receiver))
+                    throw new InvalidDataException("Saved command lookup knowledge is incomplete or invalid.");
+                savedArmyTargets.Add(new(new(receiver), (ushort)alias));
             }
         var cityDistricts = new List<CityDistrictSourceResidue>();
         if (version >= 11)
@@ -369,11 +431,11 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
         DecodedVersion = version;
         return new CampaignSourceKnowledge(values, aftermath, targets, overrides,
             version >= 5 ? ArmyPositionSourceKnowledge.Decode((JsonArray)document["ArmyPositions"]!) : [],
-            version >= 6 && document["ArmyLifecycleSource"] is { } source ? ArmyLifecycleSourceSerialization.Decode(source) : null,
+            version >= 6 && document["ArmyLifecycleSource"] is { } source ? ArmyLifecycleSourceSerialization.Decode(source, version) : null,
             version >= 7 ? TransportRouteSourceAdapter.DecodeKnowledge((JsonArray)document["TransportRoutes"]!) : [],
             version >= 8 ? ArmyTraitSourceAdapter.DecodeKnowledge((JsonArray)document["ArmyTraits"]!) : [],
             version >= 9 ? ArmyConfigurationSourceAdapter.DecodeKnowledge((JsonArray)document["ArmyConfigurations"]!) : [],
-            version >= 10 && document["MapObjectSource"] is { } mapSource ? DecodeMapObjectSource(mapSource) : null, cityDistricts, areaFlags);
+            version >= 10 && document["MapObjectSource"] is { } mapSource ? DecodeMapObjectSource(mapSource) : null, cityDistricts, areaFlags, savedArmyTargets);
     }
     public ICampaignResourceState? MigrateLocations(ICampaignResourceState? state, IReadOnlyList<LegacyOfficerLocationKnowledge> locations)
     {
@@ -441,7 +503,7 @@ internal sealed class CampaignResourceStateCodec : ICampaignResourceStateCodec
         var knowledge = CampaignSourceKnowledge.From(state);
         if (knowledge.ArmyLifecycleSource is not null)
             throw new InvalidDataException("Historical army source ownership is duplicated.");
-        return knowledge.WithArmyLifecycleSource(ArmyLifecycleSourceSerialization.Decode(source));
+        return knowledge.WithArmyLifecycleSource(ArmyLifecycleSourceSerialization.Decode(source, 12));
     }
     public ICampaignResourceState? MigrateTransportRoute(ICampaignResourceState? state, JsonObject unit, int? defeatedForceId = null) =>
         TransportRouteSourceAdapter.Migrate(CampaignSourceKnowledge.From(state), unit, defeatedForceId);

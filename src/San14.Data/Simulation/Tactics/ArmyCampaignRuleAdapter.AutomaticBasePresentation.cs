@@ -9,20 +9,22 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// existing effect/Direction owner. No target is reselected for display,
     /// and no receipt or empty-queue observation is manufactured here.</summary>
     private AutomaticTacticLinkedActorResult CaptureBorrowedAutomaticActorResult(GameState state,
-        UnitState actor, int tacticSlot, List<TacticResultPresentation>[] results,
+        SourceWorldContext current, int casterId, int physical, int tacticSlot, List<TacticResultPresentation>[] results,
         List<TacticEffectPresentation> armyEffects)
     {
-        int physical = actor.NativeArmyOrigin?.NativeSlotIndex ?? throw BaseAutomaticMissing("presentation_actor_slot");
         var arena = state.ReadArmyLifecycle() ?? throw BaseAutomaticMissing("presentation_Army_roster");
         var source = arena.Slots[physical];
         var receiver = arena.Receivers.Find(source.ReceiverId) ?? throw BaseAutomaticMissing("presentation_actor_receiver");
-        if (receiver.ActiveUnitId != actor.Id) throw BaseAutomaticMissing("presentation_actor_identity");
-        return new(actor.Id, receiver.ReceiverId, tacticSlot, results[0].ToImmutableArray(),
+        var reached = ReadAutomaticActorResumeCurrent(state, current, physical);
+        if (reached.LatestImage is { } image && image.Id != casterId)
+            throw BaseAutomaticMissing("presentation_actor_identity");
+        return new(casterId, receiver.ReceiverId, tacticSlot, results[0].ToImmutableArray(),
             results[1].ToImmutableArray(), armyEffects.ToImmutableArray(), physical, true);
     }
 
     private GameState EnqueueBorrowedAutomaticLinkedPresentation(GameState state, SourceWorldContext current,
-        TacticRemakeCurrentContext context, IReadOnlyList<AutomaticTacticLinkedActorResult> actors, int selectedHex)
+        TacticRemakeCurrentContext context, IReadOnlyList<AutomaticTacticLinkedActorResult> actors, int selectedHex,
+        IManualTacticPresentationAdmission? presentationAdmission = null)
     {
         var manager = state.ManualTacticIntervention ?? throw BaseAutomaticMissing("effect_manager168C40");
         if (manager.Effects.Length >= 563) return state;
@@ -30,8 +32,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool direction = false;
         if (context.IsAutomaticSpecialPresentationTactic(main.TacticId))
         {
-            var actor = state.Units.GetValueOrDefault(main.CasterUnitId) ?? throw BaseAutomaticMissing("presentation_main_Army");
-            direction = _automaticPresentationAdmission?.ReadUniqueDirectionAdmission(state, actor, main.TacticId)
+            var reached = ReadAutomaticActorResumeCurrent(state, current, main.SourceArmyPhysicalSlot);
+            var admission = presentationAdmission ?? _automaticPresentationAdmission;
+            direction = (reached.LatestImage is { } actor
+                ? admission?.ReadUniqueDirectionAdmission(state, actor, main.TacticId)
+                : admission?.ReadUniqueDirectionAdmission(state, main.CasterUnitId, main.SourceArmyPhysicalSlot, main.TacticId))
                 ?? throw BaseAutomaticMissing("unique_direction_admission369580");
         }
         var presentations = actors.Where(actor => actor.WasExecuted).Select(actor =>

@@ -100,7 +100,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     // The actual Data0862 template takes one integer. Reject unsupported
     // format operands rather than displaying an unexpanded native template.
-    private static string FormatSceneryPanelNumber(string format, byte value)
+    private static string FormatSceneryPanelNumber(string format, int value)
     {
         var text = new StringBuilder();
         int arguments = 0;

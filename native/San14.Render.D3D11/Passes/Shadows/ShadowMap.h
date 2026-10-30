@@ -2,6 +2,7 @@
 // One fixed real-asset caster experiment. Root supplies the actual reached
 // depth/raster state; this file never guesses a source depth compare policy.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <d3dcompiler.h>
 #include <d3d11shader.h>
 
@@ -14,7 +15,7 @@ struct NativeShadowMap {
 static NativeShadowMap produceNativeShadowMap(ID3D11Device* device,ID3D11DeviceContext* context,
     const fs::path& source,const fs::path& modelSource,const NativeModelInputs& models,
     ID3D11DepthStencilState* actualShadowDepth,ID3D11RasterizerState* actualShadowRaster) {
-    UINT width,height,sourceClass;std::ifstream target(source/"target.txt");target>>width>>height>>sourceClass;
+    UINT width,height,sourceClass;NativePreparedInputFile target(source/"target.txt");target>>width>>height>>sourceClass;
     if(!target||!actualShadowDepth||!actualShadowRaster)throw std::runtime_error("Actual shadow source target/depth/raster state absent");
     NativeShadowMap result;
     D3D11_TEXTURE2D_DESC td{};td.Width=width;td.Height=height;td.ArraySize=td.MipLevels=1;
@@ -29,16 +30,16 @@ static NativeShadowMap produceNativeShadowMap(ID3D11Device* device,ID3D11DeviceC
     context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
     context->PSSetShader(nullptr,nullptr,0); // Current ten category0 source primitives select a null PS.
     struct Pass {UINT index;D3D11_VIEWPORT viewport;D3D11_RECT scissor;};std::vector<Pass> passes;
-    std::ifstream passFile(source/"passes.txt");UINT p;INT x,y,w,h,sx,sy,sw,sh;
+    NativePreparedInputFile passFile(source/"passes.txt");UINT p;INT x,y,w,h,sx,sy,sw,sh;
     while(passFile>>p>>x>>y>>w>>h>>sx>>sy>>sw>>sh)passes.push_back({p,{float(x),float(y),float(w),float(h),0,1},{sx,sy,sx+sw,sy+sh}});
-    std::ifstream rows(source/"draws.txt");UINT ordinal,mask;std::string relative,modelRelative;
+    NativePreparedInputFile rows(source/"draws.txt");UINT ordinal,mask;std::string relative,modelRelative;
     while(rows>>ordinal>>mask>>relative>>modelRelative) {
         const auto& model=models.draws.at(ordinal);auto dxbc=load(source/relative/"vs.dxbc");
         ComPtr<ID3D11VertexShader> vs;check(device->CreateVertexShader(dxbc.data(),dxbc.size(),nullptr,&vs),"original caster VS");
         ComPtr<ID3D11ShaderReflection> reflection;check(D3DReflect(dxbc.data(),dxbc.size(),__uuidof(ID3D11ShaderReflection),&reflection),"caster source ISGN");
         D3D11_SHADER_DESC signature{};reflection->GetDesc(&signature);
         struct Element {std::string name;UINT index,format,slot,offset;};std::vector<Element> elements;
-        std::ifstream layoutFile(modelSource/modelRelative/"layout.txt");Element e;
+        NativePreparedInputFile layoutFile(modelSource/modelRelative/"layout.txt");Element e;
         while(layoutFile>>e.name>>e.index>>e.format>>e.slot>>e.offset) {
             bool read=false;for(UINT i=0;i<signature.InputParameters;++i) {
                 D3D11_SIGNATURE_PARAMETER_DESC input{};reflection->GetInputParameterDesc(i,&input);

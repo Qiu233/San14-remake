@@ -111,6 +111,15 @@ public static class ArmyDestructionLoyalty
     {
         ushort id = current.ReadPersonIdentity(physical)
             ?? throw new InvalidDataException("Current loyalty Person identity is unknown.");
+        //Ordinary160 has no native-validity gate and may write the real
+        //table-zero Person. Its raw byte already has an independent saved
+        //owner; retain that field without inventing a displayed Officer0.
+        if (physical == 0 && id == 0 && state.NativeArmySimulation is { } zeroSimulation &&
+            zeroSimulation.Parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) == 1 &&
+            zeroSimulation.Parameters.Int32Values.ContainsKey(OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical)))
+            return state with { NativeArmySimulation = zeroSimulation with { Parameters = zeroSimulation.Parameters with
+            { Int32Values = new(zeroSimulation.Parameters.Int32Values)
+                { [OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical)] = after } } } };
         if (!state.Officers.TryGetValue(id, out var person) || current.ResolveOfficerSource(id) != physical ||
             state.NativeArmySimulation is not { } simulation ||
             simulation.Parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1)
@@ -129,6 +138,11 @@ public static class ArmyDestructionLoyalty
         //fields are not inputs of259360. Preserve the same current Core write
         //precedence without asking the full comparator for an unrelated Office.
         ArgumentNullException.ThrowIfNull(governor);
+        if (physical == 0 && current.ReadPersonIdentity(physical) == 0 &&
+            state.NativeArmySimulation?.Parameters.Int32Values is { } zeroValues &&
+            zeroValues.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) == 1 &&
+            zeroValues.TryGetValue(OwnedArmyGovernorComparatorInputs.PersonRawE8Key(physical), out int zeroRaw))
+            return zeroRaw is >= 0 and <= 255 ? (byte)zeroRaw : null;
         if (state.NativeArmySimulation?.Parameters.Int32Values is not { } values ||
             values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1 ||
             current.ReadPersonIdentity(physical) is not ushort id || !state.Officers.TryGetValue(id, out var person) ||

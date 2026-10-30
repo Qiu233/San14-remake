@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Include in RenderCore.cpp's native helper scope (ComPtr/fs/load/check).
 // Reuse original geometry/shaders/views/states. Only instances and complete
 // original camera CBs become mutable; no device work or source reads per request.
@@ -128,7 +129,7 @@ inline NativeTerrainCameraGpu prepareNativeTerrainCameraGpu(ID3D11Device* device
     std::copy(initial.begin(),initial.end(),allocation.begin());
     owner.instances=terrainCameraDefaultBuffer(device,allocation.data(),UINT(allocation.size()),D3D11_BIND_VERTEX_BUFFER);
     owner.instanceCount=UINT(initial.size()/sizeof(source_camera::Instance));
-    std::ifstream input(source/"batches.txt");source_camera::Batch row;
+    NativePreparedInputFile input(source/"batches.txt");source_camera::Batch row;
     while(input>>row.group>>row.start>>row.count>>row.coarse)owner.batches.push_back(row);
     if(owner.batches.empty()&&owner.instanceCount)throw std::runtime_error("Source grouped terrain batches absent");
     return owner;

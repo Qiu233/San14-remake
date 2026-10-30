@@ -27,6 +27,10 @@ public partial class Main
         // Invoked on actual world publication, not by ordinary display ticks
         // or removal of presentation outbox entries.
         _cityAttentionMap = map; _cityAttentionSession = session; _cityAttentionWorld = owner;
+        //This is the actual reached Strategy/Playback tail, retained by the
+        //normal adapter; reading it never reruns regional encirclement.
+        var warnings=_campaignComposition.PrepareArmyQueries(owner).QueryAreaOccupationWarnings(owner);
+        map.TryApplyAreaOccupationWarnings(warnings);
         if (!TryRefreshProvinceAttention(owner, map, out var missing)) GD.PushWarning(missing);
         var query = _campaignComposition.PrepareArmyQueries(owner)
             .QueryCityMerchantAttention(owner, IsMerchantAttentionEnabled(session));

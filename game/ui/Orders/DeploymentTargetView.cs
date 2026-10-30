@@ -12,7 +12,7 @@ internal partial class DeploymentTargetView : Control
     private Shader? shader;
     private Control canvas=null!;
     private UiSourceHeader sourceHeader=null!;
-    private DeploymentResourceHeader resourceHeader=null!;
+    private DeploymentResourceHeader? resourceHeader;
     private DeploymentTargetList selection=null!;
     private UiSourceRoundButton confirm=null!;
     private UiSourceRoundButton returnTarget=null!;
@@ -26,10 +26,10 @@ internal partial class DeploymentTargetView : Control
     internal IReadOnlyList<int> SelectedOfficers=>selection.SelectedOfficers;
     internal void RequestBack()=>back?.Invoke();
 
-    internal void Configure(GameResourceRepository repository,PreviewText text,CityState city,long availableTroops,
+    internal void Configure(GameResourceRepository repository,PreviewText text,CityState? city,long availableTroops,
         long? availableBooks,IReadOnlyList<DeploymentTargetGroup> groups,IEnumerable<int> selectedOfficers,
         int scrollSpeedSetting,Action<IReadOnlyList<int>> selectionChanged,Action chooseFacility,Action requestedBack,
-        Func<int>? currentScrollSpeed=null, bool transportMode=false)
+        Func<int>? currentScrollSpeed=null, bool transportMode=false, GeneralUnitTargetHeader? generalHeader=null)
     {
         Name="DeploymentTarget";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);back=requestedBack;
@@ -40,8 +40,13 @@ internal partial class DeploymentTargetView : Control
         sourceHeader=new UiSourceHeader {Name="TargetTitle"};
         canvas.AddChild(sourceHeader);
         sourceHeader.Configure(repository,assets,shader,font,Message(transportMode?0x033A:0x0223));
-        resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=new(487,12)};
-        canvas.AddChild(resourceHeader);resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,availableBooks);
+        if (generalHeader is not null) ConfigureGeneralHeader(repository, text, generalHeader);
+        else
+        {
+            if (city is null) throw new ArgumentNullException(nameof(city));
+            resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=new(487,12)};
+            canvas.AddChild(resourceHeader);resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,availableBooks);
+        }
         var footer=new UiSourceLayout(repository,0xD8913AB2);Vector2 footerMount=new(0,904);
         MenuFooterTop=(int)footer.Rectangle(19,footerMount).Position.Y;
         confirm=Round("ConfirmTarget",5,"000_cmn_txt_decision_kettei",()=>{if(!confirm.Disabled)decide?.Invoke();});
@@ -79,10 +84,18 @@ internal partial class DeploymentTargetView : Control
 
     internal void RegisterHeader(UiSourceHeaderStack owner)=>sourceHeader.Publish(owner);
 
-    internal void ApplyDraftResources(DeploymentDraftResources resources)=>resourceHeader.Apply(resources);
+    // Opt-in for an actual caller's source footer binding. Existing target
+    // callers keep their current hint policy until they explicitly supply it.
+    internal void ConfigureReturnHint(string value,Func<bool> admitted)
+    {
+        returnTarget.MouseEntered+=()=>{if(admitted()&&!returnTarget.Disabled)ApplyHint(value);};
+        returnTarget.MouseExited+=()=>{if(admitted())ApplyHint(null);};
+    }
+
+    internal void ApplyDraftResources(DeploymentDraftResources resources)=>resourceHeader?.Apply(resources);
     internal void ApplyTransportResources(long? remainingTroops,long? remainingGold,long? remainingSupplies,
         long? currentBooks,long? remainingBooks,int? spentBooks)
-        =>resourceHeader.ApplyTransport(remainingTroops,remainingGold,remainingSupplies,currentBooks,remainingBooks,spentBooks);
+        =>resourceHeader?.ApplyTransport(remainingTroops,remainingGold,remainingSupplies,currentBooks,remainingBooks,spentBooks);
     internal void ApplyProgress(IReadOnlyList<DeploymentTargetProgress> progress)=>selection.ApplyProgress(progress);
     internal void ApplySelection(IEnumerable<int> officers)
     {selection.ApplySelection(officers);facility.Disabled=facilityMode||selection.SelectedOfficers.Count==0;}

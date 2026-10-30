@@ -38,11 +38,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             var serviceCopy = service?.Copy();
             var current = suppliedCurrent ?? CaptureWritableTransportRouteCurrent(working);
             var evaluations = new List<RegionEncirclementEvaluation>();
-            //32C9D0 copies the saved order;42D6B0 begins at its tail.
-            foreach (int force in order.Reverse())
+            //32C9D0 resolves saved lookup operands into a pointer-list before
+            //42D6B0 starts at its tail. Seed keys use each actual receiver's
+            //physical identity; rank47 belongs to that same receiver.
+            var forceReferences = order.Select(raw => current.ReadForceTableReference(raw)
+                ?? throw OccupationMissing("encirclement_saved_Force_pointer")).ToArray();
+            foreach (var forceReference in forceReferences.Reverse())
             {
-                if (!state.Forces.TryGetValue(force, out var owner) || owner.RankId is not int rank || rank is < 0 or > 255)
-                    throw OccupationMissing("encirclement_current_rank");
+                int force = OccupationKnown(current.ReadForcePhysicalSlot(forceReference), "encirclement_Force_receiver");
+                int rank = OccupationKnown(current.ReadForceRankSlot47(force), "encirclement_current_rank");
                 int selected = rank < 13 ? rank : 0;
                 bool allowed = false;
                 if (selected != 0) //CRankData slot3 tests the physical rank index.

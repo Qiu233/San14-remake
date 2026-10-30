@@ -5,7 +5,7 @@ namespace San14.Data;
 public sealed record D3D11CityGatePreparedAsset(int Index,int Category,string AssetSourceKey,
     IReadOnlyList<int> DrawIndices,IReadOnlyList<int> TemplateIndices);
 
-/// <summary>Resource-prepared City/Gate/Area template bank. Immutable geometry,
+/// <summary>Resource-prepared City/Gate/Area/facility template bank. Immutable geometry,
 /// programs and materials are separate from current population publications.</summary>
 public sealed class D3D11CityGateTemplateBank
 {
@@ -64,8 +64,18 @@ public sealed class D3D11CityGateTemplateBank
     public byte[] Encode(D3D11CityGatePrimaryFrame frame,uint commonFrustumMode)
     {
         if(frame.Unavailable.Count!=0||frame.Owners.Count!=61)throw new InvalidDataException("Current City/Gate complete source61 publication unavailable.");
-        using var output=new MemoryStream();using var w=new BinaryWriter(output);w.Write(0x31555043u);w.Write(frame.Owners.Count);
-        foreach(var owner in frame.Owners){var profile=Bind(owner.Instance.Asset,owner.Category)??throw new InvalidDataException("Actual current primary source asset import missing.");
+        return EncodePrimaryOwners(frame.Owners,commonFrustumMode);
+    }
+
+    /// <summary>A complete current facility roster shares the real primary
+    /// resources and renderer rules without becoming a City/Gate owner.</summary>
+    public byte[] EncodeFacilities(IReadOnlyList<D3D11CityGatePrimary> owners,uint commonFrustumMode)
+        =>EncodePrimaryOwners(owners,commonFrustumMode);
+
+    private byte[] EncodePrimaryOwners(IReadOnlyList<D3D11CityGatePrimary> owners,uint commonFrustumMode)
+    {
+        using var output=new MemoryStream();using var w=new BinaryWriter(output);w.Write(0x31555043u);w.Write(owners.Count);
+        foreach(var owner in owners){var profile=Bind(owner.Instance.Asset,owner.Category)??throw new InvalidDataException("Actual current primary source asset import missing.");
             w.Write(owner.Index);w.Write(profile.Index);w.Write(1u);w.Write(owner.Caller.Mask328);w.Write(owner.Caller.Mask32C);w.Write(owner.Caller.Mask330);
             w.Write(owner.Caller.ActualEligibilityV408?1u:0u);w.Write(owner.Caller.Exclusion78);w.Write(owner.Caller.WorldCasterFlags10C);w.Write(owner.Opacity);
             w.Write(MapModelNativeVisibilitySources.ResolveFrustumCullingType(owner.Prefix.ConstructorFrustumCullingType33C,commonFrustumMode));

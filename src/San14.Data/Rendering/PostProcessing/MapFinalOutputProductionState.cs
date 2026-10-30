@@ -43,7 +43,7 @@ public sealed class MapFinalOutputProductionState
 
     public MapFinalOutputProductionPrepared Prepare(
         MapCameraConstructionPacket currentCamera,MapSourceCreatedLightingPacket acceptedLighting,
-        MapSeasonRuntimeFrame currentSeason,MapExposureViewAux selectedViewAux,
+        MapSeasonCalendarFrame currentSeason,MapExposureViewAux selectedViewAux,
         int width,int height,bool currentTargetIsSrgb,NativeCameraTangentDispatch tangent,
         string actualFrameOwner,MapExposureSelectedLightReceipt? selectedExposure=null,
         MapFinalOutputHdrRoute? selectedHdr=null,float? resolvedBloomMaxLum=null,
@@ -57,9 +57,7 @@ public sealed class MapFinalOutputProductionState
             !selectedViewAux.CustomPixelShaderAbsent||string.IsNullOrWhiteSpace(actualFrameOwner)||
             !currentCamera.Prefix.Span[..0x170].SequenceEqual(acceptedLighting.PreparedCameraPrefix.Span[..0x170]))
             throw new InvalidDataException("Production final requires one increasing accepted Camera/lighting/season frame and the source saved Tone2 Host route.");
-        MapSeasonRuntime.ValidateOwned(currentSeason.State);
-        var canonical=MapSeasonRuntime.PrepareFrame(currentSeason.State,currentSeason.FrameNumber);
-        if(canonical!=currentSeason)throw new InvalidDataException("Post-output season is not its canonical current owned World frame.");
+        MapSeasonRuntime.ValidateFrame(currentSeason);
         if(selectedHdr is not null&&(selectedHdr.FrameNumber!=currentCamera.FrameNumber||selectedHdr.Width!=width||
             selectedHdr.Height!=height||selectedHdr.CallerOwnerIdentity!=actualFrameOwner||
             resolvedBloomMaxLum is not float bloom||!float.IsFinite(bloom)))

@@ -44,99 +44,166 @@ public sealed partial class ArmyCampaignRuleAdapter
         var working = initial.State ?? throw BaseWinnerMissing(initial.UnresolvedOwner ?? "initial_Force_result");
         if (target.Kind == BaseKind.City)
         {
-            var callback = BaseCaptureRewardSource.ReadInitialCityCallbackGate(working, current, target);
-            if (callback.Reached is not false) throw BaseWinnerMissing(callback.UnresolvedOwner ?? "City2A2620_callback");
+            working = ApplyCityCaptureAttackRequestsCurrent(working, current, target, force, effects);
+            if (effects.Count != 0)
+            {
+                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                    ?? throw BaseWinnerMissing("City2A2620_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                        working.NativeClock?.UpdateOrdinal ?? throw BaseWinnerMissing("City2A2620_clock"), effects.ToArray()) };
+                effects.Clear();
+            }
         }
         var people = new BaseCapturePersonPrefix(this).TryApplyCurrent(working, current, target,
             noArmy, date, sampler, winnerDistrict: district);
         working = people.State ?? throw BaseWinnerMissing(people.UnresolvedOwner ?? "person_prefix");
+        if (working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null) return working;
         var prefix = people.Receipt ?? throw BaseWinnerMissing("person_prefix_receipt");
-        var territory = BaseCaptureRewardSource.BeginTerritoryRewards(working, current, force);
-        var counts = territory.Receipt ?? throw BaseWinnerMissing(territory.UnresolvedOwner ?? "territory_counts");
-        //The callback's late current Force may differ after a defeated ruler
-        //loses their final City. Keep the same mutable current and group owner.
-        working = ApplyBaseCaptureNearbyArmiesCurrent(working, current, pool, target, date, effects, sampler);
-        var queries = CreateCaptureDistrictOperationQueries(current, () => working,
-            value => working = value, date, effects, newForce, groups);
+        BaseCaptureTerritoryReceipt? ownedCounts = null;
+        CityCaptureAreaScope? ownedScope = null;
+        bool prefixReleased = false;
+        ArmyReturnDistrictOperationQueries? queries = null;
         var previousTransfer = current.TransferModeStateReader;
-        current.TransferModeStateReader = () => current.ArmyReturnTransferMode;
         try
         {
-            if (target.Kind == BaseKind.City)
+            var territory = BaseCaptureRewardSource.BeginTerritoryRewards(working, current, force);
+            var counts = ownedCounts = territory.Receipt ?? throw BaseWinnerMissing(territory.UnresolvedOwner ?? "territory_counts");
+            //The callback's late current Force may differ after a defeated ruler
+            //loses their final City. Keep the same mutable current and group owner.
+            working = ApplyBaseCaptureNearbyArmiesCurrent(working, current, pool, target, date, effects, sampler);
+            queries = CreateCaptureDistrictOperationQueries(current, () => working,
+                value => working = value, date, effects, newForce, groups);
+            current.TransferModeStateReader = () => current.ArmyReturnTransferMode;
+            try
             {
-                var scope = CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce);
-                var assignment = CityCaptureTerritorySource.AssignCityDistrict(current, target, districtId);
-                Primary(assignment.CapturedOldDistrict);
-                current.SetObjectForceSlot13(location, (byte)newForce);
-                current.CurrentSceneryLayout = new(null);
-                _ = CityCaptureTerritorySource.ApplyFootprintBeforeResources(working, current, target, newForce);
-                _ = BaseCaptureResourceSource.ApplyCurrent(working, current, target, new(person0), CreateArmyDestructionAbilities(current));
-                _ = CityCaptureTerritorySource.ClearCityAdministration(current, target);
-                Primary(assignment.CapturedOldDistrict); Primary(district);
-                HomeArmyAndForce();
-                _ = CityCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, scope, districtId,
-                    CreateArmyDestructionAbilities(current));
-                _ = CityCaptureTerritorySource.RequireNoReachedAreaObjectService(current, scope);
-                ClearThreat();
-                _ = CityCaptureTerritorySource.RequireEmperorCaptureNotReached(working, current, scope);
-                _ = CityCaptureTerritorySource.ClearTargetRouting(current, target);
-                _ = CityCaptureTerritorySource.RequireNoSpecialStateAdvantageTransition(working, current, scope);
-                _ = CityCaptureTerritorySource.ApplyCityFoodWarning(working, current, target,
-                    () =>
-                    {
-                        var quote = ReadCityCaptureFoodQuoteCurrent(working, current, target,
-                            groups ?? CreateCaptureMapGroupingOwner());
-                        working = quote.State ?? working;
-                        return quote.Value ?? throw BaseWinnerMissing(quote.UnresolvedOwner ?? "food_expense");
-                    },
-                    () =>
-                    {
-                        var quote = CityCaptureFoodWarningSource.TryReadPredictedFoodIncome(working, current, target,
-                            date, CreateArmyDestructionAbilities(current), FoodIncomeSceneries);
-                        return quote.Value ?? throw BaseWinnerMissing(quote.UnresolvedOwner ?? "food_income");
-                    });
-                CityCaptureTerritorySource.ReleaseRelatedAreas(current, scope);
-            }
-            else
-            {
-                var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, districtId, person0);
-                Primary(assignment.CapturedOldDistrict);
-                current.SetObjectForceSlot13(location, (byte)newForce);
-                current.CurrentSceneryLayout = new(null);
-                _ = GateCaptureTerritorySource.ApplyFootprintBeforeResources(working, current, target, newForce);
-                _ = BaseCaptureResourceSource.ApplyCurrent(working, current, target, new(person0), CreateArmyDestructionAbilities(current));
-                var area = CurrentGateMapQueries.FindArea(target, current);
-                int areaId = K(area.PhysicalSlot, "Gate_Area_pointer");
-                ushort assigned = K(current.ReadAssignmentArea36(areaId), "Gate_Area36");
-                if (assigned != 0)
+                if (target.Kind == BaseKind.City)
                 {
-                    current.SetAssignmentArea36(areaId, 0);
-                    var removal = PersonAssignmentPrecallSource.Apply2E01E0AreaRemoval(current, areaId, assigned);
-                    if (removal.UnresolvedOwner is not null) throw BaseWinnerMissing(removal.UnresolvedOwner);
+                    var scope = ownedScope = CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce);
+                    var assignment = CityCaptureTerritorySource.AssignCityDistrict(current, target, districtId);
+                    Primary(assignment.CapturedOldDistrict);
+                    if (IsTerminal()) return CompleteTerminal();
+                    current.SetObjectForceSlot13(location, (byte)newForce);
+                    current.CurrentSceneryLayout = new(null);
+                    _ = CityCaptureTerritorySource.ApplyFootprintBeforeResources(working, current, target, newForce);
+                    _ = BaseCaptureResourceSource.ApplyCurrent(working, current, target, new(person0), CreateArmyDestructionAbilities(current));
+                    _ = CityCaptureTerritorySource.ClearCityAdministration(current, target);
+                    Primary(assignment.CapturedOldDistrict);
+                    if (IsTerminal()) return CompleteTerminal();
+                    Primary(district);
+                    if (IsTerminal()) return CompleteTerminal();
+                    HomeArmyAndForce();
+                    _ = CityCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, scope, districtId,
+                        CreateArmyDestructionAbilities(current), queries);
+                    working = ApplyCityCaptureAreaObjectsCurrent(working, current, scope, effects);
+                    ClearThreat();
+                    var emperor = PrepareCaptureEmperorCurrent(working, current, scope);
+                    working = emperor.State;
+                    if (emperor.Progress is { } progress)
+                    {
+                        //All earlier business has already run. Save the actual
+                        //payloads before releasing borrowed native temporaries.
+                        var saved = CaptureBaseWinnerEmperorTail(current, request, date, sampler,
+                            scope, counts, prefix,
+                            district.PhysicalSlot ?? throw BaseWinnerMissing("Emperor_destination_District"));
+                        working = working with { AutomaticEmperorCapture = progress, BaseWinnerEmperorTail = saved };
+                        working = PublishCaptureDistrictOperationCurrent(working, current, queries, effects);
+                        effects.Clear();
+                        ReleaseOwned();
+                        return BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+                    }
+                    _ = CityCaptureTerritorySource.ClearTargetRouting(current, target);
+                    working = ApplyCityCaptureStateAdvantageCurrent(working, current, scope, date, effects);
+                    _ = CityCaptureTerritorySource.ApplyCityFoodWarning(working, current, target,
+                        () =>
+                        {
+                            var quote = ReadCityCaptureFoodQuoteCurrent(working, current, target,
+                                groups ?? CreateCaptureMapGroupingOwner());
+                            working = quote.State ?? working;
+                            return quote.Value ?? throw BaseWinnerMissing(quote.UnresolvedOwner ?? "food_expense");
+                        },
+                        () =>
+                        {
+                            var quote = CityCaptureFoodWarningSource.TryReadPredictedFoodIncome(working, current, target,
+                                date, CreateArmyDestructionAbilities(current), FoodIncomeSceneries);
+                            return quote.Value ?? throw BaseWinnerMissing(quote.UnresolvedOwner ?? "food_income");
+                        });
+                    CityCaptureTerritorySource.ReleaseRelatedAreas(current, scope);
+                    ownedScope = null;
                 }
-                Primary(assignment.CapturedOldDistrict); Primary(district);
-                HomeArmyAndForce();
-                _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
-                    assignment.CapturedOldDistrict.PhysicalSlot ?? 0, districtId);
-                ClearThreat();
-                _ = GateCaptureRoutingSource.ClearTargetRouting(current, target);
+                else
+                {
+                    var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, districtId, person0);
+                    Primary(assignment.CapturedOldDistrict);
+                    if (IsTerminal()) return CompleteTerminal();
+                    current.SetObjectForceSlot13(location, (byte)newForce);
+                    current.CurrentSceneryLayout = new(null);
+                    _ = GateCaptureTerritorySource.ApplyFootprintBeforeResources(working, current, target, newForce);
+                    _ = BaseCaptureResourceSource.ApplyCurrent(working, current, target, new(person0), CreateArmyDestructionAbilities(current));
+                    var area = CurrentGateMapQueries.FindArea(target, current);
+                    int areaId = K(area.PhysicalSlot, "Gate_Area_pointer");
+                    ushort assigned = K(current.ReadAssignmentArea36(areaId), "Gate_Area36");
+                    if (assigned != 0)
+                    {
+                        current.SetAssignmentArea36(areaId, 0);
+                        var removal = PersonAssignmentPrecallSource.Apply2E01E0AreaRemoval(current, areaId, assigned);
+                        if (removal.UnresolvedOwner is not null) throw BaseWinnerMissing(removal.UnresolvedOwner);
+                    }
+                    Primary(assignment.CapturedOldDistrict);
+                    if (IsTerminal()) return CompleteTerminal();
+                    Primary(district);
+                    if (IsTerminal()) return CompleteTerminal();
+                    HomeArmyAndForce();
+                    _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
+                        assignment.CapturedOldDistrict.PhysicalSlot ?? 0, districtId);
+                    ClearThreat();
+                    _ = GateCaptureRoutingSource.ClearTargetRouting(current, target);
+                }
+            }
+            finally { current.TransferModeStateReader = previousTransfer; }
+            working = PublishCaptureDistrictOperationCurrent(working, current, queries, effects);
+            effects.Clear(); //The shared publisher has appended these intents once.
+            working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+            ownedCounts = null; //The shared tail owns its two descriptor releases.
+            var tail = BaseCaptureRewardSource.ApplyTailWithinCapture(working, current, target, force, district, noArmy, counts);
+            working = tail.State ?? throw BaseWinnerMissing(tail.UnresolvedOwner ?? "Force_reward_tail");
+            working = BaseCapturePersonPrefix.ReleaseWithinCapture(working, current, prefix);
+            prefixReleased = true;
+            working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+            //2851B0's capture-history block is inside the valid-Army branch.
+            //Army0 produces neither that history nor an entered-unit report.
+            return working;
+        }
+        finally { ReleaseOwned(); }
+
+        bool IsTerminal() => working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null;
+        GameState CompleteTerminal()
+        {
+            ReleaseOwned();
+            if (queries is not null) working = PublishCaptureDistrictOperationCurrent(working, current, queries, effects);
+            effects.Clear();
+            return BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+        }
+        void ReleaseOwned()
+        {
+            current.TransferModeStateReader = previousTransfer;
+            if (ownedScope is not null)
+            {
+                CityCaptureTerritorySource.ReleaseRelatedAreas(current, ownedScope);
+                ownedScope = null;
+            }
+            if (ownedCounts is not null)
+            {
+                BaseCaptureRewardSource.ReleaseTerritoryRewards(current, ownedCounts);
+                ownedCounts = null;
+            }
+            if (!prefixReleased)
+            {
+                working = BaseCapturePersonPrefix.ReleaseWithinCapture(working, current, prefix);
+                prefixReleased = true;
             }
         }
-        finally { current.TransferModeStateReader = previousTransfer; }
-        working = PublishCaptureDistrictOperationCurrent(working, current, queries, effects);
-        effects.Clear(); //The shared publisher has appended these intents once.
-        working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
-        var tail = BaseCaptureRewardSource.ApplyTailWithinCapture(working, current, target, force, district, noArmy, counts);
-        working = tail.State ?? throw BaseWinnerMissing(tail.UnresolvedOwner ?? "Force_reward_tail");
-        working = BaseCapturePersonPrefix.ReleaseWithinCapture(working, current, prefix);
-        working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
-        //2851B0's capture-history block is inside the valid-Army branch.
-        //Army0 produces neither that history nor an entered-unit report.
-        return working;
-
         void Primary(DistrictReference value)
         {
-            var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, value, queries);
+            var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, value, queries ?? throw BaseWinnerMissing("District_operation_owner"));
             if (result.UnresolvedOwner is not null) throw BaseWinnerMissing(result.UnresolvedOwner);
         }
         void HomeArmyAndForce()

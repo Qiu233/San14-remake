@@ -29,12 +29,23 @@ internal partial class EnvironmentSettingsView : Control
         Action returned, Action accepted, Action reset,
         Action<AudioVolumeOptions> previewAudio, Action? previewEffects = null, VoicePreferences? voice = null,
         AutomaticMessageAdvanceMode automaticMessageAdvance = AutomaticMessageAdvanceMode.Manual,
-        IReadOnlyList<int>? keyboardBindings = null)
+        IReadOnlyList<int>? keyboardBindings = null, ApplicationPresentationOptions? presentation = null,
+        DisplayPreferences? display = null, IReadOnlyList<DisplayResolution>? resolutions = null,
+        Action<DisplayPreferences>? previewDisplay = null, CgQuality? cgQuality = null,
+        IReadOnlyList<CgQuality>? supportedCgQualities = null, Func<CgQuality,bool>? previewCgQuality = null,
+        GameAudioSpeakerLayout? speakerLayout = null, bool speakerLayoutEditable = false,
+        Func<GameAudioSpeakerLayout,SpeakerLayoutAvailability>? speakerLayoutAvailability = null,
+        bool mapBackdrop = false)
     {
         this.returned = returned; this.accepted = accepted; this.reset = reset;
         initial.Validate(); Draft = initial;
         audio.Validate(); AudioDraft = audio; this.previewAudio = previewAudio;
         this.previewEffects = previewEffects;
+        PresentationDraft = presentation ?? new();
+        DisplayDraft = display; displayResolutions = resolutions ?? []; this.previewDisplay = previewDisplay;
+        CgQualityDraft = cgQuality; this.supportedCgQualities = supportedCgQualities ?? []; this.previewCgQuality = previewCgQuality;
+        SpeakerLayoutDraft = speakerLayout; this.speakerLayoutEditable = speakerLayoutEditable;
+        this.speakerLayoutAvailability = speakerLayoutAvailability;
         if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
         ListScrollDraft = listScroll;
         AutomaticSavingDraft = automaticSaving;
@@ -42,9 +53,13 @@ internal partial class EnvironmentSettingsView : Control
         _ = VoiceDraft.Capture();
         if (!Enum.IsDefined(automaticMessageAdvance)) throw new ArgumentOutOfRangeException(nameof(automaticMessageAdvance));
         AutomaticMessageAdvanceDraft = automaticMessageAdvance;
-        automaticMessageAdvanceSupported = text.SourceLocale == "TC";
+        automaticMessageAdvanceSupported = AutomaticMessageAdvanceSource.SupportsLocale(text.SourceLocale);
         Name = "EnvironmentSettings"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        if (mapBackdrop)
+        {
+            var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
+        }
         chrome = new AdministrationPageChrome { Name = "EnvironmentChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x0031, RequestBack,
             () => { if (!abandoned && !busy && !KeyboardModal) this.accepted?.Invoke(); }, showFooterHint: false);
@@ -108,7 +123,12 @@ internal partial class EnvironmentSettingsView : Control
                 button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, segment, Data(0, values[row][index]), () =>
                 {
                     if (abandoned || busy || !EnabledRow(selectedRow)) return;
-                    if (selectedRow == 8) ApplyAutomaticSaving(selectedIndex == 1);
+                    if (selectedRow is 4 or 5) ApplyPresentationOptions(selectedRow switch
+                    {
+                        4 => PresentationDraft with { TacticDirectionsEnabled = selectedIndex == 1 },
+                        _ => PresentationDraft with { MoviesEnabled = selectedIndex == 1 }
+                    });
+                    else if (selectedRow == 8) ApplyAutomaticSaving(selectedIndex == 1);
                     else if (selectedRow == 7) ApplyVoice(VoiceDraft with { Language = (NarrationVoiceLanguage)selectedIndex });
                     else if (selectedRow == 3) ApplyAutomaticMessageAdvance((AutomaticMessageAdvanceMode)selectedIndex);
                     else if (selectedRow == 2) ApplyListScroll((ListScrollSpeed)selectedIndex);
@@ -137,16 +157,17 @@ internal partial class EnvironmentSettingsView : Control
         ApplyOptions(initial); SetBusy(false);
         ApplyListScroll(listScroll);
         ApplyAutomaticSaving(automaticSaving);
-        ApplyAudioOptions(audio, false); ShowPage(0);
+        ApplyAudioOptions(audio, false); ApplyPresentationOptions(PresentationDraft);
+        ApplyDisplayOptions(DisplayDraft, false); ApplyCgQualityOptions(CgQualityDraft, false); ApplySpeakerLayoutOptions(SpeakerLayoutDraft); ShowPage(0);
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 
     internal void RequestBack()
     {
-        if (CancelKeyboardModal()) return;
+        if (CloseDisplayResolutions() || CancelKeyboardModal()) return;
         if (!abandoned && !busy) returned?.Invoke();
     }
-    private bool EnabledRow(int row) => row <= 2 || row is 7 or 8 || row == 3 && automaticMessageAdvanceSupported;
+    private bool EnabledRow(int row) => row <= 2 || row is 4 or 5 or 7 or 8 || row == 3 && automaticMessageAdvanceSupported;
     internal void ApplyOptions(MapCameraNavigationOptions options)
     {
         if (abandoned) return;
@@ -158,6 +179,9 @@ internal partial class EnvironmentSettingsView : Control
                 1 => row.Index == (int)Draft.Keyboard,
                 2 => row.Index == (int)ListScrollDraft,
                 3 => automaticMessageAdvanceSupported && row.Index == (int)AutomaticMessageAdvanceDraft,
+                4 => row.Index == (PresentationDraft.TacticDirectionsEnabled ? 1 : 0),
+                5 => row.Index == (PresentationDraft.MoviesEnabled ? 1 : 0),
+                6 => row.Index == (PresentationDraft.DuelsEnabled ? 1 : 0),
                 7 => row.Index == (int)VoiceDraft.Language,
                 8 => row.Index == (AutomaticSavingDraft ? 1 : 0),
                 _ => false
@@ -222,16 +246,21 @@ internal partial class EnvironmentSettingsView : Control
         foreach (var row in choices) row.Button.Disabled = value || !EnabledRow(row.Row);
         for (int i = 0; i < tabs.Count; i++) tabs[i].Disabled = value || KeyboardModal;
         foreach (var row in audioChoices) row.Button.Disabled = value;
-        RefreshKeyboardAdmission();
+        RefreshKeyboardAdmission(); RefreshDisplayAdmission(); RefreshCgQualityAdmission(); RefreshSpeakerLayoutAdmission();
     }
     internal void Abandon()
     {
         abandoned = true; returned = null; accepted = null; reset = null;
         previewAudio = null;
-        previewEffects = null;
+        previewEffects = null; previewDisplay = null; previewCgQuality = null; CloseDisplayResolutions();
         AbandonKeyboard();
         foreach (var row in choices) row.Button.Abandon();
         foreach (var row in audioChoices) row.Button.Abandon();
+        foreach (var row in displayButtons) row.Button.Abandon();
+        foreach (var row in cgQualityButtons) row.Button.Abandon();
+        foreach (var row in speakerLayoutButtons) row.Button.Abandon();
+        speakerLayoutAvailability = null;
+        if (displayResolutionButton is not null) displayResolutionButton.Disabled = true;
         foreach (var tab in tabs) tab.Disabled = true;
         if (defaults is not null) defaults.Disabled = true;
         chrome?.Abandon(); Hide();

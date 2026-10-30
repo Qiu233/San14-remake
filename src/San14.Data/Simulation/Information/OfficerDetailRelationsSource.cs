@@ -9,8 +9,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current,int personPhysical)
         => new OfficerDetailRelationReader(this,state,current,personPhysical).Read();
 
+    internal OfficerDetailRelations ReadDeploymentOfficerRelationsCurrent(GameState state,
+        SourceWorldContext current, int personPhysical) =>
+        new OfficerDetailRelationReader(this, state, current, personPhysical, false).Read();
+
     private sealed class OfficerDetailRelationReader(ArmyCampaignRuleAdapter package,
-        GameState state,SourceWorldContext current,int person)
+        GameState state,SourceWorldContext current,int person, bool filterAffectionVisibility = true)
     {
         private readonly HashSet<string> unresolved=[];
         private readonly ArmyMapUiSources portraitNames=ArmyMapUiSources.Create();
@@ -120,7 +124,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     try
                     {
-                        if(VisibleAffection(physical,dislike))result.Add(Card(physical));
+                        if(!filterAffectionVisibility || VisibleAffection(physical,dislike))
+                            result.Add(filterAffectionVisibility ? Card(physical) : NameCard(physical));
                     }
                     catch(InvalidDataException error){result.Add(Issue(Card(physical),error.Message));}
                 }
@@ -142,6 +147,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                     catch(InvalidDataException error){unresolved.Add(error.Message);}
                 }
             }
+        }
+        private OfficerDetailRelatedPerson NameCard(int physical)
+        {
+            //The setup pane displays these names directly after8FAEB0;
+            //it neither reads portrait routes nor adds detail-page visibility.
+            try { return new(Identity(physical), Owner(physical).Name, null, null); }
+            catch (InvalidDataException error) { return Unknown(error.Message); }
         }
         private bool VisibleAffection(int physical,bool dislike)
         {
@@ -167,23 +179,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         private int Age(int physical)
         {
-            int mode=Need(current.ReadScenarioMode(),"age_World44_mode");
-            bool special=mode==2 || mode==3 && DuelNumericParameters.Read(state,"mode3-age-control")!=0;
-            if(special)
-            {
-                int id=Identity(physical);
-                for(int index=0;index<2;index++)
-                    if(id==DuelNumericParameters.Read(state,"special-age-person:"+index))return 80;
-                for(int index=0;index<9;index++)
-                    if(Need(TacticRemakeCurrentTraits.ResolveCommanderPersonalityLookup(current,physical,index),"age_trait_slot")==144)return 80;
-                //The existing saved numeric owner retains any supplied tail
-                //entries. Missing entries stay local to this optional sort.
-                for(int index=2;index<5;index++)
-                    if(id==DuelNumericParameters.Read(state,"special-age-person:"+index))return 80;
-                return 20;
-            }
-            return Math.Max(0,unchecked(Need(current.ReadCurrentYear(),"age_World_year")-
-                (Owner(physical).BirthYear ?? throw Missing("birth_year_AC"))+1));
+            return PersonCurrentAgeSource.Read(state, current, physical);
         }
         private OfficerDetailRelatedPerson Card(int physical)
         {

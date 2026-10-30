@@ -14,6 +14,9 @@ public sealed record PersonReturnManagerResult(GameState? State,
     public IReadOnlyList<PersonDisappearanceAdvanceReceipt> Disappearances { get; init; } = [];
     public int? NextAfterSlot { get; init; }
     public int? AwaitingDiplomacyTaskId { get; init; }
+    public int? AwaitingStrategicTaskId { get; init; }
+    public int? AwaitingCaravanTaskId { get; init; }
+    public int? AwaitingIntelligenceTaskId { get; init; }
 }
 
 public static partial class PersonReturnCommands
@@ -46,7 +49,9 @@ public static partial class PersonReturnCommands
                 Talents = owner.Talents is null ? null : new(owner.Talents),
                 Diplomacies = owner.Diplomacies is null ? null : new(owner.Diplomacies),
                 Strategies = owner.Strategies is null ? null : new(owner.Strategies),
-                Independences = owner.Independences is null ? null : new(owner.Independences) };
+                Independences = owner.Independences is null ? null : new(owner.Independences),
+                Caravans = owner.Caravans is null ? null : new(owner.Caravans),
+                Intelligences = owner.Intelligences is null ? null : new(owner.Intelligences) };
             var pending = owner.PendingRetirements.ToList();
             var working = state with { PersonnelCommands = owner };
             current.SetOwnedPersonCommandManager(owner);
@@ -73,11 +78,13 @@ public static partial class PersonReturnCommands
                     owner = CurrentCommandOwner(working, current);
                     SyncPending();
                     if (advanced.Retire) QueueRetirement(taskId);
-                    if (owner.Diplomacies?.GetValueOrDefault(taskId)?.AwaitingNegotiation == true)
+                    if (owner.Diplomacies?.GetValueOrDefault(taskId)?.AwaitingNegotiation == true ||
+                        working.DemandSurrenderCompletionTail?.Task.Id == taskId)
                     {
                         //No retirement is consumed yet. Save the actual manager
-                        //prefix and continue strictly after this dispatch slot
-                        //only after its explicit negotiation order succeeds.
+                        //prefix. A surrender absorption finishes its actual
+                        //saved settlement before this dispatch slot is skipped;
+                        //an ordinary negotiation still needs its explicit order.
                         owner = owner with { PendingRetirements = pending.ToArray() };
                         current.SetOwnedPersonCommandManager(owner);
                         working = borrowedCurrent
@@ -88,6 +95,28 @@ public static partial class PersonReturnCommands
                             Disappearances = absences.AsReadOnly(), NextAfterSlot = slot,
                             AwaitingDiplomacyTaskId = taskId
                         };
+                    }
+                    continue;
+                }
+                if (entry.Kind == PersonnelCommandKind.Caravan)
+                {
+                    var caravanTask = owner.Caravans![taskId];
+                    if (date.Hour != (caravanTask.NativeKind == 17 ? 8 : 22)) continue;
+                    if (talent is not IPersonnelCaravanExecution caravan)
+                        throw Missing("caravan execution owner");
+                    var advanced = caravan.AdvanceCaravanCurrent(working, current, pool, caravanTask, date, queries, borrowedCurrent);
+                    working = advanced.State;
+                    owner = CurrentCommandOwner(working, current);
+                    SyncPending();
+                    if (advanced.Retire) QueueRetirement(taskId);
+                    if (owner.Caravans?.GetValueOrDefault(taskId)?.PendingReport is not null)
+                    {
+                        owner = owner with { PendingRetirements = pending.ToArray() };
+                        current.SetOwnedPersonCommandManager(owner);
+                        working = borrowedCurrent ? PublishBorrowedCurrent(working with { PersonnelCommands = owner }, current)
+                            : PublishCurrent(working with { PersonnelCommands = owner }, current);
+                        return new(working, receipts.AsReadOnly(), null)
+                        { Disappearances = absences.AsReadOnly(), NextAfterSlot = slot, AwaitingCaravanTaskId = taskId };
                     }
                     continue;
                 }
@@ -107,6 +136,26 @@ public static partial class PersonReturnCommands
                     if (advanced.Retire) QueueRetirement(taskId);
                     continue;
                 }
+                if (entry.Kind == PersonnelCommandKind.Intelligence)
+                {
+                    if (date.Hour != 8) continue;
+                    if (talent is not IPersonnelIntelligenceExecution intelligence) throw Missing("intelligence execution owner");
+                    var advanced = intelligence.AdvanceIntelligenceCurrent(working, current, owner.Intelligences![taskId], date);
+                    working = advanced.State; owner = CurrentCommandOwner(working, current); SyncPending();
+                    if (owner.Intelligences?.GetValueOrDefault(taskId)?.NarrationProgress?.Pending is not null)
+                    {
+                        if (advanced.Retire) throw Missing("intelligence wait retired before its real receipt");
+                        owner = owner with { PendingRetirements = pending.ToArray() };
+                        current.SetOwnedPersonCommandManager(owner);
+                        working = borrowedCurrent
+                            ? PublishBorrowedCurrent(working with { PersonnelCommands = owner }, current)
+                            : PublishCurrent(working with { PersonnelCommands = owner }, current);
+                        return new(working, receipts.AsReadOnly(), null)
+                        { Disappearances = absences.AsReadOnly(), NextAfterSlot = slot, AwaitingIntelligenceTaskId = taskId };
+                    }
+                    if (advanced.Retire) QueueRetirement(taskId);
+                    continue;
+                }
                 if (entry.Kind == PersonnelCommandKind.Strategic)
                 {
                     if (date.Hour != 8) continue; //1DDB40's actual334450(date,8).
@@ -117,6 +166,19 @@ public static partial class PersonReturnCommands
                     owner = CurrentCommandOwner(working, current);
                     SyncPending();
                     if (advanced.Retire) QueueRetirement(taskId);
+                    if (working.StrategicPoisonEmperorContinuation?.TaskId == taskId)
+                    {
+                        owner = owner with { PendingRetirements = pending.ToArray() };
+                        current.SetOwnedPersonCommandManager(owner);
+                        working = borrowedCurrent
+                            ? PublishBorrowedCurrent(working with { PersonnelCommands = owner }, current)
+                            : PublishCurrent(working with { PersonnelCommands = owner }, current);
+                        return new(working, receipts.AsReadOnly(), null)
+                        {
+                            Disappearances = absences.AsReadOnly(), NextAfterSlot = slot,
+                            AwaitingStrategicTaskId = taskId
+                        };
+                    }
                     continue;
                 }
                 if (entry.Kind == PersonnelCommandKind.Independence)
@@ -227,6 +289,8 @@ public static partial class PersonReturnCommands
                 else if (owner.Diplomacies?.Remove(taskId, out var diplomacyTask) == true) freeSlots.Insert(0, diplomacyTask.DispatchSlot);
                 else if (owner.Strategies?.Remove(taskId, out var strategic) == true) freeSlots.Insert(0, strategic.DispatchSlot);
                 else if (owner.Independences?.Remove(taskId, out var independence) == true) freeSlots.Insert(0, independence.DispatchSlot);
+                else if (owner.Caravans?.Remove(taskId, out var caravan) == true) freeSlots.Insert(0, caravan.DispatchSlot);
+                else if (owner.Intelligences?.Remove(taskId, out var intelligence) == true) freeSlots.Insert(0, intelligence.DispatchSlot);
                 else throw Missing("retiring personnel task");
             }
             for (int i = 0; i < receipts.Count; i++)

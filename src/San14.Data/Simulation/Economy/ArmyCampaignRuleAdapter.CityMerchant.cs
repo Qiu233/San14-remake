@@ -32,9 +32,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityMerchantExecution
                     ?? throw CityMerchantSource.Missing("card_Person_pointer");
                 bool valid = id != 0 && CityMerchantSource.K(current.ReadPersonNativeValidity(physical), "card_Person_validity");
                 var card = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario,
-                    Seed.Language, _baseCapacityInputs, _repository).ReadTransport(0, physical, valid);
-                if (valid) card = card with { Traits = AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>
-                    .Unknown("city-merchant.trait_context") };
+                    Seed.Language, _baseCapacityInputs, _repository).ReadCity(0, physical, valid, traitContext: 0);
                 return AreaAdministrationQuery<AreaAdministrationOfficerCard>.Known(card);
             }
             catch (InvalidDataException missing) { return AreaAdministrationQuery<AreaAdministrationOfficerCard>.Unknown(missing.Message); }
@@ -106,7 +104,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityMerchantExecution
             var current = source.Current;
             var working = state;
             int weight = 0;
-            foreach (int id in order.OfficerIds) weight = unchecked(weight + source.Weight(working, source.Candidate(id)));
+            if (order.AutomaticSelection is { } automatic)
+            {
+                var replay = ReadOriginalAiMerchantSelection(state, source, order.Mode, automatic);
+                if (replay is null || replay.Amount != order.Amount || !replay.OfficerIds.SequenceEqual(order.OfficerIds))
+                    return CommandResult.Reject("Automatic merchant selection changed before submission.", "merchant.automatic_selection");
+                weight = replay.ExecutorWeight;
+            }
+            else
+                foreach (int id in order.OfficerIds) weight = unchecked(weight + source.Weight(working, source.Candidate(id)));
             if (weight <= 0) return CommandResult.Reject("Merchant executor capacity is empty.", "merchant.capacity");
             foreach (int id in order.OfficerIds)
             {
@@ -180,8 +186,12 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityMerchantExecution
         //player, independently of the District number or its leader.
         if (ownerForce == player)
         {
-            var expense = CityCaptureFoodWarningSource.TryReadFoodExpense(state, current, source.City);
+            var expense = ReadCityCaptureFoodQuoteCurrent(state, current, source.City);
             int cost = expense.Value ?? throw CityMerchantSource.Missing(expense.UnresolvedOwner ?? "warning_expense22FE10");
+            //22FE10 still performs the quote1 HomeArmy cleanup/grouping and
+            //administration tails. Carry its real state into this command's
+            //warning/history result instead of discarding that lifecycle.
+            state = expense.State ?? state;
             int food = CityMerchantSource.K(current.ReadBaseResource(source.City, BaseResourceKind.Supplies), "warning_food");
             if (unchecked(food - unchecked(cost * 3)) < 1)
             {

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Sky and cloud use a raised camera; fog uses the ordinary camera.
 // Publishing their constants does not advance cloud history or shared time.
 #include "../../Camera/CameraState.h"
@@ -56,13 +57,13 @@ struct Frame {
     Matrix fogInverseView{};
 };
 template<size_t N> inline std::array<uint8_t,N> readBytes(const std::filesystem::path& path){
-    std::ifstream s(path,std::ios::binary);std::array<uint8_t,N> result{};
+    NativePreparedInputFile s(path,std::ios::binary);std::array<uint8_t,N> result{};
     s.read(reinterpret_cast<char*>(result.data()),N);
     if(!s||s.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Atmosphere camera source packet size: "+path.string());
     return result;
 }
 inline Packet readPacket(const std::filesystem::path& source){
-    Packet r;auto& p=r.profile;std::ifstream s(source/"profile.bin",std::ios::binary);
+    Packet r;auto& p=r.profile;NativePreparedInputFile s(source/"profile.bin",std::ios::binary);
     const auto preparedCamera=source_camera::read<Prefix>(s);
     p.initialCamera=source_camera::decodeCameraTransform(preparedCamera);r.direct=decodeDirectEnvironment(preparedCamera);
     p.updateStarOrientation=get<std::uint32_t>(preparedCamera.data()+0x3a0)==0;

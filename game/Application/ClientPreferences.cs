@@ -22,6 +22,10 @@ internal sealed class ClientPreferences
         public VoicePreferences? Voice { get; init; }
         public AutomaticMessageAdvanceMode? AutomaticMessageAdvance { get; init; }
         public int[]? KeyboardBindings { get; init; }
+        public ApplicationPresentationOptions? Presentation { get; init; }
+        public DisplayPreferences? Display { get; init; }
+        public CgQuality? CgQuality { get; init; }
+        public GameAudioSpeakerLayout? SpeakerLayout { get; init; }
     }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private readonly string path;
@@ -34,10 +38,17 @@ internal sealed class ClientPreferences
     internal VoicePreferences Voice { get; private set; } = new();
     internal AutomaticMessageAdvanceMode AutomaticMessageAdvance { get; private set; }
     internal IReadOnlyList<int> KeyboardBindings { get; private set; }
+    internal ApplicationPresentationOptions Presentation { get; private set; } = new();
+    internal DisplayPreferences? Display { get; private set; }
+    internal CgQuality? CgQuality { get; private set; }
+    internal GameAudioSpeakerLayout? SpeakerLayout { get; private set; }
     private uint[] scenarioUnlocks = [0, 0, 0];
     private HashSet<int> completedScenarios = [];
     internal IReadOnlyList<uint> ScenarioUnlocks => Array.AsReadOnly(scenarioUnlocks);
     internal bool IsScenarioCompleted(int id) => completedScenarios.Contains(id);
+    //Legacy project history is exposed only to the independent profile's
+    //one-time migration. New completion writes belong to that profile.
+    internal IReadOnlyList<int> LegacyCompletedScenarios => completedScenarios.Order().ToArray();
 
     internal ClientPreferences(string path, KeyboardBindingCatalog keyboardCatalog)
     {
@@ -52,7 +63,7 @@ internal sealed class ClientPreferences
             //Version1's audio always used unity gain. Preserve that actual
             //previous behavior when adding independent mixer preferences.
             1 => new(),
-            2 or 3 or 4 or 5 or 6 or 7 or 8 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
+            2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 => file.Audio ?? throw new InvalidDataException("Application audio preferences are missing."),
             _ => throw new InvalidDataException($"Unsupported application preferences version {file.Version}.")
         };
         Navigation = new(file.EdgeScroll, file.KeyboardScroll);
@@ -76,6 +87,16 @@ internal sealed class ClientPreferences
         if (!Enum.IsDefined(AutomaticMessageAdvance)) throw new InvalidDataException("Application message advance preference is invalid.");
         if (file.Version >= 8) KeyboardBindings = CopyKeyboardBindings(file.KeyboardBindings ??
             throw new InvalidDataException("Application keyboard bindings are missing."));
+        if (file.Version >= 9)
+        {
+            Presentation = file.Presentation ?? throw new InvalidDataException("Application presentation preferences are missing.");
+            Display = file.Display;
+            Display?.Validate();
+            SpeakerLayout = file.SpeakerLayout;
+            if (SpeakerLayout is { } layout && !Enum.IsDefined(layout)) throw new InvalidDataException("Application speaker layout is invalid.");
+            CgQuality = file.CgQuality;
+            if (CgQuality is { } quality && !Enum.IsDefined(quality)) throw new InvalidDataException("Application CG quality is invalid.");
+        }
         // Earlier project preferences never recorded scenario history. Start
         // that project history empty; do not claim an original prdata restore.
         if (file.Version >= 5)
@@ -94,7 +115,9 @@ internal sealed class ClientPreferences
 
     internal void Save(MapCameraNavigationOptions navigation, AudioVolumeOptions audio, ListScrollSpeed listScroll,
         bool automaticSaving, VoicePreferences? voice = null, AutomaticMessageAdvanceMode? automaticMessageAdvance = null,
-        MapMusicPreferenceFile? musicSelection = null, IReadOnlyList<int>? keyboardBindings = null)
+        MapMusicPreferenceFile? musicSelection = null, IReadOnlyList<int>? keyboardBindings = null,
+        ApplicationPresentationOptions? presentation = null, DisplayPreferences? display = null, CgQuality? cgQuality = null,
+        GameAudioSpeakerLayout? speakerLayout = null)
     {
         navigation.Validate(); audio.Validate();
         if (!Enum.IsDefined(listScroll)) throw new ArgumentOutOfRangeException(nameof(listScroll));
@@ -104,16 +127,24 @@ internal sealed class ClientPreferences
         if (!Enum.IsDefined(advance)) throw new ArgumentOutOfRangeException(nameof(automaticMessageAdvance));
         var music = musicSelection is null ? MusicSelection : new MapMusicPreferences(musicSelection);
         var keys = CopyKeyboardBindings(keyboardBindings ?? KeyboardBindings);
-        var file = new FileRecord { Version = 8, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard,
+        presentation ??= Presentation;
+        display ??= Display; display?.Validate();
+        speakerLayout ??= SpeakerLayout;
+        if (speakerLayout is { } layout && !Enum.IsDefined(layout)) throw new ArgumentOutOfRangeException(nameof(speakerLayout));
+        cgQuality ??= CgQuality;
+        if (cgQuality is { } quality && !Enum.IsDefined(quality)) throw new ArgumentOutOfRangeException(nameof(cgQuality));
+        var file = new FileRecord { Version = 9, EdgeScroll = navigation.Edge, KeyboardScroll = navigation.Keyboard,
             Audio = audio, ListScroll = listScroll, MusicSelection = music.Capture(),
             ScenarioUnlocks = scenarioUnlocks, CompletedScenarios = completedScenarios.Order().ToArray(),
-            AutomaticSaving = automaticSaving, Voice = voice, AutomaticMessageAdvance = advance, KeyboardBindings = keys.ToArray() };
+            AutomaticSaving = automaticSaving, Voice = voice, AutomaticMessageAdvance = advance, KeyboardBindings = keys.ToArray(),
+            Presentation = presentation, Display = display, CgQuality = cgQuality, SpeakerLayout = speakerLayout };
         AtomicSaveFiles.Write(path, JsonSerializer.SerializeToUtf8Bytes(file, Json));
         Navigation = navigation; Audio = audio; ListScroll = listScroll; AutomaticSaving = automaticSaving;
         Voice = voice;
         AutomaticMessageAdvance = advance;
         MusicSelection = music;
         KeyboardBindings = keys;
+        Presentation = presentation; Display = display; CgQuality = cgQuality; SpeakerLayout = speakerLayout;
     }
 
     internal void CommitMusic(MapMusicPreferenceFile music) =>

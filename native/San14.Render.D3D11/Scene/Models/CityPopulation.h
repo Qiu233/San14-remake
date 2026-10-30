@@ -2,6 +2,7 @@
 // Once source/device preparation; normal current World values and Camera
 // requests perform no original-file reads or device-object creation.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include "CityPopulationInputs.h"
 struct NativeCityPopulationSource : NativeCityTemplateBank {
@@ -76,27 +77,27 @@ inline NativeModelInputs prepareNativeCityPopulationTemplates(ID3D11Device* devi
     std::map<std::array<unsigned,13>,ComPtr<ID3D11SamplerState>> samplers;
     std::map<std::array<unsigned,3>,ComPtr<ID3D11RasterizerState>> rasters;
     std::map<std::array<unsigned,4>,ComPtr<ID3D11DepthStencilState>> depths;
-    std::ifstream list(directory/"models.txt");std::string relative;
+    NativePreparedInputFile list(directory/"models.txt");std::string relative;
     while(list>>relative){const auto index=out.draws.size();const auto& metadata=source.templates.at(index);fs::path dir=directory/relative;NativeModelDraw d;
         const auto vsKey=(std::uint64_t(metadata.shaderFile)<<32)|metadata.vs,psKey=(std::uint64_t(metadata.shaderFile)<<32)|metadata.ps;
         auto v=load(dir/"vs.dxbc");auto& vs=vertexShaders[vsKey];if(!vs)check(device->CreateVertexShader(v.data(),v.size(),nullptr,&vs),"Primary original shared VS");d.vs=vs;
         auto& ps=pixelShaders[psKey];if(!ps){auto p=load(dir/"ps.dxbc");check(device->CreatePixelShader(p.data(),p.size(),nullptr,&ps),"Primary original shared PS");}d.ps=ps;
-        struct Element{std::string name;unsigned index,format,slot,offset;};std::vector<Element> elements;Element e;std::ifstream layout(dir/"layout.txt");
+        struct Element{std::string name;unsigned index,format,slot,offset;};std::vector<Element> elements;Element e;NativePreparedInputFile layout(dir/"layout.txt");
         std::string layoutKey=std::to_string(vsKey);while(layout>>e.name>>e.index>>e.format>>e.slot>>e.offset){elements.push_back(e);layoutKey+="/"+e.name+":"+std::to_string(e.index)+":"+std::to_string(e.format)+":"+std::to_string(e.slot)+":"+std::to_string(e.offset);}
         auto& il=layouts[layoutKey];if(!il){std::vector<D3D11_INPUT_ELEMENT_DESC> desc;for(const auto& a:elements)desc.push_back({a.name.c_str(),a.index,DXGI_FORMAT(a.format),a.slot,a.offset,D3D11_INPUT_PER_VERTEX_DATA,0});
             check(device->CreateInputLayout(desc.data(),UINT(desc.size()),v.data(),v.size(),&il),"Primary original shared layout");}d.layout=il;
-        unsigned slot,stride;std::string file;std::ifstream streams(dir/"streams.txt");while(streams>>slot>>stride>>file){if(slot!=d.vertexBuffers.size())throw std::runtime_error("Primary original stream order differs");
-            auto path=fs::weakly_canonical(dir/file);auto& vb=vertices[path.string()];if(!vb)vb=buffer(device,load(path),D3D11_BIND_VERTEX_BUFFER);d.vertexBuffers.push_back(vb);d.strides.push_back(stride);}
-        unsigned fill,cull,front,test,write,compare,stencil;std::ifstream draw(dir/"draw.txt");
+        unsigned slot,stride;std::string file;NativePreparedInputFile streams(dir/"streams.txt");while(streams>>slot>>stride>>file){if(slot!=d.vertexBuffers.size())throw std::runtime_error("Primary original stream order differs");
+            auto path=nativePreparedFilePath(dir/file);auto& vb=vertices[path.string()];if(!vb)vb=buffer(device,load(path),D3D11_BIND_VERTEX_BUFFER);d.vertexBuffers.push_back(vb);d.strides.push_back(stride);}
+        unsigned fill,cull,front,test,write,compare,stencil;NativePreparedInputFile draw(dir/"draw.txt");
         draw>>d.indexCount>>d.indexStart>>d.baseVertex>>d.topology>>d.indexBits>>file>>fill>>cull>>front>>test>>write>>compare>>stencil;
         if(!draw)throw std::runtime_error("Primary original draw metadata absent");if(stencil)draw>>d.stencilReference;
-        auto path=fs::weakly_canonical(dir/file);auto& ib=indices[path.string()];if(!ib)ib=buffer(device,load(path),D3D11_BIND_INDEX_BUFFER);d.indices=ib;
+        auto path=nativePreparedFilePath(dir/file);auto& ib=indices[path.string()];if(!ib)ib=buffer(device,load(path),D3D11_BIND_INDEX_BUFFER);d.indices=ib;
         auto& rs=rasters[{fill,cull,front}];if(!rs){D3D11_RASTERIZER_DESC r{};r.FillMode=D3D11_FILL_MODE(fill);r.CullMode=D3D11_CULL_MODE(cull);r.FrontCounterClockwise=front;r.DepthClipEnable=TRUE;check(device->CreateRasterizerState(&r,&rs),"Primary source shared raster");}d.raster=rs;
         auto& ds=depths[{test,write,compare,stencil}];if(!ds){D3D11_DEPTH_STENCIL_DESC r{};r.DepthEnable=test;r.DepthWriteMask=write?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;r.DepthFunc=D3D11_COMPARISON_FUNC(compare);r.StencilEnable=stencil;r.StencilReadMask=r.StencilWriteMask=255;
             r.FrontFace.StencilFunc=D3D11_COMPARISON_ALWAYS;r.FrontFace.StencilFailOp=r.FrontFace.StencilDepthFailOp=D3D11_STENCIL_OP_KEEP;r.FrontFace.StencilPassOp=D3D11_STENCIL_OP_REPLACE;r.BackFace=r.FrontFace;check(device->CreateDepthStencilState(&r,&ds),"Primary source shared depth/stencil");}d.depth=ds;
-        unsigned resource,view;std::ifstream tex(dir/"textures-native.txt");while(tex>>slot>>resource>>view>>file){if(slot>=16)throw std::runtime_error("Primary texture slot");auto p=fs::weakly_canonical(dir/file);
+        unsigned resource,view;NativePreparedInputFile tex(dir/"textures-native.txt");while(tex>>slot>>resource>>view>>file){if(slot>=16)throw std::runtime_error("Primary texture slot");auto p=nativePreparedFilePath(dir/file);
             auto& t=textures[p.string()+"/"+std::to_string(resource)+"/"+std::to_string(view)];if(!t)t=loadNativeModelTexture(device,p,DXGI_FORMAT(resource),DXGI_FORMAT(view));d.textures[slot]=t;}
-        std::ifstream sampler(dir/"samplers-native.txt");while(sampler>>slot>>file){if(slot>=16)throw std::runtime_error("Primary sampler slot");auto b=load(dir/file);if(b.size()!=52)throw std::runtime_error("Primary sampler descriptor");
+        NativePreparedInputFile sampler(dir/"samplers-native.txt");while(sampler>>slot>>file){if(slot>=16)throw std::runtime_error("Primary sampler slot");auto b=load(dir/file);if(b.size()!=52)throw std::runtime_error("Primary sampler descriptor");
             std::array<unsigned,13> key{};std::memcpy(key.data(),b.data(),52);auto& s=samplers[key];if(!s){D3D11_SAMPLER_DESC descriptor{};std::memcpy(&descriptor,b.data(),52);check(device->CreateSamplerState(&descriptor,&s),"Primary original shared sampler");}d.samplers[slot]=s;}
         out.draws.push_back(d);
     }

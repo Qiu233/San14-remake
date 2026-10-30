@@ -13,7 +13,10 @@ public sealed class RulerCaptureReleaseInputs
     private static readonly int[] WordOffsets = [0x16E, 0x176, 0x178, 0x17A];
     //6B4E20 consumes these independent current preferences for research.
     //They share the same2391C0 serialized signed-word run, not abilities.
-    private static readonly int[] CapturedWordOffsets = [0x16E, 0x176, 0x178, 0x17A, 0x16A, 0x17C, 0x17E, 0x180];
+    //16C already belongs to the current allegiance/disposition owner. The
+    //proposal's twelve-word view reads that owner instead of keeping a copy.
+    private static readonly int[] CapturedWordOffsets = [0x16A, 0x16E, 0x170, 0x172, 0x174,
+        0x176, 0x178, 0x17A, 0x17C, 0x17E, 0x180];
     private readonly LoadedScenario source;
     private readonly string language, ruleVersion;
     private readonly short[][] words;
@@ -27,8 +30,7 @@ public sealed class RulerCaptureReleaseInputs
             throw new InvalidDataException("Ruler capture inputs require complete CE Person rows.");
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath) : source.ScenarioSource.PhysicalPath;
-        byte[] bytes = File.ReadAllBytes(path);
-        var document = S14Reader.Read(bytes, true);
+        var document = source.InitialScenarioDocument ?? S14Reader.Read(File.ReadAllBytes(path), true);
         var table = S14ScenarioTables.ReadCharacterNames(document, language);
         int delta = language == "SC" ? 56 : 0;
         var words = new short[1851][];

@@ -1,4 +1,7 @@
 {
+  "new_game_preparing": "正在準備新遊戲……",
+  "new_game_prepare_failed": "新遊戲準備失敗。請返回後重試。",
+  "play_unit_destination_none": "無",
   "play_transport_setup_unavailable": "目前尚無法下達此運輸命令。",
   "play_transport_return_officer": "運抵後武將返回出發地",
   "play_transport_enter_officer": "運抵後武將留在目的地",
@@ -893,5 +896,8 @@
   "information_column_leader": "軍團長",
   "information_column_commander": "主將",
   "information_column_overseer": "負責武將",
-  "information_column_intelligence": "智力"
+  "information_column_intelligence": "智力",
+  "tutorial_preparing": "正在準備課程資料……",
+  "tutorial_host_unavailable": "課程資料已準備，教學尚未開放。",
+  "tutorial_prepare_failed": "課程資料尚未準備完成，請選擇其他課程或返回。"
 }

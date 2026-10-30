@@ -37,11 +37,12 @@ internal sealed record StrategicCommandPageSelection(
 
 /// <summary>The three original layouts share one strategic packet. Selection
 /// refreshes this page's captured candidates; it never writes the campaign.</summary>
-public sealed class StrategicCommandDraft
+public sealed partial class StrategicCommandDraft
 {
     private readonly Func<int?, int?, int?, int, int, StrategicCommandPageSelection>? read;
     private readonly IReadOnlyList<(int Value, string Caption)> independenceChoices = [];
     private StrategicCommandPageSelection? selection;
+    private readonly Func<StrategicSelectionRole,int?,int?,StrategicCommandPageSelection,StrategicSelectionPage>? readSelection;
     private readonly Func<int, int, int?, int, int, CampaignAppRandomState,
         AreaAdministrationQuery<StrategicCommandAdvicePresentation>>? prepareAdvice;
     private (int Executor, int Target, int? Second, int Military, int Independence)? adviceKey;
@@ -51,11 +52,12 @@ public sealed class StrategicCommandDraft
         IReadOnlyList<(int Value, string Caption)> independenceChoices,
         Func<int?, int?, int?, int, int, StrategicCommandPageSelection> read,
         Func<int, int, int?, int, int, CampaignAppRandomState,
-            AreaAdministrationQuery<StrategicCommandAdvicePresentation>>? prepareAdvice = null)
+            AreaAdministrationQuery<StrategicCommandAdvicePresentation>>? prepareAdvice = null,
+        Func<StrategicSelectionRole,int?,int?,StrategicCommandPageSelection,StrategicSelectionPage>? readSelection=null)
     {
         ForceId = forceId; Kind = kind; Title = title;
         this.independenceChoices = independenceChoices; this.read = read;
-        this.prepareAdvice = prepareAdvice; Refresh();
+        this.prepareAdvice = prepareAdvice;this.readSelection=readSelection; Refresh();
     }
     internal StrategicCommandDraft(int forceId, int kind, string missing)
     { ForceId = forceId; Kind = kind; UnresolvedOwner = missing; }

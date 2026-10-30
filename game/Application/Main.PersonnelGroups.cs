@@ -9,7 +9,7 @@ public partial class Main
     private sealed class PersonnelGroupsWorkspace(GameplaySession session, GameState world, MapSceneView map)
     {
         internal GameplaySession Session { get; } = session;
-        internal GameState World { get; } = world;
+        internal GameState World { get; set; } = world;
         internal MapSceneView Map { get; } = map;
         internal CommandSelectionView? Page { get; set; }
         internal CommandSelectionView? Selector { get; set; }
@@ -25,6 +25,14 @@ public partial class Main
         ReferenceEquals(_personnelGroups, owner) && ReferenceEquals(_session, owner.Session) &&
         ReferenceEquals(_world, owner.World) && ReferenceEquals(owner.Session.World, owner.World) &&
         ReferenceEquals(_residentMap, owner.Map) && !_failed && !_shuttingDown && !_advancingPeriod;
+
+    private void AdoptPersonnelGroupsSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The same workspace owns the hidden list, members, destination and confirmation.
+        if (_personnelGroups is not { Page: not null } owner || owner.Session != session ||
+            owner.Map != _residentMap || !ReferenceEquals(owner.World, previous)) return;
+        owner.World = replacement;
+    }
 
     private string PersonnelGroupCaption(int id) =>
         _repository!.LoadMessages(_ui.SourceLocale, MessageKind.Data).Messages.Sections[1].Records[id].Text
@@ -132,7 +140,8 @@ public partial class Main
             : cell.Text ?? (cell.NotApplicable ? PersonnelGroupCaption(0x353)
                 : cell.Number?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? ""),
             cell.SortKey is not null ? null : cell.SortNumber ?? cell.Number, cell.SortKey,
-            SortGroup: cell.SortGroup, SortUnavailable: cell.SortUnresolvedOwner is not null);
+            SortGroup: cell.SortGroup, SortUnavailable: cell.SortUnresolvedOwner is not null, LocationOrder: cell.LocationOrder,
+            SourceFormattedText: cell.UnresolvedOwner is null ? cell.SourceFormattedText : null);
 
     private void OpenPersonnelGroupMover(PersonnelGroupsWorkspace owner, PersonnelGroupMoveDraft draft)
     {

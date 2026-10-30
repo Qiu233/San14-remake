@@ -31,8 +31,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (instruction.Index is < 0 or > 1 || instruction.Opcode is not (>= 5 and <= 14 or 21))
             throw AutomaticAllModifierMissing("extension_instruction");
-        var caster = state.Units.GetValueOrDefault(casterId)
-            ?? throw AutomaticAllModifierMissing("extension_source_Army_image");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         var army = current.ReadArmyUnitTableReference(AutomaticAllModifierKnown(caster.NativeArmyOrigin?.NativeSlotIndex,
             "extension_source_physical")) ?? throw AutomaticAllModifierMissing("extension_source_Army_pointer");
         if (!AutomaticAllModifierKnown(current.ReadArmyUnitNativeValidity(army), "extension_source_Army_validity"))
@@ -60,8 +59,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int targetId = target.GameplayArmyId ?? throw AutomaticAllModifierMissing("extension_target_ArmyId");
         var recipient = state.Units.GetValueOrDefault(targetId)
             ?? throw AutomaticAllModifierMissing("extension_target_Army_image");
-        var caster = state.Units.GetValueOrDefault(casterId)
-            ?? throw AutomaticAllModifierMissing("extension_source_Army_image");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
         var amount = context.ResolveAutomaticArmyModifierExtensionInput(state, current, caster, recipient,
             source, instruction, prefix);
         return ApplyAutomaticResolvedArmyModifiersCurrent(state, current, army, targetId, source,

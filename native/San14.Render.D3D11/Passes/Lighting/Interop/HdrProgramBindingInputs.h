@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -32,7 +33,7 @@ inline const std::string& selectHdrSpecularKey(const HdrTextureRecipe& texture,u
 }
 namespace Interop {
 inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(const std::filesystem::path& path) {
-    std::ifstream input(path);
+    NativePreparedInputFile input(path);
     if (!input) throw std::runtime_error("HDR selected texture declarations are absent");
     std::vector<HdrTextureRecipe> result;std::string line;
     while (std::getline(input,line)) {
@@ -49,7 +50,7 @@ inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(const std::filesystem
     return result;
 }
 inline std::vector<HdrSamplerFiles> readHdrSamplerFiles(const std::filesystem::path& path) {
-    std::ifstream input(path);
+    NativePreparedInputFile input(path);
     if (!input) throw std::runtime_error("HDR selected sampler declarations are absent");
     std::vector<HdrSamplerFiles> result;std::string line;
     while (std::getline(input,line)) {

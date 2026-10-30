@@ -100,10 +100,20 @@ internal static partial class ForceRelationChangeCurrent
         => ApplyMonthlySpecial(latest, current, ordinary, special, 3, level, parameter,
             addedPerson, application, addedNotice, removedPeople);
 
+    //83C100's post-Result27B0F0 has the actual fifth argument1.
+    //The callback must retain its registered-Person settled-position gate.
+    internal static void ApplyStoryStateAdvantageSpecialPersonnel(Func<GameState> latest, SourceWorldContext current,
+        ForceReference ordinary, ForceReference special, int level, Func<string, int> parameter,
+        Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
+        Action<int> addedNotice, Action<HexListHandle>? removedPeople = null)
+        => ApplyMonthlySpecial(latest, current, ordinary, special, 3, level, parameter,
+            addedPerson, application, addedNotice, removedPeople, storyStateAdvantage: true);
+
     private static void ApplyMonthlySpecial(Func<GameState> latest, SourceWorldContext current,
         ForceReference ordinary, ForceReference special, int before, int after, Func<string, int> parameter,
         Action<int, ForceReference> addedPerson, ApplicationGameplayContext? application,
-        Action<int>? addedNotice = null, Action<HexListHandle>? removedPeople = null)
+        Action<int>? addedNotice = null, Action<HexListHandle>? removedPeople = null,
+        bool storyStateAdvantage = false)
     {
         if (!Known(current.ReadForceNativeValidity(ordinary), "monthly_special_first_validity") ||
             !Known(current.ReadForceNativeValidity(special), "monthly_special_second_validity")) return;
@@ -205,17 +215,22 @@ internal static partial class ForceRelationChangeCurrent
                 var person = current.ReadPersonLookupReference(id) ?? throw Missing("monthly_special_person_lookup");
                 if (person.PhysicalSlot is not int physical) continue; //Known null lookup is natively invalid.
                 if (!Known(current.ReadPersonNativeValidity(physical), "monthly_special_person_validity")) continue;
-                var force = current.ReadPersonForce(physical) ?? throw Missing("monthly_special_person_Force");
-                bool valid = Known(current.ReadForceNativeValidity(force), "monthly_special_person_Force_validity");
-                if (adding)
+                //Fifth1 still checks the actual Person pointer/validity, but
+                //does not query or require its old Force/status service filters.
+                if (!storyStateAdvantage)
                 {
-                    if (valid || Known(current.ReadPersonStatus(physical), "monthly_special_person_status") != 7) continue;
-                }
-                else
-                {
-                    if (!valid) continue;
-                    var freshForce = current.ReadPersonForce(physical) ?? throw Missing("monthly_special_fresh_person_Force");
-                    if (freshForce != ordinary) continue; //Pointer identity, not a Force-ID lookup.
+                    var force = current.ReadPersonForce(physical) ?? throw Missing("monthly_special_person_Force");
+                    bool valid = Known(current.ReadForceNativeValidity(force), "monthly_special_person_Force_validity");
+                    if (adding)
+                    {
+                        if (valid || Known(current.ReadPersonStatus(physical), "monthly_special_person_status") != 7) continue;
+                    }
+                    else
+                    {
+                        if (!valid) continue;
+                        var freshForce = current.ReadPersonForce(physical) ?? throw Missing("monthly_special_fresh_person_Force");
+                        if (freshForce != ordinary) continue; //Pointer identity, not a Force-ID lookup.
+                    }
                 }
                 var node = current.AllocateRegistryNode(new(list.Identity)) ?? throw Missing("monthly_special_person_node");
                 if (node.Identity.HasValue) current.WriteRegistryNodePayload(node, new(RegistryKind.Person, physical));

@@ -53,7 +53,8 @@ public static class BattleRemakeCurrentSettings
         //are restored after loading; their source coincidence is not a default.
         values[FieldKey(0xE58)] = 1;
         NewGameOrdinarySettingsSource.ApplyOverrides(values, options,
-            source.Snapshot.WorldParameters?.RawModeValue);
+            source.Snapshot.WorldParameters?.RawModeValue, source.Snapshot.WorldParameters?.RawHistoricalEventControl,
+            source.Snapshot.WorldParameters?.RawField48);
         return state with { NativeArmySimulation = simulation with
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
@@ -106,6 +107,43 @@ public static class BattleRemakeCurrentSettings
         int? Parameter(string key) => state.NativeArmySimulation!.Parameters.Int32Values
             .TryGetValue(key, out int value) ? value : null;
     }
+
+    /// <summary>SC2A923F..2A933F / TC2A93EF..2A94EF. Ordinary EC1
+    /// selects the saved alternate pair; all other EC values select the saved
+    /// ordinary pair. Advanced E58==0 consumes actual index12,row0 and adjusts
+    /// both operands through the source single-precision/truncation kernel.
+    /// Missing settings or globals remain unknown; no source values are refilled.</summary>
+    public static BattleUnitMoraleCoefficients? ReadCommonMoraleCoefficients(GameState state)
+    {
+        int? selector = ReadSelectorE58(state);
+        if (selector is null) return null;
+        if (selector != 0)
+        {
+            int? mode = ReadMoraleModeEC(state);
+            return mode is null ? null : Pair(mode == 1);
+        }
+        BattleUnitMoraleCoefficients? ordinary = Pair(false);
+        int? configured = ReadAdvancedParameter(state, 12);
+        return ordinary is { } baseline && configured is int percent
+            ? BattleUnitSourceMath.AdvancedMoraleCoefficients(percent, baseline) : null;
+
+        BattleUnitMoraleCoefficients? Pair(bool alternate)
+        {
+            var values = state.NativeArmySimulation?.Parameters.Int32Values;
+            string offset = alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset
+                : SimulationParameterKeys.BattleAttributes.MoraleOffset;
+            string divisor = alternate ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor
+                : SimulationParameterKeys.BattleAttributes.MoraleDivisor;
+            return values is not null && values.TryGetValue(offset, out int numerator) &&
+                values.TryGetValue(divisor, out int denominator) ? new(numerator, denominator) : null;
+        }
+    }
+
+    public static BattleUnitMoraleCoefficients? ReadCommonMoraleCoefficients(GameState state, UnitState army) =>
+        state.Units.GetValueOrDefault(army.Id) == army &&
+        army.NativeArmyOrigin is { } origin && origin.Language == state.NativeArmySimulation?.Parameters.Language &&
+        origin.RuleVersion == state.NativeArmySimulation?.Parameters.RuleVersion
+            ? ReadCommonMoraleCoefficients(state) : null;
 
     /// <summary>SC2A923F..2A933F/TC2A93EF..2A94EF's ordinary branch. Any
     /// nonzero E58 reaches EC; EC1 selects alternate globals75/175, all other

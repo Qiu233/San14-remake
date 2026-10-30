@@ -15,9 +15,15 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         ArgumentNullException.ThrowIfNull(state);
         var current = CaptureWritableTransportRouteCurrent(state);
+        //Current Rank47 precedes the committed unregistration reset image,
+        //matching the ordinary owned-current binding order.
+        _moraleWaveInputs.BindCurrent(state, current);
         ForceUnregisterInputs.BindCurrent(state, current);
         current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
         current.MaterializeFixedScenery(_landmarkDefinitions);
+        //The fixed44 placement also supplies Hex1E. Rebuild that static
+        //overlay for this capture; saved47 remains the independent owner.
+        current.BindFixedConstructionSceneryLinks();
         for (int i = 0; i < 101; i++)
             current.SetSceneryFlags47(i, state.LandmarkInvestments?.GetValueOrDefault(i)?.Flags);
         return current;

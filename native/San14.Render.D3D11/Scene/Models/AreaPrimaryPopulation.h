@@ -1,6 +1,7 @@
 // Independent CUnitCapital59/60 owner; include after city-model-population-native.h.
 // The completed City bank owns all19 CSP1 profiles /281 device templates.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 
 inline NativeCityPopulationSource prepareNativeAreaPrimarySource(
         const NativeCityPopulationSource& bank,const std::vector<NativePrimaryUpdate>& current,
@@ -29,18 +30,18 @@ inline NativeCityPopulationSource prepareNativeAreaPrimarySource(
 // Runtime can pass the actual production publication directly to the overload above.
 inline NativeCityPopulationSource prepareNativeAreaPrimarySource(
         const NativeCityPopulationSource& bank,const fs::path& input) {
-    std::ifstream names(input/"identities.txt");std::vector<std::string> identities;std::string name;
+    NativePreparedInputFile names(input/"identities.txt");std::vector<std::string> identities;std::string name;
     while(std::getline(names,name))if(!name.empty())identities.push_back(name);
-    std::ifstream source(input/"current-source.txt");std::string relative;
+    NativePreparedInputFile source(input/"current-source.txt");std::string relative;
     if(!std::getline(source,relative))throw std::runtime_error("Area source CPU1 reference absent");
-    std::ifstream packet(input/fs::path(relative),std::ios::binary);
+    NativePreparedInputFile packet(input/fs::path(relative),std::ios::binary);
     return prepareNativeAreaPrimarySource(bank,readNativeCityPopulationUpdate(packet),identities,bank.caller);
 }
 
-inline NativeCityPopulation prepareNativeAreaPrimaryPopulation(ID3D11Device* device,
-        const NativeCityPopulation& cities,NativeCityPopulationSource source) {
+inline NativeCityPopulation prepareNativeSharedPrimaryPopulation(ID3D11Device* device,
+        const NativeCityPopulation& bank,NativeCityPopulationSource source) {
     NativeCityPopulation out;out.source=std::move(source);
-    out.templates=cities.templates; // shallow COM borrow; no VB/IB/shader/texture import
+    out.templates=bank.templates; // shallow COM borrow; no VB/IB/shader/texture import
     const auto count=out.source.worlds.size()*out.source.maxDraws;
     std::array<char,160> vertex{};std::array<char,80> pixel{};
     out.vertexConstants.reserve(count);out.pixelConstants.reserve(count);
@@ -51,36 +52,46 @@ inline NativeCityPopulation prepareNativeAreaPrimaryPopulation(ID3D11Device* dev
     connectNativeCityPopulationCurrentModels(out);return out;
 }
 inline NativeCityPopulation prepareNativeAreaPrimaryPopulation(ID3D11Device* device,
+        const NativeCityPopulation& cities,NativeCityPopulationSource source) {
+    return prepareNativeSharedPrimaryPopulation(device,cities,std::move(source));
+}
+inline NativeCityPopulation prepareNativeAreaPrimaryPopulation(ID3D11Device* device,
         const NativeCityPopulation& cities,const fs::path& input) {
     return prepareNativeAreaPrimaryPopulation(device,cities,prepareNativeAreaPrimarySource(cities.source,input));
 }
 
-// A read-only joined publication. City/Area retain their individual mutable CBs;
-// never apply a CPU1 packet to this343-owner view or reconnect its CB slots.
+// A read-only joined publication. Each population retains its mutable CBs;
+// never apply a CPU1 packet to this joined view or reconnect its CB slots.
 struct NativeCityAreaPrimary {
     NativeCityPopulationSource source;
     NativeModelInputs currentModels;
 };
-inline void publishNativeCityAreaPrimary(NativeCityAreaPrimary& out,
-        const NativeCityPopulation& cities,const NativeCityPopulation& areas) {
-    out.source=cities.source;
-    const auto ownerBase=unsigned(cities.source.catalog.instances.size());
-    const auto primitiveBase=unsigned(cities.source.catalog.primitives.size());
-    if(ownerBase!=61||areas.source.catalog.templateCount!=out.source.catalog.templateCount)
-        throw std::runtime_error("City61/Area shared prepared bank differs");
-    for(auto instance:areas.source.catalog.instances) {
+inline void appendNativeSharedPrimary(NativeCityAreaPrimary& out,const NativeCityPopulation& population) {
+    const auto ownerBase=unsigned(out.source.catalog.instances.size());
+    const auto primitiveBase=unsigned(out.source.catalog.primitives.size());
+    if(population.source.catalog.templateCount!=out.source.catalog.templateCount)
+        throw std::runtime_error("Primary populations require the same prepared template bank");
+    for(auto instance:population.source.catalog.instances) {
         instance.index+=ownerBase;instance.firstPrimitive+=primitiveBase;
         out.source.catalog.instances.push_back(instance);
     }
-    for(auto primitive:areas.source.catalog.primitives) {
-        primitive.instanceIndex+=ownerBase; // shared281 templateIndex stays unchanged
+    for(auto primitive:population.source.catalog.primitives) {
+        primitive.instanceIndex+=ownerBase; // Shared templateIndex stays unchanged.
         out.source.catalog.primitives.push_back(primitive);
     }
     auto append=[](auto& target,const auto& rows){target.insert(target.end(),rows.begin(),rows.end());};
-    append(out.source.worlds,areas.source.worlds);append(out.source.currentAssets,areas.source.currentAssets);
-    append(out.source.present,areas.source.present);append(out.source.identities,areas.source.identities);
+    append(out.source.worlds,population.source.worlds);append(out.source.currentAssets,population.source.currentAssets);
+    append(out.source.present,population.source.present);append(out.source.identities,population.source.identities);
+    append(out.currentModels.draws,population.currentModels.draws);
+}
+inline void publishNativeCityAreaPrimary(NativeCityAreaPrimary& out,
+        const NativeCityPopulation& cities,const NativeCityPopulation& areas,
+        const NativeCityPopulation* facilities=nullptr) {
+    if(cities.source.catalog.instances.size()!=61)throw std::runtime_error("City/Gate complete source61 population differs");
+    out.source=cities.source;
     out.currentModels.blend=cities.currentModels.blend;out.currentModels.draws=cities.currentModels.draws;
-    append(out.currentModels.draws,areas.currentModels.draws);
+    appendNativeSharedPrimary(out,areas);
+    if(facilities)appendNativeSharedPrimary(out,*facilities);
 }
 inline NativeCityModelQueues updateSelectNativeCityAreaPrimary(ID3D11DeviceContext* context,
         const NativeCityAreaPrimary& owner,const NativeCityPopulationPlan& plan) {

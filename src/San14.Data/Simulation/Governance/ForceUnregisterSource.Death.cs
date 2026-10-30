@@ -7,6 +7,29 @@ internal sealed record ForceUnregisterDeathResult(GameState State, int NativeRet
 
 public sealed partial class ForceUnregisterSource
 {
+    //3A13F0 calls293BD0(victim,captor,0,1): the full ordinary body,
+    //including live Armies/people/Districts, but no elimination presentation.
+    internal GameState ApplyStoryDestructionCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool, ForceReference victim, ForceReference captor,
+        NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
+    {
+        if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
+            throw Missing("story_destruction_current_pool");
+        int id = Need(current.ReadForcePhysicalSlot(victim), "story_destruction_Force60");
+        int recipient = Need(current.ReadForcePhysicalSlot(captor), "story_destruction_captor60");
+        bool selected = package.ReadApplicationInformationRestriction(state)
+            ?? throw Missing("story_destruction_selected_user_service");
+        if (selected && package.TalentForceIsPlayerCurrent(state, current, victim))
+            throw Missing("story_destruction_selected_user_defeated_Force44C_title448_owner");
+        var terminal = ApplyDeathTerminalCurrent(state, current, pool, id, date, effects);
+        if (terminal.NativeReturn != 0)
+            return package.QueueForceTerminalExitCurrent(terminal.State, effects);
+        var retired = ApplyCore(terminal.State, id, recipient, null, current, pool,
+            captureDate: date, captureEffects: effects, death: true,
+            suppressEliminationPresentation: true, storyDestruction: true);
+        return retired.State ?? throw Missing(retired.UnresolvedOwner ?? "story_destruction_293BD0");
+    }
+
     //295EE0 calls293BD0(Force,null,0,0), while its Person/relationship
     //temporaries remain live. This is not the old empty-retirement profile.
     internal ForceUnregisterDeathResult ApplyDeathCurrent(GameState state, SourceWorldContext current,
@@ -40,13 +63,7 @@ public sealed partial class ForceUnregisterSource
             //32BD90 ->32BDD0: selected-user mode returns without these calls.
             //The attached normal campaign has a real application state, so
             //preserve its source writes as ordered host work, never fake ACK.
-            if (!selected)
-            {
-                long cycle = state.NativeMapSeason?.AdvancedCalendarSteps ?? throw Missing("death_exit_cycle");
-                effects.Add(new(null, null) { ApplicationExit = new(ApplicationExitOperation.ReturnToTitle) });
-                effects.Add(new(null, null) { MapMusicIntent = new(cycle, 1, false, 1000, 1000) });
-                effects.Add(new(null, null) { ApplicationExit = new(ApplicationExitOperation.ResetAudioSpecialMode) });
-            }
+            state = package.QueueForceTerminalExitCurrent(state, effects);
             return new(state, terminal.NativeReturn);
         }
         var retired = ApplyCore(state, id, 0, null, current, pool,
@@ -58,8 +75,8 @@ public sealed partial class ForceUnregisterSource
         WorldIndexContext pool, int victim, NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
         => package.RecallForceDeathSpecialPersonnelCurrent(state, current, pool, victim, date, effects);
 
-    private GameState ClearDeathTargetAssociationsCurrent(GameState state, SourceWorldContext current,
-        int victim, List<CampaignEffectRequest> effects)
+    private GameState ClearRetiredForceTargetAssociationsCurrent(GameState state, SourceWorldContext current,
+        int victim, List<CampaignEffectRequest> effects, int messageRoot = 0x344D)
     {
         var descriptor = current.ReadRegistryDescriptor(RegistryKind.Force) ?? throw Missing("death_association_C0");
         var node = current.ReadRegistryHead(descriptor) ?? throw Missing("death_association_head");
@@ -68,9 +85,9 @@ public sealed partial class ForceUnregisterSource
         {
             var force = current.ReadRegistryNodePayload(node) ?? throw Missing("death_association_payload");
             if (force is not { Kind: RegistryKind.Force, PhysicalSlot: int physical }) throw Missing("death_association_Force");
-            //This ordinary death caller does not construct CEventPlaybackState.
+            //These ordinary retirement callers do not construct CEventPlaybackState.
             state = package.CancelForceAssociationTargetCurrent(state, current, new(physical), target,
-                0x344D, writeHistory: true, eventPlaybackPresent: false, effects);
+                messageRoot, writeHistory: true, eventPlaybackPresent: false, effects);
             node = current.ReadRegistryNodeNext(node) ?? throw Missing("death_association_next");
         }
         return state;

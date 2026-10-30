@@ -40,8 +40,8 @@ internal partial class ActionReportStrategistView : Control
     }
 
     // Null means a known-invalid person, whose whole standing control is hidden.
-    // Animated/masked branches must be resolved by their own presenter/renderer;
-    // they must not be supplied here as an ordinary static portrait fallback.
+    // The shared loaded publication carries its actual three-part or animated
+    // rendering kind; this page never substitutes a square face portrait.
     internal void ApplyPortrait(IReadOnlyList<LoadedSprite>? standingLayers)
     {
         if (standingLayers is null) { portraitHost.Hide(); return; }

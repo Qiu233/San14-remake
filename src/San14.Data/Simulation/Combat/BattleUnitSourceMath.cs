@@ -1,5 +1,9 @@
 namespace San14.Data;
 
+/// <summary>The actual current common-morale operands. Advanced settings
+/// can change both operands and cannot be represented by an alternate-mode flag.</summary>
+public readonly record struct BattleUnitMoraleCoefficients(int Offset, int Divisor);
+
 public enum BattleUnitArmyStatKind { FieldAttack, SiegeTroopAttack, Defense, WallAttack }
 
 /// <summary>Resolved native inputs to SC 2A8FD0 / TC 2A9180. Leadership is the
@@ -52,6 +56,21 @@ public sealed record BattleUnitWallParameters(int TroopOffset, int TroopDenomina
 /// effects, region ownership, settings, the formation encoder or a native random source.</summary>
 public static class BattleUnitSourceMath
 {
+    /// <summary>SC2A92A4..2A9320 / TC2A9454..2A94D0. The source first
+    /// selects zero for a negative configured value, otherwise caps it by the
+    /// ordinary offset. Keep each single-precision operation and both native
+    /// CVTTSS2SI conversions separate, including out-of-range/NaN behavior.</summary>
+    public static BattleUnitMoraleCoefficients AdvancedMoraleCoefficients(
+        int configuredPercent, BattleUnitMoraleCoefficients ordinary)
+    {
+        int selected = configuredPercent < 0 ? 0 : Math.Min(configuredPercent, ordinary.Offset);
+        float delta = (float)unchecked(selected - 100) / 100f;
+        delta *= (float)ordinary.Offset;
+        float offset = (float)ordinary.Offset - delta;
+        float divisor = (float)ordinary.Divisor - delta;
+        return new(TruncateSingleToInt32(offset), TruncateSingleToInt32(divisor));
+    }
+
     public static float CommonFactor(BattleUnitCommonInputs input,
         BattleUnitCommonParameters parameters)
     {

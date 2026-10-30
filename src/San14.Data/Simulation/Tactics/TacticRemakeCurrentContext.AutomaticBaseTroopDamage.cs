@@ -37,8 +37,22 @@ public sealed partial class TacticRemakeCurrentContext
     internal AutomaticArmyBaseTroopDamageAmount ResolveAutomaticArmyBaseTroopDamage(
         GameState state, UnitState caster, BaseReference target, TacticSourceRow source,
         S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
+        => ResolveAutomaticArmyBaseTroopDamageCore(state, caster, target, source, instruction, prefix);
+
+    internal AutomaticArmyBaseTroopDamageAmount ResolveRetiredEnteredAutomaticBaseTroopDamageCurrent(GameState state,
+        SourceWorldContext current, BaseReference target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
     {
-        if (instruction.Opcode != 1 || prefix.CasterId != caster.Id)
+        if (!ReferenceEquals(current, _definitions)) throw BaseTroopDamageMissing("retired_current");
+        ArmyCampaignRuleAdapter.RequireRetiredAutomaticActorCurrent(state, current, prefix.SourceArmyPhysicalSlot);
+        return ResolveAutomaticArmyBaseTroopDamageCore(state, null, target, source, instruction, prefix);
+    }
+
+    private AutomaticArmyBaseTroopDamageAmount ResolveAutomaticArmyBaseTroopDamageCore(GameState state,
+        UnitState? caster, BaseReference target, TacticSourceRow source,
+        S14TacticEffectInstruction instruction, AutomaticArmyBaseTroopDamagePrefix prefix)
+    {
+        if (instruction.Opcode != 1 || caster is not null && prefix.CasterId != caster.Id)
             throw BaseTroopDamageMissing("instruction_or_prefix_owner");
         if (!Known(_definitions.ReadBaseNativeValidity(target), "target_Base_validity"))
             return new(false, false, null, "invalid_Base");
@@ -52,8 +66,11 @@ public sealed partial class TacticRemakeCurrentContext
             if (prefix.SourceForceSlot != Known(_definitions.ReadForcePhysicalSlot(player), "current_player_Force_identity"))
                 return new(true, false, null, "special_City_nonplayer_caster");
         }
-        var runtime = caster.NativeTacticRuntime ?? throw BaseTroopDamageMissing("caster_runtime");
-        float waiting = runtime.Waiting21 != 0 ? 1f : (float)P(runtime.Waiting22 == 0
+        var casterArmy = _definitions.ReadArmyUnitTableReference(prefix.SourceArmyPhysicalSlot)
+            ?? throw BaseTroopDamageMissing("caster_Army_pointer");
+        bool sourceValid = Known(_definitions.ReadArmyUnitNativeValidity(casterArmy), "caster_Army_validity");
+        var runtime = sourceValid ? caster?.NativeTacticRuntime ?? throw BaseTroopDamageMissing("caster_runtime") : null;
+        float waiting = runtime is null || runtime.Waiting21 != 0 ? 1f : (float)P(runtime.Waiting22 == 0
             ? SimulationParameterKeys.Tactics.Waiting0SharedFactorPercent
             : SimulationParameterKeys.Tactics.Waiting1SharedFactorPercent) / 100f;
         int ability = SourceAbility();
@@ -80,8 +97,8 @@ public sealed partial class TacticRemakeCurrentContext
         factor += 1f;
         factor = MathF.Max(factor, (float)P(SimulationParameterKeys.Tactics.EffectFactorFloorPercent) / 100f);
         float casterModifier = 1f;
-        if (runtime.StatDurations50 is not { Length: 6 }) throw BaseTroopDamageMissing("caster_duration53");
-        if (runtime.StatDurations50[3] != 0)
+        if (runtime is not null && runtime.StatDurations50 is not { Length: 6 }) throw BaseTroopDamageMissing("caster_duration53");
+        if (runtime is not null && runtime.StatDurations50![3] != 0)
         {
             if (runtime.StatModifiers4A is not { Length: 6 }) throw BaseTroopDamageMissing("caster_signed_modifier4D");
             casterModifier = 1f - ((float)runtime.StatModifiers4A[3] *
@@ -102,7 +119,7 @@ public sealed partial class TacticRemakeCurrentContext
         int forcePercent = (forceFlags & 16) != 0 ? P(AutomaticTacticDamageCurrentParameters.SpecialForcePercent) : 100;
         int amount = TacticArmyBaseTroopDamageMath.BeforeSettings(new(instruction.EffectValue,
             ability, baseline, prefix.StageProduct, prefix.SourceTroops, divisor, rootOffset,
-            factor, casterModifier, waiting, forcePercent, panel));
+            factor, casterModifier, waiting, forcePercent, panel), 1f, sourceValid ? 1f : 0f);
         int setting = Known(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selectorE58");
         if (setting == 0)
         {
@@ -117,7 +134,8 @@ public sealed partial class TacticRemakeCurrentContext
         return new(true, true, amount, null);
 
         byte Selector() => FactorSelector(source) ?? throw BaseTroopDamageMissing("current_selector6A");
-        int SourceAbility() => Ability(caster.OfficerId, Selector() == 1 ? 1 : 2);
+        int SourceAbility() => !Known(_definitions.ReadArmyUnitNativeValidity(casterArmy), "source_ability_Army_validity")
+            ? 0 : Ability(caster?.OfficerId ?? throw BaseTroopDamageMissing("source_ability_image"), Selector() == 1 ? 1 : 2);
         int Ability(int personId, int dimension)
         {
             int? value = _abilities is TacticRemakeCurrentAbilities owned

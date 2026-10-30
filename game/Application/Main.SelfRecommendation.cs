@@ -20,15 +20,39 @@ public partial class Main
     // suspended candidate, while the visible committed world stays unchanged.
     private bool RefreshNormalTurnContinuation()
     {
+        if (_session is { } currentSession) SynchronizePersonnelPresentationOwner(currentSession);
+        if (_normalStoryExit is { } exit)
+        {
+            if (IsNormalStoryExitCurrent(exit)) return true;
+            CloseNormalStoryAudio();
+        }
+        if (HasForeignTradeReport)
+        {
+            if (IsForeignTradeReportCurrent) return true;
+            CloseForeignTradeReport();
+        }
         if (HasRulerDecision)
         {
             if (IsRulerDecisionCurrent) return true;
             CloseRulerDecision();
         }
+        if (HasNormalStoryForceRank)
+        {
+            if (IsNormalStoryForceRankCurrent) return true;
+            CloseNormalStoryForceRank();
+        }
+        if (HasNormalStoryResult)
+        {
+            if (IsNormalStoryResultCurrent) return true;
+            CloseNormalStoryResult();
+        }
         if (HasStoryPresentation)
         {
-            if (IsStoryPresentationCurrent) return true;
-            CloseStoryPresentation();
+            if (_storyPresentation is { } binding && IsStoryCurrent(binding))
+            {
+                if (!IsStoryBetweenExecutionSlices(binding) && !IsStoryAtManagerBarrier(binding)) return true;
+            }
+            else CloseStoryPresentation();
         }
         if (HasCoalitionInvitation)
         {
@@ -41,14 +65,20 @@ public partial class Main
             CloseSelfRecommendation();
         }
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle ||
-            HasAdministrationPage || HasMilitaryOrderPage || HasEnvironmentSettings || HasCampaignSavePage ||
+            HasAdministrationPageExceptStory || (HasStoryPresentation && !IsStoryPresentationCurrent) || HasMilitaryOrderPage || HasEnvironmentSettings || HasCampaignSavePage ||
             HasMapSystemMenu || HasCommandWorkspace || HasPersonnelConfirmation || HasPersonnelPresentation ||
             _detailsView is not null || _diplomacyNegotiation is not null || _repository is null ||
             _selectedSnapshot is null || _campaignComposition is not { } composition ||
             _residentMap is not { IsPlayableMapReady: true } map ||
-            _session is not { PlayerForceId: int player, PendingNormalPeriod: { } pending } session)
+            _session is not { PlayerForceId: int player } session)
             return false;
+        if (session.PendingCampaignEventCommand is not null)
+            return RefreshCampaignEventCommandContinuation(session, composition, map, player);
+        if (session.PendingNormalPeriod is not { } pending) return TryReturnToCampaignEventCommandList(session);
         if (TryOpenRulerDecision(session, pending, composition, map, player)) return true;
+        if (TryHandleNormalStoryAudio(session, pending, composition, map)) return true;
+        if (TryOpenNormalStoryForceRank(session, pending, composition, map)) return true;
+        if (TryOpenNormalStoryResult(session, pending, composition, map)) return true;
         if (pending.PendingSelfRecommendation is { } request)
         {
             if (request.ForceId != player)
@@ -84,8 +114,12 @@ public partial class Main
         }
         if (pending.PendingStory is not null)
             return TryOpenStoryPresentation(session, pending, composition, map);
+        if (pending.PendingCaravanReportTaskId is not null)
+            return TryOpenForeignTradeReport();
         if (!pending.RequiresAutomaticNormalTurnContinuation && !pending.RequiresAutomaticArmyDefeatContinuation &&
-            !pending.RequiresAutomaticBaseCaptureContinuation && !pending.RequiresAutomaticOrdinaryTacticContinuation) return false;
+            !pending.RequiresAutomaticBaseCaptureContinuation && !pending.RequiresAutomaticTacticPresentationContinuation &&
+            !pending.RequiresAutomaticManualTacticContinuation && !pending.RequiresAutomaticCaravanContinuation &&
+            !pending.RequiresAutomaticStrategicContinuation && !pending.RequiresAutomaticIntelligenceContinuation) return false;
         // A failed worker must not immediately retry the same immutable
         // operation through the refresh path. The normal Advance remains
         // available for an explicit retry after its cause has been resolved.

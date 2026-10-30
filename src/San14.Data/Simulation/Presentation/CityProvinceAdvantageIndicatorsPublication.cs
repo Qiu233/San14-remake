@@ -29,7 +29,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         { return AreaAdministrationQuery<IReadOnlyList<CityProvinceAdvantageIndicators>>.Unknown(error.Message); }
     }
 
-    private sealed class ProvinceIndicatorReader(ArmyCampaignRuleAdapter owner,
+    private sealed partial class ProvinceIndicatorReader(ArmyCampaignRuleAdapter owner,
         GameState state, SourceWorldContext current)
     {
         private readonly Dictionary<BaseReference, BaseReference[]> neighborhoods = [];

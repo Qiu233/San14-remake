@@ -88,7 +88,7 @@ internal partial class UnitOrderTargetView : Control
                         if (busy || abandoned) return;
                         if (entry.Item1 == 18 && sourceDetailsAvailable) detailsRequested?.Invoke();
                         else if (entry.Item1 == 17 && canWithdraw) withdrawRequested?.Invoke();
-                        else if (entry.Item1 == 14 && !sourceTransportMode && sourceSingle && sourceFacilitiesAvailable) facilitiesRequested?.Invoke();
+                        else if (entry.Item1 == 14 && !sourceTransportMode && sourceFacilitiesAvailable) facilitiesRequested?.Invoke();
                     });
                 // A secondary action becomes available only after the caller
                 // attaches its actual consumer. Facility reference is pending.
@@ -240,7 +240,7 @@ internal partial class UnitOrderTargetView : Control
     {
         if (sourceDetails is not null) sourceDetails.Disabled = busy || abandoned || !sourceDetailsAvailable || detailsRequested is null;
         if (sourceWithdraw is not null) sourceWithdraw.Disabled = busy || abandoned || !canWithdraw || withdrawRequested is null;
-        if (sourceFacilities is not null) sourceFacilities.Disabled = busy || abandoned || sourceTransportMode || !sourceSingle || !sourceFacilitiesAvailable || facilitiesRequested is null;
+        if (sourceFacilities is not null) sourceFacilities.Disabled = busy || abandoned || sourceTransportMode || !sourceFacilitiesAvailable || facilitiesRequested is null;
     }
     internal void SetFacilitySelectionMode(bool active, bool placing)
     {

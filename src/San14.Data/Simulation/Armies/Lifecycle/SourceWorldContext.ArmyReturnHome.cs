@@ -19,6 +19,9 @@ public sealed partial class SourceWorldContext
         CopyHomeMapDefinitionsTo(draft);
         Copy(_hexPointers, draft._hexPointers); Copy(_areaPointers, draft._areaPointers);
         Copy(_hexAreas, draft._hexAreas); Copy(_hexForces, draft._hexForces); Copy(_areaValidityCodes, draft._areaValidityCodes);
+        //The fresh draft already contains Area0. Copy this current view,
+        //including explicit unknown values, over that constructor default.
+        draft._areaCities.Clear();
         Copy(_areaCities, draft._areaCities); Copy(_areaHexes, draft._areaHexes);
         draft.SetRegisteredBases(ReadRegisteredBases()?.ToArray());
         draft.SetArmyReturnRegisteredGates(ReadArmyReturnRegisteredGates()?.ToArray());

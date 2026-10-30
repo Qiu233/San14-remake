@@ -14,10 +14,21 @@ public partial class Main
     private GameplaySession? _cityDomesticSession;
     private bool HasCityDomesticPage => _cityDomesticView is not null || _cityDomesticNarration is not null;
 
-    private bool IsCityDomesticCurrent(GameplaySession session, GameState world, MapSceneView map) =>
-        !_failed && !_shuttingDown && ReferenceEquals(_session, session) &&
+    private bool IsCityDomesticCurrent(GameplaySession session, MapSceneView map) =>
+        !_failed && !_shuttingDown && ReferenceEquals(_session, session) && _cityDomesticWorld is { } world &&
         ReferenceEquals(session.World, world) && ReferenceEquals(_world, world) && _residentMap == map &&
-        ReferenceEquals(_cityDomesticSession, session) && ReferenceEquals(_cityDomesticWorld, world) && _cityDomesticMap == map;
+        ReferenceEquals(_cityDomesticSession, session) && _cityDomesticMap == map;
+
+    private void AdoptCityDomesticSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The common speech dispatcher proves the committed presentation-only
+        // successor. Keep the editable projection and its pending selections.
+        if (_cityDomesticView is null || _cityDomesticPresenter is not { } presenter ||
+            _cityDomesticSession != session || _cityDomesticMap is null || _cityDomesticMap != _residentMap ||
+            !ReferenceEquals(_cityDomesticWorld, previous) ||
+            !presenter.Draft.TryAdoptPresentationWorld(previous, replacement)) return;
+        _cityDomesticWorld = replacement;
+    }
 
     private AreaAdministrationQuery<CityDomesticMenuAdmission> QueryCityDomesticMenu(
         MapSceneView map, GameState world, int city, int? settledCameraLevel)
@@ -55,20 +66,20 @@ public partial class Main
         {
             SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
             _cityDomesticSelectors = new(this, _repository, _ui, world, draft,
-                () => IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view, CityDomesticUnavailable,
+                () => IsCityDomesticCurrent(session, map) && _cityDomesticView == view, CityDomesticUnavailable,
                 CurrentListScrollSpeed(),CurrentListScrollSpeed);
             _cityDomesticPresenter = new(view, _repository, _ui, draft,
-                () => IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view, RunUiAction,
-                terminal => RunPlayAction(() => CompleteCityDomestic(session, world, map, view, city, force, terminal)),
+                () => IsCityDomesticCurrent(session, map) && _cityDomesticView == view, RunUiAction,
+                terminal => RunPlayAction(() => CompleteCityDomestic(session, map, view, city, force, terminal)),
                 CityDomesticUnavailable, _ => true, _cityDomesticSelectors.Open);
         }
         catch { draft.Dispose(); CloseCityDomestic(); throw; }
     }
 
-    private void CompleteCityDomestic(GameplaySession session, GameState world, MapSceneView map,
+    private void CompleteCityDomestic(GameplaySession session, MapSceneView map,
         CityDomesticView view, int city, int force, CityDomesticTerminal terminal)
     {
-        if (!IsCityDomesticCurrent(session, world, map) || _cityDomesticView != view ||
+        if (!IsCityDomesticCurrent(session, map) || _cityDomesticView != view ||
             _cityDomesticPresenter is not { } presenter || _cityDomesticNarration is not null) return;
         var draft = presenter.Draft;
         var exported = draft.ExportCompletionIntent(terminal);
@@ -89,8 +100,7 @@ public partial class Main
         var speech = handover.Narration ?? throw new InvalidDataException("City handover narration is unavailable.");
         var route = speech.PortraitRoute;
         var sprites = new LocalizedUiSpriteSource(_repository!);
-        var layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-            .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+        var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _cityDomesticNarration = narration; AddChild(narration);
         try
         {
@@ -110,7 +120,7 @@ public partial class Main
         }
 
         bool Current(CityDomesticCompletionIntent captured) =>
-            IsCityDomesticCurrent(session, world, map) && _cityDomesticView == view && _cityDomesticPresenter == presenter &&
+            IsCityDomesticCurrent(session, map) && _cityDomesticView == view && _cityDomesticPresenter == presenter &&
             draft.IsForWorld(session.World) && draft.Revision == captured.DraftRevision && captured.CityId == city;
 
         void Submit(CityDomesticCompletionIntent captured)

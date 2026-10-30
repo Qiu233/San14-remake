@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -98,11 +99,11 @@ inline Bank readBank(std::istream& input) {
     return result;
 }
 inline Bank loadBank(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"program-bank.bin",std::ios::binary);Bank bank=readBank(input);
+    NativePreparedInputFile input(directory/"program-bank.bin",std::ios::binary);Bank bank=readBank(input);
     for(const auto& pair:bank.entries)for(uint32_t program:{pair.second.vertex,pair.second.pixel}) {
         if(bank.bytecode.contains(program))continue;
         auto path=directory/"programs"/(std::to_string(program)+".dxbc");
-        std::ifstream bytes(path,std::ios::binary|std::ios::ate);auto length=bytes.tellg();
+        NativePreparedInputFile bytes(path,std::ios::binary|std::ios::ate);auto length=bytes.tellg();
         if(!bytes||length<=0)throw std::runtime_error("Height Fog selected bytecode is absent");
         std::vector<char> data(static_cast<size_t>(length));bytes.seekg(0);bytes.read(data.data(),data.size());
         if(!bytes)throw std::runtime_error("Height Fog selected bytecode is truncated");

@@ -1,25 +1,29 @@
+using San14.Core;
 using San14.Data;
-using San14.Client.Gameplay;
 
 public partial class Main
 {
-    private DetailMiniMapValues? CurrentCityMiniMap(int cityId) => _world is null || _campaignComposition is null
-        ? null : _campaignComposition.PrepareArmyQueries(_world).ReadCityDetailMiniMap(_world, cityId);
-
-    private DetailForceAppearance? CurrentCityForce(int cityId)
+    private void ConfigureCurrentCityDetail(CityDetailsView view, GameState world, int cityId,
+        Action close, bool mapBackdrop = false, ArmyCampaignRuleAdapter? preparedRules = null,
+        CampaignIncomeReportPublication? report = null, IReadOnlyList<int>? selectionIds = null,
+        Action<InformationDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null)
     {
-        return _world is null || _campaignComposition is null || !_world.Cities.ContainsKey(cityId)
-            ? null : _campaignComposition.CityDetailForce(_world, cityId);
-    }
-
-    private CityCurrentCapacityFields CurrentCityCapacity(int cityId) => CityCurrentCapacityFields.Capture(cityId,
-        _session?.PlayerForceId is not null ? _ownedArmyCampaign?.CaptureCurrentDefinitions(_world!) : null);
-
-    private CityGeographyValues? CurrentCityGeography(int cityId)
-    {
-        if (_world is null || _campaignComposition is null) return null;
-        var queries = _campaignComposition.PrepareArmyQueries(_world);
-        return _session?.PlayerForceId is null ? queries.ReadPreviewCityGeography(cityId)
-            : queries.ReadCurrentCityGeography(_world, cityId);
+        var rules = preparedRules ?? _campaignComposition?.PrepareArmyQueries(world)
+            ?? throw new InvalidDataException("city-information.current_campaign_rules");
+        var page = report is null ? rules.QueryCityInformation(world, cityId) : rules.QueryCityInformation(report, cityId);
+        RetainCommandDetailSpeechWorld(view, next =>
+        {
+            world = next;
+            rules = _campaignComposition!.PrepareArmyQueries(next);
+        });
+        view.Configure(_repository ?? throw new InvalidDataException("city-information.resource_owner"),
+            page, _ui, Return, mapBackdrop,
+            PrepareDetailSelection(rules, world, InformationListKind.Cities, cityId, selectionIds) with { InitialNameSortAscending = initialNameSortAscending },
+            id => RunUiAction(() => view.Apply(report is null ? rules.QueryCityInformation(world, id) : rules.QueryCityInformation(report, id))));
+        void Return()
+        {
+            returnSelection?.Invoke(view.ReadSelectionReturn());
+            close();
+        }
     }
 }

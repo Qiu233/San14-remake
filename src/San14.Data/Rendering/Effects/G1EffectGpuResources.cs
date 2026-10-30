@@ -67,7 +67,7 @@ public sealed partial class G1EffectGpuResources
     /// <summary>A52E50's four-word variant and the seven original G1S dimensions
     /// select this row's actual pass. No feature, bank or variant fallback is supplied.</summary>
     public G1EffectGpuPipeline PreparePipeline(int runtimeBankIndex,
-        ReadOnlyMemory<byte> featureRequest48, G1EffectDrawPacket packet)
+        ReadOnlyMemory<byte> featureRequest48, G1EffectDrawPacket packet, int? retainedFeatureRow = null)
     {
         ArgumentNullException.ThrowIfNull(packet);
         if (!ReferenceEquals(packet.Resources, Resources))
@@ -82,13 +82,19 @@ public sealed partial class G1EffectGpuResources
         if (packet.RenderingType < 0) throw new InvalidDataException("Effect pass is negative.");
         var key = new G1EffectGpuPipelineKey(runtimeBankIndex,
             G1EffectGpuFeatureRequest.Read(featureRequest48.Span), G1EffectGpuVariant.FromFlags(packet.Flags),
-            (uint)packet.RenderingType, meshIndex, packet.UsesFullMeshLayout, packet.DynamicStride);
+            (uint)packet.RenderingType, meshIndex, packet.UsesFullMeshLayout, packet.DynamicStride) { RetainedFeatureRow = retainedFeatureRow };
         if (pipelines.TryGetValue(key, out var found)) return found;
         var shader = Resources.LoadShaderBank(repository, runtimeBankIndex) ??
             throw new NotSupportedException($"Effect shader bank {runtimeBankIndex} is an original null dependency.");
         var tables = shader.ReadG1Bindings();
-        var feature = G1ShaderFeatureMatcher.Select(key.FeatureRequest.ToWords(),
-            tables.Features.Select(row => row.Feature).ToArray());
+        // D33 bank3 does not call the feature setter. Its renderer retains
+        // the row installed by construction or an actual previous setter.
+        if (retainedFeatureRow is { } retained && (uint)retained >= tables.Features.Count)
+            throw new InvalidDataException("Retained effect feature row is outside its owned shader table.");
+        var feature = retainedFeatureRow is { } row
+            ? new G1ShaderFeatureSelection(row, false, null, 0)
+            : G1ShaderFeatureMatcher.Select(key.FeatureRequest.ToWords(),
+                tables.Features.Select(item => item.Feature).ToArray());
         if (feature.RowIndex < 0)
             throw new NotSupportedException("Effect shader feature request has no selectable original row.");
         var variant = tables.Variants.Match(key.Variant.ToBytes()) ??
@@ -140,12 +146,15 @@ public sealed partial class G1EffectGpuResources
         }
         else
         {
-            if (key.DynamicStride != 32)
+            if (key.DynamicStride is not (32 or 64))
                 missing.Add(new("InputLayout", $"Sprite stride {key.DynamicStride} needs its corresponding original input declaration."));
             // AA0890's normal and soft declarations have these same four
             // physical attributes; COLOR uses the original BGRA format87.
             elements = [new("POSITION", 0, 2, 0, 0, 0, 0), new("COLOR", 0, 87, 0, 16, 0, 0),
                 new("COLOR", 1, 87, 0, 20, 0, 0), new("TEXCOORD", 0, 16, 0, 24, 0, 0)];
+            if (key.DynamicStride == 64)
+                elements = [.. elements, new("TEXCOORD", 1, 16, 0, 32, 0, 0),
+                    new("TEXCOORD", 2, 16, 0, 40, 0, 0), new("TEXCOORD", 3, 41, 0, 48, 0, 0)];
         }
         foreach (var vertex in selectedStages.Where(stage => stage.StageCode == 1))
             foreach (var input in vertex.Signatures.Parts.Where(part => part.Kind == DxbcSignatureKind.Input)

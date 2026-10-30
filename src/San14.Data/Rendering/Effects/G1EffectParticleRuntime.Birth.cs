@@ -45,6 +45,32 @@ public sealed partial class G1EffectGenericRuntime
                     int localAt=Int(0x3C);
                     if(localAt>=0 && localAt!=Int(0x34)) PutMatrix(slot.Bytes,localAt,local);
                 }
+                else if (subcode == 13)
+                {
+                    Matrix4x4 rotation = DefinitionRotation(definition, inputs);
+                    int rotationAt = Int(0x3C);
+                    if (rotationAt >= 0 && rotationAt != Int(0x34))
+                        PutMatrix(slot.Bytes, rotationAt, rotation);
+                    Matrix4x4 local = Multiply(rotation, inputs.Orientation);
+                    local.M41 = inputs.Position.X; local.M42 = inputs.Position.Y;
+                    local.M43 = inputs.Position.Z; local.M44 = inputs.Position.W;
+                    Matrix4x4 world = Multiply(local, inputs.ParentWorld);
+                    if ((definition.Flags & 0x80) != 0)
+                    {
+                        Vector4 position = Row(world, 3);
+                        world = Multiply(world, Basis(Inverse(inputs.ParentWorld)));
+                        // The source uses its 3x3 product, then restores the
+                        // already transformed position including its W lane.
+                        world.M14 = 0; world.M24 = 0; world.M34 = 0;
+                        world.M41 = position.X; world.M42 = position.Y;
+                        world.M43 = position.Z; world.M44 = position.W;
+                    }
+                    PutMatrix(slot.Bytes, Field(0x34), world);
+                    Matrix4x4 orientation = inputs.Orientation;
+                    orientation.M41 = inputs.Position.X; orientation.M42 = inputs.Position.Y;
+                    orientation.M43 = inputs.Position.Z; orientation.M44 = inputs.Position.W;
+                    PutMatrix(slot.Bytes, Field(0x50), orientation);
+                }
                 else throw new NotSupportedException($"Particle transform birth variant {subcode} is not implemented.");
             }
             else if (operation.Opcode is 2 or 3)
@@ -91,6 +117,7 @@ public sealed partial class G1EffectGenericRuntime
                     (sourceField, targetIndex) = subcode switch
                     { 0 => (0x44, 4), 1 => (0x40, 28), 2 => (0x48, 29),
                         3 => (0x50, 30), 4 => (0x34, 40), 5 => (-1, 41),
+                        6 => (0x54, 31), 7 => (0x58, 32),
                         _ => throw new NotSupportedException($"Particle scalar birth variant {subcode} is not implemented.") };
                 }
                 else

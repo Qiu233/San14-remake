@@ -24,8 +24,8 @@ public:
     DeferredLightingPass& operator=(const DeferredLightingPass&) = delete;
     void prepare(ID3D11Device* device, const fs::path& source, unsigned node,
         ID3D11Texture2D* hdr, const std::array<ComPtr<ID3D11Texture2D>, 5>& gbuffer,
-        const std::array<DXGI_FORMAT, 6>& formats, ID3D11Texture2D* ggx) {
-        live_.prepare(device, source, node, hdr, gbuffer, formats, ggx);
+        const std::array<DXGI_FORMAT, 6>& formats, ID3D11Texture2D* ggx,HdrShaderModuleBank& modules) {
+        live_.prepare(device, source, node, hdr, gbuffer, formats, ggx,modules);
     }
     void update(ID3D11DeviceContext* context, const DeferredLightingFrame& frame) {
         if (!frame.season) throw std::runtime_error("Live HDR selection requires current typed lights and Camera settings");

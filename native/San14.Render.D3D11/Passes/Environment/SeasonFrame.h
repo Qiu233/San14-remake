@@ -19,6 +19,8 @@
 #include "../../Camera/CameraState.h"
 #include "../../Scene/View/Interop/CommonRenderPolicyInput.h"
 #include "../Occlusion/Interop/ContactOcclusionInput.h"
+#include "Rain/RainDropInputs.h"
+#include "../Effects/SpecialEffectInputs.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -57,6 +59,8 @@ struct Frame {
     std::optional<San14::Render::HdrLightingSettings> hdrLighting;
     std::optional<San14::Render::HdrCurrentSelectionSettings> hdrSelection;
     std::optional<San14::Render::ContactOcclusionInput> contactOcclusion;
+    std::optional<San14::Render::rain::Inputs> rain;
+    std::optional<SpecialEffectInputs> specialEffects;
     source_current_season_shadow::Settings shadow;
     source_current_season_shadow::ReceiverStyle shadowReceiver;
     source_current_cloud_weather::Conditions cloudWeather;
@@ -282,7 +286,37 @@ inline Frame decode(std::span<const uint8_t> bytes){
                 light.lighting.modifier.occlusionRates = read<std::array<float,2>>(bytes,at);
                 at += 8;
             }
+            if(bytes.size()-at>=4 && read<std::uint32_t>(bytes,at)==0x31504D48u) {
+                if(bytes.size()-at<304)throw std::runtime_error("Current HDR material modifiers are truncated");
+                at+=4;
+                for(auto& light:r.lights) {
+                    const auto present=read<std::uint32_t>(bytes,at);at+=4;
+                    if(present>1)throw std::runtime_error("Current HDR material modifier presence format");
+                    const auto values=read<std::array<float,14>>(bytes,at);at+=56;
+                    if(present) {
+                        for(const auto value:values)if(!std::isfinite(value))
+                            throw std::runtime_error("Current HDR material modifier contains a nonfinite source value");
+                        San14::Render::HdrMaterialModifier material;
+                        material.rampScale=values[0];material.rampStart=values[1];material.rampFadeDistance=values[2];
+                        material.indexedRampScale=values[3];material.occlusionScale=values[4];
+                        material.occlusionStart=values[5];material.occlusionFadeDistance=values[6];
+                        material.repeat={values[7],values[8]};material.rotationDegrees=values[9];
+                        material.velocity={values[10],values[11]};material.updateInterval=values[12];
+                        material.shadowMaskFade=values[13];
+                        light.lighting.modifier.material=material;
+                    }
+                }
+            }
         }
+    }
+    if(bytes.size()-at>=4&&read<std::uint32_t>(bytes,at)==0x31455053u) {
+        if(bytes.size()-at<20)throw std::runtime_error("Current Special Effect packet is truncated");
+        r.specialEffects=decodeSpecialEffectInputs(bytes.subspan(at,20));at+=20;
+    }
+    if(bytes.size()-at>=4&&read<std::uint32_t>(bytes,at)==0x31504452u) {
+        constexpr auto rainBytes=San14::Render::rain::Interop::InputBytes;
+        if(bytes.size()-at<rainBytes)throw std::runtime_error("Current Rain packet is truncated");
+        r.rain=San14::Render::rain::Interop::decode(bytes.subspan(at,rainBytes));at+=rainBytes;
     }
     if(at<bytes.size()) {
         r.contactOcclusion=San14::Render::Interop::decodeContactOcclusionInput(bytes.subspan(at));

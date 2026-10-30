@@ -8,6 +8,7 @@ public sealed record PersonReturnArrivalReceipt(int ReceiverIdentity, int Person
     IReadOnlyList<string> SourceEffectOrder)
 {
     public IReadOnlyList<PersonReturnArrivalMemberReceipt> Members { get; init; } = [];
+    internal IReadOnlyList<int>? SortedPersonPhysicals { get; init; }
 }
 public sealed record PersonReturnArrivalMemberReceipt(int PersonPhysical, bool Base88Appended,
     bool HealthFlagWritten);
@@ -33,11 +34,22 @@ public static partial class PersonReturnArrivalSource
         ArmyCampaignRuleAdapter? package = null, NativeMapSeasonDate? operationDate = null)
         => ApplyCore(state, current, pool, receiverIdentity, target, queries, borrowedCurrent, applyReports, package, operationDate);
 
+    //271320 over the Story invocation's whole Person list. Unlike32B190,
+    //this entry has physical pointers already and does not mark injury flags.
+    internal static PersonReturnArrivalResult ApplyStoryPeopleCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, IReadOnlyList<int> orderedPhysicals,
+        BaseReference target, IArmyReturnGovernorCurrentQueries queries,
+        Func<GameState, int, PersonAssignmentPrecallResult, GameState> applyReports,
+        ArmyCampaignRuleAdapter package, NativeMapSeasonDate operationDate)
+        => ApplyCore(state, current, pool, 0, target, queries, true, applyReports,
+            package, operationDate, orderedPhysicals);
+
     private static PersonReturnArrivalResult ApplyCore(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int receiverIdentity, BaseReference target,
         IArmyReturnGovernorCurrentQueries queries, bool borrowedCurrent,
         Func<GameState, int, PersonAssignmentPrecallResult, GameState>? applyReports,
-        ArmyCampaignRuleAdapter? package = null, NativeMapSeasonDate? operationDate = null)
+        ArmyCampaignRuleAdapter? package = null, NativeMapSeasonDate? operationDate = null,
+        IReadOnlyList<int>? orderedPhysicals = null)
     {
         HexListHandle? caller = null, affected = null;
         var order = new List<string>(); var governors = new List<ArmyReturnGovernorPacket>();
@@ -46,28 +58,45 @@ public static partial class PersonReturnArrivalSource
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Unknown("current.primary_pool_owner");
-            var manager = current.ReadOwnedPersonCommandManager() ?? throw Unknown("current.Command_manager");
-            var command = manager.Returns.GetValueOrDefault(receiverIdentity) ?? throw Unknown("current.Command_receiver");
-            if (command.DispatchSlot is null)
-                throw Unknown("branch.invalid_Return_command");
+            int[]? commandMembers = null;
+            if (orderedPhysicals is null)
+            {
+                var manager = current.ReadOwnedPersonCommandManager() ?? throw Unknown("current.Command_manager");
+                var command = manager.Returns.GetValueOrDefault(receiverIdentity);
+                var caravan = manager.Caravans?.GetValueOrDefault(receiverIdentity);
+                commandMembers = command?.MemberIds ?? (caravan?.NativeKind == 18 ? caravan.MemberIds : null)
+                    ?? throw Unknown("current.Command_receiver");
+                if (command is not null && command.DispatchSlot is null)
+                    throw Unknown("branch.invalid_Return_command");
+            }
             if (!Known(current.ReadBaseNativeValidity(target), "current.target_Base_validity"))
                 throw Unknown("branch.invalid_target_Base");
-            caller = NewTemporary(current); order.Add("32B190.caller_Person_temporary");
+            caller = NewTemporary(current);
+            order.Add(orderedPhysicals is null ? "32B190.caller_Person_temporary" : "271320.caller_Person_list");
             var injured = new HashSet<int>();
-            foreach (int member in command.MemberIds)
+            if (orderedPhysicals is not null)
             {
-                //The actual caller skips identities outside 1..6000, without
-                //normalizing or splitting the task's shared member list.
-                if (member is < 1 or > 6000) continue;
-                int person = current.ReadPersonLookupReference(member)?.PhysicalSlot
-                    ?? throw Unknown("return officer location");
-                if (!current.AppendPersonReturnTemporary(caller, person))
-                    throw Unknown("branch.caller_Person_node_allocation");
-                if (Known(OfficerHealthSourceAdapter.ReadByte(current, person), "current.Person_health161") != 0)
+                foreach (int person in orderedPhysicals)
+                    if (!current.AppendPersonReturnTemporary(caller, person))
+                        throw Unknown("branch.caller_Person_node_allocation");
+            }
+            else
+            {
+                foreach (int member in commandMembers!)
                 {
-                    ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "current.Person_flags15E");
-                    current.WriteArmyReturnPersonFlags196(person, OfficerBehaviorSourceAdapter.MarkReturn(flags));
-                    injured.Add(person); order.Add("32B190.health161_flags15E_bit0");
+                    //32B190 alone skips out-of-range member identities and
+                    //marks injured members before271320 sees the caller list.
+                    if (member is < 1 or > 6000) continue;
+                    int person = current.ReadPersonLookupReference(member)?.PhysicalSlot
+                        ?? throw Unknown("return officer location");
+                    if (!current.AppendPersonReturnTemporary(caller, person))
+                        throw Unknown("branch.caller_Person_node_allocation");
+                    if (Known(OfficerHealthSourceAdapter.ReadByte(current, person), "current.Person_health161") != 0)
+                    {
+                        ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "current.Person_flags15E");
+                        current.WriteArmyReturnPersonFlags196(person, OfficerBehaviorSourceAdapter.MarkReturn(flags));
+                        injured.Add(person); order.Add("32B190.health161_flags15E_bit0");
+                    }
                 }
             }
             if (Known(current.ReadTemporaryHexListCount(caller), "current.caller_count") == 0)
@@ -78,6 +107,7 @@ public static partial class PersonReturnArrivalSource
             affected = NewTemporary(current); order.Add("271320.affected_Base_temporary");
             var oldBases = new List<BaseReference>();
             var members = new List<PersonReturnArrivalMemberReceipt>();
+            List<int>? sortedPeople = orderedPhysicals is null ? null : [];
             var changedAreas = new HashSet<int>();
             var changedGates = new HashSet<int>();
             int? firstPhysical = null;
@@ -91,6 +121,7 @@ public static partial class PersonReturnArrivalSource
                 if (payload.Kind != RegistryKind.Person) throw Unknown("current.caller_payload_kind");
                 int person = Known(payload.PhysicalSlot, "current.caller_Person");
                 firstPhysical ??= person;
+                sortedPeople?.Add(person);
                 ushort identity = Known(current.ReadPersonIdentity(person), "current.Person10");
                 //233240 is a conditional source identity rule, not a blanket
                 //rejection of every special identity. Its disallowed cases
@@ -167,7 +198,7 @@ public static partial class PersonReturnArrivalSource
             var firstMember = members.FirstOrDefault(value => value.PersonPhysical == firstPhysical);
             return new(result, new(receiverIdentity, receiptPerson, target, destination,
                 firstMember?.Base88Appended ?? false, injured.Contains(receiptPerson), 1,
-                governors.AsReadOnly(), order.AsReadOnly()) { Members = members.AsReadOnly() }, null);
+                governors.AsReadOnly(), order.AsReadOnly()) { Members = members.AsReadOnly(), SortedPersonPhysicals = sortedPeople?.AsReadOnly() }, null);
 
             void UpdateRoles(BaseReference at)
             {

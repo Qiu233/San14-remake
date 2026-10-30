@@ -8,18 +8,23 @@ internal sealed record UiSourceType6Parameters(float WeightInput, float PixelSca
     byte StoredByte, uint CommonFlags, float AuthoredAlpha, byte Compare,
     UiSourceType6Blend Blend)
 {
-    internal static UiSourceType6Parameters Read(LcskNodeRecord node)
+    internal static UiSourceType6Parameters Read(LcskDocument layout,LcskNodeRecord node)
     {
         if (node.Type != 6 || node.RawBytes.Length != 144)
             throw new InvalidDataException($"Expected a complete Type6 node: {node.Name}.");
         var bytes = node.RawBytes.AsSpan();
         float weight = BinaryPrimitives.ReadSingleLittleEndian(bytes[64..]);
-        float pixel = BinaryPrimitives.ReadSingleLittleEndian(bytes[68..]);
+        // B11E60 introduced these two fields after LCSK6500. Older panes
+        // retain the Type6 constructor's sampling scale and stored byte.
+        bool samplingFields=layout.Signature is "LCSK7500" or "LCSK8500" or "LCSK9500";
+        float pixel = samplingFields?BinaryPrimitives.ReadSingleLittleEndian(bytes[68..]):1f;
         uint flags = BinaryPrimitives.ReadUInt32LittleEndian(bytes[104..]);
         uint packed = BinaryPrimitives.ReadUInt32LittleEndian(bytes[108..]);
         float alpha = BinaryPrimitives.ReadSingleLittleEndian(bytes[112..]);
         byte compare = bytes[116];
-        if (!float.IsFinite(weight) || weight <= 0 || !float.IsFinite(pixel) || pixel <= 0 ||
+        // Original panes also author zero sample spacing. It keeps all taps
+        // at the same texel; PerPixel and the kernel require no division by it.
+        if (!float.IsFinite(weight) || weight <= 0 || !float.IsFinite(pixel) || pixel < 0 ||
             !float.IsFinite(alpha) || alpha < 0 || alpha > 1 || compare != 7)
             throw new InvalidDataException($"Unsupported Type6 parameters: {node.Name}.");
         UiSourceType6Blend blend = packed switch
@@ -27,12 +32,20 @@ internal sealed record UiSourceType6Parameters(float WeightInput, float PixelSca
             0x00001100 => UiSourceType6Blend.Replace,
             0x00918000 => UiSourceType6Blend.PreserveRgbPrepareAlpha,
             0x00098800 => UiSourceType6Blend.DestinationAlpha,
-            0x00394800 => UiSourceType6Blend.DestinationAlphaSourceAlpha,
+            // Alpha factor selectors 3 and 5 both resolve to D3D11
+            // INV_SRC_ALPHA in the source table. Tutorial reward panels use
+            // selector 5; their RGB and alpha equations are otherwise equal.
+            0x00394800 or 0x00594800 => UiSourceType6Blend.DestinationAlphaSourceAlpha,
             0x00554400 => UiSourceType6Blend.SourceAlpha,
             _ => throw new InvalidDataException($"Unsupported Type6 blend {packed:X8}: {node.Name}.")
         };
-        return new(weight, pixel, bytes[72], flags, alpha, compare, blend);
+        return new(weight, pixel, samplingFields?bytes[72]:(byte)0, flags, alpha, compare, blend);
     }
+
+    // B21930 skips its draw before the kernel for weight<1 and the
+    // authored unit-weight tolerance. Zero is a real animation endpoint.
+    internal bool DrawEnabled => WeightInput >= 1f &&
+        (WeightInput < 0.9999881f || WeightInput > 1.0000119f);
 
     // The source CRT exp call has not been proved bit-identical to .NET exp.
     // Keep its float input/output and accumulation boundaries explicit.

@@ -21,48 +21,18 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (!LastCityNeed(current.ReadForceNativeValidity(new(winnerForce)), "winner_validity"))
             throw LastCityMissing("winner_invalid");
 
-        //The first notification precedes27A6B0 even on the terminal branch.
-        bool restricted = ReadApplicationInformationRestriction(state)
+        //293BD0's notice and27A6B0 are shared with ordinary unregister
+        //and ruler death. A terminal decision returns before any retirement.
+        bool selected = ReadApplicationInformationRestriction(state)
             ?? throw LastCityMissing("Application_user_selection");
-        if (!restricted)
-        {
-            LastCitySound(effects, 8);
-            state = LastCityAnnouncement(state, current, 0x3201, new(Force0: oldForce), effects);
-        }
-        var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
-            ?? throw LastCityMissing("player_pointer");
-        int playerId = LastCityNeed(current.ReadForcePhysicalSlot(player), "player_ordinal");
-        int remaining = 0, playerCount = 0;
-        for (int physical = 0; physical < 52; physical++)
-        {
-            var force = new ForceReference(physical);
-            if (!LastCityNeed(current.ReadForceNativeValidity(force), "terminal_Force_validity")) continue;
-            int ordinal = LastCityNeed(current.ReadForcePhysicalSlot(force), "terminal_Force_ordinal");
-            if (ordinal == oldForce || ordinal is >= 46 and <= 51) continue;
-            remaining++;
-            if (playerId != 0 && ordinal == playerId) playerCount++;
-        }
-        //An active selected-user service takes27A6B0's earlier return0.
-        //It does not declare a player defeated or invoke the ordinary exit.
-        bool bypassOrdinaryEnding = restricted && playerCount == 0;
-        if (!bypassOrdinaryEnding)
-        {
-            var mode = current.ReadTransferModeState() ?? throw LastCityMissing("terminal_570850");
-            if (mode.Present && LastCityNeed(mode.Value, "terminal_570850_value") != 0 && playerCount == 0)
-                return ApplyTutorialForceDefeatCurrent(state, current, effects);
-            if (remaining == 0)
-            {
-                state = LastCityAnnouncement(state, current, 0x2B39, new(), effects);
-                return state with { CampaignTurnStop = new(CampaignTurnStopReason.OrdinaryForcesResolved, null, null) };
-            }
-            if (oldForce == playerId && playerId != 0 && playerCount == 0)
-            {
-                LastCitySound(effects, 7);
-                state = LastCityAnnouncement(state, current, 0x2B3A, new(), effects);
-                return state with { NativePlayableTerminal = new(NativePlayableTerminalKind.PlayerDefeated,
-                    playerId, oldForce, PlayableTerminalSource.PlayerDefeatRuleId) };
-            }
-        }
+        if (selected && TalentForceIsPlayerCurrent(state, current, victim))
+            throw LastCityMissing("selected_user_retiring_Force44C_color448_owner");
+        var retirement = new ForceUnregisterSource(this);
+        state = retirement.QueueEliminationPresentationCurrent(state, current, oldForce,
+            suppressEliminationPresentation: false, absorption: false, effects);
+        var terminal = retirement.ApplyTerminalCurrent(state, current, oldForce, effects);
+        state = terminal.State;
+        if (terminal.NativeReturn != 0) return QueueForceTerminalExitCurrent(state, effects);
         var result = new ForceUnregisterSource(this).TryApplyCaptureBorrowedCurrent(state,
             oldForce, winnerForce, current, pool, date, effects, resetArmyReceiver);
         return result.State ?? throw LastCityMissing(result.UnresolvedOwner ?? "293BD0");

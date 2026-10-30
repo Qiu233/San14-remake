@@ -50,7 +50,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         return ApplyAutomaticFireHexCurrent(state, current, prefix.Duration, prefix.SourceForce,
             nodeHex, primaryHex, reached => (ReadArmyDestructionSampler(reached, current)
-                ?? throw FireMissing("report_Day450")).Day450, revision, effects);
+                ?? throw FireMissing("report_Day450")).Day450, revision, effects,date);
     }
 
     private static T FireNeed<T>(T? value, string owner) where T : struct => value ?? throw FireMissing(owner);

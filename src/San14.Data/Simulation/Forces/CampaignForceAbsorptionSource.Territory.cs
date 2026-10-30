@@ -33,7 +33,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     //185D00(layout,Hex,Force,City,0,1,0). Presentation flag0 really
     //suppresses map4/5 and soundAD/AE; center/HomeArmy side effects remain.
     private GameState TransferAbsorptionHexCurrent(GameState state, SourceWorldContext current,
-        HexReference hex, int force, int cityId)
+        HexReference hex, int force, int cityId, bool enqueueEncirclement = true)
     {
         if (!GateCaptureTerritorySource.Eligible(state, current, hex, force, false)) return state;
         if (AbsorptionK(current.ReadHexForceSlot(hex), "occupation_previous_Force") == force) return state;
@@ -42,7 +42,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (surface is >= 15 and <= 18)
         {
             if (ordinaryWithCity)
-                state = PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: true);
+                state = PrepareRegionCenterTransfer(state, current, hex, force, cityId, enqueueEncirclement: enqueueEncirclement);
             else if (force is >= 46 and <= 51)
             {
                 int areaId = AbsorptionK(current.ReadHexAreaSlot(hex), "occupation_Area");

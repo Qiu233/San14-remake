@@ -5,14 +5,21 @@ public sealed partial class GameSimulation
     /// <summary>Fork an already admitted session without loading or revalidating
     /// a save. Committed worlds are borrowed read-only; the ordinary command or
     /// advancement entry makes its private transaction before any write.</summary>
-    public GameSimulation Fork(CampaignAppRandomState? appRandomSnapshot = null) => new(this, appRandomSnapshot);
+    public GameSimulation Fork(CampaignAppRandomState? appRandomSnapshot = null, GameState? preparedCandidate = null) =>
+        new(this, appRandomSnapshot, preparedCandidate);
 
-    private GameSimulation(GameSimulation source, CampaignAppRandomState? appRandomSnapshot)
+    private GameSimulation(GameSimulation source, CampaignAppRandomState? appRandomSnapshot, GameState? preparedCandidate)
     {
         //A suspended normal period already owns the stream consumed by its
         //prefix. The visible host still displays the committed world's older
         //stream; it cannot rebase that private continuation on resume.
-        State = appRandomSnapshot is null || source._normalPeriod is not null ? source.State
+        if (preparedCandidate is not null && !source.HasPendingOperation)
+        {
+            CheckAuxiliaryTransition(source.State, preparedCandidate);
+            State = appRandomSnapshot is null ? preparedCandidate :
+                preparedCandidate with { CampaignAppRandom32 = appRandomSnapshot };
+        }
+        else State = appRandomSnapshot is null || source._normalPeriod is not null || source.State.CampaignEventCommandPlayback is not null ? source.State
             : source.State with { CampaignAppRandom32 = appRandomSnapshot };
         _progress = source._progress is { } pending
             ? new(pending.Story?.Copy(), pending.ManualTactic?.Copy()) : null;

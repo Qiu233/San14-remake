@@ -16,27 +16,36 @@ internal static partial class ArmyRouteSearch
         private readonly int? registeredSearchArmyPhysical;
         private readonly byte searchFlags;
         private readonly bool hasArmyDescriptor;
+        private readonly IReadOnlySet<int>? excludedHexIds;
+        private readonly bool penalizeSurface7;
+        private readonly Func<int, byte?>? readHexForce;
         private readonly Func<int, ushort?>? readHexWord16;
         private readonly Dictionary<int, float> mobilityCache = [];
         internal bool AvoidHostile { get; }
         internal int Start { get; }
         internal int Goal { get; }
         internal byte LandFormation { get; }
+        internal bool UniformCost => (searchFlags & 5) == 0;
 
         internal Queries(GameState state, SourceWorldContext current, Movement motion,
             int start, int goal, byte kind, ushort target, int? registeredSearchArmyPhysical, byte flags = 1,
-            bool hasArmyDescriptor = true, Func<int, ushort?>? readHexWord16 = null)
+            bool hasArmyDescriptor = true, Func<int, ushort?>? readHexWord16 = null,
+            IReadOnlySet<int>? excludedHexIds = null, bool penalizeSurface7 = false, Func<int, byte?>? readHexForce = null)
         {
-            if (flags is not (1 or 4 or 0x21 or 0x71)) throw Missing("supported_route_search_flags");
+            if (flags is not (1 or 4 or 8 or 0x21 or 0x62 or 0x71)) throw Missing("supported_route_search_flags");
             searchFlags = flags;
             this.state = state; this.current = current; this.motion = motion;
             this.registeredSearchArmyPhysical = registeredSearchArmyPhysical;
             this.hasArmyDescriptor = hasArmyDescriptor; this.readHexWord16 = readHexWord16;
+            this.excludedHexIds = excludedHexIds; this.penalizeSurface7 = penalizeSurface7; this.readHexForce = readHexForce;
             Start = start; Goal = goal; this.kind = kind; this.target = target;
             AvoidHostile = (flags & 0xC) == 0 && motion.AvoidHostile; LandFormation = motion.LandFormation;
             navalFormation = motion.NavalFormation; force = motion.Force;
             homeStart = motion.HomeHex == start;
         }
+
+        internal bool ExcludedByDescriptor(int raw) => (searchFlags & 0xC) == 0 && excludedHexIds?.Contains(raw) == true;
+        internal int DescriptorPenalty(int raw) => (searchFlags & 0xC) == 0 && penalizeSurface7 && K(current.ReadHexSurfaceCode(Hex(raw)), "descriptor_Hex10") == 7 ? 10000 : 0;
 
         internal bool HexPresent(int raw) => K(current.ReadHexTableReference(raw), "Hex_pointer").PhysicalSlot is not null;
         private HexReference Hex(int raw) => K(current.ReadHexTableReference(raw), "Hex_pointer");
@@ -65,14 +74,17 @@ internal static partial class ArmyRouteSearch
             if (!AvoidHostile) return true;
             var obj = Object(Goal);
             if (K(current.ReadObjectNativeValidity(obj), "goal_Object_validity") && (IsCity(obj) || IsGate(obj)) &&
-                force != K(current.ReadHexForceSlot(Hex(Goal)), "goal_Hex14")) return false;
+                force != K(ReadHexForce(Goal), "goal_Hex14")) return false;
             return !HostileAtHex(Goal);
         }
+        private byte? ReadHexForce(int raw) => readHexForce is { } read
+            ? read(K(Hex(raw).PhysicalSlot, "override_Hex_identity")) : current.ReadHexForceSlot(Hex(raw));
         internal bool HostileAtHex(int raw) => K(ArmyLogisticsPreparation.ReadNativeRelationGate(state,
-            force, K(current.ReadHexForceSlot(Hex(raw)), "Hex14")), "2CA650");
+            force, K(ReadHexForce(raw), "Hex14")), "2CA650");
         internal int TerrainCost(SurfaceTypeReference terrain) => ArmyRouteTerrainCost.Read(state, current, terrain);
         internal int BaseEdge(int raw)
         {
+            if (UniformCost) return 10000;
             var terrain = Terrain(raw);
             if (terrain.PhysicalSlot is null) return 0;
             int value = TerrainCost(terrain);
@@ -95,17 +107,17 @@ internal static partial class ArmyRouteSearch
             value = Mobility(formation, K(current.ReadHexSurfaceCode(Hex(raw)), "step_Hex10"));
             mobilityCache.Add(physical, value); return value;
         }
-        internal int ScaleEdgeCost(int raw, int cost) => searchFlags == 4 || !hasArmyDescriptor
+        internal int ScaleEdgeCost(int raw, int cost) => searchFlags is 4 or 8 || !hasArmyDescriptor
             ? cost : NativeInt((float)cost / TerrainMobility(raw));
 
         internal bool Passable(int raw)
         {
             var terrain = Terrain(raw);
             if (terrain.PhysicalSlot is not int physical) return false;
-            // Logistics flags4 use 2C6C20 rather than the formation, object
+            // Flags4/8 use 2C6C20 rather than the formation, object
             // and occupancy gates of the movement search. The endpoint is
             // still admitted separately by the shared search loop.
-            if (searchFlags == 4)
+            if (searchFlags is 4 or 8)
                 return unchecked((short)K(current.ReadSurfaceTypeRawField2A(terrain), "logistics_Terrain2A")) != 0 &&
                     (force == 0 || !HostileAtHex(raw));
             if (!hasArmyDescriptor) return PassableWithoutArmy(raw, terrain, physical);
@@ -163,9 +175,12 @@ internal static partial class ArmyRouteSearch
                     passable = K(current.ReadObjectHexIndex(obj), "null_army_Gate10") == raw && !HostileAtHex(raw);
                 else
                 {
-                    var scene = Scene(obj);
-                    passable = !K(current.ReadObjectDefinitionValidity(scene), "null_army_Scene_validity") ||
-                        K(current.ReadObjectDefinitionRaw2C(scene), "null_army_Scene2C") == 4;
+                    if ((searchFlags & 0x40) == 0)
+                    {
+                        var scene = Scene(obj);
+                        passable = !K(current.ReadObjectDefinitionValidity(scene), "null_army_Scene_validity") ||
+                            K(current.ReadObjectDefinitionRaw2C(scene), "null_army_Scene2C") == 4;
+                    }
                 }
                 if (passable)
                 {
@@ -187,7 +202,7 @@ internal static partial class ArmyRouteSearch
         }
         internal bool BlockedScene(int raw)
         {
-            if (searchFlags == 4) return false;
+            if (searchFlags is 4 or 8) return false;
             if ((searchFlags & 0x40) != 0) return false;
             var obj = Object(raw);
             if (!K(current.ReadObjectNativeValidity(obj), "neighbor_Object_validity") || IsCity(obj) || IsGate(obj)) return false;
@@ -196,7 +211,7 @@ internal static partial class ArmyRouteSearch
         }
         internal int OccupiedCost(int raw)
         {
-            if (searchFlags == 4) return 0;
+            if (searchFlags is 4 or 8) return 0;
             if (!hasArmyDescriptor) return 0;
             if ((searchFlags & 0x20) != 0) return 0;
             var hex = Hex(raw);
@@ -209,84 +224,15 @@ internal static partial class ArmyRouteSearch
             if (state.ReadArmyLifecycle() is not { } arena || (uint)physical >= (uint)arena.ReceiverSlots().Length)
                 throw Missing("occupant_Army_receiver");
             var slot = arena.ReceiverSlots()[physical];
-            var other = slot.ActiveUnitId is int id ? state.Units.GetValueOrDefault(id) : slot.PendingImage;
             ushort commanderId = K(slot.Commander12, "occupant12");
             var commander = K(current.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0), "occupant_Person_pointer");
             int otherForce = commander.PhysicalSlot is int p && K(current.ReadPersonNativeValidity(p), "occupant_Person_validity")
                 ? K(current.ReadPersonOldForceSlot(p), "occupant_Force") : 0;
             if (K(ArmyLogisticsPreparation.ReadNativeRelationGate(state, force, otherForce), "occupant_relation"))
                 return Parameter(SimulationParameterKeys.TransportRoute.FriendlyOccupantPenalty);
-            if (other?.NativeTacticRuntime is not { } runtime) throw Missing("occupant_Army24");
-            bool blocks = runtime.Abnormal24 >= Parameter(SimulationParameterKeys.TransportRoute.BlockingAbnormalThreshold);
-            if (!blocks)
-            {
-                if (ArmyConfigurationSourceAdapter.ReadAction(state, other) is not byte action) throw Missing("occupant_Action37");
-                //2C9830 reads raw3A for move actions, not the resolved target
-                //or first waypoint. Stay13 is the actual default blocking leaf.
-                if (action is 2 or 3 or 14) blocks = false;
-                else if (action is 1 or 15) blocks = MoveOccupantBlocks(other, slot.ReceiverId);
-                else if (action is 4 or 5 or 6 or 7 or 8 or 9 or 10 or 16 or 17)
-                    blocks = TargetOccupantBlocks(other, occupantReference, action);
-                else blocks = true;
-            }
+            bool blocks = OccupantBlocksCurrent(state, current, occupantReference,
+                hasArmyDescriptor, registeredSearchArmyPhysical);
             return Parameter(blocks ? SimulationParameterKeys.TransportRoute.BlockingOccupantPenalty : SimulationParameterKeys.TransportRoute.NonblockingOccupantPenalty);
-        }
-        private bool MoveOccupantBlocks(UnitState other, ArmyReceiverId receiver)
-        {
-            ushort position = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, other), "occupant_Army2A");
-            int physicalHex = Hex(position < Count ? position : 0).PhysicalSlot ?? throw Missing("occupant_current_Hex_pointer");
-            ushort destination = K(OwnedArmyLifecycleTargets.Read(state, receiver)?.Identity3A, "occupant_Army3A");
-            if (Distance(destination, physicalHex) != 1) return false;
-            var goal = Hex(destination < Count ? destination : 0);
-            if (goal.PhysicalSlot is null) return false;
-            bool hasObject = K(current.ReadHexObjectLink(goal), "occupant_goal_Hex1A") != 0;
-            int marker = unchecked((short)K(current.ReadHexRaw1C(goal), "occupant_goal_Hex1C"));
-            if (marker is >= 1 and <= 500 && !hasObject)
-            {
-                //Creation passes a real pool receiver.301DD0 instead passes
-                //a stack copy;22DB70's pointer-derived identity cannot be
-                //replaced by the original army's saved physical slot.
-                int searchPhysical = registeredSearchArmyPhysical ?? throw Missing("occupant_move_search_receiver_identity");
-                return marker != searchPhysical;
-            }
-            return hasObject;
-        }
-        private bool TargetOccupantBlocks(UnitState other, ArmyUnitReference occupant, byte action)
-        {
-            //2C9830's common target leaf reads2B54A0, including the actual
-            //first waypoint/override. Terrain10 is read through that target's
-            //HexTable pointer, but distance retains the raw target identity.
-            ushort target = OrdinaryArmyRouteSource.ReadCurrentTarget(state, other, current)
-                ?? throw Missing("occupant_work_effective_target");
-            var goal = Hex(target < Count ? target : 0);
-            int range = K(current.ReadHexSurfaceCode(goal), "occupant_work_target_Hex10") == 16 ? 2 : 1;
-            if (action is >= 4 and <= 7)
-            {
-                //22B2D0 selects Army1B/1C from its current terrain, then
-                //2C70A0 reads the saved A8/vector/A6 leaf and actual Force193.
-                ushort rawHex = K(current.ReadArmyUnitRawHex2A(occupant), "occupant_range_Army2A");
-                var surface = Terrain(rawHex < Count ? rawHex : 0);
-                int terrain = surface.PhysicalSlot ?? throw Missing("occupant_range_Terrain_pointer");
-                byte flags = K(PersonArmyCaptureInputs.ReadTerrainFlags2C(state, terrain), "occupant_range_Terrain2C");
-                byte selected = K((flags & 2) != 0 ? ArmyConfigurationSourceAdapter.ReadNaval(state, other)
-                    : ArmyConfigurationSourceAdapter.ReadCurrentLand(state, other), "occupant_range_formation");
-                int formation = selected <= 20 ? selected : 0;
-                byte bits = K(TacticRemakeCurrentFormations.ReadParameter(state, formation, 0xA6), "occupant_range_FormationA6");
-                bool extended = (bits & 1) != 0;
-                if (formation == 10)
-                {
-                    var actualForce = current.ReadArmyUnitForceReference(occupant);
-                    int forcePhysical = actualForce.PhysicalSlot ?? throw Missing("occupant_range_Force_pointer");
-                    byte forceFlags = K(state.NativeArmySimulation?.Forces.GetValueOrDefault(forcePhysical)?.Flags193,
-                        "occupant_range_Force193");
-                    if ((forceFlags & 0x80) != 0) extended = true;
-                }
-                if (extended) range++;
-            }
-            ushort position = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, other), "occupant_work_Army2A");
-            int physicalHex = Hex(position < Count ? position : 0).PhysicalSlot
-                ?? throw Missing("occupant_work_current_Hex_pointer");
-            return Distance(physicalHex, target) <= range;
         }
         internal bool ForbidsOccupiedNonTarget => (searchFlags & 0x10) != 0;
         internal bool Occupied(int raw)

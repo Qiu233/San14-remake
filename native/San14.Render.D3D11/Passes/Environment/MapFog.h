@@ -1,6 +1,7 @@
 // The Fog owner retains its Scene work image and actual selected programs.
 // Current publication supplies semantic fields before the existing fullscreen draws.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <optional>
 #include "ScreenSpaceFogAdmission.h"
 #include "HeightFogInputs.h"
@@ -61,7 +62,7 @@ static NativeMapFogProgram prepareNativeMapFogProgram(ID3D11Device* device,const
     result.vertices=buffer(device,pass.vertexBytes,D3D11_BIND_VERTEX_BUFFER);
     std::map<std::pair<bool,UINT>,std::string> initialFiles;
     if(initialDirectory&&(selected.vertexLayout.slot>=0||selected.pixelLayout.slot>=0)) {
-        std::ifstream rows(*initialDirectory/"cbuffers.txt");std::string stage,file;UINT slot;
+        NativePreparedInputFile rows(*initialDirectory/"cbuffers.txt");std::string stage,file;UINT slot;
         if(!rows)throw std::runtime_error("Height Fog initial constant bindings absent");
         while(rows>>stage>>slot>>file)initialFiles.emplace(std::make_pair(stage=="VS",slot),file);
     }
@@ -105,28 +106,28 @@ static NativeMapFog prepareNativeMapFog(ID3D11Device* device,const fs::path& sou
     D3D11_TEXTURE2D_DESC sceneDesc{};hdr->GetDesc(&sceneDesc);sceneDesc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
     check(device->CreateTexture2D(&sceneDesc,nullptr,&fog.scene),"125 retained SceneBuffer6EE83296");
     fog.mask=loadTexture(device,source/"height-fog-mask.tex");
-    UINT maskFormat;std::ifstream maskMeta(source/"mask-view-format.txt");maskMeta>>maskFormat;
+    UINT maskFormat;NativePreparedInputFile maskMeta(source/"mask-view-format.txt");maskMeta>>maskFormat;
     if(!maskMeta)throw std::runtime_error("Source fog mask view format absent");
     auto view=[&](ID3D11Texture2D* texture,DXGI_FORMAT format,ComPtr<ID3D11ShaderResourceView>& result) {
         D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=format;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=1;
         check(device->CreateShaderResourceView(texture,&sd,&result),"125 retained source SRV");
     };
     view(fog.mask.Get(),DXGI_FORMAT(maskFormat),fog.maskView);
-    std::ifstream passes(source/"passes.txt");std::string relative;if(!passes)throw std::runtime_error("Source fog pass list absent");
+    NativePreparedInputFile passes(source/"passes.txt");std::string relative;if(!passes)throw std::runtime_error("Source fog pass list absent");
     UINT retainedSrvFormat=0,retainedRtFormat=0,initialAdmitted=0;
     while(passes>>relative>>initialAdmitted) {
         if(initialAdmitted>1)throw std::runtime_error("Height Fog initial admission format");
         NativeMapFogPass pass;pass.name=relative;const fs::path directory=source/relative;
         pass.populationGate=source_ssfog_population::load(directory);pass.background=pass.populationGate.background!=0;
-        UINT unusedWriteMask;std::ifstream stencil(directory/"stencil.txt");stencil>>pass.enable>>pass.compare>>pass.reference>>pass.readMask>>unusedWriteMask;
+        UINT unusedWriteMask;NativePreparedInputFile stencil(directory/"stencil.txt");stencil>>pass.enable>>pass.compare>>pass.reference>>pass.readMask>>unusedWriteMask;
         if(!stencil)throw std::runtime_error("Source fog stencil absent");
-        auto& vp=pass.viewport;std::ifstream viewport(directory/"viewport.txt");viewport>>vp.TopLeftX>>vp.TopLeftY>>vp.Width>>vp.Height>>vp.MinDepth>>vp.MaxDepth;
-        std::ifstream geometry(directory/"geometry.txt");geometry>>pass.stride>>pass.count>>pass.topology;
-        std::ifstream layoutSource(directory/"layout.txt");
+        auto& vp=pass.viewport;NativePreparedInputFile viewport(directory/"viewport.txt");viewport>>vp.TopLeftX>>vp.TopLeftY>>vp.Width>>vp.Height>>vp.MinDepth>>vp.MaxDepth;
+        NativePreparedInputFile geometry(directory/"geometry.txt");geometry>>pass.stride>>pass.count>>pass.topology;
+        NativePreparedInputFile layoutSource(directory/"layout.txt");
         layoutSource>>pass.semantic>>pass.semanticIndex>>pass.positionFormat>>pass.inputSlot>>pass.positionOffset;
         if(!layoutSource)throw std::runtime_error("Source fog input layout absent");
         pass.vertexBytes=load(directory/"fullscreen-vb.bin");
-        std::string key;UINT resource,srvFormat,rtFormat,w,h;std::ifstream target(directory/"target.txt");target>>key>>resource>>srvFormat>>rtFormat>>w>>h;
+        std::string key;UINT resource,srvFormat,rtFormat,w,h;NativePreparedInputFile target(directory/"target.txt");target>>key>>resource>>srvFormat>>rtFormat>>w>>h;
         if(!viewport||!geometry||!target||w!=width||h!=height)throw std::runtime_error("Source fog extent/geometry absent or mismatched");
         if(!fog.target){
             D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=DXGI_FORMAT(rtFormat);rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
@@ -135,7 +136,7 @@ static NativeMapFog prepareNativeMapFog(ID3D11Device* device,const fs::path& sou
         }else if(srvFormat!=retainedSrvFormat||rtFormat!=retainedRtFormat)throw std::runtime_error("Source fog passes disagree on shared target views");
         if(initialAdmitted) {
             source_height_fog_programs::Key key;
-            std::ifstream selection(directory/"selection.txt");
+            NativePreparedInputFile selection(directory/"selection.txt");
             selection>>key.feature>>key.background>>key.types[0]>>key.types[1]>>key.types[2];
             if(!selection||key.background!=UINT(pass.background))throw std::runtime_error("Height Fog initial selection absent");
             pass.program=prepareNativeMapFogProgram(device,fog,pass,fog.programs.select(key),&directory);

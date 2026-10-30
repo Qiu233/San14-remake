@@ -12,6 +12,8 @@ public sealed record UnplacedMapObjectSourceFields(byte Kind, byte Faction, usho
 /// No native pointers, instruction bytes or mutable packet image are stored.</summary>
 public sealed class MapObjectSourceState
 {
+    private MapObjectSourceDirectory? _directory;
+    internal MapObjectSourceDirectory Directory => LazyInitializer.EnsureInitialized(ref _directory, () => new(this));
     public IReadOnlyList<MapObjectReceiverId> PhysicalReceivers { get; }
     public IReadOnlyList<int?> LookupPhysicalSlots { get; }
     public IReadOnlyDictionary<int, ushort> UnmappedCoordinates { get; }

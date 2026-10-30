@@ -22,6 +22,16 @@ public partial class Main
     private bool CanEditCityMerchant => IsCityMerchantCurrent && _cityMerchantPersons is null &&
         _cityMerchantAmount is null && _cityMerchantNarration is null;
 
+    private void AdoptCityMerchantSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        if (_cityMerchantView is null || _cityMerchantDraft is null || _cityMerchantSession != session ||
+            _cityMerchantMap is null || _cityMerchantMap != _residentMap ||
+            !ReferenceEquals(_cityMerchantWorld, previous)) return;
+        // The draft and selector retain their read-only business baseline.
+        // All live callbacks, including narration, use this presentation owner.
+        _cityMerchantWorld = replacement;
+    }
+
     private void OpenCityMerchant(int city)
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasActionReport || HasPersonnelConfirmation || HasAdministrationPage || HasMilitaryOrderPage ||
@@ -71,12 +81,17 @@ public partial class Main
         if (!CanEditCityMerchant || _repository is null) return;
         var draft = _cityMerchantDraft!; var query = draft.QueryPage();
         if (!query.Available) { CityMerchantUnavailable(query.UnresolvedInput!); return; }
-        var page = query.Value!;
+        if (query.Value!.Candidates.Count == 0) return;
+        int player = _cityMerchantSession!.PlayerForceId ?? throw new InvalidOperationException("Merchant selection requires its current player.");
+        var selection = _campaignComposition!.PrepareArmyQueries(_cityMerchantWorld!)
+            .PrepareMerchantOfficerSelection(draft, player);
+        if (!selection.Available || selection.Value is not { } model)
+        { CityMerchantUnavailable(selection.UnresolvedInput ?? "city-merchant.person-selection"); return; }
         var selector = new CityMerchantPersonSelectionView(); _cityMerchantPersons = selector; AddChild(selector);
         _cityMerchantView!.SetBusy(true); _cityMerchantView.Hide();
         try
         {
-            selector.Configure(_repository, _ui, page.Candidates, page.SelectedOfficerIds, page.MaximumOfficers,
+            selector.Configure(_repository, _ui, model,
                 () => IsCityMerchantCurrent && _cityMerchantPersons == selector,
                 result => RunUiAction(() =>
                 {
@@ -131,8 +146,7 @@ public partial class Main
         if (!prepared.Available) { CityMerchantUnavailable(prepared.UnresolvedInput!); return; }
         var speech = prepared.Value!; var route = speech.PortraitRoute;
         var sprites = new LocalizedUiSpriteSource(_repository);
-        var layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-            .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+        var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _cityMerchantNarration = narration; AddChild(narration);
         view.SetBusy(true);
         try

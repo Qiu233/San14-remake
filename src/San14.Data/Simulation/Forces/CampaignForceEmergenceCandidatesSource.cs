@@ -4,7 +4,7 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    //27BFB0 and2B0FC0 retain their actual pointer lists on the caller's pool.
+    //TC27BFB0/2B0FC0 and SC27BCB0/2B0DE0 retain the caller's actual pointer lists.
     //Allocation suppression affects exclusions, candidates and final followers.
     internal bool TrySelectForceEmergenceFollowersCurrent(ref GameState state,
         SourceWorldContext current, int leaderPhysical, HexListHandle followers)
@@ -184,7 +184,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             foreach (var entry in current.ReadRegistryReferences(kind) ?? throw Missing("registry_" + kind))
                 yield return entry is not null && entry.Kind == kind ? entry : throw Missing("registry_payload_" + kind);
         }
-        int Rule(string name, int value) => StrategicParameter(latest, "force-emergence-followers." + name, value);
+        int Rule(string name, int value) => NormalTurnForceEmergenceParameters.Read(latest, "force-emergence-followers." + name, value);
         int PersonForce(int person) => K(current.ReadForcePhysicalSlot(current.ReadPersonForce(person) ?? throw Missing("Person_Force_pointer")), "Person_Force");
         byte Status(int person) => K(current.ReadPersonStatus(person), "PersonE6");
         ushort Id(int person) => K(current.ReadPersonIdentity(person), "Person10");

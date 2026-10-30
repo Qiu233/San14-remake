@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "AccessoryPose.h"
 #include "../ArmyDefaultActions.h"
 #include "../ArmyWorldPresentation.h"
@@ -32,7 +33,7 @@ inline NativeCategory2Inputs readNativeCategory2Inputs(const std::filesystem::pa
     NativeCategory2Inputs imported;auto* result=&imported;const auto geometry=input/"geometry";
     result->bindings=readNativeCategory2Bindings(geometry);
     result->pose=prepareNativeAccessoryPoseSource(input/"pose-native");
-    std::ifstream list(geometry/"models.txt");std::string relative;unsigned index=0;
+    NativePreparedInputFile list(geometry/"models.txt");std::string relative;unsigned index=0;
     if(!list)throw std::runtime_error("Accessory model resource list absent");
     while(list>>relative) {
         native_accessory_pose_detail::Reader pixel(geometry/relative/"ps-b0.bin"),skin(geometry/relative/"skin-controls.bin"),vertex(geometry/relative/"vs-b0.bin");

@@ -5,7 +5,10 @@ namespace San14.Data;
 public sealed record StoryStandingRegistration(int Slot, int? OfficerId);
 public sealed record StoryActorPublication(int Slot, TalentOfficerPresentationContext Speaker,
     AreaAdministrationQuery<DeploymentNarrationPortraitRoute> StandingPortrait,
-    OfficerPortraitRoute? FacePortrait, string? UnresolvedOwner);
+    OfficerPortraitRoute? FacePortrait, string? UnresolvedOwner)
+{
+    public bool? Dark { get; init; }
+}
 public sealed record StoryPresentationPublication(long Sequence, int Step,
     CampaignStoryPreparedText? Text, IReadOnlyList<StoryStandingRegistration> RegisteredCharacters,
     IReadOnlyList<StoryActorPublication> Actors, int? HighlightedSlot)
@@ -13,6 +16,7 @@ public sealed record StoryPresentationPublication(long Sequence, int Step,
     /// <summary>False when Text is the retained, already consumed scene line.
     /// A non-text step must not present that line as a newly prepared message.</summary>
     public bool HasCurrentPreparedText { get; init; }
+    public IReadOnlyList<bool?>? PortraitDarkFlags { get; init; }
 }
 
 public sealed partial class ArmyCampaignRuleAdapter
@@ -45,7 +49,19 @@ public sealed partial class ArmyCampaignRuleAdapter
                 actors.Add(pair.Key, pair.Value);
             }
             int? highlighted = story.Scene.HighlightedSlot;
-            if (currentText && step is StoryNarration) highlighted = null;
+            bool?[]? dark = story.Scene.PortraitDarkFlags?.ToArray();
+            if (step is StoryStanding) dark = [true, true, true, true, true];
+            if (currentText && step is StoryMessage { WithoutPortrait: true } hidden)
+            {
+                //8457A0 still binds the speaker receiver but hides only its
+                //registered portrait. Other actors and registration survive.
+                int slot = 0;
+                foreach (var registration in registrations)
+                    if (registration.OfficerId == hidden.Speaker) { slot = registration.Slot; break; }
+                actors.Remove(slot);
+                highlighted = null;
+            }
+            else if (currentText && step is (StoryNarration or StoryMessage { SpeechOnly: true })) highlighted = null;
             else if (currentText && step is StoryMessage message && prepared?.Speaker is { } speaker)
             {
                 //8457A0 uses the registered source Person operand. An
@@ -55,6 +71,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (registration.OfficerId == message.Speaker) { slot = registration.Slot; break; }
                 actors[slot] = speaker;
                 highlighted = slot;
+                //Only8433A0, reached by a real portrait-speaking message,
+                //changes these five flags. A hidden/name-only line does not.
+                dark = Enumerable.Range(0, 5).Select(index => (bool?)(index != slot)).ToArray();
             }
             if (highlighted is < 0 or > 4) throw StoryPortraitMissing("highlighted_slot");
 
@@ -71,9 +90,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 catch (InvalidDataException error) { captureFailure = error.Message; current = null; }
             }
             var publication = actors.Select(pair => StoryPortraitActor(state, current, pair.Key,
-                pair.Value, captureFailure)).ToArray();
+                pair.Value, captureFailure) with { Dark = dark?[pair.Key] }).ToArray();
             return AreaAdministrationQuery<StoryPresentationPublication>.Known(new(story.Sequence,
-                story.NextStep, text, registrations, publication, highlighted) { HasCurrentPreparedText = currentText });
+                story.NextStep, text, registrations, publication, highlighted) { HasCurrentPreparedText = currentText,
+                    PortraitDarkFlags = dark is null ? null : Array.AsReadOnly(dark) });
         }
         catch (InvalidDataException error)
         { return AreaAdministrationQuery<StoryPresentationPublication>.Unknown(error.Message); }
@@ -107,8 +127,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             //8457A0→8433A0→842D70 always selects the three-part layout by
             //the source Person's A6, including Person5012. The separate serif
             //Face2 special case does not apply to story actors. Retain the
-            //source-time appearance after world changes; animated dispatch
-            //remains concretely unknown rather than substituting a face image.
+            //source-time appearance after world changes. The shared route
+            //retains bank 12 animated poses separately from bank 9 layers.
             var portrait = ReadNarrationPortrait(state, current, _definitions, speaker.OfficerId,
                 appearance, requireCurrentAppearance: false);
             return new(slot, speaker, AreaAdministrationQuery<DeploymentNarrationPortraitRoute>.Known(portrait), null, null);

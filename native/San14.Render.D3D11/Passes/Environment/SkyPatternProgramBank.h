@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Resources/ShaderFeatureSelection.h"
 #include <algorithm>
 #include <array>
@@ -28,7 +29,7 @@ struct SkyPatternProgramSelection {
 class SkyPatternProgramBank {
 public:
     static SkyPatternProgramBank read(const std::filesystem::path& directory) {
-        std::ifstream header(directory / "bank.txt");
+        NativePreparedInputFile header(directory / "bank.txt");
         std::size_t featureCount{}, variantCount{}, rowCount{};
         std::string extra;
         if (!(header >> featureCount >> variantCount >> rowCount) || header >> extra ||
@@ -38,7 +39,7 @@ public:
         SkyPatternProgramBank result;
         auto rows = [&](const char* name, auto& values, std::size_t count) {
             using Value = typename std::decay_t<decltype(values)>::value_type;
-            std::ifstream input(directory / name, std::ios::binary);
+            NativePreparedInputFile input(directory / name, std::ios::binary);
             values.resize(count);
             input.read(reinterpret_cast<char*>(values.data()), std::streamsize(count * sizeof(Value)));
             if (!input || input.peek() != std::char_traits<char>::eof())
@@ -49,7 +50,7 @@ public:
         rows("variants.bin", result.variants_, variantCount);
         result.programs_.resize(rowCount);
         std::vector<bool> seen(rowCount);
-        std::ifstream input(directory / "programs.txt");
+        NativePreparedInputFile input(directory / "programs.txt");
         std::string line;
         while (std::getline(input, line)) {
             std::istringstream row(line);

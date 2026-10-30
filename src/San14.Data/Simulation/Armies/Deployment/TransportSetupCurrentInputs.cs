@@ -24,9 +24,9 @@ public static class TransportSetupCurrentInputs
 
     public static GameState InstallFresh(GameState state)
     {
-        //Only the existing TC TSV and326230 constructor were closed here.
-        //A different locale is not assigned TC-only extracted defaults.
-        if (state.NativeArmySimulation?.Parameters.Language != "TC") return state;
+        //Both language editions independently supply these source defaults.
+        //Restoring a campaign does not install or repair missing saved owners.
+        if (state.NativeArmySimulation?.Parameters.Language is not ("TC" or "SC")) return state;
         if (state.NativeArmySimulation is not { } native ||
             state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
             native.Parameters.Int32Values.ContainsKey(VersionKey))

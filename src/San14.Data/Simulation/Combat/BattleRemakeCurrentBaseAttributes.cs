@@ -88,13 +88,11 @@ public sealed class BattleRemakeCurrentBaseAttributes
         //The shared Base getter reads the same linked Object's actual Hex10.
         ushort? hex = objectValid ? definitions.ReadObjectHexIndex(linked) : (ushort)48400;
         BattleRemakeCurrentRegionReceipt? reachedRegion = region.ResolveHexForceReceipt(state, forceSlot, hex);
-        bool? alternate = BattleRemakeCurrentSettings.ReadAlternateMoraleGlobals(state);
-        if (durability is null || hex is null || reachedRegion is null || alternate is null) return null;
+        var moraleCoefficients = BattleRemakeCurrentSettings.ReadCommonMoraleCoefficients(state);
+        if (durability is null || hex is null || reachedRegion is null || moraleCoefficients is null) return null;
 
         int? root = Parameter(SimulationParameterKeys.BattleAttributes.CommonRootDivisor), leadership = Parameter(SimulationParameterKeys.BattleAttributes.CommonLeadershipScale), additive = Parameter(SimulationParameterKeys.BattleAttributes.CommonAdditive),
             divisorNumerator = Parameter(SimulationParameterKeys.BattleAttributes.CommonDivisorNumerator), divisorOffset = Parameter(SimulationParameterKeys.BattleAttributes.CommonDivisorOffset),
-            moraleOffset = Parameter(alternate.Value ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset),
-            moraleDivisor = Parameter(alternate.Value ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor),
             attackCoefficient = Parameter(link <= 51 ? SimulationParameterKeys.BattleAttributes.BaseAttackCoefficient
                 : SimulationParameterKeys.BattleAttributes.ReservedBaseAttackSecondaryCoefficient),
             defenseCoefficient = Parameter(link <= 51 ? SimulationParameterKeys.BattleAttributes.BaseDefenseCoefficient
@@ -102,10 +100,10 @@ public sealed class BattleRemakeCurrentBaseAttributes
             attackScale = Parameter(SimulationParameterKeys.BattleAttributes.AttackCoefficientScale), defenseScale = Parameter(SimulationParameterKeys.BattleAttributes.DefenseCoefficientScale),
             wallCoefficient = Parameter(SimulationParameterKeys.BattleAttributes.BaseWallCoefficient);
         if (root is null || leadership is null || additive is null || divisorNumerator is null || divisorOffset is null ||
-            moraleOffset is null || moraleDivisor is null || attackCoefficient is null || defenseCoefficient is null ||
+            attackCoefficient is null || defenseCoefficient is null ||
             attackScale is null || defenseScale is null || wallCoefficient is null) return null;
         float common = BattleUnitSourceMath.CommonFactor(new(leadershipInput, troops,
-            finalDescriptorDivisor14, morale, true, abnormal != 0, moraleOffset.Value, moraleDivisor.Value,
+            finalDescriptorDivisor14, morale, true, abnormal != 0, moraleCoefficients.Value.Offset, moraleCoefficients.Value.Divisor,
             reachedRegion.Factor, seed.One, seed.One),
             new(seed.CommonPowerExponent, root.Value, leadership.Value, additive.Value, seed.FlagNumerator,
                 seed.FlagDenominator, divisorNumerator.Value, divisorOffset.Value));

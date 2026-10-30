@@ -15,14 +15,31 @@ public partial class Main
             MapMenuCommand.EditGroup, MapMenuCommand.MoveGroup,
             MapMenuCommand.ProvokeWar, MapMenuCommand.Incite, MapMenuCommand.Alienate, MapMenuCommand.Poison,
             MapMenuCommand.PlacateArea, MapMenuCommand.Sabotage, MapMenuCommand.Rumor,
-            MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance, MapMenuCommand.RequestAttack];
+            MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance, MapMenuCommand.RequestAttack,
+            MapMenuCommand.ReturnCaptives,MapMenuCommand.DemandSurrender,MapMenuCommand.Exchange,
+            MapMenuCommand.Proposals, MapMenuCommand.Events, MapMenuCommand.CreatedEvents, MapMenuCommand.Trade, MapMenuCommand.Spy, MapMenuCommand.Scout, MapMenuCommand.Patrol];
         return available.ToDictionary(command => command,
             command => (Action)(() => RunUiAction(() => OpenMapMenuEditor(command))));
     }
 
     private void OpenMapMenuEditor(MapMenuCommand command)
     {
+        var before=MainCommandLaunchOwner(command);
+        OpenMapMenuEditorCore(command);
+        var after=MainCommandLaunchOwner(command);
+        if(after is not null&&!ReferenceEquals(before,after))AcknowledgeMainCommandLaunch(command);
+    }
+
+    private void OpenMapMenuEditorCore(MapMenuCommand command)
+    {
+        if (!TutorialEntryAllowed) return;
         if (HasMapSystemMenu || HasCampaignSavePage || HasCommandWorkspace) return;
+        if (command == MapMenuCommand.Events) { OpenCampaignEventCommand(); return; }
+        if (command == MapMenuCommand.CreatedEvents) { OpenCreatedEvents(); return; }
+        if (command == MapMenuCommand.Proposals) { OpenProposals(); return; }
+        if (command == MapMenuCommand.Trade) { OpenForeignTradeOrders(); return; }
+        if (command is MapMenuCommand.Spy or MapMenuCommand.Scout or MapMenuCommand.Patrol)
+        { OpenIntelligenceOrders(command); return; }
         if (command is MapMenuCommand.EditGroup or MapMenuCommand.MoveGroup)
         { OpenPersonnelGroups(command == MapMenuCommand.EditGroup); return; }
         if (command == MapMenuCommand.Research) { OpenDoctrineResearch(); return; }
@@ -49,7 +66,8 @@ public partial class Main
             OpenOfficerOffices();
             return;
         }
-        if (command is MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or MapMenuCommand.RequestAttack &&
+        if (command is MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or MapMenuCommand.RequestAttack or
+            MapMenuCommand.ReturnCaptives or MapMenuCommand.DemandSurrender or MapMenuCommand.Exchange &&
             _world?.NativeArmySimulation is not null)
         {
             OpenDiplomacyOrders(command switch
@@ -57,6 +75,9 @@ public partial class Main
                 MapMenuCommand.Goodwill => DiplomaticMissionKind.Goodwill,
                 MapMenuCommand.Alliance => DiplomaticMissionKind.Alliance,
                 MapMenuCommand.CancelAlliance => DiplomaticMissionKind.CancelAlliance,
+                MapMenuCommand.ReturnCaptives=>DiplomaticMissionKind.ReturnCaptives,
+                MapMenuCommand.DemandSurrender=>DiplomaticMissionKind.DemandSurrender,
+                MapMenuCommand.Exchange=>DiplomaticMissionKind.Exchange,
                 _ => DiplomaticMissionKind.RequestAttack
             });
             return;

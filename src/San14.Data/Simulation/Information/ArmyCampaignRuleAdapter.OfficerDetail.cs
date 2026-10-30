@@ -46,7 +46,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly CityDomesticCandidate candidate = new(checked((ushort)person.Id), physical);
         private CityDomesticPersonCellSource? cells;
         private CityDomesticPersonCellSource Cells => cells ??= new(state, current, owner._definitions,
-            owner._governorInputs, owner._scenario, owner._repository, owner.Seed.Language);
+            owner._governorInputs, owner._scenario, owner._repository, owner.Seed.Language,
+            owner.ReadApplicationGameplay()?.UserSelectionServicePresent);
         private string Data(int section, int id) => owner.ReadHistoryDataText(section, id);
         private byte Status => DetailNeed(current.ReadPersonStatus(physical), "person_status");
         private ushort Flags => DetailNeed(current.ReadArmyReturnPersonFlags196(physical), "person_flags");
@@ -81,6 +82,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                 person.PortraitAppearanceIndex ?? throw OfficerDetailMissing("portrait_appearance")));
             var priority = ReadPriority();
             var miniMap = Q<DetailMiniMapValues?>(ReadMiniMap);
+            //Only this saved semantic bit is needed. Other unknown behavior
+            //channels do not make a known special-person bit disappear.
+            var pageCount = Q(() => DetailNeed(current.ReadPersonBehavior(physical)?.UsesSpecialPersonRules,
+                "page_count_special_person") ? 2 : 3);
             foreach (var ability in card.Abilities)
             { if (ability.Base.UnresolvedInput is {} b) issues.Add(b); if (ability.Effective.UnresolvedInput is {} e) issues.Add(e); }
             if (card.ForceFlag.UnresolvedInput is {} flag) issues.Add(flag);
@@ -88,7 +93,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             foreach (string issue in military.UnresolvedOwners) issues.Add(issue);
             return new(person.Id, physical, person.Name, card.Portrait, overview, military,
                 relations, card.Abilities.ToImmutableArray(), traits, issues.ToImmutableArray())
-                { StandingPortrait = standing, ForceFlag = card.ForceFlag, Priority = priority, MiniMap = miniMap };
+                { StandingPortrait = standing, ForceFlag = card.ForceFlag, Priority = priority, MiniMap = miniMap, PageCount = pageCount };
         }
 
         private OfficerDetailOverview ReadOverview()

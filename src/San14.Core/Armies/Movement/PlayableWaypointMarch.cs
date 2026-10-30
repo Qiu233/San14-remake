@@ -70,6 +70,7 @@ public static class PlayableWaypointMarch
     /// <summary>Whole ordered route, excluding its start. The existing period step budget applies once to this route.</summary>
     public static int[] RouteForUnit(UnitState unit, PlayableLandRoutes routes)
     {
+        if (unit.HasNoDestination) return [];
         PlayableMilitaryPlan? plan = unit.MilitaryPlan;
         if (plan?.IncidentalEnemyId is not null || plan is null)
             return routes.Route(unit.HexId, unit.DestinationHexId);

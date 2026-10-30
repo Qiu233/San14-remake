@@ -35,6 +35,22 @@ public partial class MapSceneView
     internal event Action<int, MapCityCommand>? CityCommand;
     internal event Action<bool>? MapOverlayChanged;
     internal bool IsCityCommandMenuOpen => _cityCommandMenu?.Visible == true;
+    internal Rect2? CurrentCityCommandMenuRectangle => _cityCommandMenu is{Visible:true} menu
+        ?new Rect2(menu.Position/menu.Scale,menu.Size):null;
+    internal void SetCityDeploymentCancellationOpen(bool open)
+    {if(_cityCommandMenu is{} menu)menu.CancellationOpen=open;}
+    internal bool RefreshOpenCityCommandMenu(int city)
+    {
+        if(_cityCommandMenu is not{Visible:true} menu||menu.CurrentCityId!=city||_logicalWorld is null)return false;
+        Vector2 anchor=menu.Position;bool cancellation=menu.CancellationOpen;
+        _cityDomesticMenuWorld=_logicalWorld;
+        bool opened=menu.Open(city,anchor,Size,QueryCityCommandMenu(city));
+        menu.CancellationOpen=cancellation;
+        if(!opened)ReleaseCityCommandMenuOverlay();
+        return opened;
+    }
+    internal int? CurrentCityCommandMenuId => _logicalWorld is not null && ReferenceEquals(_cityDomesticMenuWorld, _logicalWorld)
+        ? _cityCommandMenu?.CurrentCityId : null;
 
     internal bool ReopenCityCommandMenu(int cityId)
     {
@@ -78,7 +94,7 @@ public partial class MapSceneView
             _cityCommandMenu.Command += (id, command) => Run(() =>
             {
                 bool staleCity = !ReferenceEquals(_cityDomesticMenuWorld,_logicalWorld);
-                CloseCityCommandMenu();
+                if(command!=MapCityCommand.CancelDeployment)CloseCityCommandMenu();
                 if (staleCity) return;
                 if (command == MapCityCommand.CityInformation) _openCityDetails?.Invoke(id);
                 else CityCommand?.Invoke(id, command);

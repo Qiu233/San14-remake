@@ -136,19 +136,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         private int Age(int person)
         {
-            int mode = (state.CampaignEventWorld ?? throw Missing("age_world")).ScenarioMode;
-            bool special = mode == 2 || mode == 3 && DuelNumericParameters.Read(state, "mode3-age-control") != 0;
-            if (special)
-            {
-                int id = Need(current.ReadPersonIdentity(person), "age_person_ID");
-                for (int i = 0; i < 2; i++) if (id == DuelNumericParameters.Read(state, "special-age-person:" + i)) return 80;
-                for (int i = 0; i < 9; i++)
-                    if (Need(TacticRemakeCurrentTraits.ResolveCommanderPersonalityLookup(current, person, i), "age_trait") == 144) return 80;
-                for (int i = 2; i < 5; i++) if (id == DuelNumericParameters.Read(state, "special-age-person:" + i)) return 80;
-                return 20;
-            }
-            int year = state.NativeMapSeason?.ThirdDate.Year ?? throw Missing("age_year");
-            return Math.Max(0, unchecked(year - (Owner(person).BirthYear ?? throw Missing("age_birth_AC")) + 1));
+            return PersonCurrentAgeSource.Read(state, current, person);
         }
         private TransferPersonReference Lookup(int id) => (id <= 6000 ? current.ReadPersonLookupReference(id) :
             current.ReadTransferPersonTableReference(0)) ?? throw Missing("Person_lookup");

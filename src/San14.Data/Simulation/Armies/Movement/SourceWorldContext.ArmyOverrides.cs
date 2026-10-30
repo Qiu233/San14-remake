@@ -25,19 +25,19 @@ public sealed partial class SourceWorldContext
     }
     private ArmyOverrideTargetSourceFields ReadOverrideSource(int? ordinal) => ordinal is int index &&
         _armyOverrides.TryGetValue(index, out var target)
-            ? ArmyOverrideTargetSourceAdapter.Encode(target, _armyOverrideResidues.GetValueOrDefault(index), _overrideReceivers)
+            ? ArmyOverrideTargetSourceAdapter.Encode(target, _armyOverrideResidues.GetValueOrDefault(index), _overrideReceivers, CurrentMapObjectDirectory)
             : new(null, null);
     private bool HasOverrideDestination(int? ordinal) => ordinal is int index &&
         _armyOverrides.GetValueOrDefault(index)?.Destination is not null;
     private void WriteOverrideSource(int? ordinal, ArmyOverrideTargetSourceFields fields)
     {
         int index = MapPhysical(ordinal, 501, "army override source writer");
-        var target = ArmyOverrideTargetSourceAdapter.Decode(fields, _overrideReceivers);
+        var target = ArmyOverrideTargetSourceAdapter.Decode(fields, _overrideReceivers, CurrentMapObjectDirectory);
         _armyOverrides[index] = target;
         // This local format view need not invent a campaign identity when it is
         // used independently of an imported world. Binding supplies identities.
         var owner = _armyOverrideResidues.GetValueOrDefault(index)?.Owner ?? default;
-        _armyOverrideResidues[index] = ArmyOverrideTargetSourceAdapter.Residue(owner, fields, target);
+        _armyOverrideResidues[index] = ArmyOverrideTargetSourceAdapter.Residue(owner, fields, target, CurrentMapObjectDirectory);
     }
     private void CopyArmyOverridesTo(SourceWorldContext other)
     {

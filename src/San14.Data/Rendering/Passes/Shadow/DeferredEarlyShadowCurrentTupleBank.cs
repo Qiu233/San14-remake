@@ -5,6 +5,7 @@ namespace San14.Data;
 /// from the eleven pointer-list capacities and the compact work record7C.</summary>
 public sealed class DeferredEarlyShadowCurrentTupleArena
 {
+    private readonly object allocationGate = new();
     public DeferredEarlyShadowCurrentTupleArena(int actualCapacityBytes,
         int actualUsedBytes, string actualCurrentWriterEvidence)
     {
@@ -22,9 +23,12 @@ public sealed class DeferredEarlyShadowCurrentTupleArena
     /// A refused reservation does not change the cursor.</summary>
     internal bool TryReserve(int bytes, out int offset)
     {
-        offset = UsedBytes;
-        if (bytes < 0 || bytes > CapacityBytes - UsedBytes) return false;
-        UsedBytes += bytes; return true;
+        lock (allocationGate)
+        {
+            offset = UsedBytes;
+            if (bytes < 0 || bytes > CapacityBytes - UsedBytes) return false;
+            UsedBytes += bytes; return true;
+        }
     }
 }
 
@@ -187,6 +191,23 @@ public sealed class DeferredEarlyShadowCurrentTupleBank
             result.Add(new(pass + 2, actualCategory, key, true, appended, allocated, tuples));
         }
         return result.AsReadOnly();
+    }
+
+    /// <summary>C394F0 retains this same category pointer across Main,
+    /// shadow and capture publication. A later destination must not rewrite
+    /// the first allocator's key, even if its list previously refused the span.</summary>
+    public IReadOnlyList<DeferredEarlyShadowCurrentPrimitiveTuple>? GetOrAllocateCurrentCategory(
+        DeferredEarlyShadowCurrentModelCandidate actualModel, int actualCategory,
+        ulong actualFirstAllocatorKey)
+    {
+        var draws = RequireCategory(actualModel, actualCategory);
+        if (spans.TryGetValue((actualModel, actualCategory), out var retained)) return retained;
+        if (!Arena.TryReserve(checked(draws.Count * 16), out int offset)) return null;
+        var created = draws.Select((draw, i) => new DeferredEarlyShadowCurrentPrimitiveTuple(
+            actualModel, actualCategory, draw, actualFirstAllocatorKey, null, checked(offset + i * 16))).ToArray();
+        var result = Array.AsReadOnly(created);
+        spans.Add((actualModel, actualCategory), result);
+        return result;
     }
 
     private bool TryAppendCompleteSpan(int counter, IReadOnlyList<DeferredEarlyShadowCurrentPrimitiveTuple> tuples)

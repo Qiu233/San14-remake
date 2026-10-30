@@ -29,8 +29,8 @@ internal static class PersonnelAdministrationOrders
     internal static CommandResult Apply(GameState state, ForceState force, GameOrder order,
         CommandContext context, IPersonnelCommandRules provider)
     {
-        if (state.Phase != TurnPhase.Strategy || !force.IsActive || context.DelegatedDistrictId is not null)
-            return CommandResult.Reject("Personnel administration requires direct strategy control.", "personnel.scope");
+        if (state.Phase != TurnPhase.Strategy || !force.IsActive)
+            return CommandResult.Reject("Personnel administration requires active strategy control.", "personnel.scope");
         IReadOnlyList<int>? ids = order switch
         {
             RewardOfficersOrder row => row.OfficerIds,
@@ -49,6 +49,10 @@ internal static class PersonnelAdministrationOrders
             PromoteOfficerCreditOrder row => row.DistrictId,
             _ => null
         };
+        // District personnel commands retain their actual actor district.
+        // Force-wide banishment has no such district-scoped caller.
+        if (context.DelegatedDistrictId is int delegated && delegated != districtId)
+            return CommandResult.Reject("Personnel administration is outside the authorized district.", "personnel.scope");
         if (districtId is int district && (!state.Districts.TryGetValue(district, out var owner) || owner.ForceId != force.Id))
             return CommandResult.Reject("The district is not controlled by this force.", "personnel.district_control");
         if (provider is not IPersonnelAdministrationCommandRules rules)

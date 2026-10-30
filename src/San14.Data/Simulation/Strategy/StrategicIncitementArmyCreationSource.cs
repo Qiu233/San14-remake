@@ -80,7 +80,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             OverrideTarget = before.OverrideTarget,
             NativeDirection36 = before.Direction36, NativeMapUiByte13C = before.MapUiByte13C,
             NativeCommandControl140 = before.CommandControl140,
-            NativeRouteHold56 = before.RouteHold56, NativeRouteGoal1F8 = before.RouteGoal1F8,
+            NativeRouteHold56 = before.RouteHold56, NativeRouteGoal1F8 = before.RouteGoal1F8, AiActionFlags = before.AiActionFlags,
             NativeHomeSequence28 = 501, NativeSavedRegionHex152 = 48400,
             NativeCommandChoice41 = 2, PositionKnowledge = ArmyPositionKnowledge.Confirmed,
             March = new(0, ArmyMarchDestination.None, ArmyMarchDestination.None)

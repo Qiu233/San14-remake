@@ -5,7 +5,9 @@ namespace San14.Data;
 public sealed record OwnedArmyDestructionReceipt(int PhysicalSlot, int UnitId, int CommanderId, int ForceId,
     int PreviousHex, int HomeCity, PersonArmyInjuryReceipt? Injury, IReadOnlyList<string> SourceEffectOrder)
 {
-    public int NativeReportKind => 14; //25B850→1B4AB0, ordinary nondead Person.
+    public bool CommanderReclaimed { get; init; }
+    public SettlementBase? VictimHome { get; init; }
+    public int? NativeReportKind => CommanderReclaimed ? null : 14; //25B850→1B4AB0, non-reclaimed Person.
     public int? WinnerUnitId { get; init; }
     public int? WinnerCommanderId { get; init; }
     public int? WinnerBaseLocation { get; init; }
@@ -17,7 +19,7 @@ public sealed record OwnedArmyDestructionReceipt(int PhysicalSlot, int UnitId, i
     public PersonArmyCaptureWholeReceipt? Custody { get; init; }
     public ForcedDuelCaptureAnnouncement? ForcedDuelCaptureAnnouncement { get; init; }
     public ArmyDestructionTrackingWrite[] TrackingWrites { get; init; } = [];
-    public PeriodReportEntry Report => new("field_destroyed", ForceId, HomeCity, CommanderId, 0, PreviousHex, PreviousHex)
+    public PeriodReportEntry Report => new("field_destroyed", ForceId, HomeCity > 0 ? HomeCity : null, CommanderId, 0, PreviousHex, PreviousHex)
         { RuleId = OwnedArmyDestructionStage.Revision };
 }
 public sealed record OwnedArmyDestructionPhaseResult(GameState? State,
@@ -81,9 +83,34 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             var current = world.Context;
             var working = state;
             var destroyed = new HashSet<int>();
+            OwnedArmyDestructionPhaseResult CompleteCaptureTerminal(GameState terminal)
+            {
+                terminal = PublishCurrent(terminal, current, world.Pool, destroyed,
+                    current.OwnedDestructionQueue ?? queue);
+                if (reportIntents.Count != 0)
+                    terminal = terminal with { CampaignEffectRequests = (terminal.CampaignEffectRequests
+                        ?? throw Missing("capture_terminal_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                            terminal.NativeClock?.UpdateOrdinal ?? throw Missing("capture_terminal_effect_revision"), reportIntents) };
+                return new(terminal, receipts, null) { BaseReceipts = captures.ToArray(),
+                    CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
+            }
             // Read the current queue after every callback. A callback can append
             // another request which must settle in this same phase.
-            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? working.BaseCaptureContinuation?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
+            OwnedArmyDestructionPhaseResult PauseEmperorCapture(int cursor)
+            {
+                if (working.CityCaptureEmperorTail is { } cityTail)
+                    working = working with { CityCaptureEmperorTail = cityTail with { SettlementIndex = cursor } };
+                if (working.BaseWinnerEmperorTail is { } winnerTail)
+                    working = working with { BaseWinnerEmperorTail = winnerTail with { SettlementIndex = cursor } };
+                working = BaseCapturePublicationSource.Publish(working, current, world.Pool, projectOwnedRoles: true);
+                if (reportIntents.Count != 0)
+                    working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                        ?? throw Missing("Emperor_report_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                            working.NativeClock?.UpdateOrdinal ?? throw Missing("Emperor_report_revision"), reportIntents) };
+                return new(working, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(),
+                    SourceReports = reports.ToArray() };
+            }
+            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? working.BaseCaptureContinuation?.SettlementIndex ?? working.CityCaptureEmperorTail?.SettlementIndex ?? working.BaseWinnerEmperorTail?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
             {
                 current.BindOwnedDestructionQueue(queue, working);
                 var request = queue.Requests[cursor];
@@ -98,6 +125,28 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     }
                     else if (!Known(current.ReadBaseNativeValidity(target), "request_Base_validity")) continue;
                     working = PublishCurrent(working, current, world.Pool, destroyed, queue);
+                    if (capture.HasNoWinner)
+                    {
+                        var neutral = package.ApplyNoWinnerBaseCaptureCurrent(working, current, capture,
+                            sourceDate, sampler, reportIntents, groups ?? package.CreateCaptureMapGroupingOwner());
+                        working = neutral.State;
+                        world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
+                            : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!);
+                        current = world.Context;
+                        destroyed.Clear();
+                        queue = current.OwnedDestructionQueue ?? throw Missing("current.neutral_Base_postcallback_settlements");
+                        if (neutral.NativeTerminal)
+                        {
+                            working = PublishCurrent(working, current, world.Pool, destroyed, queue);
+                            if (reportIntents.Count != 0)
+                                working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
+                                    ?? throw Missing("neutral_terminal_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
+                                        working.NativeClock?.UpdateOrdinal ?? throw Missing("neutral_terminal_effect_revision"), reportIntents) };
+                            return new(working, receipts, null) { BaseReceipts = captures.ToArray(),
+                                CityReceipts = cityCaptures.ToArray(), SourceReports = reports.ToArray() };
+                        }
+                        continue;
+                    }
                     if (capture.WinnerUnitId is null && capture.WinnerDistrictId is not null)
                     {
                         //1745B0 also admits a genuine Base source's District.
@@ -107,6 +156,10 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                             sampler ?? package.ReadArmyDestructionSampler(working, current)
                                 ?? throw Missing("Base_source_capture_sampler"), reportIntents,
                             groups ?? package.CreateCaptureMapGroupingOwner());
+                        if (working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null)
+                            return CompleteCaptureTerminal(working);
+                        if (AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                            return PauseEmperorCapture(cursor);
                         world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
                             : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!);
                         current = world.Context;
@@ -118,7 +171,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     {
                         var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
-                        if (working.BaseCaptureContinuation is null)
+                        if (captured.NativeTerminal) return CompleteCaptureTerminal(working);
+                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
                         {
                             var completedCapture = captured.Receipt ?? throw Missing("Gate_capture_completed_receipt");
                             captures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
@@ -128,12 +182,15 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     {
                         var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
-                        if (working.BaseCaptureContinuation is null)
+                        if (captured.NativeTerminal) return CompleteCaptureTerminal(working);
+                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
                         {
                             var completedCapture = captured.Receipt ?? throw Missing("City_capture_completed_receipt");
                             cityCaptures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
                         }
                     }
+                    if (AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                        return PauseEmperorCapture(cursor);
                     if (working.BaseCaptureContinuation is { } pendingOccupation)
                     {
                         //The person prefix has released its temporary lists.
@@ -239,21 +296,27 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         ushort commanderId = Known(current.ReadArmyUnitCommanderId(victim), "Army12");
         int commander = (commanderId <= 6000 ? current.ReadPersonLookupReference(commanderId) : current.ReadTransferPersonTableReference(0))?.PhysicalSlot
             ?? throw Missing("current.Commander_pointer");
-        if (!state.Officers.TryGetValue(commanderId, out var person) || resumed is null &&
-            (current.ReadPersonNativeValidity(commander) != true || current.ReadPersonStatus(commander) is not (>= 1 and <= 4)))
-            throw Missing("branch.ordinary_employed_Commander");
         var force = resumed is null ? current.ReadArmyUnitForceReference(victim) : new ForceReference(resumed.VictimForceId);
-        if (resumed is null && (force.PhysicalSlot is not (>= 1 and <= 45) || current.ReadForceNativeValidity(force) != true ||
-            current.ReadPersonStatus(commander) == 1 && current.ReadForceRecord(force.PhysicalSlot.Value)?.RawRuler10 != commanderId))
-            throw Missing("branch.ordinary_current_Force");
+        if (!state.Officers.TryGetValue(commanderId, out var person) || resumed is null &&
+            (current.ReadPersonNativeValidity(commander) != true || force.PhysicalSlot is not (>= 46 and <= 51) &&
+                current.ReadPersonStatus(commander) is not (>= 1 and <= 4)))
+            throw Missing("branch.current_employed_Commander");
+        if (resumed is null && (force.PhysicalSlot is not (>= 1 and <= 51) || current.ReadForceNativeValidity(force) != true ||
+            force.PhysicalSlot <= 45 && current.ReadPersonStatus(commander) == 1 &&
+                current.ReadForceRecord(force.PhysicalSlot.Value)?.RawRuler10 != commanderId))
+            throw Missing("branch.current_Force");
+        bool specialCommanderReclaim = resumed?.SpecialCommanderReclaim ??
+            ReadSpecialDefeatReclaimCurrent(current, force, commander);
+        bool? reclaimDefeatedCommander = resumed?.ReclaimDefeatedCommander;
         var captured = resumed is null ? ArmyDestructionResources.CaptureOwners(current, victim, winner, winnerBase) :
-            new ArmyDestructionResourceOwners(new(BaseKind.City, resumed.HomeCityId), new(resumed.WinnerForceId));
-        if (captured.VictimHome is not { Kind: BaseKind.City, PhysicalSlot: int home } ||
-            resumed is null && (current.ReadBaseNativeValidity(captured.VictimHome) != true ||
-                current.ReadBaseForceSlot(captured.VictimHome) != force.PhysicalSlot))
+            new ArmyDestructionResourceOwners(ResolveDefeatHome(state, current, resumed), new(resumed.WinnerForceId));
+        if (!specialCommanderReclaim &&
+            (captured.VictimHome is not { Kind: BaseKind.City or BaseKind.Gate, PhysicalSlot: > 0 } ||
+             resumed is null && (current.ReadBaseNativeValidity(captured.VictimHome) != true ||
+                current.ReadBaseForceSlot(captured.VictimHome) != force.PhysicalSlot)))
             throw Missing("branch.same_friendly_original_home");
         int hex = resumed?.HexId ?? Known(current.ReadArmyUnitRawHex2A(victim), "Army2A");
-        bool atHome = current.ReadBaseCurrentHexIndex(captured.VictimHome) == hex;
+        bool atHome = !specialCommanderReclaim && current.ReadBaseCurrentHexIndex(captured.VictimHome) == hex;
         var effects = new List<string>();
         PersonArmyInjuryReceipt? injuryReceipt = null;
         int captureImmunity = resumed?.CaptureImmunity ?? 0;
@@ -338,14 +401,18 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         if (!forcedDuelCapture)
             state = CaptureMoraleDefeatReport(state, current, victim, winner, checked((ushort)hex), sampler, feedback);
         var wave = ArmyDestructionMoraleWave.Apply(state, current, victim,
-            new(new(commander), force, captured.WinnerForce, false), winner, winnerBase);
+            new(new(commander), force, captured.WinnerForce, specialCommanderReclaim), winner, winnerBase);
         if (wave.EffectCount is null) throw Missing(wave.UnresolvedOwner ?? "current.ruler_morale_wave");
         effects.Add("25B1xx.current_rank_office_morale_wave");
         PersonArmyCaptureReceipt? captureReceipt = null;
         RulerCaptureReleaseReceipt? releaseReceipt = null;
         PersonArmyCaptureWholeReceipt? custodyReceipt = null;
         ForcedDuelCaptureAnnouncement? captureAnnouncement = null;
+        bool captureAnnouncementAlreadyQueued = false;
         bool returnedByCapture = false;
+        //The native local1418 initialization occurs here, after injury/death
+        //has returned; a prior AfterPersonDeath checkpoint keeps it unknown.
+        reclaimDefeatedCommander = false;
         bool personAlive = Known(current.ReadPersonNativeValidity(commander), "capture_Person_validity") &&
             Known(current.ReadPersonStatus(commander), "capture_PersonE6") != 9;
         if (!duelDeath && personAlive && captureImmunity == 0 && winnerValid)
@@ -357,7 +424,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 //directly. Preserve its source-time player announcement as
                 //pending App work before the actual custody callbacks.
                 capturedPerson = true;
-                captureAnnouncement = package.CaptureForcedDuelCaptureAnnouncement(state, current, commander, captured.WinnerForce);
+                captureAnnouncement = package.CaptureForcedDuelCaptureAnnouncement(state, current, commander, captured.WinnerForce, next => state = next);
                 effects.Add("25B75x.forced_duel_capture_direct_2E0FC0_flags0_1");
             }
             else
@@ -376,9 +443,26 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 //callbacks. A real AI release can therefore close this early
                 //return without pretending that normal captivity has run.
                 bool ordinaryPerson = Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(commander)), "captured_Person15E");
-                if (!ordinaryPerson)
+                if (!ordinaryPerson && forcedDuelCapture &&
+                    Known(current.ReadPersonStatus(commander), "special_captured_PersonE6") != 5)
+                {
+                    //2E0FC0(0,1) reports the original player's special Person
+                    //before265250; retain the receipt without queueing twice.
+                    if (captureAnnouncement is { } announced)
+                    {
+                        feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announced.OfficerId,
+                            announced.OfficerNameAtSource, announced.MessageRoot, announced.SoundId)
+                                { TextAtSource = announced.TextAtSource, Speaker = announced.Speaker } });
+                        captureAnnouncementAlreadyQueued = true;
+                    }
+                    state = package.ApplyForcedDuelSpecialPersonCaptureCurrent(state, current, pool,
+                        commander, sourceDate, sampler, feedback);
+                    returnedByCapture = true;
+                    effects.Add("25B75x.2E0FC0_special_265250_pending_hire_release");
+                }
+                else if (!ordinaryPerson)
                     throw Missing("branch.2E0FC0_captured_Person_custody");
-                if (current.ReadPersonStatus(commander) == 1)
+                else if (current.ReadPersonStatus(commander) == 1)
                 {
                     if (PersonPositionRepair.DecodeSecondLocation(Known(current.ReadPersonSecondLocation(commander), "captured_PersonE4")).Kind != 27)
                         throw Missing("branch.2E0FC0_captured_Person_custody");
@@ -392,7 +476,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                         state = prepared.State;
                         if (captureAnnouncement is { } announced)
                             feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announced.OfficerId,
-                                announced.OfficerNameAtSource, announced.MessageRoot, announced.SoundId) });
+                                announced.OfficerNameAtSource, announced.MessageRoot, announced.SoundId)
+                                { TextAtSource = announced.TextAtSource, Speaker = announced.Speaker } });
                         return (state with { ArmyDefeatContinuation = Checkpoint(ArmyDefeatResumePoint.AfterRulerTreatment) with
                             { PendingCapturedRulerTreatment = prepared.Request } }, null);
                     }
@@ -426,12 +511,15 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         }
         personAlive = Known(current.ReadPersonNativeValidity(commander), "return_Person_validity") &&
             Known(current.ReadPersonStatus(commander), "return_PersonE6") != 9;
-        if (!duelDeath && personAlive && !returnedByCapture && atHome)
+        //local1418 is first evaluated in the source return/capture segment.
+        //AfterPersonDeath continuations retain null until this point.
+        reclaimDefeatedCommander = !duelDeath && !returnedByCapture && specialCommanderReclaim;
+        if (!duelDeath && personAlive && !returnedByCapture && !specialCommanderReclaim && atHome)
         {
             current.WritePersonSecondLocation(commander, Math.Min(Known(current.ReadBaseObjectLink(captured.VictimHome), "Base4E"), (ushort)1061));
             effects.Add("25B7CE.2EA9A0_same_home_secondE4");
         }
-        else if (!duelDeath && personAlive && !returnedByCapture)
+        else if (!duelDeath && personAlive && !returnedByCapture && !specialCommanderReclaim)
         {
             //The actual remote source creates its Return receiver before the
             //Army enters pending70. Its current second-location still points
@@ -446,11 +534,11 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         }
         return CompleteDestructionTail(state, current, pool, Checkpoint(ArmyDefeatResumePoint.AfterRulerTreatment),
             sourceDate, feedback, projectOwnedRoles, effects, injuryReceipt, captureReceipt, releaseReceipt,
-            custodyReceipt, captureAnnouncement);
+            custodyReceipt, captureAnnouncement, captureAnnouncementAlreadyQueued);
 
         ArmyDefeatContinuation Checkpoint(ArmyDefeatResumePoint point) => CreateDefeatCheckpoint(state,
             current, request, physical, commanderId, force, captured, hex, winner, winnerCommander,
-            winnerBaseValid ? winnerBase : null, sampler, point, captureImmunity);
+            winnerBaseValid ? winnerBase : null, sampler, point, captureImmunity, specialCommanderReclaim, reclaimDefeatedCommander);
     }
 
     private (GameState State, OwnedArmyDestructionReceipt? Receipt) CompleteDestructionTail(GameState state,
@@ -458,7 +546,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback, bool projectOwnedRoles,
         List<string>? sourceEffects = null, PersonArmyInjuryReceipt? injuryReceipt = null,
         PersonArmyCaptureReceipt? captureReceipt = null, RulerCaptureReleaseReceipt? releaseReceipt = null,
-        PersonArmyCaptureWholeReceipt? custodyReceipt = null, ForcedDuelCaptureAnnouncement? captureAnnouncement = null)
+        PersonArmyCaptureWholeReceipt? custodyReceipt = null, ForcedDuelCaptureAnnouncement? captureAnnouncement = null,
+        bool captureAnnouncementAlreadyQueued = false)
     {
         int physical = checkpoint.ArmyPhysicalSlot, id = checkpoint.Defeat.VictimUnitId,
             commanderId = checkpoint.CommanderOfficerId, hex = checkpoint.HexId, home = checkpoint.HomeCityId;
@@ -471,15 +560,16 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             ? ArmyDestructionQueue.ResolveBaseReference(state, current, savedBase) : new BaseReference(BaseKind.City, null);
         bool winnerBaseValid = checkpoint.WinnerBase is not null;
         var force = new ForceReference(checkpoint.VictimForceId);
-        var captured = new ArmyDestructionResourceOwners(new(BaseKind.City, home), new(checkpoint.WinnerForceId));
+        var captured = new ArmyDestructionResourceOwners(ResolveDefeatHome(state, current, checkpoint), new(checkpoint.WinnerForceId));
         TacticSourceSamplerWorld? sampler = checkpoint.SampleDay is int day && checkpoint.SampleSalt is int salt
             ? new(day, salt) : null;
         var effects = sourceEffects ?? new List<string>();
-        //25B801..25B869: native-valid, nondead Person and no special
-        //Army-reclaim suppression. This entry supports ordinary Force1..45,
-        //so the source's Force51/special-native bVar35 is always false here.
-        //Ordinary capture does not suppress14; Return/custody has already run.
-        if (Known(current.ReadPersonNativeValidity(commander), "retreat_speech_Person_validity") &&
+        //The source return segment has evaluated local1418 before this tail.
+        //Only its true special reclaim path suppresses14; ordinary capture
+        //still retains its native speech after Return/custody.
+        bool reclaimCommander = checkpoint.ReclaimDefeatedCommander
+            ?? throw Missing("resume_special_reclaim_not_evaluated");
+        if (!reclaimCommander && Known(current.ReadPersonNativeValidity(commander), "retreat_speech_Person_validity") &&
             Known(current.ReadPersonStatus(commander), "retreat_speech_PersonE6") != 9)
         {
             state = QueueDestructionArmySpeechCurrent(state, current, victim, 14, sourceDate, hex);
@@ -489,7 +579,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         effects.Add("25B89x.230C70_actual_captive_iterator");
         var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);
         state = tracking.State;
-        NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce);
+        state = NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce, sourceDate, feedback, sampler);
         effects.Add("25BAxx.current_manager60_and_nearby_tail");
         var originalHex = current.ReadHexTableReference(hex < 48400 ? hex : 0) ?? throw Missing("current.original_Hex_pointer");
         if (originalHex.PhysicalSlot is int actualHex) current.SetHexRaw1C(actualHex, 0);
@@ -497,6 +587,11 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         var admitted = ArmyPending70Admission.EnqueueCurrentPointer(new(RegistryKind.Army, physical), new Pending(current));
         if (admitted == ArmyPending70AdmissionOutcome.KnownAllocationFailure) throw Missing("branch.pending70_allocation_failure");
         effects.Add("25C180.31F370_pending70");
+        if (reclaimCommander)
+        {
+            state = ReclaimSpecialDefeatedCommanderCurrent(state, current, pool, commander);
+            effects.Add("25C180.Person_manager_unregister_then226480_reset");
+        }
         PersonNormalArmyRewardReceipt? winnerReward = null;
         int? forceGain = null;
         int? winnerUnitId = null;
@@ -543,11 +638,13 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 current.ClearArmyTargetToPlaceholder(index);
         }
         effects.Add("25C4xx.current_manager60_target_clear");
-        if (captureAnnouncement is { } announcement)
+        if (!captureAnnouncementAlreadyQueued && captureAnnouncement is { } announcement)
             feedback.Add(new(null, null) { DuelCaptureAnnouncement = new(announcement.OfficerId,
-                announcement.OfficerNameAtSource, announcement.MessageRoot, announcement.SoundId) });
+                announcement.OfficerNameAtSource, announcement.MessageRoot, announcement.SoundId)
+                { TextAtSource = announcement.TextAtSource, Speaker = announcement.Speaker } });
         return (state, new(physical, id, commanderId, checkpoint.VictimForceId, hex, home, injuryReceipt, effects)
-            { WinnerUnitId = winnerUnitId, WinnerCommanderId = winnerCommander,
+            { CommanderReclaimed = reclaimCommander, VictimHome = checkpoint.VictimHome,
+                WinnerUnitId = winnerUnitId, WinnerCommanderId = winnerCommander,
                 WinnerBaseLocation = winnerBaseValid ? Known(current.ReadBaseObjectLink(winnerBase), "winner_Base4E") : null,
                 WinnerReward = winnerReward,
                 WinnerForce164Gain = forceGain, Capture = captureReceipt, RulerRelease = releaseReceipt, Custody = custodyReceipt,

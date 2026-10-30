@@ -6,8 +6,8 @@ public sealed partial class G1EffectGpuResources
 {
     public G1EffectGpuDrawResources PrepareDrawResources(int runtimeBankIndex,
         ReadOnlyMemory<byte> featureRequest48, G1EffectDrawPacket packet,
-        G1EffectGpuTexture? sourceDefaultTexture = null) =>
-        PrepareDrawResources(PreparePipeline(runtimeBankIndex, featureRequest48, packet),
+        G1EffectGpuTexture? sourceDefaultTexture = null, int? retainedFeatureRow = null) =>
+        PrepareDrawResources(PreparePipeline(runtimeBankIndex, featureRequest48, packet, retainedFeatureRow),
             packet, sourceDefaultTexture);
 
     /// <summary>Execute the ordinary sprite/mesh callback's ordered local
@@ -25,20 +25,50 @@ public sealed partial class G1EffectGpuResources
             throw new ArgumentException("Effect GPU pipeline was selected for different current draw fields.");
         var local = new List<G1EffectGpuTextureBinding>();
         var missing = new List<G1EffectGpuMissing>();
-        // This is A51300 or A50300 with ordinary Effect2 mode. Both bind
-        // primary physical slot0, then optional encoded roles in this order.
-        if (packet.RenderingType is not (7 or 17 or 18 or 22 or 109 or 125 or 126 or 127))
+        // Ordinary A51300/A50300 and the UI capture callback A50E90 share
+        // their first two writes. The capture callback ends there; its image
+        // of the actual current target remains an external renderer input.
+        bool captureSprite = packet.RenderingType is 29 or 38;
+        bool special = G1EffectSpecialTail.IsRenderingType(packet.RenderingType);
+        if (!special && packet.RenderingType is not (7 or 8 or 17 or 18 or 22 or 29 or 38 or 48 or 50 or 103 or 105 or 106 or 109 or 125 or 126 or 127))
             missing.Add(new("TextureCallback", $"Effect pass {packet.RenderingType} needs its actual callback binding producer."));
+        else if (special)
+        {
+            // A50A20/A4F950 write these physical slots before encoded roles.
+            WriteSlot(0, packet.TextureSlot, 0);
+            WriteSlot(1, checked(packet.TextureSlot + 1), 0);
+            WriteToken(3, checked(packet.TextureSlot + 2), false);
+            WriteToken(5, checked(packet.TextureSlot + 3), false);
+            // The mesh callback writes21 before the three optional roles;
+            // the sprite writes it afterwards. It always uses source+2.
+            bool mesh = packet.MeshSubdrawIndex is not null;
+            if (mesh) WriteToken(21, checked(packet.TextureSlot + 2), false);
+            int next = 4;
+            foreach (int role in new[] { 41, 19, 130 })
+                if (WriteToken(role, checked(packet.TextureSlot + next), false)) next++;
+            if (!mesh) WriteToken(21, checked(packet.TextureSlot + 2), false);
+            else if (ResolveToken(63) is not null)
+            {
+                bool enabled = (packet.Flags & 0xC000) != 0;
+                WriteToken(63, checked(packet.TextureSlot + next), !enabled);
+                if (enabled) next++;
+                if (ResolveToken(64) is not null)
+                    WriteToken(64, checked(packet.TextureSlot + next), (packet.Flags & 0x80) == 0);
+            }
+        }
         else
         {
             WriteSlot(0, packet.TextureSlot, 0);
             int increment = (packet.Flags & 4) != 0 ? 1 : 0;
             int next = increment + 1;
             if (WriteToken(21, checked(packet.TextureSlot + next), false)) next = increment + 2;
-            if (increment != 0) next = 4;
-            if (WriteToken(19, checked(packet.TextureSlot + next), false)) next++;
-            if (WriteToken(130, checked(packet.TextureSlot + next), false)) next++;
-            if (packet.MeshSubdrawIndex is not null)
+            if (!captureSprite)
+            {
+                if (increment != 0) next = 4;
+                if (WriteToken(19, checked(packet.TextureSlot + next), false)) next++;
+                if (WriteToken(130, checked(packet.TextureSlot + next), false)) next++;
+            }
+            if (!captureSprite && packet.MeshSubdrawIndex is not null)
             {
                 // A529D0 returns immediately when the first field role is
                 // absent. A disabled field uses the real owner default.

@@ -19,6 +19,11 @@ public partial class OfficerDetailsView
     private Func<bool>? currentAdmission;
     private Action<int>? prioritySelected;
     private int selectedPage;
+    private UiSourceDetailSelector? currentSelector;
+    internal int CurrentOfficerId => publication.OfficerId;
+    internal OfficerDetailSelectionReturn ReadSelectionReturn() => currentSelector?.ReadOfficerReturn(publication.OfficerId)
+        ?? new([publication.OfficerId],publication.OfficerId,null);
+    private int AvailablePages => publication.PageCount.Available ? publication.PageCount.Value : 1;
     private bool currentConfigured;
     private static readonly uint[] PersonPageLayouts = [0x9EA0EB77, 0xA7BDE2D2, 0x7D57CF94];
     private UiAssets CurrentAssets => currentAssets!;
@@ -27,13 +32,14 @@ public partial class OfficerDetailsView
 
     internal void Configure(GameResourceRepository repository, OfficerDetailPublication view,
         PreviewText text, Action close, Func<bool>? admitted = null, Action<int>? choosePriority = null,
-        bool showNavigation = true)
+        bool showNavigation = true, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
     {
         currentConfigured = true;
         currentRepository = repository; currentText = text; publication = view;
         currentAdmission = admitted; prioritySelected = choosePriority;
         currentAssets = new(repository); currentFont = new(repository, text.SourceLocale);
         currentShader = UiSourceSprite.CreateShader();
+        if (showNavigation) ConfigureCommonBackdrop(repository);
         UiSourceHeader? header = showNavigation ? new() { Name = "OfficerDetailsTitle" } : null;
         ConfigureSourcePage("OfficerDetails", header, close);
         currentCanvas = new() { Name = "OfficerSourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
@@ -65,6 +71,19 @@ public partial class OfficerDetailsView
                 pageButtons.Add(button); x += width;
             }
         }
+        if (showNavigation && selection is not null)
+        {
+            currentSelector = new(); currentCanvas.AddChild(currentSelector);
+            // The selector's transparent full-canvas host must remain below
+            // the footer commands so it cannot consume their pointer input.
+            currentCanvas.MoveChild(currentSelector, 2);
+            currentSelector.Configure(repository, CurrentAssets, CurrentShader, CurrentFont, text,
+                selection, InformationListKind.Officers, view.OfficerId, DetailInputAdmitted, select);
+            // Only the selector's actual header, rows and scrollbar accept
+            // input. Its empty full-canvas host must not cover body controls.
+            currentSelector.MouseFilter = MouseFilterEnum.Ignore;
+        }
+        UpdatePageAvailability();
         detailTooltip = new(); currentCanvas.AddChild(detailTooltip);
         detailTooltip.Configure(repository, CurrentAssets, CurrentShader, CurrentFont);
         ShowCurrentPage(0);
@@ -80,15 +99,43 @@ public partial class OfficerDetailsView
     {
         if (!currentConfigured || view.OfficerId != publication.OfficerId)
             throw new InvalidOperationException("Officer details cannot change their inspected identity.");
+        ReplaceCurrentPublication(view);
+    }
+
+    // A caller-owned candidate replaces the inspected person, retaining the
+    // active page and clamping it to this person's actual available pages.
+    internal void SelectCurrent(OfficerDetailPublication view)
+    {
+        if (!currentConfigured) throw new InvalidOperationException("Officer details are not configured.");
+        ReplaceCurrentPublication(view);
+    }
+
+    private void ReplaceCurrentPublication(OfficerDetailPublication view)
+    {
         publication = view;
+        UpdatePageAvailability();
         detailTooltip?.DisplayText(null);
         for (int page = 0; page < currentPages.Length; page++)
         {
             if (currentPages[page] is not { } old) continue;
             old.Hide(); old.GetParent()?.RemoveChild(old); old.QueueFree(); currentPages[page] = null;
         }
-        ShowCurrentPage(selectedPage);
+        ShowCurrentPage(Math.Clamp(selectedPage, 0, AvailablePages - 1));
+        currentSelector?.Select(view.OfficerId);
+        SetMeta("officer_id", view.OfficerId);
         SetMeta("current_unresolved_owners", view.UnresolvedOwners.ToArray());
+    }
+
+    private void UpdatePageAvailability()
+    {
+        if (publication.PageCount.Available && publication.PageCount.Value is not (2 or 3))
+            throw new InvalidDataException("Officer detail page count must be two or three.");
+        // The basic page exists in either source branch. If its owning flag
+        // is unknown, keep that page and expose the missing navigation input.
+        for (int page = 0; page < pageButtons.Count; page++)
+            pageButtons[page].Visible = publication.PageCount.Available && page < AvailablePages;
+        SetMeta("available_page_count", publication.PageCount.Available ? publication.PageCount.Value : -1);
+        SetMeta("page_count_unresolved", publication.PageCount.Available ? "" : "officer-detail.page_count");
     }
 
     private bool DetailInputAdmitted() => currentConfigured && IsVisibleInTree() && CanProcess() &&
@@ -96,6 +143,7 @@ public partial class OfficerDetailsView
 
     private void ShowCurrentPage(int page)
     {
+        if (page < 0 || page >= AvailablePages) return;
         detailTooltip?.DisplayText(null);
         selectedPage = page;
         if (currentPages[page] is null)
@@ -198,7 +246,7 @@ public partial class OfficerDetailsView
     private void AddStandingPortrait(Control body, Rect2 rectangle)
     {
         if (publication.StandingPortrait is not { Available: true, Value: { } route }) return;
-        var layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }.Select(name => DetailSprite(route.ResourceName, name)).ToArray();
+        var layers = route.LoadSprites(DetailSprite);
         var portrait = new UiSourceStandingPortrait { Position = rectangle.Position };
         body.AddChild(portrait); portrait.Configure(currentRepository, CurrentAssets, CurrentShader, layers);
         portrait.Scale = rectangle.Size / portrait.Size;

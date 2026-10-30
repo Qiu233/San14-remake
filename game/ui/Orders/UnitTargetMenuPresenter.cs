@@ -30,6 +30,9 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
     private int? previewHex;
     private bool disposed;
     private UnitTargetMenuMessages? sourceMessages;
+    internal bool IsTargetMenuOpen=>!disposed&&current()&&menu is { } popup&&
+        !popup.IsQueuedForDeletion()&&popup.IsVisibleInTree();
+    internal int? CurrentMenuHexId=>IsTargetMenuOpen?publication?.TargetHexId:null;
     internal IReadOnlyList<int> Waypoints => Selection.Waypoints;
 
     internal UnitTargetMenuPresenter(UnitOrderTargetView view, GameResourceRepository repository, PreviewText text,
@@ -75,7 +78,8 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
             bool executable = option.Action is { } action &&
                 (PlayableWaypointMarch.IsSupportedAction(action) || action.ActionKey == "fire" && SelectedPartition == UnitSelectionPartition.Ordinary ||
                     action is { ActionKey: "capture", Target.Kind: DeploymentTargetKind.Unit } && SelectedPartition == UnitSelectionPartition.Ordinary) ||
-                option.ActionKey == "waypoint" || option.ActionKey == "build" && constructionAvailable && Selection.SelectedCount == 1;
+                option.ActionKey == "waypoint" || option.ActionKey == "build" && constructionAvailable && Selection.SelectedCount > 0 &&
+                    SelectedPartition == UnitSelectionPartition.Ordinary;
             bool enabled = option.Enabled == true && executable && UnitTargetMenuMessages.AllowsPresentation(option);
             entries.Add(new(option.ActionKey, caption, Icon(option.ActionKey), Hint(option), enabled, () =>
             {

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Security.Cryptography;
 
 namespace San14.Data;
 
@@ -29,8 +28,6 @@ public static class AudioCueGraphResources
         if (cues.Length != 1) throw new InvalidDataException("A cue graph name must identify exactly one original cue section.");
         AudioNamedCue cue = cues[0];
         byte[] b = bank.Source.Bytes;
-        if (!Convert.ToHexString(SHA256.HashData(b)).Equals(bank.Source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Audio selection source changed after parsing.");
         int start = cue.SectionOffset, end = checked(start + cue.SectionBytes);
         var nodes = new Dictionary<int, AudioCueGraphNode>();
         var visiting = new HashSet<int>();
@@ -118,12 +115,27 @@ public static class AudioCueGraphResources
     /// <summary>
     /// Reads one static 562FC4B9/A5170472 chain for the non-spatial A0 consumer.
     /// No manager admission, decoder readiness or spatial-request choice is inferred here.
-    /// Static additive rate is retained; delay/start envelopes, duration limits and dynamic fields are rejected.
+    /// Static additive rate and authored group attack/release curves are retained; delays, duration limits and dynamic fields are rejected.
     /// Category keys remain explicit: resolve them against the caller's current CGRS asset.
     /// </summary>
     public static AudioCueStaticPlaybackReference ReadSingleStaticNonSpatialReference(
         AudioSelectionBank bank, string cueName)
         => ReadSingleStaticReference(bank, cueName, false);
+
+    public static AudioCueStaticPlaybackReference ReadSingleStaticNonSpatialReference(
+        AudioSelectionBank bank, string cueName, AudioSampleStorage storage)
+        => ReadSingleStaticReference(bank, cueName, false, storage);
+
+    /// <summary>One ordinary static sound, or two authored synchronous sample
+    /// components under 3244E2DF. Each retains its own actual speaker mask;
+    /// a pair is one playback object, never two manager slots.</summary>
+    public static IReadOnlyList<AudioCueStaticPlaybackReference> ReadStaticNonSpatialReferences(
+        AudioSelectionBank bank, string cueName)
+    {
+        var first = ReadSingleStaticReference(bank, cueName, false, stereoChannel: 0);
+        return first.SynchronousComponentIndex is null ? new[] { first } :
+            new[] { first, ReadSingleStaticReference(bank, cueName, false, stereoChannel: 1) };
+    }
 
     /// <summary>Retains the actual spatial mix/filter parameter block. It does
     /// not interpret middleware direction/attenuation fields as a Godot curve.</summary>
@@ -131,8 +143,13 @@ public static class AudioCueGraphResources
         AudioSelectionBank bank, string cueName)
         => ReadSingleStaticReference(bank, cueName, true);
 
+    public static AudioCueStaticPlaybackReference ReadSingleStaticSpatialReference(
+        AudioSelectionBank bank, string cueName, AudioSampleStorage storage)
+        => ReadSingleStaticReference(bank, cueName, true, storage);
+
     private static AudioCueStaticPlaybackReference ReadSingleStaticReference(
-        AudioSelectionBank bank, string cueName, bool spatial)
+        AudioSelectionBank bank, string cueName, bool spatial, AudioSampleStorage? storage = null,
+        int? stereoChannel = null)
     {
         ArgumentNullException.ThrowIfNull(bank);
         ArgumentException.ThrowIfNullOrEmpty(cueName);
@@ -177,7 +194,7 @@ public static class AudioCueGraphResources
             int table = Relative(at, U32(at + pointerField));
             return Relative(at, U32(table));
         }
-        void Header(int at, uint opcode, int minimum)
+        void Header(int at, uint opcode, int minimum, uint allowedFlags = 0)
         {
             Range(at, minimum);
             if (U32(at) != opcode)
@@ -186,7 +203,7 @@ public static class AudioCueGraphResources
             if (size < minimum || size > int.MaxValue)
                 throw new InvalidDataException("Static playback node header length is invalid.");
             Range(at, (int)size);
-            if (U32(at + 12) != 0)
+            if ((U32(at + 12) & ~allowedFlags) != 0)
                 throw new NotSupportedException("Static playback does not implement node flags/functions/selectors.");
         }
         void Neutral(float value, float expected, string field)
@@ -200,27 +217,65 @@ public static class AudioCueGraphResources
         if ((U32(start + 12) & 0xF0000) != 0)
             throw new NotSupportedException("Static playback does not implement cue selectors.");
         int root = SingleChild(start, 32, 36);
-        Header(root, 0x562FC4B9, 0x58);
+        Header(root, 0x562FC4B9, 0x58, 0xF00000);
         int leaf = SingleChild(root, 16, 20);
-        Header(leaf, 0xA5170472, 0x44);
+        int parameters = leaf;
+        int? componentIndex = null;
+        bool requireRegisteredMemorySample = false;
+        float componentGain = 1;
+        uint soundId;
+        if (U32(leaf) == 0x3244E2DF && stereoChannel is int channel)
+        {
+            // 125E7D0/1260AD0 and 1273D90 start all children at the same
+            // cursor. Each component retains its real source speaker lanes.
+            Header(parameters, 0x3244E2DF, 0x4C);
+            if (U32(parameters + 0x14) != 2 || U32(parameters + 0x44) != 0 ||
+                U32(parameters + 0x48) != 0 || U32(parameters + 0x3C) != 0 ||
+                U32(parameters + 0x40) != 0)
+                throw new NotSupportedException("Static stereo sound requires two children without curves, LFE supplement or seek.");
+            int table = Relative(parameters, U32(parameters + 0x18));
+            Range(table, 8);
+            leaf = Relative(parameters, U32(table + channel * 4));
+            Header(leaf, 0x308E2D83, 0x28);
+            if (leaf < parameters + (long)U32(parameters + 4) ||
+                U32(leaf + 0x10) != 0 || U32(leaf + 0x18) != 0 ||
+                U32(leaf + 0x20) != 0 || U32(leaf + 0x24) != 0)
+                throw new NotSupportedException("Static stereo component has an unsupported classification, routing or parameter override.");
+            componentGain = Scalar(leaf + 0x1C);
+            soundId = U32(leaf + 0x14);
+            componentIndex = channel;
+        }
+        else
+        {
+            Header(leaf, 0xA5170472, 0x44, 0x10000);
+            // This flag selects a sample registry entry carrying flag2. It
+            // does not select a looping policy; that belongs to the sample header.
+            requireRegisteredMemorySample = (U32(leaf + 12) & 0x10000) != 0;
+            if (U32(leaf + 0x3C) != 0 || U32(leaf + 0x40) != 0)
+                throw new NotSupportedException("Static playback does not implement parameter curves.");
+            soundId = U32(leaf + 0x14);
+        }
         if (leaf < root + (long)U32(root + 4))
             throw new InvalidDataException("Static sound reference overlaps its group header.");
-        if (U32(root + 0x50) != 0 || U32(root + 0x54) != 0 ||
-            U32(leaf + 0x3C) != 0 || U32(leaf + 0x40) != 0)
+        if (U32(root + 0x50) != 0 || U32(root + 0x54) != 0)
             throw new NotSupportedException("Static playback does not implement parameter curves.");
-        if (U32(leaf + 0x10) != 0)
+        if (U32(parameters + 0x10) != 0)
             throw new NotSupportedException("Static playback does not implement a leaf classification override.");
 
         var group = new AudioCueStaticGroupParameters(root, U32(root + 0x18),
             Scalar(root + 0x1C), Scalar(root + 0x20), Scalar(root + 0x24),
             Scalar(root + 0x28), Scalar(root + 0x2C), Scalar(root + 0x30), Scalar(root + 0x34),
             new(Scalar(root + 0x38), Scalar(root + 0x3C), Scalar(root + 0x40),
-                Scalar(root + 0x44), U32(root + 0x48), Scalar(root + 0x4C)));
-        var sound = new AudioCueStaticSoundParameters(leaf, U32(leaf + 0x14), U32(leaf + 0x10),
-            Scalar(leaf + 0x1C), Scalar(leaf + 0x20), Scalar(leaf + 0x24),
-            Scalar(leaf + 0x28), Scalar(leaf + 0x2C), Scalar(leaf + 0x30),
-            Scalar(leaf + 0x34), Scalar(leaf + 0x38));
-        if (group.LinearGain < 0 || sound.LinearGain < 0 || group.StopReleaseSeconds < 0)
+                Scalar(root + 0x44), U32(root + 0x48), Scalar(root + 0x4C)))
+        {
+            AttackCurve = (AudioCueEnvelopeCurve)((U32(root + 0xC) >> 20) & 3),
+            ReleaseCurve = (AudioCueEnvelopeCurve)((U32(root + 0xC) >> 22) & 3)
+        };
+        var sound = new AudioCueStaticSoundParameters(leaf, soundId, U32(parameters + 0x10),
+            Scalar(parameters + 0x1C), Scalar(parameters + 0x20) * componentGain, Scalar(parameters + 0x24),
+            Scalar(parameters + 0x28), Scalar(parameters + 0x2C), Scalar(parameters + 0x30),
+            Scalar(parameters + 0x34), Scalar(parameters + 0x38));
+        if (group.LinearGain < 0 || sound.LinearGain < 0 || group.StopReleaseSeconds < 0 || group.StartEnvelopeSeconds < 0)
             throw new InvalidDataException("Static playback gain or release duration is negative.");
         Neutral(group.MixMultiplier1, 1, "group mix multiplier1");
         // Zero side-route input is used by the two UI feedback cues; one
@@ -231,7 +286,8 @@ public static class AudioCueGraphResources
         if (spatial && group.MixMultiplier2 < 0)
             throw new InvalidDataException("Static spatial playback side-route gain is negative.");
         Neutral(group.InitialDelaySeconds, 0, "group delay");
-        Neutral(group.StartEnvelopeSeconds, 0, "group start envelope");
+        AudioCueEnvelope.DurationTicks(group.StartEnvelopeSeconds);
+        AudioCueEnvelope.DurationTicks(group.StopReleaseSeconds);
         Neutral(sound.MaximumDurationSeconds, 0, "sound maximum duration");
         Neutral(sound.MixMultiplier, 1, "sound mix multiplier");
         Neutral(sound.InitialDelaySeconds, 0, "sound delay");
@@ -246,18 +302,26 @@ public static class AudioCueGraphResources
         if (!float.IsFinite(rate) || rate <= 0)
             throw new NotSupportedException("Static playback rate exceeds the positive finite player range.");
 
-        AudioNamedSample[] samples = bank.Samples.Where(s => s.SampleId == sound.SoundId).ToArray();
+        AudioNamedSample[] samples = bank.Samples.Where(s => s.SampleId == sound.SoundId &&
+            (storage is null || ((s.Flags & 0x10000) != 0) == (storage == AudioSampleStorage.External))).ToArray();
         if (samples.Length != 1 || samples[0].Headers.Count != 1)
             throw new NotSupportedException("Static playback sound must identify exactly one sample and header.");
         AudioSampleHeader header = samples[0].Headers[0];
-        if (header.TypeId is not (0xE96FD86A or 0x7D43D038))
+        if (requireRegisteredMemorySample && (samples[0].Flags & 2) == 0)
+            throw new InvalidDataException("Audio cue requires a registered memory sample with its actual flag2.");
+        if (componentIndex is not null && (header.NativeChannelMask == 0 ||
+            System.Numerics.BitOperations.PopCount(header.NativeChannelMask) != header.Channels ||
+            (header.NativeChannelMask & ~0x3Fu) != 0))
+            throw new NotSupportedException("Synchronous sound components require explicit source speaker lanes.");
+        if (header.TypeId is not (0xE96FD86A or 0x2EB6CA6F or 0x7D43D038))
             throw new NotSupportedException("Static playback sample metadata format is unsupported.");
         if (header.Channels <= 0 || header.SampleRate <= 0 || header.DeclaredSamples <= 0 ||
             header.LoopStartSample < -1 || header.LoopStartSample >= header.DeclaredSamples)
             throw new InvalidDataException("Static playback sample timing is invalid.");
         return new(new(cue.CueId, cueName, sound.SoundId, start, leaf, bank.Source), group, sound,
             new(samples[0].SectionOffset, header.TypeId, header.IsExternal, header.Channels,
-                header.SampleRate, header.DeclaredSamples, header.LoopStartSample), gain, rate);
+                header.SampleRate, header.DeclaredSamples, header.LoopStartSample), gain, rate)
+            { SourceChannelMask = header.NativeChannelMask, SynchronousComponentIndex = componentIndex };
     }
 
     /// <summary>Reads the ordered gain keys of one classification in an explicit current CGRS
@@ -265,7 +329,6 @@ public static class AudioCueGraphResources
     public static IReadOnlyList<uint> ReadStaticGainCategoryIds(LoadedRdbAsset source, uint classificationId)
     {
         ArgumentNullException.ThrowIfNull(source);
-        VerifyStaticSource(source);
         byte[] bytes = source.Bytes;
         uint U32(int at) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at, 4));
         if (bytes.Length < 80 || !bytes.AsSpan(0, 8).SequenceEqual("CGRS\0\0\0\0"u8) ||
@@ -304,12 +367,6 @@ public static class AudioCueGraphResources
         return Array.AsReadOnly(found);
     }
 
-    private static void VerifyStaticSource(LoadedRdbAsset source)
-    {
-        if (!Convert.ToHexString(SHA256.HashData(source.Bytes)).Equals(source.DecodedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Static playback source changed after parsing.");
-    }
-
 }
 
 /// <summary>Original filter/direction values are retained. The non-spatial A0 consumer's
@@ -319,7 +376,11 @@ public sealed record AudioCueNonSpatialFilterSource(float Direction, float Sprea
 public sealed record AudioCueStaticGroupParameters(int Offset, uint ClassificationId,
     float LinearGain, float MixMultiplier1, float MixMultiplier2, float AdditiveRate,
     float InitialDelaySeconds, float StartEnvelopeSeconds, float StopReleaseSeconds,
-    AudioCueNonSpatialFilterSource FilterSource);
+    AudioCueNonSpatialFilterSource FilterSource)
+{
+    public AudioCueEnvelopeCurve AttackCurve { get; init; }
+    public AudioCueEnvelopeCurve ReleaseCurve { get; init; }
+}
 /// <summary>The three neutral envelope scalars retain their actual source positions;
 /// this reader does not assign unproven timing units to them.</summary>
 public sealed record AudioCueStaticSoundParameters(int Offset, uint SoundId, uint ClassificationId,
@@ -334,4 +395,8 @@ public sealed record AudioCueStaticSampleTiming(int SampleSectionOffset, uint He
 /// StopReleaseSeconds is used on explicit ordinary stop, never baked onto the natural tail.</summary>
 public sealed record AudioCueStaticPlaybackReference(AudioCueSoundReference Sound,
     AudioCueStaticGroupParameters Group, AudioCueStaticSoundParameters Leaf,
-    AudioCueStaticSampleTiming Sample, float LinearGain, float PlaybackRate);
+    AudioCueStaticSampleTiming Sample, float LinearGain, float PlaybackRate)
+{
+    public uint? SourceChannelMask { get; init; }
+    public int? SynchronousComponentIndex { get; init; }
+}

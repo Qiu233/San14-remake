@@ -7,6 +7,8 @@ internal static class BaseAutomaticTacticExecutionSaveFields
 {
     internal static void RejectLegacyFields(JsonObject state, int version)
     {
+        if (version < 181 && state["NormalCombatImmediateContinuation"]?["BaseAutomaticExecution"]?["TargetBase"] is not null)
+            throw new InvalidDataException("Legacy Base automatic tactic contains a future Base target.");
         if (version < 180 && state["NormalCombatImmediateContinuation"]?["BaseAutomaticExecution"] is not null)
             throw new InvalidDataException("Legacy combat continuation contains a future Base automatic execution.");
     }
@@ -23,15 +25,15 @@ internal static class BaseAutomaticTacticExecutionSaveFields
             value["Instructions"] is not JsonArray instructions || instructions.Count != 2 ||
             !A.Instruction(instructions[0], 0) || !A.Instruction(instructions[1], 1) ||
             !I(value, "InstructionIndex", 0, 1) || !I(value, "TargetIndex", 0) ||
-            !I(value, "TargetUnitId", 1) || !I(value, "TargetArmyPhysicalSlot", 0) ||
-            !A.Receiver(value["TargetReceiverId"]) || !I(value, "TargetHexId", 0, 48400) || !I(value, "RequestedLoss") ||
+            !A.Target(value, version) || !I(value, "TargetHexId", 0, 48400) || !I(value, "RequestedLoss") ||
             !Array(value, "DamageContributions", A.Damage) || !Array(value, "Details", A.Detail) ||
             !Array(value, "FirstInstructionResults", A.Result) || !Array(value, "SecondInstructionResults", A.Result) ||
             !Array(value, "ArmyPresentationEffects", A.Effect) || !value.ContainsKey("TroopPrefix") ||
             value["TroopPrefix"] is JsonNode prefix && !Troop(prefix)) throw Invalid();
         var instruction = (JsonObject)instructions[value["InstructionIndex"]!.GetValue<int>()]!;
         int opcode = instruction["Opcode"]!.GetValue<int>();
-        if (opcode is not (1 or 16) || (opcode == 1) != (value["TroopPrefix"] is not null) ||
+        if (opcode is not (1 or 16) || value["TargetBase"] is not null && opcode != 1 ||
+            (opcode == 1) != (value["TroopPrefix"] is not null) ||
             value["TargetIndex"]!.GetValue<int>() >= ((JsonArray)instruction["OrderedHexIds"]!).Count) throw Invalid();
     }
 

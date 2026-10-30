@@ -21,6 +21,8 @@ public sealed record CommanderSelectionView(int ForceId, int? Capacity,
     IReadOnlyList<CommanderSelectionCard> Cards, string? UnresolvedOwner)
 {
     public bool Available => UnresolvedOwner is null;
+    public OfficerInformationPageSet? PageSource { get; init; }
+    public string? GuideText { get; init; }
 }
 
 public sealed record CommanderCardLocation(int? HexId, string? UnresolvedOwner)

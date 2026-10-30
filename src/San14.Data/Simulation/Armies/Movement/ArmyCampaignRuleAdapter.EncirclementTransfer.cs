@@ -8,7 +8,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         RegionEncirclementCandidate component, TransferServiceState? service)
     {
         if (component.BoundaryAreas.Length == 0) return state;
-        if (force is < 1 or > 45) throw OccupationMissing("encirclement_special_force");
         bool Relation(int other) => OccupationKnown(ArmyLogisticsPreparation.ReadNativeRelationGate(state, force, other), "encirclement_relation");
         var hexes = new List<HexReference>();
         foreach (int area in component.CapturedAreas.Concat(component.BoundaryAreas))
@@ -44,7 +43,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         int selectedCity = votes.OrderByDescending(x => x.Value).ThenBy(x => x.Key).Select(x => x.Key).FirstOrDefault();
         int player = OccupationKnown(OwnedCurrentPlayerForce.ReadRawForce3A(state), "encirclement_player");
         bool show = force == player || component.CapturedAreas.Any(a => player != 0 && OccupationKnown(current.ReadAreaCurrentForceSlot(new(a)), "encirclement_movie_previous_force") == player);
-        var working = state;
+        BindOccupationSceneryCurrent(state, current);
+        var working = ConsumeLegacyRegionAnnouncementsCurrent(state, current);
+        var occupationEffects = new List<CampaignEffectRequest>();
         if (show)
         {
             var pending = working.RegionOccupationFollowups!;
@@ -73,11 +74,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (!OccupationKnown(service.ReadPrimaryFlag(bit), "encirclement_service_completion")) { complete = false; break; }
             if (complete) TransferService.SetFlag(0, current, service);
         }
-        var territory = new Dictionary<int, TerritoryState>(working.Territory);
-        var changedCenters = new List<int>();
         foreach (var hex in hexes)
         {
-            int h = hex.PhysicalSlot!.Value;
             int city = selectedCity;
             if (OccupationKnown(current.ReadHexSurfaceCode(hex), "encirclement_surface") is >= 15 and <= 18)
             {
@@ -87,35 +85,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (OccupationKnown(current.ReadBaseForceSlot(original), "encirclement_original_City_force") == force)
                     city = OccupationKnown(original.PhysicalSlot, "encirclement_original_City_identity");
             }
-            if ((GateCaptureTerritorySource.Eligible(working, current, hex, force, false) || EncirclementObjectKind(current, hex) == 3) &&
-                OccupationKnown(current.ReadHexForceSlot(hex), "encirclement_wrapper_force") != force)
-            {
-                if (_occupationSceneryHexes.Contains(h)) throw OccupationMissing("encirclement_scenery_callbacks");
-                if (OccupationKnown(current.ReadHexSurfaceCode(hex), "encirclement_wrapper_surface") is >= 15 and <= 18)
-                {
-                    if (city != 0) working = PrepareRegionCenterTransfer(working, current, hex, force, city, enqueueEncirclement: false);
-                    changedCenters.Add(OccupationKnown(current.ReadHexAreaSlot(hex), "encirclement_changed_Area"));
-                }
-                current.AssignHexForce(hex, force);
-                if (!territory.TryGetValue(h, out var old)) throw OccupationMissing("encirclement_territory_owner");
-                territory[h] = old with { ForceId = force };
-            }
+            //42D6B0 calls the same185D00 with presentation/seed flags0,0
+            //and type3 override1. Its aggregate movie above is independent.
+            working = TransferTerritoryHexCurrent(working, current, hex, force, city,
+                enqueueEncirclement: false, allowType3Override: true, showAppearance: false,
+                date: working.NativeMapSeason?.ThirdDate, borrowedEffects: occupationEffects).State;
             //429370 runs even when185D00 returned false.
             if (EncirclementObjectKind(current, hex) == 4 && Relation(OccupationKnown(
                 current.ReadObjectForceSlot13(EncirclementObject(current, hex)), "encirclement_destroy_Object_force")))
-                throw OccupationMissing("encirclement_hostile_object_destruction_queue");
+                working = DestroyEncirclementObstacleCurrent(working, current,
+                    EncirclementObject(current, hex), occupationEffects);
         }
-        var updatedAreas = new Dictionary<int, AreaState>(working.Areas);
-        foreach (int id in changedCenters.Distinct())
-        {
-            if (!updatedAreas.TryGetValue(id, out var area)) throw OccupationMissing("encirclement_Area_owner");
-            updatedAreas[id] = area with { CityId = AreaCityProjection.FromNative(OccupationKnown(current.ReadAreaCitySlot(new(id)), "encirclement_published_City")),
-                ForceId = force };
-        }
-        var cities = new Dictionary<int, CityState>(working.Cities);
-        foreach (var city in cities.Values.ToArray()) cities[city.Id] = city with {
-            AreaIds = updatedAreas.Values.Where(a => a.CityId == city.Id).Select(a => a.Id).Order().ToArray() };
-        working = working with { Territory = territory, Areas = updatedAreas, Cities = cities };
+        working = AppendOccupationEffectsCurrent(working, occupationEffects);
         int firstArea = component.CapturedAreas[0];
         int firstHex = OccupationKnown(current.ReadAreaHexIndex(new(firstArea)), "encirclement_report_Hex");
         var reportForce = current.ReadForceTableReference(force) ?? throw OccupationMissing("encirclement_report_Force");

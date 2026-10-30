@@ -33,6 +33,7 @@ public sealed class MapProceduralNativeStencilSource
         string name = file switch {
             0x20A8720A when tree => "PB2TREE2-AtGbiI2m",
             0x7FA757FD when tree => "PB2TREE2-GbiI2m",
+            0xDBB601B0 when tree => "PB2TREE2-AtGbi",
             0xA87AFFA6 when provider.Object.ClassId == 0x18EB1E56 => "PB2-AtGbiI2m",
             _ => throw new NotSupportedException("Procedural stencil source does not match these actual closed providers.")
         };
@@ -41,7 +42,8 @@ public sealed class MapProceduralNativeStencilSource
             throw new InvalidDataException("Tree2 normal18 must retain the actual factory dependency17.");
         var container = actualShader.Container;
         var modules = actualShader.ReadConfigurations().Records;
-        string[] names = file == 0x7FA757FD ? ["GBuffer", "Instancing2"] : ["GBuffer", "AlphaTest", "Instancing2"];
+        string[] names = file == 0x7FA757FD ? ["GBuffer", "Instancing2"]
+            : file == 0xDBB601B0 ? ["GBuffer", "AlphaTest"] : ["GBuffer", "AlphaTest", "Instancing2"];
         if (container.NamePrefix != name || !modules.Select(m => m.Name).SequenceEqual(names) ||
             modules[0].RawSecondWord != 2 || modules.Skip(1).Any(m => m.RawSecondWord != 0))
             throw new InvalidDataException("Procedural stencil shader module construction differs from its source.");

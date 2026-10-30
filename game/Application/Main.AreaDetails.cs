@@ -1,41 +1,60 @@
 using Godot;
-using San14.Client.Gameplay;
+using San14.Core;
 using San14.Data;
 
 public partial class Main
 {
-    private IReadOnlyDictionary<int, DetailForceAppearance?> CurrentAreaForces(int areaId)
+    private void ConfigureCurrentAreaDetail(AreaDetailsView view, GameState world, int areaId,
+        Action close, ArmyCampaignRuleAdapter? preparedRules = null, IReadOnlyList<int>? selectionIds = null,
+        Action<InformationDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null)
     {
-        if (_world is null || _campaignComposition is null || !_world.Areas.TryGetValue(areaId, out var area))
-            return new Dictionary<int, DetailForceAppearance?>();
-        var forces = (area.AdjacentAreaIds ?? []).Take(8).Prepend(areaId)
-            .Select(id => _world.Areas.GetValueOrDefault(id)?.HexId)
-            .Where(hex => hex.HasValue && _world.Territory.ContainsKey(hex.Value))
-            .Select(hex => _world.Territory[hex!.Value].ForceId ?? 0);
-        return _campaignComposition.DetailForces(_world, forces);
+        var rules = preparedRules ?? _campaignComposition?.PrepareArmyQueries(world)
+            ?? throw new InvalidDataException("area-information.current_campaign_rules");
+        RetainCommandDetailSpeechWorld(view, next =>
+        {
+            world = next;
+            rules = _campaignComposition!.PrepareArmyQueries(next);
+        });
+        view.Configure(_repository ?? throw new InvalidDataException("area-information.resource_owner"),
+            rules.QueryAreaInformation(world, areaId), _ui, Return,
+            PrepareDetailSelection(rules, world, InformationListKind.Areas, areaId, selectionIds)
+                with { InitialNameSortAscending = initialNameSortAscending },
+            id => RunUiAction(() => view.Apply(rules.QueryAreaInformation(world, id))));
+        void Return()
+        {
+            returnSelection?.Invoke(view.ReadSelectionReturn());
+            close();
+        }
     }
 
-    private void OpenMapAreaDetails(MapSceneView owner, int areaId)
+    private void OpenMapAreaDetails(MapSceneView owner, int areaId, Action? returned = null)
     {
         if (_failed || HasAdministrationPage || HasMilitaryOrderPage || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
             (_sceneView != owner && _residentMap != owner) || _repository is null ||
             _world is null || _selectedSnapshot is null) return;
         var view = new AreaDetailsView();
+        if (_residentMap == owner && _session is { PlayerForceId: not null })
+        {
+            OpenCommandDetails(view, closeDetails => ConfigureCurrentAreaDetail(view, _world, areaId, () =>
+            {
+                if (_commandDetailsView != view) return;
+                closeDetails();
+                returned?.Invoke();
+            }));
+            return;
+        }
         _detailsView = view;
         AddChild(view);
         try
         {
             owner.SetDetailsOpen(true, keepMapVisible: true);
-            view.Configure(_repository, AreaDetailView.Create(_world, _selectedSnapshot, areaId, _ui,
-                new CeAreaDetailQueries(_repository.SourceDirectory, _ui.SourceLocale),
-                _campaignComposition?.PrepareArmyQueries(_world).ReadAreaRepresentativeSurfaceCode(_world, areaId),
-                CurrentAreaForces(areaId),
-                _campaignComposition?.PrepareArmyQueries(_world).ReadAreaDetailMiniMap(_world, areaId)), _ui, () =>
+            ConfigureCurrentAreaDetail(view, _world, areaId, () =>
             {
                 if (_detailsView != view) return;
                 view.Hide(); view.QueueFree(); _detailsView = null;
                 if ((_sceneView == owner || _residentMap == owner) && GodotObject.IsInstanceValid(owner))
                     owner.SetDetailsOpen(false);
+                returned?.Invoke();
             });
             view.RegisterHeader(_sourceHeaders);
         }

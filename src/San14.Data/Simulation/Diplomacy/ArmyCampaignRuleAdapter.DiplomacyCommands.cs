@@ -62,7 +62,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         return tasks.Select(task => new DiplomacyNegotiationRequest(task.Id, task.ForceId, task.TargetForceId,
             task.MemberIds.FirstOrDefault(), task.Kind, task.InitialOffer, task.AllianceMonths,
             task.TargetCityId, task.NegotiationDate ?? throw DiplomacyMissing("negotiation_reached_date"))
-            { Negotiation = task.Negotiation ?? ReadInitialDiplomacyNegotiationCurrent(state, current, task) }).ToArray();
+            { Negotiation = task.Negotiation ?? ReadInitialDiplomacyNegotiationCurrent(state, current, task),
+                RequestedCaptiveOfficerIds=task.RequestedCaptiveOfficerIds,RequestedOffer=task.RequestedOffer }).ToArray();
     }
 
     private CommandResult SubmitDiplomacyCurrent(GameState state, ForceState force,
@@ -80,7 +81,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     ApplyPersonFreedomGovernorCurrent(working, current, home);
                     return OwnedArmyReturnCurrentFields.PublishCurrent(working, current);
-                });
+                },ReadDiplomacyAdvisorOutcomeAtDispatchCurrent);
             return CommandResult.Accept(PersonReturnCommands.PublishCurrent(started, current));
         }
         catch (ArgumentException error) { return CommandResult.Reject(error.Message, "diplomacy.qualification"); }

@@ -4,7 +4,8 @@ namespace San14.Data;
 
 internal static class PersonAreaAppointmentSource
 {
-    internal static int AdditionalCount(GameState state, SourceWorldContext current, int physical)
+    internal static int AdditionalCount(GameState state, SourceWorldContext current, int physical,
+        bool? userSelectionServicePresent = null)
     {
         if (!K(current.ReadPersonNativeValidity(physical), "person_validity")) return 0;
         var force = current.ReadPersonForce(physical) ?? throw Missing("person_force");
@@ -20,8 +21,15 @@ internal static class PersonAreaAppointmentSource
         // Ruler kind2 is two, unlike the kind1 capacity bonus. It still needs
         // the wrapper's current-user and mode gates before taking that path.
         if (status != 1 && (officer.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(officer.MeritState))) return 0;
-        if (state.CampaignEventWorld?.CurrentUserIndex != -1) throw Missing("credit_current_user_gate");
-        if (state.CampaignEventWorld.ScenarioMode == 3) throw Missing("credit_person_selection_mode");
+        if (userSelectionServicePresent is true)
+        {
+            if (state.CampaignEventWorld?.CurrentUserIndex is not sbyte selection) throw Missing("credit_current_user_gate");
+            if (selection != -1) return 0;
+        }
+        else if (userSelectionServicePresent is null && state.CampaignEventWorld?.CurrentUserIndex != -1)
+            throw Missing("credit_current_user_gate");
+        if (state.CampaignEventWorld?.ScenarioMode is not int mode) throw Missing("credit_scenario_mode");
+        if (mode == 3) throw Missing("credit_person_selection_mode");
         if (status == 1) return 2;
         byte stage = K(OfficerMeritSourceAdapter.EncodeStage(officer.MeritState), "credit_stage");
         if (stage == 0) return 0;

@@ -144,11 +144,30 @@ internal static class DuelActorWeightParameters
         ("small-army", 40), ("three-contacts", 40), ("two-contacts", 20),
         ("actor-player-district", 30), ("neighbor-player-district", 30)
     ];
+    // Independently extracted SC file-backed words through the actual
+    // paired campaign consumer. This table does not borrow the TC values.
+    private static readonly (string Name, int Value)[] FreshSc =
+    [
+        ("base", 20),
+        ("trait61", 80),
+        ("trait62", 160),
+        ("older-trait144", 160),
+        ("middle-trait144", 80),
+        ("effect29", 80),
+        ("trait1", 20),
+        ("trait3", 10),
+        ("small-army-threshold", 1000),
+        ("small-army", 40),
+        ("three-contacts", 40),
+        ("two-contacts", 20),
+        ("actor-player-district", 30),
+        ("neighbor-player-district", 30),
+    ];
     internal static void AddFresh(string language, Dictionary<string, int> values,
         IReadOnlyDictionary<string, float> floating)
     {
-        if (language != "TC") return; // No SC table was established by this package.
-        foreach (var row in FreshTc)
+        if (language is not ("TC" or "SC")) return;
+        foreach (var row in language == "SC" ? FreshSc : FreshTc)
         {
             string key = Prefix + row.Name;
             if (values.ContainsKey(key) || floating.ContainsKey(key)) throw DuelOpportunityParameters.Missing("fresh_actor_weight_owner");

@@ -162,18 +162,31 @@ public partial class MapSceneView
                     ? CreateSourceCameraGodotTransform(current.Camera) : null };
             _previewWorld.AddChild(_monthlyAudioWorld);
         }
-        float lastDistance = (float)camera.ControllerState.Distance90;
         return audio.PlayCaptureSoundAsync(managerId, _monthlyAudioWorld, position,
             new(0, _loaded && IsInsideTree(), true, camera.Camera.Matrices.WorldToProjection100),
             () =>
             {
-                if (_sourceMainCameraFrame is { } current) lastDistance = (float)current.ControllerState.Distance90;
-                return lastDistance;
+                if(_sourceMainCameraFrame is not { } current || !_loaded || !IsInsideTree())
+                    throw new OperationCanceledException("capture_audio.camera_retired");
+                var eye=current.Camera.Geometry.Eye;
+                var controllerEye=current.Camera.CurrentPose.Position80;
+                var controller=current.ControllerState;
+                // CApp's current Main view is the same controller owner: its
+                // raw eye is view+20, while the double focus is view+50/+60.
+                // Listener distance uses B; directional panning uses eye.
+                var listener=new System.Numerics.Vector3(
+                    (controllerEye.X+(float)controller.FocusX)*0.5f,
+                    controllerEye.Y,
+                    (controllerEye.Z+(float)controller.FocusZ)*0.5f);
+                return new SpatialSoundCameraFrame(current.Camera.SourceWorldToView,
+                    new(eye.X,eye.Y,eye.Z),(float)controller.Distance90)
+                    { ListenerPosition=listener };
             }, cancellationToken);
     }
 
     private void RetireMonthlyFeedback()
     {
+        RetireOccupationTerritory();
         _monthlyFeedbackLifetime?.Cancel(); _monthlyFeedbackLifetime?.Dispose(); _monthlyFeedbackLifetime = null;
         _monthlyFeedbackDispatches.Clear(); _monthlyTerritoryVisuals.Clear(); _monthlyAudioWorld = null;
         _baseCaptureDispatches.Clear(); _baseCaptureVisuals.Clear();

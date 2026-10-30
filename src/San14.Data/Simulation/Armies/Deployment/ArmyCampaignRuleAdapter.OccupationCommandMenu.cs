@@ -20,7 +20,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return false;
             own = current.ReadArmyUnitForceReference(selected);
             if (!ValidateSelectedSet()) return false;
-            RequireTutorialOwner();
+            if (!TutorialTargetQualification.AllowsHex(package.ReadTutorialControlState(state), current, targetHex,
+                route.HasActiveRouteGroup ? route.FirstActiveWaypointIndex : null))
+                return false;
             return AreaIncluded(new AreaReference(expectedAreaPhysical));
         }
     }

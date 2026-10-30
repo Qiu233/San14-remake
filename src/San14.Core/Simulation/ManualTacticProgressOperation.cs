@@ -12,6 +12,13 @@ public sealed record ManualTacticProgressOperation(string Revision,
     CampaignGroupingCheckpoint Grouping, CampaignServiceChanges ServiceChanges)
 {
     [JsonRequired] public bool ContinueAfterPresentation { get; init; }
+    [JsonIgnore] public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment =>
+        Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ?? Candidate.BaseCaptureContinuation?.PendingCapturedRulerTreatment;
+    [JsonIgnore] public RulerSuccessionRequest? PendingRulerSuccession =>
+        Candidate.PersonDeathContinuation?.PendingSuccession;
+    [JsonIgnore] public bool RequiresAutomaticManualTacticContinuation =>
+        Candidate.ManualTacticExecutionContinuation is not null &&
+        PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
     [JsonIgnore] public TacticPresentationRequest? CurrentPresentation => Presentation is not { } key ? null :
         ManualTacticInterventionState.CopyRequest((key.Kind == TacticPresentationKind.UniqueDirection
             ? Candidate.ManualTacticIntervention!.Directions : Candidate.ManualTacticIntervention!.Effects)[0]);
@@ -31,7 +38,10 @@ public sealed record ManualTacticProgressOperation(string Revision,
             Context.BlockStartSeason.AdvancedCalendarSteps != Request.StartCalendarCycleOrdinal + 3L * BlockIndex ||
             Calendar.NextCalendarCycleOrdinal != Context.BlockStartSeason.AdvancedCalendarSteps || LastStorySequence < 0 ||
             Grouping.Roots is not { Length: 1503 } || Grouping.Roots.Any(x => x > 500) ||
-            !ContinueAfterPresentation && Presentation is null || ContinueAfterPresentation && Presentation is not null)
+            !ContinueAfterPresentation && Presentation is null && Candidate.ManualTacticExecutionContinuation is null ||
+            ContinueAfterPresentation && Presentation is not null ||
+            Candidate.ManualTacticExecutionContinuation is not null && Presentation is not null ||
+            ContinueAfterPresentation && (PendingCapturedRulerTreatment is not null || PendingRulerSuccession is not null))
             throw new InvalidDataException("Manual tactic continuation is incomplete.");
         Request.ValidateNormalPeriod(committed);
         GameEngine.ValidateWorldIdentity(committed, Candidate); Context.Validate(Candidate);

@@ -56,6 +56,19 @@ public sealed partial class GameSimulation
         }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor
             ?? throw new InvalidOperationException("The normal period has no waiting cursor.");
+        if (cursor is { StageIndex: 0, AwaitingIntelligenceTaskId: not null })
+            return CommandResult.Reject("The campaign is awaiting its actual intelligence narration or continuation.",
+                "command.pending_intelligence_narration");
+        if (cursor is { StageIndex: 0, AwaitingCaravanTaskId: int caravanId })
+        {
+            if (order is not CompleteForeignTradeReportOrder report || report.TaskId != caravanId ||
+                pending.Candidate.PersonnelCommands?.Caravans?.GetValueOrDefault(caravanId) is not { PendingReport: not null })
+                return CommandResult.Reject("The campaign is awaiting this overseas caravan report.", "command.pending_caravan_report");
+            var source = appRandomSnapshot is null ? pending.Candidate : pending.Candidate with { CampaignAppRandom32 = appRandomSnapshot };
+            var completed = GameEngine.ApplyCandidate(source, order, rules, context, authority);
+            if (completed.Accepted) _normalPeriod = new(completed.State!);
+            return completed;
+        }
         if (order is not ConfirmDiplomaticNegotiationOrder confirm || confirm.TaskId != cursor.AwaitingDiplomacyTaskId)
             return CommandResult.Reject("The campaign is awaiting this diplomatic negotiation.", "command.pending_negotiation");
         if (pending.RequiresAutomaticDiplomacyContinuation)
@@ -72,6 +85,8 @@ public sealed partial class GameSimulation
 
     private static void RequireNormalPeriodConfirmed(NormalPeriodOperation pending)
     {
+        if (pending.Candidate.AutomaticEmperorCapture?.PendingDecision is not null || AutomaticEmperorCaptureLifecycle.IsPresentationPending(pending.Candidate))
+            throw new InvalidOperationException("The emperor capture requires its actual choice or presentation receipts.");
         if (pending.PendingRulerSuccession is not null || pending.PendingCapturedRulerTreatment is not null)
             throw new InvalidOperationException("The ruler decision requires a player response.");
         if (pending.Candidate.NativeNormalTurnContinuation is { } turn)
@@ -84,9 +99,22 @@ public sealed partial class GameSimulation
         }
         var cursor = pending.Candidate.NativePeriodContinuation?.Cursor
             ?? throw new InvalidOperationException("The normal period has no continuation cursor.");
+        if (cursor is { StageIndex: 0, AwaitingIntelligenceTaskId: not null })
+        {
+            if (!pending.RequiresAutomaticIntelligenceContinuation)
+                throw new InvalidOperationException("The intelligence narration requires its actual completion.");
+            return;
+        }
+        if (cursor is { StageIndex: 0, AwaitingStrategicTaskId: not null }) return;
+        if (cursor is { StageIndex: 0, AwaitingCaravanTaskId: not null })
+        {
+            if (!pending.RequiresAutomaticCaravanContinuation)
+                throw new InvalidOperationException("The overseas caravan report requires its actual completion.");
+            return;
+        }
         if (cursor.StageIndex == 6)
         {
-            if (!pending.RequiresAutomaticOrdinaryTacticContinuation)
+            if (!pending.RequiresAutomaticTacticPresentationContinuation && !pending.RequiresAutomaticManualTacticContinuation)
                 throw new InvalidOperationException("Ordinary tactic effects still require their actual presentation lifecycle.");
             return;
         }

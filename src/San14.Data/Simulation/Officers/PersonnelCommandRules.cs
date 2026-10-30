@@ -5,7 +5,10 @@ namespace San14.Data;
 /// <summary>Current explicitly resolved inputs, independent of image initial values.</summary>
 public sealed record PersonnelCommandContext(int? CommandBooksCost,
     int? ConfiscationPenalty, bool? IsHiredOfficer,
-    PersonnelLoyaltyGuards? LoyaltyGuards, string Revision);
+    PersonnelLoyaltyGuards? LoyaltyGuards, string Revision)
+{
+    public int? ChargedDistrictId { get; init; }
+}
 
 public interface IPersonnelCommandContext
 {
@@ -61,8 +64,10 @@ public sealed class PersonnelCommandRules(IPersonnelCommandContext context,
                 return Unknown("personnel.loyalty_result");
             delta = result - loyalty;
         }
-        DistrictState[] headquarters = state.Districts.Values.Where(district => district.ForceId == force.Id &&
-            (district.Number == 1 || force.RulerId is int ruler && district.LeaderId == ruler)).ToArray();
+        DistrictState[] headquarters = current.ChargedDistrictId is int actualDistrict
+            ? state.Districts.Values.Where(district => district.Id == actualDistrict && district.ForceId == force.Id).ToArray()
+            : state.Districts.Values.Where(district => district.ForceId == force.Id &&
+                (district.Number == 1 || force.RulerId is int ruler && district.LeaderId == ruler)).ToArray();
         // The source falls back to physical district slot zero. Generic Core IDs
         // do not retain that storage position, so missing or ambiguous HQ remains unknown.
         if (headquarters.Length != 1) return Unknown("personnel.headquarters_district");

@@ -28,7 +28,9 @@ public partial class Main
         if (_monthlyFeedback is { } previous && IsMonthlyFeedbackCurrent &&
             ReferenceEquals(previous.Request, request)) return previous.Running;
         CloseMonthlyFeedback();
-        if (_sceneAudioBinding is not { } audio)
+        bool retirement=MapObjectPresentationSources.IsRetirement(entry.Source,request.MapObjectPresentation);
+        var audio=_sceneAudioBinding;
+        if (!retirement&&audio is null)
             throw new InvalidOperationException("Monthly map feedback needs the active scene audio owner.");
         var feedback = new MonthlyFeedbackWorkspace(session, world, map, request);
         _monthlyFeedback = feedback;
@@ -41,19 +43,34 @@ public partial class Main
         {
             try
             {
-                var result = request.MapObjectPresentation is { } capture
-                    ? await map.DispatchBaseCaptureFeedbackAsync(capture, audio, feedback.Lifetime.Token)
-                    : await map.DispatchMonthlyTerritoryFeedbackAsync(request.MonthlyMaintenance!, audio, feedback.Lifetime.Token);
+                MonthlyTerritoryFeedbackDispatch result;
+                bool obstacle=MapObjectPresentationSources.IsDestruction(entry.Source,request.MapObjectPresentation);
+                if(retirement)
+                    result=await map.DispatchMapObjectRetirementAsync(request.MapObjectPresentation!,world,feedback.Lifetime.Token);
+                else if(obstacle)
+                {
+                    var projection=_campaignComposition!.PrepareArmyQueries(world).QueryOccupationObstaclePresentation(world,request.MapObjectPresentation!);
+                    if(!projection.Available)throw new InvalidDataException(projection.UnresolvedInput);
+                    result=await map.DispatchOccupationObstacleAsync(projection.Value!,audio!,feedback.Lifetime.Token);
+                }
+                else result=request.MapObjectPresentation is{} capture
+                    ?await map.DispatchBaseCaptureFeedbackAsync(capture,audio!,feedback.Lifetime.Token)
+                    :await map.DispatchMonthlyTerritoryFeedbackAsync(request.MonthlyMaintenance!,audio!,feedback.Lifetime.Token);
                 if (_monthlyFeedback != feedback || !IsMonthlyFeedbackCurrent) return;
                 //The actual source camera/pool may cull a visual attempt.
                 //That terminal outcome is distinct from a missing consumer.
                 if (result.ConsumersCompleted)
                 {
-                    if (session.TryCompletePersonnelPresentation(world, entry.BatchSequence, entry.RequestIndex))
+                    bool completed=obstacle||retirement?session.TryCompleteOccupationMapObjectPresentation(world,entry.BatchSequence,entry.RequestIndex,request.MapObjectPresentation!):
+                        session.TryCompletePersonnelPresentation(world,entry.BatchSequence,entry.RequestIndex);
+                    if (completed)
+                    {
+                        if(retirement)map.ForgetMapObjectRetirementPresentation(request.MapObjectPresentation!);
                         map.ForgetCaptureFeedback(request);
+                    }
                 }
                 else if (result.UnresolvedInput is { } missing)
-                    GD.PushWarning("Monthly map feedback: " + missing);
+                {GD.PushWarning("Monthly map feedback: " + missing);_personnelPresentationInspectedOwner=world;}
             }
             catch (OperationCanceledException) when (feedback.Lifetime.IsCancellationRequested) { }
             catch (Exception error)

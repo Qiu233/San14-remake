@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../../NamedMapRenderer.h"
 #include <filesystem>
 #include <fstream>
@@ -6,7 +7,7 @@
 namespace San14::Render::Interop {
 inline NamedMapRendererDeclaration readNamedMapRendererDeclaration(
     const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    NativePreparedInputFile input(path, std::ios::binary);
     std::uint32_t magic{};
     NamedMapRendererDeclaration result;
     auto read = [&](auto& value) {

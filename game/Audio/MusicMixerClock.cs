@@ -14,9 +14,9 @@ internal sealed class MusicMixerClock : IDisposable
     private ulong last;
     private bool disposed;
 
-    internal MusicMixerClock(ulong owner)
+    internal MusicMixerClock(ulong owner, string role = "Music")
     {
-        BusName = "San14MusicClock" + owner;
+        BusName = "San14" + role + "Clock" + owner;
         if (AudioServer.GetBusIndex(BusName) >= 0) throw new InvalidOperationException("Music clock already exists.");
         int bus = AudioServer.BusCount;
         AudioServer.AddBus();

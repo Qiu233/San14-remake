@@ -26,6 +26,7 @@ internal partial class TransportSetupView : Control
     private MapFont? font;
     private Shader? shader;
     private Control canvas = null!, body = null!;
+    internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
     private UiSourceHeader header = null!;
     private UiSourceRoundButton confirm = null!, back = null!;
     private AreaAdministrationOfficerView officer = null!;
@@ -63,13 +64,9 @@ internal partial class TransportSetupView : Control
         unknown = text.Get("detail_unknown");
         assets = new(repository); font = new(repository, text.SourceLocale);
         shader = UiSourceSprite.CreateShader();
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
         canvas = new Control { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        // Same CCmnBlur resource and static endpoint already used by the
-        // ordinary Make view. Transport owns a separate backdrop control.
-        var backdrop = new UiSourceLayout(repository, 0xAEF1609E);
-        backdrop.Blur(canvas, 1, backdrop.Rectangle(1), weightInput: 100);
-        backdrop.Blur(canvas, 2, backdrop.Rectangle(2), weightInput: 100);
         // The exact installed geometry is consumed, never an ordinary-Make
         // substitute. The first actual load is still a separate verification.
         var page = new UiSourceLayout(TransportSetupLayoutSource.Load(repository));
@@ -116,6 +113,9 @@ internal partial class TransportSetupView : Control
         foreach (var node in narration.Nodes.Where(n => n.Type is 1 or 3))
             narration.Art(canvas, node.Index, narration.Rectangle(node.Index, hintMount), assets, shader);
         hint = narration.Text(canvas, narration.Nodes.Single(n => n.Type == 2).Index, hintMount, "", font);
+        string returnHint=new AdministrationMessages(repository,text.SourceLocale).Format(0x2733);
+        back.MouseEntered+=()=>{if(Admitted())hint.Text=returnHint;};
+        back.MouseExited+=()=>{if(!abandoned&&presentation is {} shown)hint.Text=shown.Hint;};
         header = new UiSourceHeader { Name = "TransportHeader" }; canvas.AddChild(header);
         header.Configure(repository, assets, shader, font, Message(0x26B));
         SetMeta("source_layout", page.Source.Source.ResourceUri);
@@ -212,7 +212,7 @@ internal partial class TransportSetupView : Control
         {
             bool known = value.ValueKnown && value.ProfileKnown;
             sliders[kind].SetValue(known ? value.Value : 0, value.ProfileKnown ? value.Maximum : 0,
-                active && value.Enabled && known);
+                active && value.Enabled && known && value.Maximum > value.Minimum);
             numbers[kind].Caption = value.ValueKnown ? Number(value.Value) : unknown;
             numbers[kind].Disabled = !active || !value.Enabled || !known;
         }
@@ -272,5 +272,5 @@ internal partial class TransportSetupView : Control
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - canvas.Size * scale) / 2;
     }
     public override void _ExitTree()
-    { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    { Abandon(); CommonBackdrop = null!; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
 }

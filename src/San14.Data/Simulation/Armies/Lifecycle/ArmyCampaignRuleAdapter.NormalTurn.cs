@@ -12,7 +12,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (state.NativeNormalTurnContinuation is { } continuation)
         {
-            if (continuation.NextAction is not (3 or 7 or 8 or 16 or 26 or 48 or 49) ||
+            if (continuation.NextAction is not (3 or 7 or 8 or 12 or 16 or 26 or 48 or 49) ||
                 state.PersonDeathContinuation is not null ||
                 continuation.PendingSelfRecommendation is not null || continuation.PendingCoalitionInvitation is not null)
                 throw AppearanceTurnMissing("normal_turn_requires_player_decision");
@@ -53,6 +53,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                     monthStart && season.ThirdDate.Month == 1, monthStart,
                     continuation.RestoreAppRandomState, grouping, groups,
                     continuation.NextAction == 3 ? 4 : continuation.NextAction == 7 ? 8 : 9);
+                state = early.State;
+                if (early.Stop) return RestoreNormalTurnAppAfterExit(state, continuation.RestoreAppRandomState);
+                if (state.NativeNormalTurnContinuation is not null) return state;
+                firstAction = 17;
+            }
+            else if (continuation.NextAction == 12)
+            {
+                state = state with { NativeNormalTurnContinuation = null };
+                var early = ApplyNormalTurnEarlyActionsCurrent(state, current, pool,
+                    monthStart && season.ThirdDate.Month == 1, monthStart, continuation.RestoreAppRandomState,
+                    grouping, groups, firstAction: 12);
                 state = early.State;
                 if (early.Stop) return RestoreNormalTurnAppAfterExit(state, continuation.RestoreAppRandomState);
                 if (state.NativeNormalTurnContinuation is not null) return state;

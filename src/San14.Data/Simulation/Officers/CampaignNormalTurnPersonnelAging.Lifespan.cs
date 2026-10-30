@@ -22,7 +22,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (unchecked((uint)setting) > 1) return state;
             var season = state.NativeMapSeason ?? throw Missing("lifespan_World34");
             if (unchecked(world.ElapsedPeriodOffset + (int)season.AdvancedPeriods) <= 36) return state;
-            if (package.Seed.Language != "TC") throw Missing("lifespan_SC_27C3F0_owner");
+            //TC27C3F0 and SC27C0F0 share the complete monthly algorithm;
+            //the domain readers already retain each version's Person layout.
+            if (package.Seed.Language is not ("TC" or "SC")) throw Missing("lifespan_source_language");
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Missing("lifespan_shared_pool");
             //Normal Turn's route capture does not bind the separately saved
@@ -145,10 +147,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (parameters.Float32Values.ContainsKey(LifespanYearExtensionKey))
                 throw Missing("lifespan_year_extension_integer");
             if (parameters.Int32Values.TryGetValue(LifespanYearExtensionKey, out int saved)) return saved;
-            //TC typed/data.tsv254848: immutable1A4A430 signed i32=20.
-            //A saved semantic override remains authoritative; no old owner or
-            //unrelated notification offset is installed or substituted here.
-            return package.Seed.Language == "TC" ? 20 : throw Missing("lifespan_year_extension_SC");
+            //Independent immutable signed-i32 source reads: TC1A4A430 and
+            //SC1A4B460 are both20, reached by each version's monthly scan
+            //and death-rate callers. Saved semantic overrides remain first.
+            return package.Seed.Language is "TC" or "SC" ? 20
+                : throw Missing("lifespan_year_extension_language");
         }
 
         private OfficerLifespanState LifespanPerson(int physical)

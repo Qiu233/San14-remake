@@ -67,7 +67,10 @@ public static class AudioLegacyMusicResources
         if (groupParameters.PrimaryGain < 0 || groupParameters.SecondaryGain < 0 || groupParameters.StopReleaseSeconds < 0 ||
             leafParameters.LinearGain < 0 || leafParameters.MixMultiplier < 0)
             throw new InvalidDataException("Legacy static gain or release duration is negative.");
-        AudioNamedSample[] matches = bank.Samples.Where(sample => sample.SampleId == leafParameters.SoundId).ToArray();
+        //6282CA29 looks up the external registry. A bank can also contain an
+        //internal sample with the same key, which belongs to a different pool.
+        AudioNamedSample[] matches = bank.Samples.Where(sample => sample.SampleId == leafParameters.SoundId &&
+            (sample.Flags & 0x10000) != 0).ToArray();
         if (matches.Length != 1 || matches[0].Headers.Count != 1)
             throw new NotSupportedException("Legacy music must resolve one sample with one external header.");
         AudioSampleHeader header = matches[0].Headers[0];

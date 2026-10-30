@@ -25,6 +25,8 @@ internal partial class PersonnelMediationPageView : Control
     private GameResourceRepository repository = null!;
     private UiSourceLayout source = null!;
     private LoadedSprite emptyPortrait = null!;
+    private Control? peopleBackground;
+    private Vector2 peopleBackgroundSize, peopleBackgroundScale;
     private bool busy, abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
@@ -45,7 +47,10 @@ internal partial class PersonnelMediationPageView : Control
             for (int? at = node.Index; at is int current; at = source.Nodes[current].ParentIndex)
                 if (replaced.Contains(current)) { hidden = true; break; }
             if (!hidden && node.Type is 1 or 3)
-                source.Art(chrome.Canvas, node.Index, source.Rectangle(node.Index, mount), chrome.Assets, chrome.SpriteShader);
+            {
+                var art = source.Art(chrome.Canvas, node.Index, source.Rectangle(node.Index, mount), chrome.Assets, chrome.SpriteShader);
+                if (node.Index == 6) { peopleBackground = art; peopleBackgroundSize = art.Size; peopleBackgroundScale = art.Scale; }
+            }
         }
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException("Missing introduction caption.");
@@ -89,6 +94,15 @@ internal partial class PersonnelMediationPageView : Control
     {
         if (abandoned) return;
         publication = value;
+        //798970 resizes only node6's background, not the portraits or page.
+        if (peopleBackground is not null)
+        {
+            float width = value.ShowThird ? peopleBackgroundSize.X : (int)(peopleBackgroundSize.X * 0.67);
+            //Art's child quad has its authored size; scale this one pane's
+            //quad as well as its Control, without scaling sibling content.
+            peopleBackground.Size = new(width, peopleBackgroundSize.Y);
+            peopleBackground.Scale = new(peopleBackgroundScale.X * width / peopleBackgroundSize.X, peopleBackgroundScale.Y);
+        }
         foreach (var (node, field) in fields) field.SetKnownColourLine(value.Fields.GetValueOrDefault(node) ?? "");
         for (int slot = 0; slot < 3; slot++)
         {

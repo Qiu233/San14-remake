@@ -15,7 +15,7 @@ internal partial class AreaAdministrationView : Control
     private AreaAdministrationOfficerSpeechView speech = null!;
     private UiSourceCommandButton dismiss = null!;
     private readonly Dictionary<Control, string?> hoverHints = [];
-    private bool abandoned;
+    private bool abandoned, suspended;
     private Action? returned, accepted, dismissed, chooseOfficer;
     private Action<int>? focusChosen;
 
@@ -27,10 +27,11 @@ internal partial class AreaAdministrationView : Control
         Name = "AreaAdministration"; ZIndex = 3;
         MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new AdministrationPageChrome { Name = "AdministrationChrome" };
         AddChild(chrome);
         chrome.Configure(repository, text, 0x04B7, RequestBack,
-            () => { if (!abandoned) this.accepted?.Invoke(); });
+            () => { if (!abandoned && !suspended) this.accepted?.Invoke(); });
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         var source = new UiSourceLayout(repository, 0xC4464DC9);
         panel = new Control { Name = "RegionPanel", Position = new(460, 127),
@@ -54,21 +55,21 @@ internal partial class AreaAdministrationView : Control
         development.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, text);
         officer = new AreaAdministrationOfficerView { Name = "AreaOfficer", Position = source.Rectangle(13).Position }; panel.AddChild(officer);
         officer.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, text,
-            () => { if (!abandoned) this.chooseOfficer?.Invoke(); },chrome.Canvas);
+            () => { if (!abandoned && !suspended) this.chooseOfficer?.Invoke(); },chrome.Canvas);
         hoverHints[officer.SelectionControl] = new AdministrationMessages(repository, text.SourceLocale).Format(0x56D2);
         var speechRectangle=source.Rectangle(97);
         speech=new AreaAdministrationOfficerSpeechView{Name="OfficerSpeech",Position=speechRectangle.Position,Size=speechRectangle.Size};
         panel.AddChild(speech);speech.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font);
         focuses = new AreaAdministrationFocusView(); panel.AddChild(focuses);
         focuses.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, text,
-            focus => { if (!abandoned) this.focusChosen?.Invoke(focus); });
+            focus => { if (!abandoned && !suspended) this.focusChosen?.Invoke(focus); });
         var dismissRectangle = source.Rectangle(77);
         dismiss = new UiSourceCommandButton { Name = "DismissAreaOfficer", Position = dismissRectangle.Position,
             Size = dismissRectangle.Size, Disabled = true };
         panel.AddChild(dismiss);
         dismiss.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,
             messages.Records[0x029E].Text ?? throw new InvalidDataException("Missing regional dismissal caption."),
-            () => { if (!abandoned) this.dismissed?.Invoke(); });
+            () => { if (!abandoned && !suspended) this.dismissed?.Invoke(); });
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 
@@ -105,7 +106,9 @@ internal partial class AreaAdministrationView : Control
         chrome.ApplyHoverHint(owner is not null && hoverHints.TryGetValue(owner, out var hint) ? hint : null);
     }
     public override void _Process(double delta) => RefreshHint();
-    internal void RequestBack() { if (!abandoned) returned?.Invoke(); }
+    internal void RequestBack() { if (!abandoned && !suspended) returned?.Invoke(); }
+    internal void SetSuspended(bool value)
+    { if(abandoned)return;suspended=value;Visible=!value;SetProcess(!value); }
     internal void Abandon()
     {
         abandoned = true; returned = null; accepted = null; dismissed = null; chooseOfficer = null; focusChosen = null;

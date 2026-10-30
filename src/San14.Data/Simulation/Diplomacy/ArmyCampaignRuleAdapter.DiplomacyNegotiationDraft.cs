@@ -73,13 +73,21 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         try
         {
-            if (Seed.Language != "TC") throw DiplomacyNumericMissing("selector_SC_amount_rules");
+            //Current CE_SC pages/callees and matched offline data prove the
+            //same calculator, threshold and amount constants as CE_TC.
+            if (Seed.Language is not ("TC" or "SC"))
+                throw DiplomacyNumericMissing("selector_amount_locale_" + Seed.Language);
             var q = new DiplomacyQuery(this, state, current, task);
             int home = DNeed(current.ReadPersonFirstLocation(q.Ruler(q.Own)), "selector_ruler_HomeE2");
             var location = BaseLookup.Find(home, current);
             int stock = DNeed(current.ReadBaseResource(location, supplies ? BaseResourceKind.Supplies : BaseResourceKind.Gold), "selector_capital_resource");
             int escrow = supplies ? task.InitialOffer.Supplies : task.InitialOffer.Gold;
             int budget = unchecked(stock + escrow), minimum = supplies ? 10000 : 1000;
+            //19's8068A0 uses a calculator, never the Spy probability presets.
+            if(task.NativeKind==19)
+                return AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Known(
+                    new(budget>=minimum && (supplies?task.RequestedOffer.Supplies:task.RequestedOffer.Gold)==0,
+                        minimum,budget,Array.Empty<int>()));
             bool allowed = supplies ? unchecked(stock + proposal.Supplies) >= minimum : budget >= minimum;
             //823F10/824E30 call808110/808200 only on actual selection.
             //Binary search the first amount reaching90; no random trial.
@@ -93,12 +101,21 @@ public sealed partial class ArmyCampaignRuleAdapter
                 else lower = value + 1;
             }
             int target = threshold >= 0 ? threshold : unchecked(budget - (supplies ? 10000 : 5000));
+            //Phase8 preserves the value already selected on the conditions
+            //page. This also includes the actual first three return-captives
+            //receivers when no money, item or Area takes precedence.
+            if (task.Negotiation?.Stage == DiplomaticNegotiationStage.RecipientCounterOffer)
+                minimum = Math.Max(minimum, q.NegotiationSelectedValueMinimum(proposal, supplies));
             int middle = 0, high = 0;
             if (minimum < target)
             {
-                middle = target < unchecked(minimum * 150) / 100 ? target :
-                    unchecked(unchecked(target - minimum) * 50) / 100 + minimum;
-                high = target;
+                if (target < unchecked(minimum * 150) / 100)
+                    middle = target; //The source leaves the high slot empty.
+                else
+                {
+                    middle = unchecked(unchecked(target - minimum) * 50) / 100 + minimum;
+                    high = target;
+                }
             }
             int maximum = Math.Max(minimum, threshold >= 0 ? Math.Min(threshold, budget) : budget);
             return AreaAdministrationQuery<DiplomacyNegotiationAmountSelection>.Known(
@@ -158,6 +175,26 @@ public sealed partial class ArmyCampaignRuleAdapter
     }
     private sealed partial class DiplomacyQuery
     {
+        internal int NegotiationSelectedValueMinimum(DiplomacyOffer proposal, bool supplies)
+        {
+            //322960/CE_SC322BA0: gold, supplies, Item, Area, then captives.
+            int value = OfferValue(proposal);
+            if (NativeKind == 8 && proposal.Gold <= 0 && proposal.Supplies <= 0 &&
+                proposal.ItemId is not (>= 1 and <= 201) && proposal.AreaId is not (>= 1 and <= 500))
+            {
+                foreach (int id in RequestedCaptives.Take(3))
+                {
+                    int person = DiplomacyLookupPerson(Current, id);
+                    if (Valid(person)) value = unchecked(value + package.ReadDiplomacyCaptiveRansomCurrent(State, Current, person));
+                }
+            }
+            if (value <= 0) return value;
+            //322910/CE_SC322B50 receives (value,0) for gold and
+            //(0,value) for supplies; these are the established typed rules.
+            return supplies ? unchecked((int)((long)Parameter("supplies-value-divisor") * value / 10)) :
+                unchecked((int)((long)value * 100 / Parameter("gold-value-percent")));
+        }
+
         internal int NegotiationRequiredIntelligence(int probability, bool counterPersuasion) =>
             NpcRequiredExpense(probability, counterPersuasion);
         internal int NegotiationAdjustedProbability(int probability, int amount, bool counterPersuasion) =>

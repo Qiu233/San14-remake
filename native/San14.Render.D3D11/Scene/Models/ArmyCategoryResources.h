@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ArmyCategoryInputs.h"
 #include "Accessories/Category2Resources.h"
 
@@ -32,7 +33,7 @@ inline NativeArmyResourceBank prepareNativeArmyResourceBank(ID3D11Device* device
             vertices=sharedCategory2.vertices;controls=sharedCategory2.skinControls;
         }else{
             models=loadNativeModels(device,declaration.directory);
-            std::ifstream names(declaration.directory/"models.txt");std::string relative;
+            NativePreparedInputFile names(declaration.directory/"models.txt");std::string relative;
             if(!names)throw std::runtime_error("Army category model declarations absent");
             while(names>>relative){
                 auto vertex=load(declaration.directory/relative/"vs-b0.bin");auto pixel=load(declaration.directory/relative/"ps-b0.bin");

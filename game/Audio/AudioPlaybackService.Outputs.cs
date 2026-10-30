@@ -27,7 +27,9 @@ public partial class AudioPlaybackService
         if (_originalOutputs is { } current && current.MusicGraph.Source.DecodedSha256 == music.Source.DecodedSha256)
         { current.ValidateHost(); return current; }
         foreach (string channel in _mapMusic.Keys.ToArray()) Stop(channel, "Original audio output resource was replaced.");
-        StopEffects();
+        ForceStopEffects();
+        StopAllSpatial();
+        foreach (string channel in _players.Keys.ToArray()) Stop(channel, "Original audio output resource was replaced.");
         AudioServer.Lock();
         try
         {

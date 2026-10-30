@@ -38,12 +38,14 @@ public sealed partial class SourceWorldContext
 
     internal void CopyArmyReturnTraitInputsTo(SourceWorldContext draft)
     {
+        draft._initialPersonActivation = _initialPersonActivation;
         foreach (var row in _armyReturnTraits) draft._armyReturnTraits.Add(row.Key, row.Value);
         foreach (var row in _personTraitMasks1BC) draft._personTraitMasks1BC.Add(row.Key, row.Value);
         foreach (var row in _personTraitExtras1BE) draft._personTraitExtras1BE.Add(row.Key, row.Value);
     }
     internal void CommitArmyReturnTraitFields(SourceWorldContext draft)
     {
+        _initialPersonActivation = draft._initialPersonActivation;
         Copy(draft._armyReturnTraits, _armyReturnTraits); Copy(draft._personTraitMasks1BC, _personTraitMasks1BC);
         Copy(draft._personTraitExtras1BE, _personTraitExtras1BE);
         static void Copy<K,V>(Dictionary<K,V> source, Dictionary<K,V> target) where K : notnull

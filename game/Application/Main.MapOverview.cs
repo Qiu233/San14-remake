@@ -1,14 +1,17 @@
 using Godot;
+using San14.Core;
 using San14.Client.Gameplay;
 
 public partial class Main
 {
-    private void DrawMap()
+    private void DrawMap() => DrawMap(showBrowserPreview: true);
+
+    private void DrawMap(bool showBrowserPreview, NewGamePreparationTiming? timing = null)
     {
-        if (_mapOverview is not { } content) return;
-        MapOverviewView view = MapOverviewView.Capture(content, _world);
-        if (view.UsesPlayableRules && !_mapSurfaceAttempted && _repository is not null)
+        if (_mapOverview is not { } content || !showBrowserPreview || !DeveloperWorkspaceEnabled) return;
+        if (_world?.RulesetId == PlayableSkeleton.RulesetId && !_mapSurfaceAttempted && _repository is not null)
         {
+            timing?.Mark("overview-surface-build-begin");
             _mapSurfaceAttempted = true;
             try { _mapSurface = MapSurface.Build(_repository, _map!); }
             catch (Exception error)
@@ -16,7 +19,11 @@ public partial class Main
                 _mapHint.Text = _ui.Get("map_surface_fallback");
                 GD.PushWarning(error.ToString());
             }
+            timing?.Mark("overview-surface-build-end");
         }
+        // Formal force selection borrows the actual native map output.
+        // This raster surface belongs only to the visible developer browser.
+        MapOverviewView view = MapOverviewView.Capture(content, _world);
         using Image image = MapOverviewRaster.Draw(view, _mapMode.Selected == 0,
             _selectedForceId, _playerForceId, _mapSurface);
         _mapTexture.Texture = ImageTexture.CreateFromImage(image);

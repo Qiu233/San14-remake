@@ -124,18 +124,23 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableDistrictCommandBu
         try
         {
             if (!state.Districts.ContainsKey(districtId)) throw BudgetMissing("district_owner");
-            var parameters = state.NativeArmySimulation?.Parameters ?? throw BudgetMissing("parameters");
-            if (parameters.Language != Seed.Language || parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language) ||
-                !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("version"), out int version) || version != 1 ||
-                !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("upperBound"), out int upper) ||
-                !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("minimumReturnLimit"), out int minimum))
-                throw BudgetMissing("return_limit_parameters");
-            var current = CaptureOfficerCommandCapacityCurrent(state);
-            var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, parameters.RuleVersion);
-            int leader = BudgetKnown(current.ReadDistrictLeader(districtId), "leader");
-            return BudgetReturnLimit(ReadBudgetPolitics(state, current, abilities, leader), upper, minimum);
+            return ReadDistrictCommandReturnLimitCurrent(state, CaptureOfficerCommandCapacityCurrent(state), districtId);
         }
         catch (InvalidDataException) { return null; }
+    }
+
+    internal int ReadDistrictCommandReturnLimitCurrent(GameState state, SourceWorldContext current, int districtId)
+    {
+        if (!state.Districts.ContainsKey(districtId)) throw BudgetMissing("district_owner");
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw BudgetMissing("parameters");
+        if (parameters.Language != Seed.Language || parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language) ||
+            !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("version"), out int version) || version != 1 ||
+            !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("upperBound"), out int upper) ||
+            !parameters.Int32Values.TryGetValue(DistrictCommandBudgetParameters.Key("minimumReturnLimit"), out int minimum))
+            throw BudgetMissing("return_limit_parameters");
+        var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language, parameters.RuleVersion);
+        int leader = BudgetKnown(current.ReadDistrictLeader(districtId), "leader");
+        return BudgetReturnLimit(ReadBudgetPolitics(state, current, abilities, leader), upper, minimum);
     }
 
     private static int ReadBudgetPolitics(GameState state, SourceWorldContext current,

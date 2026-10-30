@@ -95,8 +95,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Appearance)
             {
                 var appeared = package.TryAdvanceOrdinaryAppearance(state, moment);
-                return appeared.State is { } continued
-                    ? new(continued, "army.progress.ordinary-appearance") : null;
+                if (appeared.State is not { } continued)
+                    throw new InvalidDataException(appeared.UnresolvedOwner ??
+                        "army.progress.ordinary-appearance.current-inputs");
+                return new(continued, "army.progress.ordinary-appearance");
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Occupation)
             {

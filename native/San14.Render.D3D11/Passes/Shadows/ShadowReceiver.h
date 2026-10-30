@@ -23,6 +23,7 @@ struct NativeSourceShadowReceiver {
     bool rasterPrepared{},blendPrepared{};
     explicit NativeSourceShadowReceiver(const NativeShadowReceiverResources& resources,std::uint32_t index)
         :node(resources.node(index)) {
+        material.shadow.emplace(ShadowReceiverShadowValues::allocateFresh());
         for(const auto id:{node.primary,node.noSub})shaderStates.try_emplace(id,resources.provider(id).bank);
     }
     void preparePipeline(ID3D11Device* device,ID3D11RasterizerState* currentRaster,ID3D11BlendState* currentBlend) {
@@ -53,8 +54,11 @@ struct NativeSourceShadowReceiver {
         }
     }
     DepthPair& depth(ID3D11Device* device,const D3D11_DEPTH_STENCIL_DESC& entry,std::uint32_t group) {
-        const UINT function=node.process||group?D3D11_COMPARISON_EQUAL:D3D11_COMPARISON_NOT_EQUAL;
-        const BYTE readMask=BYTE(node.process?(0xf0u|(~group&15u)):group?(~group&15u):255u);
+        // EBCD70 passes the same Equal/read-mask pair for process50/60,
+        // retaining their distinct stencil reference (the process value).
+        const bool maskedProcess=node.process==0x50||node.process==0x60;
+        const UINT function=maskedProcess||group?D3D11_COMPARISON_EQUAL:D3D11_COMPARISON_NOT_EQUAL;
+        const BYTE readMask=BYTE(maskedProcess?(0xf0u|(~group&15u)):group?(~group&15u):255u);
         auto found=std::find_if(depths.begin(),depths.end(),[&](const auto& value) {
             return value.comparison==entry.DepthFunc&&value.writeMask==entry.StencilWriteMask&&
                 value.readMask==readMask&&value.stencilFunction==function;
@@ -153,7 +157,12 @@ inline void executeSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext
     const NativeShadowReceiverResources& resources,ID3D11ShaderResourceView* shadow,
     ID3D11ShaderResourceView* depth,std::uint32_t depthObject,const source_current_season::Frame& current,
     const PreparedMapView& view,const SkyPatternPalette& palette,float commonClock) {
-    if(!(view.frame().activeGroups&0x9fffffffu)||(receiver.node.process&&!view.frame().oceanGroups))return;
+    const auto activeGroups=view.frame().activeGroups&0x9fffffffu;
+    // Only process50 replaces View19AC with View19B0. The later process60
+    // receiver still consumes the ordinary current active-group mask.
+    const bool ocean=receiver.node.process==0x50;
+    if(!activeGroups||(ocean&&!view.frame().oceanGroups))return;
+    const auto receiverGroups=ocean?view.frame().oceanGroups:activeGroups;
     if(depthObject!=receiver.node.depthObject)throw std::runtime_error("Receiver depth declaration does not match its actual producer");
     const bool special=palette.atmosphere&&current.shadowReceiver.patternCameraBranch!=5;
     const auto providerId=(view.frame().subShadowPrimitiveCount&15)==0?
@@ -172,8 +181,7 @@ inline void executeSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext
             palette.selected?palette.selected->sampler.Get():resources.fallback().sampler.Get()}:
             resources.ordinaryLit(light.object,current.patternCamera.mergedOverrideEnabled);
         const auto groups=special?std::vector<ShadowReceiverPatternGroup>{{15,nullptr}}:
-            prepareShadowReceiverPatternGroups(current.lights,index,receiver.node.process?
-                view.frame().oceanGroups:view.frame().activeGroups&0x9fffffffu);
+            prepareShadowReceiverPatternGroups(current.lights,index,receiverGroups);
         for(const auto& group:groups) {
             const auto changed=special?installShadowReceiverPattern(receiver.material.pattern,current.shadowReceiver.patternScale,
                 palette.selected?&palette.worldToPattern:nullptr):

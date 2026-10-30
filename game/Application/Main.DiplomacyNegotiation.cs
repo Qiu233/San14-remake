@@ -15,6 +15,7 @@ public partial class Main
 
     private void RefreshDiplomaticNegotiation()
     {
+        if (TryResumeCreatedEventResults()) return;
         if (RefreshNormalTurnContinuation()) return;
         if (_diplomacyNegotiation is not null || _advancingPeriod || _failed || _shuttingDown ||
             _session is not { PlayerForceId: int player, PendingNormalPeriod: { } pending } session ||
@@ -32,10 +33,16 @@ public partial class Main
         var queries=composition.PrepareArmyQueries(pending.Candidate);
         var request = queries.QueryDiplomacyNegotiations(pending.Candidate, player).FirstOrDefault();
         if (request is null) return;
-        bool spy=request.Negotiation?.Stage is not DiplomaticNegotiationStage.RecipientDecision&&
+        bool editable=request.Kind==DiplomaticMissionKind.Exchange||
+            request.Kind!=DiplomaticMissionKind.DemandSurrender&&
+            request.Negotiation?.Stage is not DiplomaticNegotiationStage.RecipientDecision&&
             (request.Negotiation is not null||player==request.ForceId);
-        var draft=spy?queries.OpenDiplomacyNegotiationDraft(pending.Candidate,request,player,new(_presentationRandom.State)):null;
+        var draft=editable?queries.OpenDiplomacyNegotiationDraft(pending.Candidate,request,player,new(_presentationRandom.State)):null;
         var page=draft?.Page??queries.QueryDiplomacyNegotiationPage(pending.Candidate,request,player);
+        var appearances=composition.DetailForces(pending.Candidate,[request.ForceId,request.TargetForceId]);
+        var people=request.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange
+            ?PrepareDiplomacyArrivalVisuals(queries,pending.Candidate,request,page.DisplayedForceId) with
+                {DisplayedForceAppearance=appearances.GetValueOrDefault(page.DisplayedForceId)}:null;
         if(draft?.AppRandomState is {} openedRandom)_presentationRandom.InstallCommittedState(openedRandom.State);
         var view = new DiplomacyNegotiationView(); _diplomacyNegotiation = view; AddChild(view);
         _diplomacyNegotiationCurrent=Current;
@@ -44,20 +51,44 @@ public partial class Main
         void Submit(bool accepted)=>RunUiAction(() =>
         {
             if (!Current() || _advancingPeriod) return;
+            if(accepted&&request.Kind==DiplomaticMissionKind.DemandSurrender&&player==request.TargetForceId)
+            {ConfirmSurrender();return;}
+            Commit(accepted);
+        });
+        void Commit(bool accepted)
+        {
+            if(!Current()||_advancingPeriod)return;
             var choice = draft?.BuildOrder(accepted)??new ConfirmDiplomaticNegotiationOrder(player, request.TaskId,
                 request.Negotiation?.Proposal??request.InitialOffer,accepted);
             CloseDiplomaticNegotiation();
             _advancingPeriod = true;
             _periodAdvanceTask = AdvancePlayableAsync(session, composition, campaignChoice: choice);
-        });
+        }
+        void ConfirmSurrender()
+        {
+            if(_diplomacyNegotiationAuxiliary is not null)return;
+            var question=new DeploymentTargetConfirmation();_diplomacyNegotiationAuxiliary=question;
+            view.SuspendBody();view.AddChild(question);
+            try
+            {
+                question.ConfigureGameMessage(_repository,_ui,0x2F02,confirmed=>RunUiAction(()=>
+                {
+                    if(!Current()||_diplomacyNegotiationAuxiliary!=question)return;
+                    CloseDiplomaticNegotiationAuxiliary();
+                    if(confirmed)Commit(true);
+                }));
+                question.Name="DiplomacySurrenderConfirmation";
+            }
+            catch{CloseDiplomaticNegotiationAuxiliary();throw;}
+        }
         if(draft is not null)
             view.ConfigureTerms(_repository,pending.Candidate,draft,player,
-                composition.DetailForces(pending.Candidate,[request.ForceId,request.TargetForceId]),
+                appearances,
                 _ui,Current,Submit,()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap),
                 kind=>RunUiAction(()=>ChooseCondition(kind)),()=>RunUiAction(()=>Edit(draft.ClearCondition)),
-                ()=>RunUiAction(CalculateIntelligence),amount=>RunUiAction(()=>Edit(()=>draft.SetMilitaryIntelligence(amount))));
+                ()=>RunUiAction(CalculateIntelligence),amount=>RunUiAction(()=>Edit(()=>draft.SetMilitaryIntelligence(amount))),people);
         else view.Configure(_repository,pending.Candidate,request,player,page,_ui,Current,Submit,
-            ()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap));
+            ()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap),people);
         view.RegisterHeader(_sourceHeaders);
         if (_diplomacyNegotiationNotice is { } message)
         { view.SetNotice(message); _diplomacyNegotiationNotice = null; }
@@ -107,6 +138,12 @@ public partial class Main
             {
                 var query=gold?draft.GoldSelection:draft.SuppliesSelection;
                 if(!query.Available||query.Value is not {Allowed:true} range)return;
+                if(draft.Kind==DiplomaticMissionKind.Exchange)
+                {
+                    Calculate(gold?draft.Offer.Gold:draft.Offer.Supplies,range.Minimum,range.Maximum,
+                        gold?0x020C:0x020D,value=>Edit(()=>{if(gold)draft.SetGold(value);else draft.SetSupplies(value);}),new(860,352));
+                    return;
+                }
                 var amountMenu=new MerchantAmountMenuView();_diplomacyNegotiationAuxiliary=amountMenu;
                 view.SuspendBody();view.AddChild(amountMenu);
                 try
@@ -130,8 +167,8 @@ public partial class Main
             view.SuspendBody();view.AddChild(selector);
             try
             {
-                selector.Configure(_repository,_ui,rows.Select(row=>new DiplomacyTargetChoice(row.Id,row.Name,"")).ToArray(),
-                    item?draft.Offer.ItemId:draft.Offer.AreaId,item?0x0246:0x0202,
+                selector.Configure(_repository,_ui,draft.ReadTargetSelection(item?DiplomacyTargetSelectionKind.Item:DiplomacyTargetSelectionKind.Area),
+                    item?draft.Offer.ItemId:draft.Offer.AreaId,item?0x058C:0x05AF,
                     ()=>Current()&&_diplomacyNegotiationAuxiliary==selector,chosen=>RunUiAction(()=>
                     {
                         if(!Current()||_diplomacyNegotiationAuxiliary!=selector)return;
@@ -150,10 +187,9 @@ public partial class Main
             try
             {
                 var world=pending.Candidate;int force=page.DisplayedForceId;
-                detail.Configure(_repository,CampaignDetailViews.Force(world,_selectedSnapshot,force,_ui,
-                    composition.ForceDetailNameplate(world,force),
-                    composition.PrepareArmyQueries(world).ReadForceDetailMiniMap(world,force)),_ui,
-                    ()=>RunUiAction(()=>CloseDiplomaticNegotiationAuxiliary()));
+                ConfigureCurrentForceDetail(detail,world,force,
+                    ()=>RunUiAction(()=>CloseDiplomaticNegotiationAuxiliary()),
+                    preparedRules:composition.PrepareArmyQueries(world));
                 detail.RegisterHeader(_sourceHeaders);
             }
             catch{CloseDiplomaticNegotiationAuxiliary();throw;}
@@ -185,6 +221,7 @@ public partial class Main
             if(auxiliary is DeploymentCalculatorDialog calculator)calculator.Abandon();
             if(auxiliary is MerchantAmountMenuView amountMenu)amountMenu.Abandon();
             if(auxiliary is DiplomacyTargetSelectionView selector)selector.Abandon();
+            if(auxiliary is DeploymentTargetConfirmation question)question.Abandon();
             auxiliary.Hide();auxiliary.GetParent()?.RemoveChild(auxiliary);auxiliary.QueueFree();
         }
         bool current=_diplomacyNegotiationCurrent?.Invoke()==true;
@@ -201,6 +238,13 @@ public partial class Main
     {
         // These children own their calculator/list cancel behavior.
         if(_diplomacyNegotiationAuxiliary is DeploymentCalculatorDialog or MerchantAmountMenuView or DiplomacyTargetSelectionView)return;
+        if(_diplomacyNegotiationAuxiliary is DeploymentTargetConfirmation question)
+        {
+            if(input is InputEventKey {Keycode:Key.Escape,Pressed:true,Echo:false}||
+                input is InputEventMouseButton {ButtonIndex:MouseButton.Right,Pressed:false})
+            {GetViewport().SetInputAsHandled();RunUiAction(question.RequestCancel);}
+            return;
+        }
         if(input is InputEventKey { Keycode:Key.Escape } key)
         {
             GetViewport().SetInputAsHandled();

@@ -84,11 +84,17 @@ public sealed class G1EffectEmitterRuntime
     /// <summary>The module calls this for all emitters before generic update.
     /// Advance can also prepare an emitter when used on its own. A slot/node
     /// outside the actual system root requires its real transform provider.</summary>
-    public void PrepareFrame(float deltaSeconds, Matrix4x4 actualWorldTransform)
+    public void PrepareFrame(float deltaSeconds, Matrix4x4 actualWorldTransform,
+        Func<int, int, Matrix4x4?>? transformProvider = null)
     {
-        if (Frame.PrimaryBindingSlot > 0 || Frame.PrimaryBindingSlot == 0 && Frame.PrimaryNode != 0)
-            throw new NotSupportedException("Outer emitter requires a non-root transform provider.");
-        Frame.Update(Frame.PrimaryBindingSlot < 0 ? null : actualWorldTransform, deltaSeconds, false);
+        Matrix4x4? primary;
+        if (Frame.PrimaryBindingSlot < 0) primary = null;
+        else if (Frame.PrimaryBindingSlot == 0 && Frame.PrimaryNode == 0) primary = actualWorldTransform;
+        else primary = transformProvider?.Invoke(Frame.PrimaryBindingSlot, Frame.PrimaryNode) ??
+            throw new NotSupportedException($"Outer emitter has no actual transform provider for slot {Frame.PrimaryBindingSlot}, node {Frame.PrimaryNode}.");
+        // Mode 0111 takes every component from the primary owner; the unused
+        // secondary binding must not cause an unrelated provider lookup.
+        Frame.Update(primary, deltaSeconds, false);
         Frame.WriteTo(current);
         framePrepared = true;
     }

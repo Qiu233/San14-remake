@@ -5,6 +5,9 @@ namespace San14.Core;
 
 public enum ArmyReceiverPhase { Unknown, Ready, Reserved, Active, Pending }
 
+public enum ArmyReceiverAllocationKind { Unknown, Unavailable, Ready }
+public readonly record struct ArmyReceiverAllocation(ArmyReceiverAllocationKind Kind, ArmyReceiverId? ReceiverId);
+
 /// <summary>A reusable campaign receiver. Pending images remain owned here
 /// after the active unit leaves the world, until retirement cleanup completes.</summary>
 public sealed record ArmyReceiverState(ArmyReceiverId ReceiverId, bool CanAssign,
@@ -59,12 +62,21 @@ public sealed class ArmyReceiverRoster
     /// active and pending receivers remain unavailable until explicit cleanup.</summary>
     public ArmyReceiverId? FirstAssignable()
     {
-        foreach (var entry in Entries.Where(entry => entry.CanAssign))
+        var allocation = ReadFirstAllocation();
+        return allocation.Kind == ArmyReceiverAllocationKind.Ready ? allocation.ReceiverId : null;
+    }
+
+    /// <summary>The actual ordered allocation attempt. Unknown before the
+    /// first ready receiver differs from a known exhausted receiver roster.</summary>
+    public ArmyReceiverAllocation ReadFirstAllocation()
+    {
+        foreach (var entry in Entries)
         {
-            if (entry.Phase == ArmyReceiverPhase.Unknown) return null;
-            if (entry.Phase == ArmyReceiverPhase.Ready) return entry.ReceiverId;
+            if (!entry.CanAssign) continue;
+            if (entry.Phase == ArmyReceiverPhase.Unknown) return new(ArmyReceiverAllocationKind.Unknown, null);
+            if (entry.Phase == ArmyReceiverPhase.Ready) return new(ArmyReceiverAllocationKind.Ready, entry.ReceiverId);
         }
-        return null;
+        return new(ArmyReceiverAllocationKind.Unavailable, null);
     }
 
     public ArmyReceiverRoster With(ArmyReceiverState entry)

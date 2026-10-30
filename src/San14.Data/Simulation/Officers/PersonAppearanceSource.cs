@@ -84,7 +84,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     {
                         actualForce = Force(person);
                         var player = current.ReadCurrentPlayerForce() ?? throw Missing("tail_player_force");
-                        if (actualForce == player) Transfer().RefreshTransferService(1, 1, 0);
+                        if (actualForce == player) Transfer(person).RefreshTransferService(1, 1, 0);
                     }
                 }
                 if (Known(current.ReadTemporaryHexListCount(notifications), "notification_count") != 0)
@@ -219,7 +219,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Append(caller, new(RegistryKind.Person, person));
                 var target = BaseLookup.Find(destination, current);
                 var moved = ArmyReturnCommanderHomeUpdater.ApplyPersonCurrent(person, target, current, pool,
-                    new PersonReturnGovernorQueries(latest, package._governorInputs, current), RequireOwnedAssignmentReports);
+                    new PersonReturnGovernorQueries(latest, package._governorInputs, current),
+                    _monthlyAssignmentReports ?? (result => ConsumeOwnedAssignmentReports(person, result)));
                 var packet = moved.Packet ?? throw Missing(moved.UnresolvedOwner ?? "person_home_transfer");
                 if (packet.AssignmentPrecall is not null)
                 {
@@ -467,7 +468,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private void District(int person, byte destination)
         {
             int before = associations.Count;
-            PersonDistrictTransfer.Apply(person, destination, Transfer());
+            PersonDistrictTransfer.Apply(person, destination, Transfer(person));
             if (associations.Count != before)
             {
                 latest = PersonAssignmentPrecallInputs.PublishCurrent(latest, current);
@@ -482,15 +483,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Change(person, p => p with { DistrictId = null, ForceId = null, LocationState = location });
             }
         }
-        private static void RequireOwnedAssignmentReports(PersonAssignmentPrecallResult result)
-        {
-            // The shared business owner has already produced these actual
-            // report operands. No adapter currently converts this family to
-            // ordered semantic pending work; never silently discard it.
-            if (result.Reports.Count != 0)
-                throw Missing("assignment_report_" + result.Reports[0].NativeMessageCode.ToString("X4"));
-        }
-        private IPersonDistrictTransferState Transfer() => ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations, _monthlyAssignmentReports ?? RequireOwnedAssignmentReports);
+        private IPersonDistrictTransferState Transfer(int person) =>
+            ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations,
+                _monthlyAssignmentReports ?? (result => ConsumeOwnedAssignmentReports(person, result)));
         private void SetStatus(int person, byte status)
         {
             current.WritePersonStatus(person, status);

@@ -8,9 +8,8 @@ internal sealed record FacilityConstructionDefinition(int Physical, byte Categor
 
 internal static class FacilityConstructionDefinitions
 {
-    // Explicit consumers: arrow tower, military music stand, fire trap and pit.
-    // Other catalog entries keep their existing unresolved consumers.
-    internal static bool IsSupported(int? physical) => physical is 5 or 7 or 11 or 14;
+    internal static readonly int[] SupportedKinds = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+    internal static bool IsSupported(int? physical) => physical is >=3 and <=17;
 
     internal static FacilityConstructionDefinition Read(SourceWorldContext current, ObjectDefinitionReference reference) =>
         current.ReadFacilityConstructionDefinition(reference) ?? throw Missing("definition_fields");
@@ -27,6 +26,9 @@ internal static class FacilityConstructionDefinitions
 
 public sealed partial class SourceWorldContext
 {
+    //2793F0 reads the live tutorial controller after the ordinary site gates.
+    //Null remains unknown; ordinary definitions never consult this owner.
+    internal Func<bool?>? ConstructionTutorialQualification { get; set; }
     private readonly Dictionary<int, FacilityConstructionDefinition> _facilityConstructionDefinitions = [];
     internal FacilityConstructionDefinition? ReadFacilityConstructionDefinition(ObjectDefinitionReference reference) =>
         reference.PhysicalSlot is int physical ? _facilityConstructionDefinitions.GetValueOrDefault(physical) : null;

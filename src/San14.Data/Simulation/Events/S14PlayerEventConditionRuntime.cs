@@ -20,6 +20,9 @@ public interface IS14PlayerEventConditionQueries : IS14PersonEventConditionQueri
     // district validity -> district+10 -> force table (0 when invalid or >51).
     S14EventConditionForcePointer? ReadConditionPersonForce(S14EventConditionPersonReference person);
     bool? ReadConditionForceValidity(S14EventConditionForceReference force);
+    int? ReadConditionForceIdentity(S14EventConditionForceReference force) => null;
+    int? ReadConditionForceExperience(S14EventConditionForceReference force) => null;
+    int? ReadConditionAreaIdentity(AreaReference area) => null;
 
     // Complete 32F200 -> force.slot12: world+3A force slot (>51 selects force0).
     int? ReadConditionCurrentPlayerForcePhysicalSlot();
@@ -67,8 +70,13 @@ public interface IS14PlayerEventConditionQueries : IS14PersonEventConditionQueri
     byte? ReadConditionForceRank(S14EventConditionForceReference force) => null;
     RegistryObjectReference? ReadConditionItemTableSlot(int slot) => null;
     bool? ReadConditionItemValidity(RegistryObjectReference item) => null;
+    int? ReadConditionItemIllustrationIndex(RegistryObjectReference item) => null;
+    //95 writes the receiver's raw ID10 even when it fails native validity.
+    ushort? ReadConditionPersonRawCharacterId(S14EventConditionPersonReference person) =>
+        ReadConditionPersonCharacterId(person);
     ushort? ReadConditionItemOwnerId(RegistryObjectReference item) => null;
     ushort? ReadConditionPersonBloodlineId(S14EventConditionPersonReference person) => null;
+    ushort? ReadConditionPersonRelationListIdentity(S14EventConditionPersonReference person, int index, bool like) => null;
     int? ReadConditionForceRegionCityCount(S14EventConditionForceReference force, int region) => null;
     AreaReference? ReadConditionBaseArea(BaseReference reference) => null;
     bool? ReadConditionAreaValidity(AreaReference reference) => null;
@@ -89,6 +97,7 @@ public interface IS14PlayerEventConditionQueries : IS14PersonEventConditionQueri
     int? ReadConditionBaseTroops(BaseReference reference) => null;
     byte? ReadConditionBaseMorale(BaseReference reference) => null;
     int? ReadConditionBaseGold(BaseReference reference) => null;
+    int? ReadConditionBaseSupplies(BaseReference reference) => null;
     IReadOnlyList<S14EventConditionForcePointer>? ReadRegisteredConditionForcePointers() => null;
     bool? ReadConditionForceCoalitionMembership(S14EventConditionForceReference force) => null;
     int? ReadConditionBaseForceSlot(BaseReference receiver) => null;
@@ -109,7 +118,7 @@ public interface IS14PlayerEventConditionQueries : IS14PersonEventConditionQueri
 /// nonnegative person-selector branch; dynamic selectors remain explicit errors.
 /// Current queries are sampled only when the original branch consumes them.
 /// </summary>
-public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
+public sealed partial class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
 {
     private readonly IS14PlayerEventConditionQueries _queries;
     private readonly Func<S14ConditionContext, S14ConditionDispatchInputs> _inputs;
@@ -132,10 +141,12 @@ public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
         _person = new(queries, inputs, basicQueries, RawPersonPointer);
     }
 
-    public static bool IsSupported(int code) => code is 46 or 444 or 452 or 436 or 437 or 431 or 417 or 422 or 423 or 451 or 367 or 372 or 373 or 374 or 12 or 18 or 20 or 21 or 22 or 23 or 24 or 25 or 26 or 27 or 28 or 29 or 30 or 32 or 33 or 34 or 35 or 36 or 37 or 38 or 39 or 40 or 41 or 42 or 47 or 48 or 49 or 50 or 52 or 55 or 56 or 57 or 58 or 65 or 68 or 73 or 74 or 78 or 216 or 225 or 229 or 231 or 243 or 246 or 255 or 264 or 265 or 280 or 282 or 300 or 317 or 335 or 336 or 347 or 355 or 361 or 362 or 363 or 369 or 371 or 378 || S14PersonEventConditionRuntime.IsSupported(code);
+    public static bool IsSupported(int code) => IsMessageParameterConditionCode(code) || IsStoryPresenceConditionCode(code) || IsStoryAggregateConditionCode(code) || code is 46 or 444 or 452 or 436 or 437 or 431 or 417 or 422 or 423 or 451 or 367 or 372 or 373 or 374 or 12 or 18 or 20 or 21 or 22 or 23 or 24 or 25 or 26 or 27 or 28 or 29 or 30 or 32 or 33 or 34 or 35 or 36 or 37 or 38 or 39 or 40 or 41 or 42 or 47 or 48 or 49 or 50 or 52 or 55 or 56 or 57 or 58 or 65 or 68 or 73 or 74 or 78 or 216 or 225 or 229 or 231 or 243 or 246 or 255 or 264 or 265 or 280 or 282 or 300 or 317 or 335 or 336 or 347 or 355 or 361 or 362 or 363 or 369 or 371 or 378 || S14PersonEventConditionRuntime.IsSupported(code);
 
     public bool TryGetBinding(int code, out S14ConditionBinding binding)
     {
+        if (IsMessageParameterConditionCode(code) || IsStoryPresenceConditionCode(code)) { binding = new(0, 1, true); return true; }
+        if (IsStoryAggregateConditionCode(code)) { binding = new(0, 1, true); return true; }
         if (code is 46 or 444 or 452 or 436 or 437 or 431 or 417 or 422 or 423 or 451 or 367 or 373 or 374) { binding = new(0, 1, true); return true; }
         if (code == 372) { binding = new(0, 0, true); return true; }
         if (code is 280 or 282 or 300 or 317 or 335 or 336 or 347 or 355 or 361 or 362 or 363 or 371 or 378) { binding = new(0, 1, true); return true; }
@@ -156,6 +167,10 @@ public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
     public int InvokeLeaf(S14ConditionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (IsMessageParameterConditionCode(context.Operation.Code)) return InvokeMessageParameterCondition(context);
+        if (IsStoryPresenceConditionCode(context.Operation.Code)) return EvaluateStoryPresenceCondition(context) ? 1 : 0;
+        if (IsStoryAggregateConditionCode(context.Operation.Code))
+            return EvaluateStoryAggregateCondition(context).Result ? 1 : 0;
         if (context.Operation.Code is not (46 or 444 or 452 or 436 or 437 or 431 or 417 or 422 or 423 or 451 or 367 or 373 or 374 or 12 or 18 or 20 or 21 or 22 or 23 or 24 or 25 or 26 or 27 or 28 or 29 or 30 or 32 or 33 or 34 or 35 or 36 or 37 or 38 or 39 or 40 or 41 or 42 or 47 or 48 or 49 or 50 or 52 or 55 or 56 or 57 or 58 or 65 or 68 or 73 or 74 or 78 or 225 or 229 or 231 or 243 or 246 or 255 or 264 or 265 or 280 or 282 or 300 or 317 or 335 or 336 or 347 or 355 or 361 or 362 or 363 or 369 or 371 or 378)) return _person.InvokeLeaf(context);
         try
         {
@@ -899,6 +914,11 @@ public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
         if (slot < _targetForces.Length) _targetForces[slot] = force;
     }
 
+    // Execution actions read the same invocation-local selected-force slots
+    // that the condition handlers have actually written, including reset nulls.
+    internal S14EventConditionForceReference? ReadMessageTargetForce(int selector) => selector is >= -5 and <= -2
+        ? _targetForces[-selector - 1] : throw new ArgumentOutOfRangeException(nameof(selector));
+
     private bool SelectForceByBloodline(int rawPerson, int target)
     {
         var person = RawPersonPointer(rawPerson) ?? RawPersonPointer(0);
@@ -997,6 +1017,7 @@ public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
 
     private S14EventConditionCityPointer ResolveCityPointer(int rawCity)
     {
+        if (_storyCityResolver is { } resolve) return resolve(rawCity);
         if (rawCity < -1) throw new InvalidDataException($"Dynamic city selector {rawCity} is unsupported.");
         var city = (rawCity == -1 ? _queries.ReadConditionCurrentPlayerCity() : _queries.ReadConditionCityTableSlot(rawCity < 52 ? rawCity : 0))
             ?? throw new InvalidDataException("Current city selector is unknown.");
@@ -1152,6 +1173,8 @@ public sealed class S14PlayerEventConditionRuntime : IS14EventConditionRuntime
 
     private S14EventConditionPersonReference? RawPersonPointer(int raw)
     {
+        if (raw is >= -14 and <= -10)
+            return (_storyActorResolver ?? throw new InvalidDataException("Story actor context is unavailable."))(raw);
         if (raw is >= -8 and <= -5)
         {
             // These selectors read the same event-local target forces written

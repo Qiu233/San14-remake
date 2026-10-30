@@ -39,7 +39,7 @@ public sealed partial class CampaignNativeProgressRules(ArmyCampaignRuleAdapter 
     {
         if (pending.ContinueAfterPresentation || pending.Revision != Revision || receipt.RequestSequence != pending.Story.Sequence || receipt.Step != pending.Story.NextStep)
             throw Missing("progress_story_receipt");
-        return ContinueAccepted(pending with { Story = pending.Story.CompleteStep(), ContinueAfterPresentation = true });
+        return ContinueAccepted(pending with { Story = pending.Story.CompleteStep(receipt), ContinueAfterPresentation = true });
     }
     public CampaignProgressTransition Retry(CampaignProgressOperation pending)
     {
@@ -118,6 +118,10 @@ public sealed partial class CampaignNativeProgressRules(ArmyCampaignRuleAdapter 
                         var manual = AdvanceManualStage(working, moment, ManualTacticStagePhase.EnterStage, lastSequence);
                         working = manual.State;
                         lastSequence = Math.Max(lastSequence, working.ManualTacticIntervention!.LastPresentationSequence);
+                        if (working.ManualTacticExecutionContinuation is not null)
+                            return AwaitingManual(new(Revision, request, block, working, new(season, clock, moment), calendar,
+                                manual.Phase, null, lastSequence, captures.ToArray(), rules.CaptureCheckpoint(), changes)
+                                { ContinueAfterPresentation = false });
                         if (manual.Presentation is not null)
                             return AwaitingManual(new(Revision, request, block, working, new(season, clock, moment), calendar,
                                 manual.Phase, new(manual.Presentation.Sequence, manual.Presentation.Kind), lastSequence, captures.ToArray(), rules.CaptureCheckpoint(), changes));

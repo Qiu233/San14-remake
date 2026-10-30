@@ -131,65 +131,40 @@ public sealed partial class ArmyCampaignRuleAdapter
                 action = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "withdraw_changed_home_action");
             }
         }
+        bool transportTargetChanged = false;
         if (image.NativeTacticRuntime?.Status10 == 2 && action is >= 1 and <= 3)
         {
-            var selected = OwnedArmyLifecycleTargets.Read(state, state.ReadArmyLifecycle()!.ReceiverSlots()[physical].ReceiverId)
-                ?? throw MaintenanceMissing("transport_target");
-            ushort identity = MaintenanceKnown(selected.Identity3A, "transport_target_identity");
-            var selectedBase = selected.Kind38 switch
+            transportTargetChanged = TransportMaintenanceTargetChanged(state, current, image);
+            if (transportTargetChanged)
             {
-                5 => current.ReadCityTableReference(identity <= 51 ? identity : 0),
-                6 => current.ReadGateTableReference(identity <= 10 ? identity : 0),
-                _ => throw MaintenanceMissing("transport_nonBase_target_prefix")
-            };
-            if (selectedBase is null) throw MaintenanceMissing("transport_target_pointer");
-            if (MaintenanceKnown(current.ReadBaseForceSlot(selectedBase), "transport_target_force") != current.ReadArmyUnitRawForceSlot(army))
-                throw MaintenanceMissing("transport_changed_target_ClearNext");
+                //The source clears Next before validity/home gates and retains
+                //local908 to prohibit a new route in this actor's type2 suffix.
+                image = image with { March = (image.March ?? throw MaintenanceMissing("transport_target_March")) with
+                    { NextStep = ArmyMarchDestination.None } };
+                state = state with { Units = new(state.Units) { [image.Id] = image } };
+            }
         }
         if (!MaintenanceKnown(current.ReadArmyUnitNativeValidity(army), "native_validity")) return state;
-        //2C96E0 itself checks233560 before reading the current affiliation Base;
-        //its caller checks the same exclusion after the returned home predicate.
+        //Use the complete current2C96E0 predicate, including its special-force
+        //and invalid-home branches, rather than comparing a projected home Hex.
+        var grouping = new ArmyMapGroupingCurrentQueries(state, current, _scenario, _governorInputs,
+            Seed.Language, SimulationRuleIdentity.Version);
+        if (MaintenanceKnown(grouping.IsAtHome2C96E0(physical), "current_at_home")) return state;
         bool excluded = MaintenanceKnown(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "manager233560");
         if (excluded) return state;
         int force = current.ReadArmyUnitRawForceSlot(army);
-        if (force is < 1 or > 45) throw MaintenanceMissing("special_force_home_gate");
-        var context = Context(current);
-        int home = MaintenanceKnown(new ArmyLogisticsPreparation(context, current, _map, _terrain).ReadCommanderBaseHex(state, image), "current_home");
         ushort at = MaintenanceKnown(ArmyMarchSourceAdapter.ReadCurrentHex(state, image), "current_hex");
-        if (home == at) return state;
         if (image.NativeTacticRuntime is { Status10: 2 } transport &&
             ((MaintenanceKnown(current.ReadArmyUnitFlags150(army), "transport_flags150") & 8) != 0 || (transport.Flags26 & 2) == 0))
             return state;
-        if (image.NativeTacticRuntime is not { Status10: 1 or 2, Abnormal23: 0, Abnormal24: 0, Abnormal25: 0 } runtime || image.OverrideTarget?.Kind is not (ArmyOverrideTargetKind.None or ArmyOverrideTargetKind.ArmyReceiver))
-            throw MaintenanceMissing("ordinary_clear_abnormal_and_override");
+        var runtime = image.NativeTacticRuntime ?? throw MaintenanceMissing("command_runtime");
         var lifecycle = state.ReadArmyLifecycle()!;
         var receiver = lifecycle.ReceiverSlots()[physical].Receiver;
         byte control = MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(state, image), "saved_control");
-        if (control != 0 && receiver.SavedCommand is not { Kind: ArmySavedCommandKind.Stored, Command: { Action.Id: 13, Target.Kind: ArmyTargetKind.Hex } })
-            throw MaintenanceMissing("saved_stay_scope");
-        if (control != 0 && action == 13) throw MaintenanceMissing("saved_current_stay_304A20");
-
-        // 2728ED: a saved command with zero25 rewrites the clear override and
-        // route BEFORE the temporary near-Army list and action switch.
-        var working = state;
-        if (control != 0)
-        {
-            int upper = MaintenanceKnown(ArmyDestructionParameterSeed.ReadCurrent(state, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_cap");
-            if (upper < 0) throw MaintenanceMissing("negative_abnormal_cap");
-            image = ArmyOverrideTargetWrites.Apply(image with { March = image.March! with { NextStep = ArmyMarchDestination.None } }, ArmyOverrideTargetState.Cleared);
-            working = (working with { Units = new(working.Units) { [image.Id] = image } }).WithArmyLifecycle(working.ReadArmyLifecycle()! with
-            { Receivers = working.ReadArmyLifecycle()!.Receivers.With(working.ReadArmyLifecycle()!.Receivers.Find(receiver.ReceiverId)! with
-                { OverrideTarget = image.OverrideTarget }) });
-            working = ArmyOverrideTargetSourceAdapter.ReconcileOwner(working, image);
-            if (operationCurrent is null) working = FRoute(working, image.Id);
-            else
-            {
-                current.ClearArmyCommandOverride(physical);
-                working = FRoute(working, image.Id, true, current, false);
-            }
-            image = working.Units[image.Id];
-            if (operationCurrent is null) current = CaptureWritableTransportRouteCurrent(working);
-        }
+        var working = MaintainArmyOverridePrefix(state, current, image, operation, control);
+        image = working.Units[image.Id];
+        runtime = image.NativeTacticRuntime!;
+        action = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(working, image), "after_override_action37");
         byte category = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadCategory(working, image), "category40");
         var temporary = current.CreateNearbyTemporary();
         try
@@ -197,7 +172,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             //272Axx creates the outer descriptor even when the gate is false.
             if (category == 2 && ((runtime.Flags26 & 1) == 0 ||
                 (MaintenanceKnown(current.ReadArmyUnitFlags150(army), "automatic_flags150_bit4") & 16) != 0) &&
-                control == 0 && action is not (11 or 12))
+                control == 0 && runtime.Abnormal23 == 0 && runtime.Abnormal24 == 0 && runtime.Abnormal25 == 0 && action is not (11 or 12))
             {
                 FillAutomaticNearbyTargets(working, current, image, temporary);
                 if (MaintenanceKnown(current.ReadTemporaryHexListCount(temporary), "automatic_count") > 0)
@@ -211,7 +186,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     image = working.Units[image.Id];
                 }
             }
-            if (control == 0 && (runtime.Flags26 & 4) != 0 && action is not (11 or 12))
+            if (control == 0 && runtime.Abnormal23 == 0 && runtime.Abnormal24 == 0 && runtime.Abnormal25 == 0 && (runtime.Flags26 & 4) != 0 && action is not (11 or 12))
             {
                 _baseCapacityInputs.BindCurrent(working, current);
                 var resources = current.ReadArmyReturnResourceFields(army) ?? throw MaintenanceMissing("automatic_retreat_resources");
@@ -229,7 +204,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             //excluded retreat actions in the actual candidate filter. Existing
             //overrides must still pass these current tracking checks.
             var trackingFields = ArmyOverrideTargetSourceAdapter.Read(working, image);
-            if ((runtime.Flags26 & 8) == 0 && trackingFields.Kind3C == 27)
+            //The source retains this value before tracking can clear3C.
+            byte retainedTrackingKind = MaintenanceKnown(trackingFields.Kind3C, "tracking_kind3C");
+            if ((runtime.Flags26 & 8) == 0 && retainedTrackingKind == 27)
             {
                 ushort tracking = MaintenanceKnown(trackingFields.Identity3E, "tracking3E");
                 if (tracking != 0)
@@ -247,7 +224,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         working = ClearTrackedArmyOverride(working, current, image);
                         cleared = true;
                     }
-                    else if (MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(working, FArmy(working, targetPhysical)), "tracking_action37") is 11 or 12)
+                    else if (runtime.Abnormal25 == 0 && runtime.Abnormal23 == 0 && MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(working, FArmy(working, targetPhysical)), "tracking_action37") is 11 or 12)
                     {
                         //272Cxx has the same stores/route for a retreating
                         //target, additionally gated by the actor's23==0.
@@ -262,14 +239,48 @@ public sealed partial class ArmyCampaignRuleAdapter
                         working = AddMaintenanceReport(working, current, image, operation, 0xC35D, targetArmy);
                 }
             }
-            if (runtime.Status10 == 2)
+            var mainTarget = OwnedArmyLifecycleTargets.Read(working, receiver.ReceiverId)
+                ?? throw MaintenanceMissing("retreat_target_main");
+            ArmyUnitReference? retreatingTarget = null;
+            if ((runtime.Flags26 & 8) == 0 && retainedTrackingKind == 255 &&
+                mainTarget.Kind38 == 27 && runtime.Abnormal23 == 0)
+            {
+                ushort targetIdentity = MaintenanceKnown(mainTarget.Identity3A, "retreat_target_main_identity");
+                var targetArmy = current.ReadArmyUnitTableReference(targetIdentity <= 500 ? targetIdentity : 0)
+                    ?? throw MaintenanceMissing("retreat_target_main_pointer");
+                int targetSlot = MaintenanceKnown(targetArmy.PhysicalSlot, "retreat_target_main_physical");
+                var targetReceiver = working.ReadArmyLifecycle()!.ReceiverSlots()[targetSlot];
+                var targetImage = targetReceiver.ActiveUnitId is int targetId
+                    ? working.Units.GetValueOrDefault(targetId) : targetReceiver.PendingImage;
+                //This read precedes native validity, including reusable receivers.
+                if (MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(working, targetImage), "retreat_target_main_action37") is 11 or 12)
+                    retreatingTarget = targetArmy;
+            }
+            if (retreatingTarget is null)
+            {
+                working = RewriteSavedArmyCommandAfterTargetChange(working, current, image, control);
+                image = working.Units[image.Id];
+            }
+            if (retreatingTarget is not null)
+            {
+                if (IsPlayerRulerLedDistrict(working, current, image))
+                    working = AddMaintenanceReport(working, current, image, operation, 0xC35E, retreatingTarget);
+                //The original early exit reaches2A11A0(0), not the route suffix.
+                working = FinishNoPathArmyCommand(working, current, image, operation);
+            }
+            else if (runtime.Status10 is not (1 or 2))
+            {
+                //Other classes leave after the same override/saved-command prefix.
+            }
+            else if (runtime.Status10 == 2)
             {
                 //2725E0's type2 switch is separate from the ordinary route
                 //tail. Only retreat11/12 with connection02 uses its stop150
                 //branch here; another failed action reaches2A11A0(0).
                 if (action != 13 && image.March?.NextStep == ArmyMarchDestination.None)
                 {
-                    working = FRoute(working, image.Id, false, current, false);
+                    if (!transportTargetChanged)
+                        working = FRoute(working, image.Id, false, current, false);
                     if (working.Units[image.Id].March?.NextStep == ArmyMarchDestination.None)
                     {
                         image = working.Units[image.Id];
@@ -366,6 +377,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                         image = image with { NativeCommandControl140 = 0 };
                         working = (working with { Units = new(working.Units) { [image.Id] = image } }).WithArmyLifecycle(lifecycle with
                         { Receivers = lifecycle.Receivers.With(lifecycle.Receivers.Find(receiver.ReceiverId)! with { SavedCommand = ArmySavedCommandState.Cleared }), Source = lifecycle.Source with { Slots = sources } });
+                        working = working with { ResourceState = CampaignSourceKnowledge.From(working.ResourceState)
+                            .WithArmySavedTargetLookupAlias(receiver.ReceiverId, null) };
                         var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current) ?? throw MaintenanceMissing("player_force");
                         if (player.PhysicalSlot == force) working = AddMaintenanceReport(working, current, image, operation, 0xC96F);
                     }
@@ -384,6 +397,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private GameState ClearTrackedArmyOverride(GameState state, SourceWorldContext current, UnitState image)
     {
+        if ((image.NativeTacticRuntime ?? throw MaintenanceMissing("tracking_runtime")).Abnormal25 != 0) return state;
         int physical = image.NativeArmyOrigin?.NativeSlotIndex ?? throw MaintenanceMissing("tracking_actor_physical");
         var lifecycle = state.ReadArmyLifecycle() ?? throw MaintenanceMissing("tracking_lifecycle");
         var receiver = lifecycle.Receivers.Find(lifecycle.Slots[physical].ReceiverId)
@@ -424,10 +438,27 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 if (targetForce != force || MaintenanceKnown(image.NativeMapUiByte13C, "attack_Base_MapUi13C") != 0)
                     return FinishInvalidArmyCommand(working, current, image, operation);
-                //The same-force branch really converts4/5 to2/3, rewrites
-                //the route and can emitC35F. Until that complete branch has
-                //its source-time text owner, do not call it a no-op or finish.
-                throw MaintenanceMissing("attack_Base_became_friendly_conversion_C35F");
+                //A captured target becomes an Enter command on this same
+                //receiver. Preserve its target, waypoints, saved order and credit.
+                if (MaintenanceKnown(current.ReadArmyUnitNativeValidity(new(physical)), "friendly_Base_actor_validity") &&
+                    MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(working, image), "friendly_Base_control140") == 0)
+                {
+                    action = action == 4 ? (byte)2 : (byte)3;
+                    image = image with { FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(action),
+                        MilitaryPlan = image.MilitaryPlan is { } plan ? plan with
+                            { Action = plan.Action with { ActionKey = "enter" } } : null };
+                    working = working with { Units = new(working.Units) { [image.Id] = image },
+                        ResourceState = ArmyConfigurationSourceAdapter.WriteAction(working.ResourceState, image.Id, action) };
+                }
+                image = image with { March = (image.March ?? throw MaintenanceMissing("friendly_Base_march")) with
+                    { NextStep = ArmyMarchDestination.None } };
+                working = working with { Units = new(working.Units) { [image.Id] = image } };
+                //301DD0(mode0,refresh0) follows the Next48 clear.
+                working = FRoute(working, image.Id, false, current, false);
+                image = working.Units[image.Id];
+                if (MaintenanceKnown(current.ReadBaseNativeValidity(selected), "friendly_Base_report_validity") &&
+                    IsPlayerRulerLedDistrict(working, current, image))
+                    working = AddMaintenanceReport(working, current, image, operation, 0xC35F, targetBase: selected);
             }
         }
         else if (action == 6)
@@ -446,18 +477,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (target.Kind38 != 27) throw MaintenanceMissing("attack_Army_kind");
             var selected = current.ReadArmyUnitTableReference(identity <= 500 ? identity : 0)
                 ?? throw MaintenanceMissing("attack_Army_pointer");
-            var runtime = image.NativeTacticRuntime!;
-            if ((runtime.Flags26 & 8) == 0 && runtime.Abnormal23 == 0 &&
-                MaintenanceKnown(ArmyOverrideTargetSourceAdapter.Read(working, image).Kind3C, "attack_override_kind") == 255)
-            {
-                //The main27 retreat early branch reads target37 before the
-                //switch's native-validity gate, including a reusable receiver.
-                int targetSlot = selected.PhysicalSlot ?? throw MaintenanceMissing("attack_Army_physical");
-                var slot = working.ReadArmyLifecycle()!.ReceiverSlots()[targetSlot];
-                var targetImage = slot.ActiveUnitId is int id ? working.Units.GetValueOrDefault(id) : slot.PendingImage;
-                if (MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(working, targetImage), "attack_Army_retreat_action37") is 11 or 12)
-                    throw MaintenanceMissing("attack_Army_retreat_C35E");
-            }
             valid = MaintenanceKnown(current.ReadArmyUnitNativeValidity(selected), "attack_Army_validity");
             if (!valid) return FinishInvalidArmyCommand(working, current, image, operation);
             int targetPhysical = selected.PhysicalSlot!.Value;
@@ -473,60 +492,6 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         return CompleteCommandRouteTail(working, current, image, operation, action, force, at);
     }
-
-    private GameState CompleteCommandRouteTail(GameState working, SourceWorldContext current, UnitState image,
-        FacilityOperation operation, byte action, int force, ushort at)
-    {
-        if (MaintenanceKnown(ArmyMarchSourceAdapter.EncodeDestination(image.March?.NextStep), "next_word48") is ushort nextWord && nextWord != 48400)
-        {
-            ushort firstWaypoint = MaintenanceKnown(ArmyMarchSourceAdapter.EncodeDestination(image.March?.Target), "first_waypoint2C");
-            if (firstWaypoint == nextWord) throw MaintenanceMissing("next_waypoint_Object_or_occupant_consumption");
-        }
-        else if (action != 13)
-        {
-            working = FRoute(working, image.Id, false, current, false);
-            image = working.Units[image.Id];
-            if (image.March?.NextStep == ArmyMarchDestination.None)
-            {
-                ushort effectiveGoal = OrdinaryArmyRouteSource.ReadCurrentTarget(working, image, current)
-                    ?? throw MaintenanceMissing("no_next_effective_goal");
-                var goalHex = current.ReadHexTableReference(effectiveGoal < 48400 ? effectiveGoal : 0) ?? throw MaintenanceMissing("no_next_goal_Hex");
-                ushort link = MaintenanceKnown(current.ReadHexObjectLink(goalHex), "no_next_goal_Object");
-                var goalObject = current.ReadObjectTableReference(link <= 3000 ? link : 0) ?? throw MaintenanceMissing("no_next_Object_pointer");
-                bool objectValid = MaintenanceKnown(current.ReadObjectNativeValidity(goalObject), "no_next_Object_validity");
-                int requiredDistance = objectValid && goalObject.PhysicalSlot is >= 1 and <= 51 ? 2 : 1;
-                if (FireCommandDistance(at, effectiveGoal) != requiredDistance)
-                {
-                    var routeList = current.CreateTemporaryHexList() ?? throw MaintenanceMissing("obstacle_route_descriptor");
-                    int[] path;
-                    try
-                    {
-                        var descriptorTarget = OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(working, image)
-                            ?? throw MaintenanceMissing("obstacle_effective_descriptor");
-                        path = ArmyRouteSearch.Search(working, current, image, at, effectiveGoal,
-                            descriptorTarget.Kind, descriptorTarget.Identity, null, out _, 0x71);
-                    }
-                    finally { current.ClearTemporaryHexList(routeList); current.ReleaseTemporaryHexList(routeList); }
-                    foreach (int hexId in path)
-                    {
-                        var hex = current.ReadHexTableReference(hexId) ?? throw MaintenanceMissing("obstacle_Hex");
-                        ushort obstacleLink = MaintenanceKnown(current.ReadHexObjectLink(hex), "obstacle_Object_link");
-                        var obstacle = current.ReadObjectTableReference(obstacleLink <= 3000 ? obstacleLink : 0) ?? throw MaintenanceMissing("obstacle_Object");
-                        if (!MaintenanceKnown(current.ReadObjectNativeValidity(obstacle), "obstacle_validity") || obstacle.PhysicalSlot is >= 1 and <= 61) continue;
-                        var data = current.ReadPhysicalObject(obstacle.PhysicalSlot ?? throw MaintenanceMissing("obstacle_identity")) ?? throw MaintenanceMissing("obstacle_fields");
-                        var definition = current.ReadObjectDefinitionReference(data.RawField12 <= 30 ? data.RawField12 : 0) ?? throw MaintenanceMissing("obstacle_definition");
-                        if (MaintenanceKnown(current.ReadObjectDefinitionRaw2C(definition), "obstacle_category") == 4) continue;
-                        int obstacleForce = MaintenanceKnown(current.ReadObjectForceSlot13(obstacle), "obstacle_force");
-                        if (MaintenanceKnown(ArmyLogisticsPreparation.ReadNativeRelationGate(working, force, obstacleForce), "obstacle_relation"))
-                            throw MaintenanceMissing("hostile_generic_Object_override_owner");
-                    }
-                    working = FinishNoPathArmyCommand(working, current, image, operation);
-                }
-            }
-        }
-        return working;
-    }
-
 
     private GameState PreserveSavedCommandAtValidObject(GameState state, UnitState image)
     {
@@ -577,7 +542,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, district, MaintenanceMissing);
     }
     private GameState AddMaintenanceReport(GameState state, SourceWorldContext current, UnitState image,
-        FacilityOperation operation, int root, ArmyUnitReference? targetArmy = null)
+        FacilityOperation operation, int root, ArmyUnitReference? targetArmy = null, BaseReference? targetBase = null)
     {
         var army = new ArmyUnitReference(image.NativeArmyOrigin?.NativeSlotIndex
             ?? throw MaintenanceMissing("report_Army_receiver"));
@@ -593,14 +558,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         else if (root == 0xC35E && targetArmy is not null)
             operands = new(Army0: army, Army1: targetArmy,
                 String0: ReadHistoryChoiceName(state, MaintenanceKnown(image.NativeCommandChoice41, "retreat_target_choice41")));
+        else if (root == 0xC35C)
+            operands = new(Army0: army, String0: ReadHistoryChoiceName(state,
+                MaintenanceKnown(image.NativeCommandChoice41, "override_report_choice41")));
+        else if (root == 0xC35F && targetBase is not null)
+            //30DCF0 binds the current embedded Base name as string0.
+            operands = new(Army0: army, String0: UnitDetailBaseName(state, current, targetBase.Kind,
+                MaintenanceKnown(targetBase.PhysicalSlot, "friendly_Base_report_physical")));
         else if (root == 0xC360)
         {
             //2A11A0 selects this key using its cached action before binding
-            //the fresh action/choice strings. The current caller is action17.
+            //the fresh action/choice strings from the reached caller.
             byte cachedAction = MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadAction(state, image), "finish_cached_action37");
             int key = cachedAction switch
             {
-                8 => throw MaintenanceMissing("finish_action8_capacity_2AB7D0"),
+                8 => ReadMaintenanceConstructionFailureText(state, current, image),
                 14 or 16 => 0x63A,
                 _ => 0x638
             };
@@ -638,6 +610,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                 .Append(CampaignEffectSource.ArmyCommandMaintenance, operation.Revision, requests)
         };
     }
+    private int ReadMaintenanceConstructionFailureText(GameState state, SourceWorldContext current, UnitState image)
+    {
+        int physical = image.NativeArmyOrigin?.NativeSlotIndex ?? throw MaintenanceMissing("construction_report_Army");
+        var army = new ArmyUnitReference(physical);
+        //2A11A0 reads selected definition, current home and force in this order.
+        var selected = FacilityConstructionDefinitions.Selected(state, current, image);
+        var home = current.FindArmyUnitCurrentBase(army);
+        var force = current.ReadArmyUnitForceReference(army);
+        int cost = FacilityConstructionCost.Read(state, current, force,
+            FacilityConstructionDefinitions.Read(current, selected), _baseCapacityInputs);
+        int gold = BaseCurrencyAdditionSource.ReadCurrentGold(home, current);
+        return cost <= gold ? 0x63A : 0x639;
+    }
+
     private static T MaintenanceKnown<T>(T? value, string input) where T : struct => value ?? throw MaintenanceMissing(input);
     private static InvalidDataException MaintenanceMissing(string input) => new("army.command-maintenance." + input);
 }

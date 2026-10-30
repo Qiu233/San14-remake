@@ -232,7 +232,7 @@ public static class PlayableDiplomacy
                 !state.Districts.ContainsKey(mission.DistrictId) ||
                 !state.Officers.ContainsKey(mission.ExecutorOfficerId) || !executors.Add(mission.ExecutorOfficerId) ||
                 !pendingPairs.Add(PairKey(mission.ForceId, mission.TargetForceId)) ||
-                !Enum.IsDefined(mission.Kind) || mission.SubmittedPeriod < 0 ||
+                mission.Kind is < DiplomaticMissionKind.Goodwill or > DiplomaticMissionKind.RequestAttack || mission.SubmittedPeriod < 0 ||
                 mission.SubmittedPeriod > state.PeriodNumber || mission.ArrivalPeriod <= state.PeriodNumber ||
                 mission.ArrivalPeriod <= mission.SubmittedPeriod || mission.PaidGold < 0 || mission.PaidCommandBooks < 0 ||
                 mission.TreatyPeriods < 0 || mission.RequestPeriods < 0 || string.IsNullOrWhiteSpace(mission.PolicyId) ||

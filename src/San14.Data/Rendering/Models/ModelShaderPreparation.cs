@@ -24,9 +24,11 @@ public static class ModelShaderPreparation
     /// <summary>Import/build boundary only. Compile the explicitly selected
     /// original combination without a device or a replacement pixel stage.</summary>
     public static ModelShaderProgramPreparation Prepare(LoadedShaderContainer source,
-        int explicitCombinationIndex, Vkd3dShaderCompiler compiler, ArmySkinVertexProfile? armySkinProfile=null)
+        int explicitCombinationIndex, Vkd3dShaderCompiler compiler, ArmySkinVertexProfile? armySkinProfile=null, bool reflectionCaptureUnusedConstantTail=false)
     {
         ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(compiler);
+        if(reflectionCaptureUnusedConstantTail && !source.ReadConfigurations().Records.Any(value=>value.Name=="ReflectionProbeGBuffer"))
+            throw new InvalidDataException("Unused source CB tail admission requires the actual reflection capture module.");
         G2ShaderCombination combination = source.ReadCombination(explicitCombinationIndex);
         if (combination.Stages.Any(s => s.Entry is not null && s.StageCode is not (0 or 1)))
             throw new InvalidDataException("Original model device profile requires only vertex and pixel stages.");
@@ -46,9 +48,9 @@ public static class ModelShaderPreparation
         var adapter = rawInterface.StageVariables.Any(v => v.BuiltIn == 4424)
             ? VertexShaderAdapter.Adapt(backendVertex, 0, 0, 0)
             : VertexShaderAdapter.AdaptPositionInput(backendVertex);
-        var vertexBindings = TranslatedShaderBindingReader.Read(source.ReadResourceDefinitions(vi), adapter.Bytes);
+        var vertexBindings = TranslatedShaderBindingReader.Read(source.ReadResourceDefinitions(vi), adapter.Bytes, reflectionCaptureUnusedConstantTail);
         var pixelBindings = pi is { } actualPixelIndex
-            ? TranslatedShaderBindingReader.Read(source.ReadResourceDefinitions(actualPixelIndex), pixel!.Bytes) : null;
+            ? TranslatedShaderBindingReader.Read(source.ReadResourceDefinitions(actualPixelIndex), pixel!.Bytes, reflectionCaptureUnusedConstantTail) : null;
         if (vertexBindings.Bindings.Any(b => b.Device.DescriptorSet != 1) ||
             pixelBindings is not null && pixelBindings.Bindings.Any(b => b.Device.DescriptorSet != 0))
             throw new InvalidDataException("Original model stages do not have isolated descriptor sets.");

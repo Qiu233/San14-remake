@@ -1,6 +1,7 @@
 // CE D43190 / 10575E0 / 95EB60: queue-forced caster state, not
 // the ordinary primitive raster. Source packets are imported once.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 struct NativeShadowRasterSource {
     unsigned selector{}, common3F3{}, passCount{};
     float scale{};
@@ -9,12 +10,12 @@ struct NativeShadowRasterSource {
 };
 inline NativeShadowRasterSource loadNativeShadowRasterSource(const fs::path& directory) {
     NativeShadowRasterSource out;
-    std::ifstream inputs(directory/"inputs.txt");
+    NativePreparedInputFile inputs(directory/"inputs.txt");
     inputs>>out.selector>>out.common3F3>>out.scale;
     for(auto& value:out.bias)inputs>>value;
     if(!inputs||out.selector>1||out.common3F3!=0)
         throw std::runtime_error("Current caster needs its source bias producer");
-    std::ifstream rows(directory/"raster.txt");
+    NativePreparedInputFile rows(directory/"raster.txt");
     unsigned pass,fill,cull,front,clip,scissor,multi,aa;
     int expectedBias;float expectedSlope,clamp;
     while(rows>>pass>>expectedBias>>expectedSlope>>clamp>>fill>>cull>>front>>clip>>scissor>>multi>>aa) {

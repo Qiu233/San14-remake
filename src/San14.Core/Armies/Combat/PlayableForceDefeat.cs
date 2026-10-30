@@ -164,10 +164,19 @@ public static class PlayableForceDefeat
                 throw new InvalidDataException("Force defeat record has invalid identity, phase or remaining active military assets.");
             foreach (UnitState unit in record.WithdrawnUnits)
             {
+                //These are retained source-time images. Their receiver may
+                //already be retired or reused, so do not require a live owner
+                //or rebuild a destination from the current world.
+                bool ordinarySourceImage = unit.NativeArmyOrigin?.NativeSlotIndex is >= 1 and <= 500 &&
+                    unit.NativeTacticRuntime?.Status10 == 1;
+                bool knownNoDestination = ordinarySourceImage && unit.HasNoDestination && unit.MilitaryPlan is null &&
+                    unit.March is { Target.Kind: ArmyMarchDestinationKind.None, NextStep.Kind: ArmyMarchDestinationKind.None };
                 if (unit.Id < 0 || unit.ForceId != id ||
                     !record.UnresolvedOfficerIds.Contains(unit.OfficerId) && !(record.ResolvedOfficerIds?.Contains(unit.OfficerId) ?? false) ||
-                    unit.HexId < 0 || unit.HexId >= (long)state.MapWidth * state.MapHeight || unit.DestinationHexId < 0 || unit.DestinationHexId >= (long)state.MapWidth * state.MapHeight ||
-                    unit.Troops < 1 || unit.Supplies < 0 || unit.Morale < 0 || unit.WoundedTroops < 0 ||
+                    unit.HexId < 0 || unit.HexId >= (long)state.MapWidth * state.MapHeight ||
+                    unit.DestinationHexId < 0 && !knownNoDestination || unit.DestinationHexId >= (long)state.MapWidth * state.MapHeight ||
+                    unit.Troops < 0 || unit.Troops == 0 && !ordinarySourceImage ||
+                    unit.Supplies < 0 || unit.Morale < 0 || unit.WoundedTroops < 0 ||
                     unit.SourceLocationId is int source && !state.Cities.ContainsKey(source) && !state.Gates.ContainsKey(source) ||
                     unit.FormationId is int formation && !state.Formations.ContainsKey(formation) ||
                     !ArmyEquippedTactics.Valid(state, unit) ||

@@ -6,6 +6,7 @@ internal sealed record BorrowedMixedPairApplication(GameState State, ushort? Sus
     AutomaticTacticExecutionContinuation? AutomaticExecution = null)
 {
     internal BaseAutomaticTacticExecutionContinuation? BaseAutomaticExecution { get; init; }
+    internal bool PendingAutomaticFatalFeedback { get; init; }
 }
 
 public sealed partial class ArmyCampaignRuleAdapter
@@ -100,14 +101,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var activation = CompleteBorrowedArmyBaseAutomatic(working, current, context,
                         pair, sampler, operationDate, operationRevision, effects);
                     working = activation.State; activated = activation.Activated;
+                    if (HasNativeCampaignStop(working)) return new(working);
                     if (activation.Continuation is { } pendingActivation)
                         return new(working, damage.Damage.NativeFrameWord20, pendingActivation);
                     tacticWord22 = activation.PrimaryTroopDamageWord22
                         ?? throw Unresolved("automatic_completed_frame22");
                 }
             }
-            return new(CompleteBorrowedArmyBaseApplicationTail(working, current, pair,
-                damage.Damage.NativeFrameWord20, tacticWord22, activated, sampler));
+            return CompleteBorrowedArmyBaseApplicationTail(working, current, pair,
+                damage.Damage.NativeFrameWord20, tacticWord22, activated, sampler,
+                operationDate, operationRevision, effects);
         }
         return new(CompleteBorrowedArmyBaseAftermath(working, current, pair, sampler));
 
@@ -121,15 +124,18 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var activation = ResumeBorrowedSelectedAutomatic(state, current, Context(current, sampler),
             pair.Target, saved, sampler, operationDate, revision, effects);
+        if (HasNativeCampaignStop(activation.State)) return new(activation.State);
         if (activation.Continuation is { } pending)
             return new(activation.State, frame20, pending);
-        return new(CompleteBorrowedArmyBaseApplicationTail(activation.State, current, pair, frame20,
-            activation.Frame22?.Word22After ?? throw ArmyBasePairMissing(pair, "resume_frame22"), true, sampler));
+        return CompleteBorrowedArmyBaseApplicationTail(activation.State, current, pair, frame20,
+            activation.Frame22?.Word22After ?? throw ArmyBasePairMissing(pair, "resume_frame22"), true, sampler,
+            operationDate, revision, effects);
     }
 
-    private GameState CompleteBorrowedArmyBaseApplicationTail(GameState working, SourceWorldContext current,
+    private BorrowedMixedPairApplication CompleteBorrowedArmyBaseApplicationTail(GameState working, SourceWorldContext current,
         NormalCombatMixedPair pair, ushort frame20, ushort tacticWord22, bool activated,
-        NativeArmyCombatCycleSampler sampler)
+        NativeArmyCombatCycleSampler sampler, NativeMapSeasonDate operationDate,
+        long operationRevision, List<CampaignEffectRequest> effects)
     {
         int attackerId = pair.Actor.UnitId ?? throw ArmyBasePairMissing(pair, "tail_Army_identity");
         int objectIndex = pair.Target.Kind == 5 ? pair.Target.PhysicalSlot : pair.Target.PhysicalSlot + 51;
@@ -140,17 +146,23 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var request = NormalArmyCombatApplicationSourceMath.BuildNormalRequestedLoss(frame20, tacticWord22);
             var applied = ApplyBorrowedNormalBaseFatalApplication(working, attackerId, objectIndex,
-                request.RequestedLoss, sampler, current);
+                request.RequestedLoss, sampler, current, operationDate: operationDate,
+                operationEffects: effects, immediateRevision: operationRevision);
             if (applied.Outcome == NormalCityApplicationOutcome.CurrentInputsUnresolved || applied.Receipt is null)
                 throw Unresolved(applied.UnresolvedOwner ?? "application178EC0");
             working = applied.State;
-            if (activated && applied.Receipt.NativeReturn)
-                working = MarkBorrowedAutomaticTacticFatalFeedback(working);
-            working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [],
-                new("normal_city_damage", working.NativeClock!.UpdateOrdinal, attackerId,
-                    pair.Actor.ForceSlot, objectIndex, request.FrameWord20After)] };
+            //174A30 updates fatal feedback and its report only after178EC0
+            //returns. A suspended Full capture has not reached either write.
+            //The original automatic frame24 is retained independently of the
+            //now-completed automatic execution, without replaying frame22.
+            if (working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                return new(working, request.FrameWord20After)
+                    { PendingAutomaticFatalFeedback = activated && applied.Receipt.NativeReturn };
+            if (HasNativeCampaignStop(working)) return new(working);
+            working = CompleteBorrowedArmyBasePostApplication(working, pair,
+                request.FrameWord20After, activated && applied.Receipt.NativeReturn);
         }
-        return CompleteBorrowedArmyBaseAftermath(working, current, pair, sampler);
+        return new(CompleteBorrowedArmyBaseAftermath(working, current, pair, sampler));
 
         bool Stage7PermitsBaseApplication(GameState reached)
         {
@@ -171,6 +183,25 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
 
         InvalidDataException Unresolved(string owner) => ArmyBasePairMissing(pair, owner);
+    }
+
+    private GameState CompleteBorrowedArmyBasePairAfterCapture(GameState state, SourceWorldContext current,
+        NormalCombatMixedPair pair, ushort reportWord20, bool pendingAutomaticFatalFeedback,
+        NativeArmyCombatCycleSampler sampler)
+    {
+        state = CompleteBorrowedArmyBasePostApplication(state, pair, reportWord20, pendingAutomaticFatalFeedback);
+        return CompleteBorrowedArmyBaseAftermath(state, current, pair, sampler);
+    }
+
+    private GameState CompleteBorrowedArmyBasePostApplication(GameState state, NormalCombatMixedPair pair,
+        ushort reportWord20, bool automaticFatalFeedback)
+    {
+        if (automaticFatalFeedback) state = MarkBorrowedAutomaticTacticFatalFeedback(state);
+        int attackerId = pair.Actor.UnitId ?? throw ArmyBasePairMissing(pair, "post_application_Army_identity");
+        int objectIndex = pair.Target.Kind == 5 ? pair.Target.PhysicalSlot : pair.Target.PhysicalSlot + 51;
+        return state with { NativeSubdayReports = [.. state.NativeSubdayReports ?? [],
+            new("normal_city_damage", state.NativeClock!.UpdateOrdinal, attackerId,
+                pair.Actor.ForceSlot, objectIndex, reportWord20)] };
     }
 
     private GameState CompleteBorrowedArmyBaseAftermath(GameState state, SourceWorldContext current,

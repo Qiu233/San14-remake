@@ -24,8 +24,11 @@ public sealed record AudioClip(AudioStream Stream, AudioDecodeProvenance Provena
     public int? LoopBegin { get; init; }
     public int? LoopEnd { get; init; }
     public int OutputChannels { get; init; } = Channels;
+    internal IReadOnlyList<AudioStream>? SpeakerPairs { get; init; }
+    internal AudioDeviceSpeakerMatrix? SpeakerDeviceRoute { get; init; }
     public void Dispose() => resources.Dispose();
     public AudioClipSelection? Selection { get; init; }
+    public IReadOnlyList<AudioClipComponent>? Components { get; init; }
     public AudioClipCue? Cue { get; init; }
     public AudioCueStaticPlaybackReference? StaticPlayback { get; init; }
     internal MapMusicPlaybackProfile? MapMusic { get; init; }
@@ -34,12 +37,84 @@ internal sealed record MapMusicPlaybackProfile(float RootGain, float ReleaseSeco
 public sealed record AudioClipSelection(string ExactSampleName, string BankUri, string BankSha256,
     uint SampleId, int SectionOffset, int SectionBytes);
 public sealed record AudioClipCue(string ExactCueName, uint CueId, int SectionOffset, int? LeafOffset);
+public sealed record AudioClipComponent(AudioClipSelection Selection, AudioDecodeProvenance Provenance);
 
 /// <summary>Creates the Godot resource on the caller's engine thread. PCM samples are
-/// preserved without gain, resampling or downmixing. Multichannel routing requires
-/// a later explicit speaker contract; it cannot silently become stereo.</summary>
-public static class AudioStreamFactory
+/// preserved without integer premixing. Explicit stereo matrices and six-lane
+/// speaker pairs are separate selected output contracts.</summary>
+public static partial class AudioStreamFactory
 {
+    /// <summary>Starts the two authored 3244E2DF components together. Native
+    /// speaker masks select the existing Windows stereo device matrix. Each
+    /// unchanged PCM stem owns its own sample rate, natural end and loop.</summary>
+    internal static AudioClip CreateSynchronousSpeakerPair(DecodedAudio first,
+        AudioCueStaticPlaybackReference firstSource, DecodedAudio second,
+        AudioCueStaticPlaybackReference secondSource, StereoAudioRoute route)
+    {
+        var components = new[] { (first, firstSource), (second, secondSource) };
+        var stems = new List<(DecodedAudio Audio, int Channel, int Output, float Gain)>();
+        foreach (var (audio, source) in components)
+        {
+            uint mask = source.SourceChannelMask ?? throw new InvalidDataException("A synchronous component needs its source speaker mask.");
+            if (mask == 0 || (mask & ~0x3Fu) != 0 || System.Numerics.BitOperations.PopCount(mask) != audio.Wave.Channels ||
+                audio.Wave.SampleRate != source.Sample.SampleRate || audio.Wave.SampleFrames != source.Sample.DeclaredSamples)
+                throw new InvalidDataException("Synchronous sound source speaker lanes or timing differ from decoded PCM.");
+            int channel = 0;
+            for (int speaker = 0; speaker < 6; speaker++)
+            {
+                if ((mask & (1u << speaker)) == 0) continue;
+                for (int output = 0; output < 2; output++)
+                {
+                    float gain = route.Gain(speaker, output) * source.Leaf.LinearGain;
+                    if (gain > 0) stems.Add((audio, channel, output, gain));
+                }
+                channel++;
+            }
+        }
+        // Keep a fully muted authored cue's actual natural duration.
+        if (stems.Count == 0) stems.Add((first, 0, 0, 0));
+        int frames = checked((int)Math.Ceiling(components.Max(component =>
+            (double)component.Item1.Wave.SampleFrames / component.Item1.Wave.SampleRate) * first.Wave.SampleRate));
+        var synchronized = new AudioStreamSynchronized { StreamCount = stems.Count };
+        var clip = new AudioClip(synchronized, first.Provenance, first.Wave.SampleRate,
+            first.Wave.Channels + second.Wave.Channels, frames,
+            first.LoopStartSample is not null || second.LoopStartSample is not null)
+            { OutputChannels = 2 };
+        try
+        {
+            for (int index = 0; index < stems.Count; index++)
+            {
+                var (audio, channel, output, gain) = stems[index];
+                var wave = audio.Wave;
+                bool loop = audio.LoopStartSample is not null;
+                if (wave.Pcm16.Length == 0 || wave.Pcm16.Length % (wave.Channels * 2) != 0 ||
+                    (audio.LoopStartSample is null) != (audio.LoopEndSample is null) ||
+                    loop && (audio.LoopStartSample < 0 || audio.LoopStartSample >= audio.LoopEndSample ||
+                        audio.LoopEndSample > wave.SampleFrames))
+                    throw new InvalidDataException("A synchronous component has incomplete PCM or invalid loop bounds.");
+                byte[] pcm = new byte[checked(wave.SampleFrames * 4)];
+                for (int frame = 0; gain != 0 && frame < wave.SampleFrames; frame++)
+                {
+                    int source = (frame * wave.Channels + channel) * 2, target = frame * 4 + output * 2;
+                    pcm[target] = wave.Pcm16[source]; pcm[target + 1] = wave.Pcm16[source + 1];
+                }
+                var stream = new AudioStreamWav
+                {
+                    Format = AudioStreamWav.FormatEnum.Format16Bits, MixRate = wave.SampleRate,
+                    Stereo = true, Data = pcm,
+                    LoopMode = loop ? AudioStreamWav.LoopModeEnum.Forward : AudioStreamWav.LoopModeEnum.Disabled,
+                    LoopBegin = loop ? checked((int)audio.LoopStartSample!.Value) : 0,
+                    LoopEnd = loop ? checked((int)audio.LoopEndSample!.Value) : 0
+                };
+                clip.OwnChild(stream);
+                synchronized.SetSyncStream(index, stream);
+                synchronized.SetSyncStreamVolume(index, gain == 0 ? 0 : Mathf.LinearToDb(gain));
+            }
+            return clip;
+        }
+        catch { clip.Dispose(); throw; }
+    }
+
     public static AudioClip Create(DecodedAudio decoded, AudioLoopPolicy loopPolicy)
     {
         ArgumentNullException.ThrowIfNull(decoded);

@@ -10,7 +10,12 @@ internal sealed class ArmyTraitSpeechViews
     private sealed record View(ArmyReceiverId Receiver, ArmyReceiverPhase Phase,
         int? ActiveUnitId, int? PendingUnitId, bool? Available);
     private readonly ImmutableDictionary<int, View> views;
-    private ArmyTraitSpeechViews(ImmutableDictionary<int, View> views) => this.views = views;
+    internal bool? ControllerAvailable { get; }
+    private ArmyTraitSpeechViews(ImmutableDictionary<int, View> views, bool controllerAvailable)
+        => (this.views, ControllerAvailable) = (views, controllerAvailable);
+
+    internal static ArmyTraitSpeechViews WithoutController { get; } =
+        new(ImmutableDictionary<int, View>.Empty, false);
 
     internal static ArmyTraitSpeechViews? Capture(GameState source, Func<int, bool?> available)
     {
@@ -22,11 +27,14 @@ internal sealed class ArmyTraitSpeechViews
             if (id is int unitId) views.Add(unitId, new(receiver.ReceiverId, receiver.Phase,
                 receiver.ActiveUnitId, receiver.PendingImage?.Id, available(unitId)));
         }
-        return new(views.ToImmutable());
+        // This capture is called by the actual constructed Army label
+        // controller; an absent individual card does not remove that owner.
+        return new(views.ToImmutable(), true);
     }
 
     internal bool? Read(GameState candidate, int unitId)
     {
+        if (ControllerAvailable == false) return false;
         if (!views.TryGetValue(unitId, out var captured) || candidate.ArmyLifecycle?.Receivers.Find(captured.Receiver) is not { } actual)
             return null;
         //A new assignment or retirement after capture is not evidence about

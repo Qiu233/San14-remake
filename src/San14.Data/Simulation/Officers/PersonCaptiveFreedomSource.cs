@@ -61,7 +61,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         var oldArea = PersonFreedomHomeSource.FindBaseArea229FD0(current, oldHome);
         var originalForce = current.ReadPersonForce(personPhysical) ?? throw CaptiveFreedomMissing("original_Force22CB40");
         byte status = Need(current.ReadPersonStatus(personPhysical), "prefix_statusE6");
-        if (status is not (1 or 2 or 3 or 4 or 6)) throw CaptiveFreedomMissing("branch.ordinary_status1_2_3_4_or6");
+        //265250 has no enclosing status filter: Story238 may reach the
+        //same ordinary body for free, absent or deceased stored Persons.
+        //Only the actual leader/ruler/governor prefix below is conditional.
         if (status == 2)
         {
             int districtId = Need(current.ReadPersonDistrictSlot(personPhysical), "leader_DistrictE0");
@@ -126,7 +128,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
         }
         ushort flags = Need(current.ReadArmyReturnPersonFlags196(personPhysical), "Person15E");
-        if ((flags & 0x4000) != 0) throw CaptiveFreedomMissing("branch.appendix_Army_cleanup_and_World_unregister");
+        if ((flags & 0x4000) != 0)
+            return ApplySpecialCaptiveFreedomTailCurrent(working, current, pool, personPhysical,
+                sourceDate, readDay450, readSampler, sink);
         if (Need(current.ReadForceNativeValidity(originalForce), "popularity_Force_validity"))
         {
             int firstForce = Need(current.ReadForcePhysicalSlot(originalForce), "popularity_Force_first_ordinal");

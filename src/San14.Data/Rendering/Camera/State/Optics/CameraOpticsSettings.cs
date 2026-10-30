@@ -158,6 +158,9 @@ public sealed record CameraOpticsSettings
     public CameraTemporalAaSettings TemporalAa { get; init; } = new();
     public CameraLensEffectsSettings LensEffects { get; init; } = new();
     public CameraHeatShimmerSettings HeatShimmer { get; init; } = new();
+    /// <summary>Current Main ReflectionProbeRSMCaptureMode, copied to prepared View15A0.
+    /// This raw mode does not attest a Field instance or capture readiness.</summary>
+    public uint ReflectionProbeRsmCaptureMode { get; init; }
     public static CameraOpticsSettings FromSource(LoadedMapCameraConstructionSource source) => CameraOpticsImport.Defaults(source);
     public CameraOpticsSettings Apply(CameraOpticsPatch patch) => patch.ApplyTo(this);
 }

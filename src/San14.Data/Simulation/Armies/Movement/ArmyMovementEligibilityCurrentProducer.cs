@@ -100,14 +100,11 @@ public sealed class ArmyMovementEligibilityCurrentProducer
             : context.ArmyManagerExcluded(state, army.Id);
         if (excluded is null) return Missing("current.Army_manager233560");
         if (excluded.Value) return Result(false, currentTarget, null, "2C73C6.manager-excluded");
-        //2C96E0 checks current affiliation Base, not retained SourceLocationId.
-        if (army.ForceId is >= 46 and <= 50) return Missing("current.special_force_Army232860");
-        if (army.ForceId != 51)
-        {
-            int? home = new ArmyLogisticsPreparation(context, definitions, map, terrain).ReadCommanderBaseHex(state, army);
-            if (home is null) return Missing("current.commander_Base2A7840_and_Object_Hex22D880");
-            if (home == army.HexId) return Result(false, currentTarget, null, "2C73BA.current-home-Hex");
-        }
+        //Use the complete current predicate, including special Force Home
+        //qualification and the actual Base native-validity/position gates.
+        if (package.ReadArmyAtHomeCurrent(state, definitions, nativeArmy!.PhysicalSlot!.Value) is not bool atHome)
+            return Missing("current.Army_at_home2C96E0");
+        if (atHome) return Result(false, currentTarget, null, "2C73BA.current-home-Hex");
         if (Fields()?.TargetType38 is not byte targetType || fields?.TargetValue3A is not ushort targetValue)
             return Missing("current.Army_targetType38_and_word3A_for_goal2B5610");
         int? goal = ResolveRawGoal(targetType, targetValue);

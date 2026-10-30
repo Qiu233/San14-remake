@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "ArmyWorldPopulation.h"
 #include "ArmyMaterialResourceContext.h"
 #include <iomanip>
@@ -53,7 +54,7 @@ inline NativeArmyMaterialResourceContext::ManagerInitialization readNativeArmyMa
 }
 struct NativeArmyMaterialSourceSlot {uint32_t material{},texture{},sampler{};};
 inline std::vector<NativeArmyMaterialSourceSlot> readNativeArmyMaterialSourceSlots(const std::filesystem::path& directory){
-    std::ifstream input(directory/"stage-source-slots.txt");
+    NativePreparedInputFile input(directory/"stage-source-slots.txt");
     if(!input)throw std::runtime_error("Army actual Material texture source slots absent");
     std::vector<NativeArmyMaterialSourceSlot> rows;NativeArmyMaterialSourceSlot row;
     while(input>>row.material){
@@ -66,7 +67,7 @@ inline std::vector<NativeArmyMaterialSourceSlot> readNativeArmyMaterialSourceSlo
 }
 inline std::vector<NativeArmyMaterialResourceContext::StageRegistration> readNativeArmyStageRegistrations(
         const std::filesystem::path& directory){
-    std::ifstream input(directory/"stage-registrations.txt");
+    NativePreparedInputFile input(directory/"stage-registrations.txt");
     if(!input)throw std::runtime_error("Army actual shader stage registrations absent");
     std::vector<NativeArmyMaterialResourceContext::StageRegistration> rows;
     NativeArmyMaterialResourceContext::StageRegistration row;
@@ -122,10 +123,10 @@ inline NativeArmyMaterialInput readNativeArmyMaterialInput(const std::filesystem
     r.proxy=material.get<unsigned>();r.texture=material.get<unsigned>();r.sampler=material.get<unsigned>();
     if(material.at!=material.bytes.size()||r.texture>=16||r.sampler>=16)throw std::runtime_error("Army material image binding invalid");
     r.filenameContext=std::move(Reader(directory/"filename-context.bin").bytes);
-    std::ifstream source(directory/"texture-group-source.txt");std::string extra;
+    NativePreparedInputFile source(directory/"texture-group-source.txt");std::string extra;
     if(!(source>>r.regularSourceUri>>r.regularSourceObject>>r.regularSourceOrdinal)||(source>>extra))
         throw std::runtime_error("Army regular texture-group source identity absent or malformed");
-    std::ifstream materialSource(directory/"material-source.txt");
+    NativePreparedInputFile materialSource(directory/"material-source.txt");
     if(!(materialSource>>r.materialSourceUri>>r.materialSourceObject>>r.materialSourceOrdinal>>r.materialSourceRow)||
             (materialSource>>extra)||r.materialSourceObject!=r.selectedMaterial||!r.materialSourceRow)
         throw std::runtime_error("Army selected Material source assignment absent or malformed");
@@ -135,7 +136,7 @@ struct NativeArmyMaterialTemplateInput {
     unsigned draw{},table{},role{},queue{},allowedRecords{};std::filesystem::path directory;std::string tableUri;
 };
 inline std::vector<NativeArmyMaterialTemplateInput> readNativeArmyMaterialTemplates(const std::filesystem::path& directory){
-    std::ifstream list(directory/"templates.txt");std::vector<NativeArmyMaterialTemplateInput> rows;
+    NativePreparedInputFile list(directory/"templates.txt");std::vector<NativeArmyMaterialTemplateInput> rows;
     NativeArmyMaterialTemplateInput row;std::string relative;int queue;
     if(!list)throw std::runtime_error("Army material candidate templates absent");
     while(list>>row.draw>>row.table>>row.role>>relative>>queue>>row.allowedRecords>>row.tableUri){

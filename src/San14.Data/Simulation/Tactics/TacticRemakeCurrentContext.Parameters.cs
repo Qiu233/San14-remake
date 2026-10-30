@@ -162,6 +162,7 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Morale.PolicyScale, MoraleEffectCoefficient),
         (SimulationParameterKeys.Tactics.ReservedTacticScale, ReservedTacticScale),
         (SimulationParameterKeys.Tactics.HealingCapacityCoefficient, HealingCapacityCoefficient),
+        (SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity, SimulationParameterKeys.Tactics.InitialSpecialOfficerCommandCapacity),
         (SimulationParameterKeys.Tactics.ActivationContribution, ActivationContribution),
         (SimulationParameterKeys.Tactics.HealthyAbilityPercent, HealthyAbilityPercent),
         (SimulationParameterKeys.Tactics.InjuryLevel1AbilityPercent, InjuryLevel1AbilityPercent),

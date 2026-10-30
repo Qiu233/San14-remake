@@ -162,7 +162,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             K(BattleRemakeCurrentSettings.ReadSelectorE58(state), "settings_selector") == 0 ? advanced : ordinary), "setting");
         private int P(string name, int original)
         {
-            if (package.Seed.Language != "TC") throw Missing("locale_static_rules");
+            var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("parameter_owner");
+            if (package.Seed.Language is not ("SC" or "TC") ||
+                parameters.Language != package.Seed.Language ||
+                parameters.RuleVersion != SimulationRuleIdentity.ForLocale(package.Seed.Language))
+                throw Missing("locale_rule_profile");
+            // All nine defaults have independent SC and TC source qualification.
+            // The existing parameter reader keeps current saved integers first.
             return StrategicParameter(state, "special-force-raids." + name, original);
         }
         private static long DateValue(NativeMapSeasonDate date) =>

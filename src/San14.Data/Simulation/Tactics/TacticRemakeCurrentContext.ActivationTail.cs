@@ -24,7 +24,7 @@ public sealed partial class TacticRemakeCurrentContext
             if (armySlot is < 1 or > 500 || arena.Slots.Count != 501) return null;
             var source = arena.Slots[armySlot];
             var receiver = arena.Receivers.Find(source.ReceiverId);
-            if (receiver?.ActiveUnitId != caster.Id) return null;
+            if (receiver is null || receiver.ActiveUnitId != caster.Id && receiver.PendingImage != caster) return null;
             word12 = source.Commander12;
         }
         else

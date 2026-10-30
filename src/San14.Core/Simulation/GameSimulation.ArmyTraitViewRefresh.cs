@@ -12,6 +12,10 @@ public sealed partial class GameSimulation
         var owner = pending?.Candidate ?? State;
         if (!ReferenceEquals(owner, expectedOwner) || owner.CampaignEffectRequests is not { } effects)
             return false;
+        if (expectedSource is CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage &&
+            (!TryReadSourcePresentationHead(expectedOwner, expectedSource, batchSequence, requestIndex,
+                out _, out _, out _, out _, out var sourceHead) || sourceHead.ArmyTraitViewRefresh is null))
+            return false;
         for (int batchIndex = 0; batchIndex < effects.PendingBatches.Length; batchIndex++)
         {
             var batch = effects.PendingBatches[batchIndex];
@@ -21,7 +25,8 @@ public sealed partial class GameSimulation
                 if (batch.Source != expectedSource || batch.Sequence != batchSequence || index != requestIndex ||
                     expectedSource is not (CampaignEffectSource.ArmyFalseReport or CampaignEffectSource.ArmyTraitMaintenance or
                         CampaignEffectSource.FacilityTraps or CampaignEffectSource.FireDamage or CampaignEffectSource.TerrainDamage or
-                        CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects or CampaignEffectSource.ArmyBattleDefeat))
+                        CampaignEffectSource.NormalCombatApplication or CampaignEffectSource.FacilityEffects or CampaignEffectSource.ArmyBattleDefeat or
+                        CampaignEffectSource.ArmyMovement))
                     return false;
                 CampaignEffectBatch[] batches;
                 if (batch.Requests.Length == 1)

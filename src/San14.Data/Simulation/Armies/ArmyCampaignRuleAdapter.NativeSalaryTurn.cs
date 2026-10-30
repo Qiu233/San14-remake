@@ -6,16 +6,20 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     /// <summary>Actual monthly pay, reached once per City before Turn food.
     /// The same operation-local current world owns its Gate recursion and
-    /// temporary lists. Unimplemented shortage effects stop the private turn.</summary>
+    /// temporary lists. Short bills pay the remaining stock before the ordered
+    /// loyalty, departure, report and captive-release tails.</summary>
     private GameState CompleteNativeMonthlySalary(GameState input, SourceWorldContext current, BaseReference city)
     {
-        // These read-only rule constants are qualified against the TC typed
-        // data and reference cache. No original file is consulted at runtime.
-        if (Seed.Language != "TC") throw SalaryMissing("SC_rule_constants");
-        const int captivePay = 50;
+        var salaryRules = NativeMonthlySalaryRules.ForLanguage(Seed.Language);
+        int captivePay = salaryRules.CaptivePay;
         var working = input;
         TacticRemakeCurrentAbilities? abilities = null;
+        var effects = new List<CampaignEffectRequest>();
         PayBase(city);
+        if (effects.Count != 0) working = working with { CampaignEffectRequests =
+            (working.CampaignEffectRequests ?? throw SalaryMissing("effect_owner")).Append(
+                CampaignEffectSource.MonthlyMaintenance, working.NativeClock?.UpdateOrdinal
+                    ?? throw SalaryMissing("effect_revision"), effects) };
         return working;
 
         void PayBase(BaseReference receiver)
@@ -43,12 +47,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
 
                 int available = CollectorGold(receiver), paid = 0;
+                bool loyaltyShortage = false, specialShortage = false;
+                TransferPersonReference? reportSpeaker = null;
                 Sort(employed, EmployedBefore);
                 foreach (int person in People(employed))
                 {
                     int due = Salary(person);
                     if (available < due)
-                        throw SalaryMissing($"shortage_Person{PersonId(person)}_loyalty_relationships_reports");
+                    {
+                        //The unpaid bill consumes the remaining stock even
+                        //when this Person's ruler relationship protects loyalty.
+                        paid = unchecked(paid + available);
+                        available = 0;
+                        var shortage = ApplyNativeSalaryLoyaltyShortageCurrent(working, current, person);
+                        working = shortage.State;
+                        loyaltyShortage |= shortage.ReportShortage;
+                        specialShortage |= shortage.SpecialRemains;
+                        if (shortage.SpecialDeparts) Append(departingSpecialPeople, person);
+                        continue;
+                    }
                     available = unchecked(available - due);
                     paid = unchecked(paid + due);
                     if (!Known(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "Person_flags14"))
@@ -63,7 +80,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 foreach (int person in People(captives))
                 {
                     if (available < captivePay)
-                        throw SalaryMissing($"shortage_captive{PersonId(person)}_release_2E7890");
+                    {
+                        paid = unchecked(paid + available);
+                        available = 0;
+                        Append(releaseCaptives, person);
+                        continue;
+                    }
                     available = unchecked(available - captivePay);
                     paid = unchecked(paid + captivePay);
                 }
@@ -84,6 +106,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                     int expense = owner.PeriodGoldExpenditure ?? throw SalaryMissing("expense_reset_order");
                     working.Cities[id] = owner with { Gold = after, PeriodGoldExpenditure = unchecked(expense + paid) };
                 }
+
+                working = CompleteNativeSalaryEmployedReportsCurrent(working, current, receiver,
+                    loyaltyShortage, specialShortage, departingSpecialPeople, ref reportSpeaker, effects);
+                working = CompleteNativeSalaryCaptiveReleasesCurrent(working, current, receiver,
+                    releaseCaptives, ref reportSpeaker, effects);
 
                 if (location < 52)
                 {
@@ -199,7 +226,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal int ReadNativeMonthlyOfficerSalaryCurrent(GameState state, SourceWorldContext current, int person)
     {
-        if (Seed.Language != "TC") throw SalaryMissing("SC_rule_constants");
+        var salaryRules = NativeMonthlySalaryRules.ForLanguage(Seed.Language);
         if (!K(current.ReadPersonNativeValidity(person), "salary_Person_validity")) return 0;
         int identity = K(current.ReadPersonIdentity(person), "Person_identity");
         var owner = state.Officers.GetValueOrDefault(identity) ?? throw SalaryMissing("Person_domain_owner");
@@ -210,13 +237,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (parameters.Int32Values.GetValueOrDefault(OwnedArmyGovernorComparatorInputs.VersionKey) != 1 ||
             parameters.Float32Values.ContainsKey(key) || !parameters.Int32Values.TryGetValue(key, out int officePay) ||
             officePay is < 0 or > 255) throw SalaryMissing("salary_office36");
-        int basis = unchecked(officePay * 10);
-        if (!K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "salary_Person_flags14")) basis = 10;
-        int trait = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 46), "salary_trait46");
+        int basis = unchecked(officePay * salaryRules.OfficeMultiplier);
+        if (!K(OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)), "salary_Person_flags14")) basis = salaryRules.SpecialPersonPay;
+        int trait = unchecked(salaryRules.TraitMultiplier *
+            K(TacticRemakeCurrentTraits.PersonContribution(current, person, 46), "salary_trait46"));
         var force = current.ReadPersonForce(person) ?? throw SalaryMissing("salary_Force_pointer");
         int policy = K(current.ReadForceNativeValidity(force), "salary_Force_validity")
             ? K(_baseCapacityInputs.ReadPanelModifier(state, K(force.PhysicalSlot, "salary_Force_identity"), 12), "salary_policy12") : 0;
-        return unchecked(basis - unchecked(policy * basis) / 100 - unchecked(trait * basis) / 100);
+        return unchecked(basis - unchecked(unchecked(salaryRules.PolicyMultiplier * policy) * basis) / 100 - unchecked(trait * basis) / 100);
 
         static T K<T>(T? value, string field) where T : struct => value ?? throw SalaryMissing(field);
     }

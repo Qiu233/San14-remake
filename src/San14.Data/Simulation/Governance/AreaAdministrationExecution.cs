@@ -46,14 +46,33 @@ internal static class AreaAdministrationExecution
     }
 
     internal static CommandResult Apply(GameState state, SourceWorldContext current, CityState city,
-        IReadOnlyList<AreaAdministrationChange> changes, long reservedCommandBooks)
+        IReadOnlyList<AreaAdministrationChange> changes, long reservedCommandBooks,
+        bool? userSelectionServicePresent = null,
+        Func<GameState, int, PersonAssignmentPrecallResult, GameState>? assignmentReports = null)
+    {
+        if (changes.Count == 0) return CommandResult.Accept(state);
+        int cityId = K(current.ReadAreaCitySlot(new(changes[0].AreaId)), "batch_area_city");
+        if (cityId != city.Id || state.Cities.GetValueOrDefault(cityId)?.DistrictId != city.DistrictId)
+            throw Missing("batch_domain_city");
+        return ApplyOrdered(state, current, changes, reservedCommandBooks, userSelectionServicePresent, assignmentReports);
+    }
+
+    /// <summary>1ED380's ordered rows. Repeated areas and areas in different
+    /// cities are significant: compare all rows with the entry world, detach
+    /// incoming duties, clear every target, then install every row in order.
+    /// Core supplies the same force/scope authority as ordinary commands.</summary>
+    internal static CommandResult ApplyOrdered(GameState state, SourceWorldContext current,
+        IReadOnlyList<AreaAdministrationChange> changes, long reservedCommandBooks,
+        bool? userSelectionServicePresent = null,
+        Func<GameState, int, PersonAssignmentPrecallResult, GameState>? assignmentReports = null)
     {
         if (changes.Count == 0) return CommandResult.Accept(state);
         int rawCity = K(current.ReadAreaCitySlot(new(changes[0].AreaId)), "batch_area_city");
         var sourceCity = current.ReadCityTableReference(rawCity <= 51 ? rawCity : 0) ?? throw Missing("batch_city_pointer");
         var district = current.ReadCityDistrictReference(sourceCity) ?? throw Missing("batch_district_pointer");
         int districtId = K(district.PhysicalSlot, "batch_district_identity");
-        if (sourceCity.PhysicalSlot != city.Id || city.DistrictId != districtId)
+        int cityId = K(sourceCity.PhysicalSlot, "batch_city_identity");
+        if (!state.Cities.TryGetValue(cityId, out var city) || city.DistrictId != districtId)
             throw Missing("batch_domain_city_district");
         var districtState = state.Districts.GetValueOrDefault(districtId) ?? throw Missing("district_owner");
         int remaining = K(districtState.OrdersRemaining, "command_books");
@@ -67,12 +86,18 @@ internal static class AreaAdministrationExecution
         if (remaining - reservedCommandBooks < debit)
             return CommandResult.Reject("Not enough unreserved orders.", "administration.insufficient_orders");
         int afterBooks = Math.Clamp(unchecked(remaining - debit), 0, 200);
-        // The source callback depends on tutorial manager and current-user.
-        // The ordinary saved -1 branch proves it is not reached.
-        if (state.CampaignEventWorld?.CurrentUserIndex != -1) throw Missing("tutorial_command_service");
+        //1ED380 asks1D3840 before reading the selected user. This statistics
+        //controller is independent of the tutorial controller. An attached
+        //lesson which did not construct it follows the actual absent branch.
+        if (state.CampaignEventWorld?.CurrentUserIndex != -1 && userSelectionServicePresent != false)
+            throw Missing("selected_user_statistics_service");
         int forceSlot = K(current.ReadDistrictForceSlot(district), "batch_force");
         var force = current.ReadForceTableReference(forceSlot <= 51 ? forceSlot : 0) ?? throw Missing("batch_force_pointer");
         var vectors = new PersonAssignmentPrecallInputs.AreaAppointmentDraft(state);
+        //Reports are written at the actual detach point, before the remaining
+        //appointment passes. Retain their App/history candidate through the
+        //final publication; the enclosing command remains atomic on failure.
+        GameState working = state;
         var cities = new HashSet<int>();
         var areas = new HashSet<int>();
         var associations = new HashSet<(int Force, int Slot)>();
@@ -100,7 +125,9 @@ internal static class AreaAdministrationExecution
             foreach (var write in cleared.Writes)
                 if (write.NativeOffset is >= 0x196 and <= 0x19A)
                     associations.Add((write.PhysicalSlot, (write.NativeOffset - 0x196) / 2));
-            if (cleared.Reports.Count != 0) throw Missing("association_report_saved_consumer");
+            if (cleared.Reports.Count != 0)
+                working = assignmentReports is not null ? assignmentReports(working, person, cleared)
+                    : throw Missing("association_report_saved_consumer");
             foreach (int area in Registered(current, RegistryKind.Area))
             {
                 if (oldCityId is < 1 or > 51 || K(current.ReadAreaCitySlot(new(area)), "old_area_city") != oldCityId) continue;
@@ -111,7 +138,9 @@ internal static class AreaAdministrationExecution
                 break;
             }
         }
-        // All target removals precede every new assignment, including swaps.
+        //Keep repeated targets. All removals precede every new assignment;
+        //installing an explicit clear row and the same Area's appointment is
+        //different from collapsing those rows before the transaction.
         foreach (var change in changes)
             ClearArea(change.AreaId, K(current.ReadAssignmentArea36(change.AreaId), "target_old_person"));
         foreach (var change in changes)
@@ -126,7 +155,7 @@ internal static class AreaAdministrationExecution
             current.SetAssignmentArea72(change.AreaId, Focus(change.DevelopmentFocus));
             areas.Add(change.AreaId);
         }
-        var result = state with { Districts = new(state.Districts)
+        var result = working with { Districts = new(working.Districts)
             { [districtId] = districtState with { OrdersRemaining = afterBooks } } };
         result = PersonAssignmentPrecallInputs.PublishAreaAppointments(result, current, cities, areas, associations);
         return CommandResult.Accept(vectors.Publish(result));

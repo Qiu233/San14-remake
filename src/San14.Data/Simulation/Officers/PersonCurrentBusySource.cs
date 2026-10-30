@@ -21,7 +21,8 @@ internal static class PersonCurrentBusySource
             if (commands?.Talents?.ContainsKey(id) == true) return false; // v98=2,3 or22.
             if (commands?.Disappearances?.ContainsKey(id) == true) return true; // v98=16.
             if (commands?.Diplomacies?.ContainsKey(id) == true || commands?.Strategies?.ContainsKey(id) == true ||
-                commands?.Independences?.ContainsKey(id) == true) return false;
+                commands?.Independences?.ContainsKey(id) == true || commands?.Caravans?.ContainsKey(id) == true ||
+                commands?.Intelligences?.ContainsKey(id) == true) return false;
             //232370's associated-command branch compares the actual kind
             //with16 only. Other known tasks do not independently make this
             //location predicate busy; the E2/E4 check above still precedes it.

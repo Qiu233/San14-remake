@@ -29,7 +29,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var initial = ReadPersonnelRewardPreviewCurrent(state, current, district, []);
             return new(forceId, district, cards, Quote, () =>
                 PersonnelAdministrationCandidates.SelectAutomaticReward(candidates, initial.GoldBefore)
-                    .Select(row => row.OfficerId).ToArray());
+                    .Select(row => row.OfficerId).ToArray(), new(state, current));
 
             PersonnelRewardBudget Quote(IReadOnlyList<int> ids)
             {
@@ -55,7 +55,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var candidates = QueryBanishCandidatesCurrent(state, current, forceId);
             if (candidates.Value is not { } rows || !candidates.Available)
                 throw new InvalidDataException(candidates.UnresolvedInput ?? "personnel-banish.candidates");
-            return new(forceId, rows, ids => QueryPersonnelBanishConfirmationCurrent(state, current, ids));
+            return new(forceId, rows, ids => QueryPersonnelBanishConfirmationCurrent(state, current, ids),
+                new(state, current));
         }
         catch (InvalidDataException error) { return new(forceId, error.Message); }
     }
@@ -78,7 +79,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             Dictionary<int, int> points = rankup ? rules.People.ToDictionary(person => person.Id, ReadCreditRankupPointAddition) : [];
             string[] titles = rankup ? Enumerable.Range(1, 6).Select(slot => ReadPersonnelCreditChoiceTitle(state, current, slot)).ToArray() : [];
             return new(forceId, rankup, rules, Project,
-                (person, mode) => ApplyCreditAutomaticChoiceCurrent(state, rules, person, mode), Reserves);
+                (person, mode) => ApplyCreditAutomaticChoiceCurrent(state, rules, person, mode), Reserves,
+                new(state, current));
 
             string RankName(int stage) => stage is >= 0 and <= 6 ? CreditRanks()[stage].Name : "";
             PersonnelCreditRow Project(CreditCommandPerson person, bool selected, byte code)

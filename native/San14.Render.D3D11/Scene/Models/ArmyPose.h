@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "Accessories/AccessoryPose.h"
 
 // Army uses the same D95990/D84810/D8A620/A22170 arithmetic as the closed
@@ -11,7 +12,7 @@ inline NativeAccessoryPoseSource prepareNativeArmyPoseSource(const std::filesyst
     NativeAccessoryPoseSource source;source.duration8=in.get<float>();source.frameRate=in.get<float>();source.frameCount=in.get<uint32_t>();
     uint32_t joints=in.get<uint32_t>(),maps=in.get<uint32_t>(),tracks=in.get<uint32_t>(),channels=in.get<uint32_t>();
     uint32_t coefficientBytes=in.get<uint32_t>(),references=in.get<uint32_t>(),palettes=in.get<uint32_t>();
-    unsigned flags,normalRuns,alternateRuns,run;std::ifstream profile(directory/"profile.txt");profile>>flags>>normalRuns>>alternateRuns>>run;
+    unsigned flags,normalRuns,alternateRuns,run;NativePreparedInputFile profile(directory/"profile.txt");profile>>flags>>normalRuns>>alternateRuns>>run;
     if(!profile||flags!=0||normalRuns!=1||alternateRuns!=0||run!=joints||joints>32767||maps>32767||
         !std::isfinite(source.duration8)||source.duration8<=0||!std::isfinite(source.frameRate)||source.frameRate<=0||
         source.frameCount>65535||source.frameCount==0||coefficientBytes%32||palettes==0)

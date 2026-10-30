@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 181;
+    public const int CurrentSchemaVersion = 223;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -43,6 +43,20 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         // Serialize the owned world directly. Whole-world correctness checks belong
         // to offline validation; decoding checks data entering the game.
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
+        PersonnelIntelligenceNarrationSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        CampaignStorySelectionSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        ArmyGroupObjectiveSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        CampaignStoryMessageBankSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        OriginalAiStrategyMemorySaveFields.ValidateWorld((JsonObject)document["State"]!);
+        OriginalAiPolicyExecutionSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        OriginalAiStrategyScheduleSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        OriginalAiNativeStateSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        ItemNameSortSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        DuelPresentationSnapshotSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        DuelCaptureAnnouncementSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        UnassignedForcePolicyEffectsSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        CampaignStoryInvocationPresentationSaveFields.ValidateWorld((JsonObject)document["State"]!);
+        CampaignStoryPresentationSaveFields.ValidateWorld((JsonObject)document["State"]!);
         if (state.ResourceState is { } resourceState)
             document["ResourceState"] = (_resourceStateCodec ?? throw new InvalidDataException(
                 "This campaign requires its resource-state save codec.")).Encode(resourceState);
@@ -75,6 +89,8 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NormalTurnStorySaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalTurnCompletionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         CampaignStoryPreparationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignStoryPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignStoryInvocationPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         PendingCampaignServicesSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ApplicationCommandAccountingSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalTurnPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
@@ -86,10 +102,44 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         RulerDecisionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NormalCombatImmediateSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         DuelAftermathSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        DuelPresentationSnapshotSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        DuelCaptureAnnouncementSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseCaptureContinuationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        AutomaticEmperorCaptureSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseTacticPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseCombatSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         OrdinaryTacticPlaybackSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ManualTacticExecutionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OfficerSpecialVoiceSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        NativePeriodStopSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignEndingSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        TutorialLessonSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ProposalSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ProposalPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ArmyDeparturePresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        PersonnelCaravanSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        PersonnelIntelligenceSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        SceneryInvestmentCommandSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        FacilityArmySpeechSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        FacilityEffectsPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        FacilityConstructionConnectionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        FirePresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ArmyCommandSpeechSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        PlaceholderAreaDevelopmentSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        UnassignedForcePolicyEffectsSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ItemAppearanceSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CreatedPersonalitySaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        EditedEventPlaybackSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignEventCommandSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignStorySelectionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ArmyGroupObjectiveSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OrdinaryArmyCreationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        CampaignStoryMessageBankSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OriginalAiStrategyMemorySaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OriginalAiPolicyExecutionSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OriginalAiStrategyScheduleSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        OriginalAiNativeStateSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ItemNameSortSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         CoalitionCameraPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         ICampaignResourceState? resourceState = null;
         if (document.ContainsKey("ResourceState"))
@@ -175,10 +225,27 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             resourceState = (_resourceStateCodec ?? throw new InvalidDataException(
                 "Historical army source knowledge requires its resource-state codec.")).MigrateArmyLifecycle(resourceState, armySource);
         JsonObject stateDocument = (JsonObject)document["State"]!;
+        OfficerSpecialCapacitySaveMigration.Apply(stateDocument, version);
+        ArmyOverrideObjectSaveMigration.Apply(stateDocument, version);
         TalentSaveFields.Migrate(stateDocument, version);
         TalentDiscoverySaveFields.Migrate(stateDocument, version);
         CampaignExpeditionSaveFields.Migrate(stateDocument, version);
         ForceCreditReserveSaveFields.Migrate(stateDocument, version);
+        PlaceholderAreaDevelopmentSaveFields.Migrate(stateDocument, version);
+        UnassignedForcePolicyEffectsSaveFields.Migrate(stateDocument, version);
+        ItemAppearanceSaveFields.Migrate(stateDocument, version);
+        CreatedPersonalitySaveFields.Migrate(stateDocument, version);
+        CampaignStorySelectionSaveFields.Migrate(stateDocument, version);
+        ArmyGroupObjectiveSaveFields.Migrate(stateDocument, version);
+        CampaignStoryMessageBankSaveFields.Migrate(stateDocument, version);
+        OriginalAiStrategyMemorySaveFields.Migrate(stateDocument, version);
+        OriginalAiPolicyExecutionSaveFields.Migrate(stateDocument, version);
+        OriginalAiStrategyScheduleSaveFields.Migrate(stateDocument, version);
+        OriginalAiNativeStateSaveFields.Migrate(stateDocument, version);
+        ItemNameSortSaveFields.Migrate(stateDocument, version);
+        CampaignStoryInvocationPresentationSaveFields.Migrate(stateDocument, version);
+        EditedEventPlaybackSaveFields.Migrate(stateDocument, version);
+        CampaignEventCommandSaveFields.Migrate(stateDocument, version);
         PersonnelHireSaveFields.Migrate(stateDocument, version);
         CampaignCrtRandomSaveFields.Migrate(stateDocument, version);
         MonthlyMaintenanceSaveFields.Migrate(stateDocument, version);
@@ -200,6 +267,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         NormalTurnEconomySaveFields.Migrate(stateDocument, version);
         NormalTurnStorySaveFields.Migrate(stateDocument, version);
         NormalTurnCompletionSaveFields.Migrate(stateDocument, version);
+        CampaignStoryPresentationSaveFields.Migrate(stateDocument, version);
         CampaignStoryPreparationSaveFields.Migrate(stateDocument, version);
         PendingCampaignServicesSaveFields.Migrate(stateDocument, version);
         ApplicationCommandAccountingSaveFields.Migrate(stateDocument, version);
@@ -212,9 +280,23 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         RulerDecisionSaveFields.Migrate(stateDocument, version);
         BaseCombatSaveFields.Migrate(stateDocument, version);
         OrdinaryTacticPlaybackSaveFields.Migrate(stateDocument, version);
+        ManualTacticExecutionSaveFields.Migrate(stateDocument, version);
+        OfficerSpecialVoiceSaveFields.Migrate(stateDocument, version);
+        NativePeriodStopSaveFields.Migrate(stateDocument, version);
+        CampaignEndingSaveFields.Migrate(stateDocument, version);
+        TutorialLessonSaveFields.Migrate(stateDocument, version);
+        ProposalSaveFields.Migrate(stateDocument, version);
+        ProposalPresentationSaveFields.Migrate(stateDocument, version);
+        ArmyDeparturePresentationSaveFields.Migrate(stateDocument, version);
+        PersonnelCaravanSaveFields.Migrate(stateDocument, version);
+        PersonnelIntelligenceSaveFields.Migrate(stateDocument, version);
+        FacilityArmySpeechSaveFields.Migrate(stateDocument, version);
+        FacilityEffectsPresentationSaveFields.Migrate(stateDocument, version);
+        FacilityConstructionConnectionSaveFields.Migrate(stateDocument, version);
         NormalCombatImmediateSaveFields.Migrate(stateDocument, version);
         DuelAftermathSaveFields.Migrate(stateDocument, version);
         BaseCaptureContinuationSaveFields.Migrate(stateDocument, version);
+        AutomaticEmperorCaptureSaveFields.Migrate(stateDocument, version);
         BaseTacticPresentationSaveFields.Migrate(stateDocument, version);
         CoalitionCameraPresentationSaveFields.Migrate(stateDocument, version);
         AreaCitySaveFields.Migrate(stateDocument, version);
@@ -305,6 +387,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
                 }
             }
         }
+        DuelPresentationSnapshotSaveFields.Migrate(stateDocument, version);
         if (version <= 130) stateDocument["DuelOpportunityCount"] = null;
         else
         {
@@ -522,7 +605,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
                                     if (overridden is not JsonObject selected || !selected.ContainsKey("Kind") || !selected.ContainsKey("Destination"))
                                         throw new InvalidDataException("Saved tactic override receipt is incomplete.");
                                     if (selected["Destination"] is JsonNode destination && (destination is not JsonObject destinationFields ||
-                                        new[] { "Kind", "EntityId", "ReceiverId" }.Any(k => !destinationFields.ContainsKey(k))))
+                                        new[] { "Kind", "EntityId", "ReceiverId", "MapObjectReceiverId" }.Any(k => !destinationFields.ContainsKey(k))))
                                         throw new InvalidDataException("Saved tactic override destination receipt is incomplete.");
                                 }
                             }
@@ -557,8 +640,15 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             }
         }
         CampaignEffectSaveFields.Migrate(stateDocument, version);
+        DuelCaptureAnnouncementSaveFields.Migrate(stateDocument, version);
+        ArmyCommandSpeechSaveFields.Migrate(stateDocument, version);
+        FirePresentationSaveFields.Migrate(stateDocument, version);
         CampaignHistorySaveFields.Migrate(stateDocument, version);
+        AreaOccupationClaimSaveFields.Migrate(stateDocument, version);
         CampaignChronicleSaveFields.Migrate(stateDocument, version);
+        if (version < 198 && stateDocument["CampaignEventWorld"] is JsonObject legacyEventWorld &&
+            legacyEventWorld.ContainsKey("HistoricalEventControl"))
+            throw new InvalidDataException("Legacy campaign event world contains a future historical-event control.");
         if (version < 100) stateDocument["CampaignEventWorld"] = null;
         else if (!stateDocument.ContainsKey("CampaignEventWorld") ||
             stateDocument["CampaignEventWorld"] is JsonNode eventWorld && (eventWorld is not JsonObject worldFields ||
@@ -566,6 +656,11 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             throw new InvalidDataException("Saved campaign event world is missing or incomplete.");
         if (stateDocument["CampaignEventWorld"] is JsonObject currentEventWorld)
         {
+            if (version < 198) currentEventWorld["HistoricalEventControl"] = null;
+            else if (!currentEventWorld.ContainsKey("HistoricalEventControl") ||
+                currentEventWorld["HistoricalEventControl"] is JsonNode historicalControl &&
+                (historicalControl is not JsonValue signedControl || !signedControl.TryGetValue<int>(out _)))
+                throw new InvalidDataException("Saved historical-event control is missing or invalid.");
             if (version < 111) currentEventWorld["EventAchievementFlags"] = null;
             else if (!currentEventWorld.ContainsKey("EventAchievementFlags"))
                 throw new InvalidDataException("Saved campaign event achievement flags are missing.");
@@ -1360,7 +1455,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             if (target.ContainsKey("Kind3C") || target.ContainsKey("Identity3E"))
                 throw new InvalidDataException("Saved override contains obsolete source fields.");
             if (target["Destination"] is JsonNode destination)
-                _ = Require(destination, "army override destination", "Kind", "EntityId", "ReceiverId");
+                _ = Require(destination, "army override destination", "Kind", "EntityId", "ReceiverId", "MapObjectReceiverId");
         }
         static JsonObject Require(JsonNode? node, string label, params string[] keys)
         {

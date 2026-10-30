@@ -7,6 +7,7 @@ using San14.Data;
 internal partial class MapInformationBrowserView : DetailsView
 {
     private MapInformationMenuView menu = null!;
+    private UiSourceCommonBlur backdrop = null!;
     private MapInformationListView? list;
     private readonly List<DetailsView> details = [];
     private DetailsView? detail => details.LastOrDefault();
@@ -16,6 +17,8 @@ internal partial class MapInformationBrowserView : DetailsView
     private Func<int>? scrollSpeed;
     private Func<bool>? admitted;
     private bool abandoned;
+    private DetailsView? mapDetail;
+    private bool mapDetailPriorBackdrop;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         UiSourceHeaderStack headers, Func<bool> admitted,
@@ -26,6 +29,7 @@ internal partial class MapInformationBrowserView : DetailsView
         this.repository = repository; this.text = text; this.headers = headers;
         this.admitted = admitted; this.scrollSpeed = scrollSpeed;
         ConfigureSourcePage("MapInformationBrowser", null, close);
+        backdrop = ConfigureCommonBackdrop(repository);
         menu = new(); AddChild(menu);
         menu.Configure(repository, text, () => ReadAdmission() && list is null && detail is null,
             readMenu, () => base.RequestClose(), selected, history, guide, returnHint, historyEnabled, initialTab, tabEnabled);
@@ -51,6 +55,12 @@ internal partial class MapInformationBrowserView : DetailsView
         catch { ReturnFromList(); throw; }
     }
 
+    internal bool? CurrentListNameSortAscending => list?.NameSortAscending;
+    internal void ApplyListDetailReturn(IReadOnlyList<MapInformationListRow> ordered, int selected, bool? ascending)
+        => list?.ApplyDetailReturn(ordered, selected, ascending);
+
+    internal bool IsCurrentDetail(DetailsView candidate) => ReadAdmission() && detail == candidate;
+
     internal void ShowDetail(DetailsView child, Action<Action> configure)
     {
         if (!ReadAdmission()) { child.Free(); return; }
@@ -61,6 +71,7 @@ internal partial class MapInformationBrowserView : DetailsView
         else { menu.SetBusy(true); menu.Hide(); }
         try
         {
+            child.BorrowCommonBackdrop(backdrop);
             configure(() => { if (detail == child) ReturnFromDetail(); });
             child.RegisterHeader(headers);
         }
@@ -69,9 +80,27 @@ internal partial class MapInformationBrowserView : DetailsView
 
     internal void ApplyNotice(string message) => menu.ApplyNotice(message);
 
+    // Chronology is a map state on the same InfoMenu parent stack. It
+    // suppresses the existing modal blur for its own lifetime only.
+    internal void ShowMapDetail(DetailsView child,Action<Action> configure)
+    {
+        if(!ReadAdmission()){child.Free();return;}
+        if(mapDetail is not null)throw new InvalidOperationException("An information map detail is already active.");
+        bool prior=backdrop.Visible;
+        ShowDetail(child,close=>
+        {
+            mapDetail=child;mapDetailPriorBackdrop=prior;backdrop.Hide();
+            configure(close);
+        });
+    }
+
     private void ReturnFromDetail()
     {
         var child = detail;
+        if(child is not null&&mapDetail==child)
+        {
+            backdrop.Visible=mapDetailPriorBackdrop;mapDetail=null;
+        }
         if (child is not null) details.RemoveAt(details.Count - 1);
         if (child is not null) { child.Hide(); child.GetParent()?.RemoveChild(child); child.QueueFree(); }
         if (!abandoned && detail is { } previous) { previous.ProcessMode = ProcessModeEnum.Inherit; previous.Show(); }
@@ -97,8 +126,8 @@ internal partial class MapInformationBrowserView : DetailsView
 
     public override void _ExitTree()
     {
-        abandoned = true; admitted = null; scrollSpeed = null;
-        list?.Abandon(); menu?.Abandon(); list = null; details.Clear();
+        abandoned = true; admitted = null; scrollSpeed = null;mapDetail=null;
+        list?.Abandon(); menu?.Abandon(); list = null; details.Clear(); backdrop = null!;
         base._ExitTree();
     }
 }

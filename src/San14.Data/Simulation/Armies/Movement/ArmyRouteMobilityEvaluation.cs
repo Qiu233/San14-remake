@@ -3,26 +3,28 @@ using San14.Core;
 namespace San14.Data;
 
 /// <summary>Semantic motion inputs for shared 2B0660 math. EvaluateConditions
-/// is used only for the proved unregistered ordinary draft (1,1,null) branch;
-/// live conditional movement keeps its independent current producer.</summary>
+/// describes the unregistered reset-draft (1,1,null) call. Ordinary and
+/// transport retain their distinct statuses; live movement has its own producer.</summary>
 internal sealed record ArmyRouteMobilityInputs(int CommanderPhysicalSlot, int ForcePhysicalSlot,
     byte Status, int CurrentHex, int LandFormation, int NavalFormation, int Troops,
-    bool EvaluateConditions, Func<byte?> ReadControl);
+    bool EvaluateConditions, Func<byte?> ReadControl, int? NativeArmySlot = null);
 
 internal static class ArmyRouteMobilityEvaluation
 {
     internal static TransportArmyRouteMobilityResult Read(GameState state, SourceWorldContext current,
-        ArmyRouteMobilityInputs input, int formationPhysical, byte? explicitHexSurface10)
+        ArmyRouteMobilityInputs input, int formationPhysical, byte? explicitHexSurface10,
+        Func<byte?>? readRawLandFormation = null)
     {
         try
         {
-            if (formationPhysical is < 1 or > 20) throw Missing("branch.nonordinary_Formation");
             var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("parameter_bank");
-            if (parameters.Int32Values.GetValueOrDefault(TacticRemakeCurrentBattleControl.VersionKey) != 1)
-                throw Missing("CTutorial_owner");
-            if (!parameters.Int32Values.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorial))
-                throw Missing("CTutorial_header0");
-            if (tutorial != 0) throw Missing("active_tutorial.4C6ED0");
+            var tutorial = TutorialArmyMobilitySource.Read(state, parameters,
+                () => current.ReadPersonIdentity(input.CommanderPhysicalSlot),
+                () => readRawLandFormation is not null ? readRawLandFormation() :
+                    input.LandFormation is >= 0 and <= byte.MaxValue ? (byte)input.LandFormation : null);
+            if (tutorial.Missing is { } tutorialMissing) throw Missing(tutorialMissing);
+            if (tutorial.Value is > 0) return new(tutorial.Value, null, null);
+            if (formationPhysical is < 1 or > 20) throw Missing("branch.nonordinary_Formation");
             int commander = input.CommanderPhysicalSlot;
             byte status = input.Status;
             var force = current.ReadForceTableReference(input.ForcePhysicalSlot) ?? throw Missing("Force_table");
@@ -55,15 +57,18 @@ internal static class ArmyRouteMobilityEvaluation
             }
             DeploymentPreviewTraitEffects? preview = input.EvaluateConditions
                 ? DeploymentPreviewTraits.Read(state, current, new(commander, input.Troops, input.LandFormation,
-                    input.CurrentHex, forcePhysical)) : null;
+                    input.CurrentHex, forcePhysical, status)) : null;
             IReadOnlyList<int> traits = preview?.Effects ?? ReadUnconditionalCommander(current, commander);
             int trait = traits[94];
             if (status == 1)
             {
-                // flags0 requests commander-only, unconditional effects from
-                // 26A740, not the cached Army trait roster or active conditions.
-                if (preview is not null ? preview.HasPotentialCommandAgeEffect : traits[31] != 0 || traits[97] != 0) throw Missing("ordinary_command_age_effect2A63B0");
-                trait = unchecked(traits[4] + traits[19]);
+                // The age query has its own 26A740 call with evaluateConditions=0.
+                // ETA's dynamic self-condition results cannot supply that call.
+                int command = input.NativeArmySlot is int slot
+                    ? ArmyCommandAgeEffectSource.ReadReceiver(state, current, slot, commander, traits)
+                    : ArmyCommandAgeEffectSource.ReadResetPreview(state, current, commander,
+                        commanderOnly: !input.EvaluateConditions, unconditionalEffects: traits);
+                trait = unchecked(traits[4] + traits[19] + command);
                 if (traits[116] != 0)
                 {
                     byte control = K(input.ReadControl(), "Army140");
@@ -127,7 +132,9 @@ internal static class ArmyRouteMobilityEvaluation
         }
         catch (MissingOwner missing) { return new(null, null, missing.Message); }
         catch (InvalidDataException missing) when (missing.Message.StartsWith("current.PolicyScratch_", StringComparison.Ordinal) ||
-            missing.Message.StartsWith("deployment.figures.preview_traits.", StringComparison.Ordinal))
+            missing.Message.StartsWith("deployment.figures.preview_traits.", StringComparison.Ordinal) ||
+            missing.Message.StartsWith("army.command-age.", StringComparison.Ordinal) ||
+            missing.Message.StartsWith("person.current-age.", StringComparison.Ordinal))
         { return new(null, null, missing.Message); }
     }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../Runtime/PreparedFileInput.h"
 #include "../OceanBubbleRuntime.h"
 #include <cstring>
 #include <filesystem>
@@ -10,7 +11,7 @@
 namespace San14::Render::Interop {
 template<std::size_t Size>
 inline std::array<std::uint8_t,Size> readOceanMetadata(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     std::array<std::uint8_t,Size> bytes;
     stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if (!stream || stream.peek()!=std::char_traits<char>::eof()) throw std::runtime_error("Ocean metadata input extent");

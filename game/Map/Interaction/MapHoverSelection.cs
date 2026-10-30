@@ -10,6 +10,12 @@ internal sealed class MapHoverSelection
     internal int RawHex { get; private set; } = 48400;
     internal int SelectedHex { get; private set; } = 48400;
 
+    internal SceneryMapHexSelection Clear()
+    {
+        RawHex = SelectedHex = 48400;
+        return new(true, null);
+    }
+
     internal static bool IsFrozen(int activeButton,uint heldFrames,int pressX,int pressY,int currentX,int currentY)
     {
         if(activeButton==-1)return false;

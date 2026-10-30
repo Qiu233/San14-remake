@@ -30,27 +30,35 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int officer = RepairNeed(current.ReadPersonIdentity(physical), "speech_person_identity");
                 requests.Add(new(new(CombatParticipantKind.Army, image.Id, officer,
                     CombatSpeechEvent.ArmyFacilityCompleted, position,
-                    CombatParticipantKind.FieldObject, numbers.Receiver.Value, null, null, null), null));
+                    CombatParticipantKind.FieldObject, numbers.Receiver.Value, null, null, null)
+                    { FacilityArmySlot=RepairNeed(army.PhysicalSlot,"speech_Army_packet_identity") }, null));
             }
             Presentation(FacilityRepairPresentationOperation.FacilityCompletionVisual, commander);
             Presentation(FacilityRepairPresentationOperation.FacilityCompletionSound);
             if (numbers.DefinitionIdentity is 7 or 8)
                 Presentation(FacilityRepairPresentationOperation.EnsureFacilityAmbientLoop);
-            if (IsPlayerRulerLedDistrict(state, current, image))
+            if (IsPlayerRulerLedDistrict(state, current, image) && ReachedConstructionReportEndpoint())
             {
-                // Army44's independent owner is not reconstructed from a
-                // route, override target, current position or command memory.
-                if (numbers.Category == 3) throw RepairMissing("first_report_army44_owner");
                 state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, operation,
                     CampaignReportEvent.PlayerFacilityConstructionCompleted, requests);
             }
             if (numbers.DefinitionIdentity is 3 or 4)
-                throw RepairMissing("first_completion_ordered_territory_tail");
+                state=ApplyFacilityCompletionTerritory(state,current,army,image,
+                    new(numbers.Physical),FacilityConstructionLegality.DefinitionOf(current,new(numbers.Physical)),operation,requests);
         }
         else if (IsPlayerRulerLedDistrict(state, current, image))
             state = AppendFacilityRepairReport(state, current, army, image, numbers, commander, operation,
                 CampaignReportEvent.PlayerFacilityRepairCompleted, requests);
         return state;
+
+        bool ReachedConstructionReportEndpoint()
+        {
+            if (numbers.Category != 3) return true;
+            var intent = state.ReadArmyLifecycle()?.Receivers.FindUnit(image.Id)?.FacilityConstruction
+                ?? throw RepairMissing("first_report_construction_owner");
+            var endpoint = intent.ContinuationSite ?? throw RepairMissing("first_report_army44_owner");
+            return endpoint is { Kind: ArmyMarchDestinationKind.Hex, HexId: int hex } && hex == numbers.HexId;
+        }
 
         void Presentation(FacilityRepairPresentationOperation presentationOperation, int? rawCommander = null) =>
             requests.Add(new(null, null) { FacilityRepairPresentation = new(presentationOperation,

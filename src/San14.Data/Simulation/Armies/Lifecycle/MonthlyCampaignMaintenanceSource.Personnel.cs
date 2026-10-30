@@ -9,6 +9,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         //27B0F0's selected Person consumer. The enclosing selection already
         //checked native validity and owns the two live Person temporaries.
         private void ConsumeSpecialPersonnel(int person, ForceReference destination)
+            => ConsumeSpecialPersonnelCurrent(person, destination, storyStateAdvantage: false);
+
+        private void ConsumeSpecialPersonnelCurrent(int person, ForceReference destination, bool storyStateAdvantage)
         {
             var reports = new List<CampaignEffectRequest>();
             if (!SpecialRegistered(person))
@@ -18,6 +21,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             else
             {
+                //27BA73..27BAB9: fifth1 skips a registered Person only when
+                //231D90's decoded index equals raw HomeE2 and that actual
+                //registered Base's virtual78 District equals PersonE0.
+                if (storyStateAdvantage && IsStoryStateAdvantagePersonnelSettled(person)) return;
                 //The source retains22EA10 before calling22E930. The shared
                 //271C20 entry has these exact param4=0,param5=0,param7=1 values;
                 //it includes actual captive release, associated cancellation,
@@ -29,7 +36,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                     home, date, SpecialDay450, reports).State;
                 Observe("monthly.special-personnel.transferred." + person);
             }
-            if (reports.Count != 0)
+            if (reports.Count != 0 && storyStateAdvantage && borrowedEffects is not null)
+                borrowedEffects.AddRange(reports);
+            else if (reports.Count != 0)
             {
                 var requests = state.CampaignEffectRequests ?? throw Missing("special_report_owner");
                 long revision = state.NativeMapSeason?.AdvancedCalendarSteps ?? throw Missing("special_report_revision");

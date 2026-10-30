@@ -12,12 +12,22 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal StrategicIndependenceForceCreationResult CreateStrategicIndependenceForceCurrent(
         GameState input, SourceWorldContext current, WorldIndexContext pool, int rulerPhysical,
         BaseReference home, NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
+        => CreateForceCurrent(input, current, pool, rulerPhysical, home, date, effects,
+            transferResidents: false, preferredForceSlot: 0);
+
+    // Shared world writer. The two ordinary callers transfer the actual
+    // residents and allow the source preferred-slot selection; the
+    // strategic caller retains its independent resident policy.
+    private StrategicIndependenceForceCreationResult CreateForceCurrent(
+        GameState input, SourceWorldContext current, WorldIndexContext pool, int rulerPhysical,
+        BaseReference home, NativeMapSeasonDate date, List<CampaignEffectRequest> effects,
+        bool transferResidents, int preferredForceSlot, bool eventPlaybackPresent = false)
     {
         var working = input;
         int id = IndependenceForceNeed(current.ReadPersonIdentity(rulerPhysical), "ruler_ID");
         if (home.Kind != BaseKind.City || home.PhysicalSlot is not (>= 1 and <= 51))
             throw IndependenceForceMissing("2E6010_actual_Home_City");
-        var created = SelectStrategicIndependenceForceCurrent(working, current, rulerPhysical);
+        var created = SelectForceCreationCurrent(working, current, rulerPhysical, preferredForceSlot);
         if (created is null) return new(working, current.ReadForceTableReference(0)
             ?? throw IndependenceForceMissing("no_free_Force_sentinel"));
         int forceId = IndependenceForceNeed(created.PhysicalSlot, "selected_Force");
@@ -32,8 +42,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw IndependenceForceMissing("old_ruler_pointer");
             TacticSourceSamplerWorld Sampler() => ReadArmyDestructionSampler(working, current)
                 ?? throw IndependenceForceMissing("World450_45C");
+            // Freedom receives the original preexisting Home, not the
+            // independently selected City used to create the Force.
+            var formerHome = BaseLookup.Find(IndependenceForceNeed(
+                current.ReadPersonFirstLocation(rulerPhysical), "former_Home"), current);
             working = ApplyCaptiveFreedomCurrent(working, current, pool, rulerPhysical, date,
-                () => Sampler().Day450, Sampler, effects, former, home);
+                () => Sampler().Day450, Sampler, effects, former, formerHome);
         }
         int oldReady = IndependenceForceNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "snapshot_ready");
         int oldGold = IndependenceForceNeed(current.ReadBaseResource(home, BaseResourceKind.Gold), "snapshot_gold");
@@ -46,7 +60,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             current.AppendCaptureBaseTemporary(bases, home);
             district = CreateStrategicIndependenceDistrictCurrent(ref working, current, pool,
-                created, rulerPhysical, home, bases, date, effects);
+                created, rulerPhysical, home, bases, date, effects, transferResidents, eventPlaybackPresent);
 
             //227070(Force,0) follows the complete District creation. This
             //clears only this receiver's relation arrays, not every other row.
@@ -54,6 +68,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.SetOwnedForceRulerSlot10(forceId, (ushort)Math.Min(id, 6000));
             current.SetForceRankSlot47(forceId, 9);
             byte color = SelectStrategicIndependenceColorCurrent(working, current, forceId);
+            current.SetForceReportColor(forceId, color);
             var ruler = working.Officers.GetValueOrDefault(id) ?? throw IndependenceForceMissing("ruler_saved_owner");
             int doctrine = IndependenceForceNeed(OfficerDoctrineRules.ReadDoctrineId(ruler.DoctrineId, ruler.AbilityState), "ruler_doctrine");
             var force = working.Forces.GetValueOrDefault(forceId) ?? throw IndependenceForceMissing("selected_Force_owner");
@@ -212,8 +227,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             Math.Clamp(troops, 0, BasePostLoad.ReadTroopCapacity(home, current)));
     }
 
-    private static ForceReference? SelectStrategicIndependenceForceCurrent(GameState state, SourceWorldContext current, int ruler)
+    private static ForceReference? SelectForceCreationCurrent(GameState state, SourceWorldContext current,
+        int ruler, int preferredForceSlot)
     {
+        // The source preference is not a forced allocation. A known
+        // unavailable preferred entry does not suppress the fallback.
+        // A positive out-of-table operand uses the actual Force0 entry.
+        if (preferredForceSlot > 0)
+        {
+            var preferred = current.ReadForceTableReference(preferredForceSlot < 52 ? preferredForceSlot : 0)
+                ?? throw IndependenceForceMissing("preferred_Force_pointer");
+            int physical = IndependenceForceNeed(preferred.PhysicalSlot, "preferred_Force_identity");
+            if (!IndependenceForceNeed(current.ReadForceNativeValidity(preferred), "preferred_Force_validity") &&
+                physical != 51 && physical is not (>= 46 and <= 50)) return preferred;
+        }
         int id = IndependenceForceNeed(current.ReadPersonIdentity(ruler), "selection_Person10");
         int bloodline = OwnedPersonRelationInputs.ReadCurrentRelationIdentity(state, ruler, 0xB2)
             ?? throw IndependenceForceMissing("selection_PersonB2");
@@ -257,7 +284,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private DistrictReference CreateStrategicIndependenceDistrictCurrent(ref GameState state,
         SourceWorldContext current, WorldIndexContext pool, ForceReference force, int ruler,
-        BaseReference home, HexListHandle bases, NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
+        BaseReference home, HexListHandle bases, NativeMapSeasonDate date, List<CampaignEffectRequest> effects,
+        bool transferResidents, bool eventPlaybackPresent = false)
     {
         var working = state;
         var operation = CreateCaptureDistrictOperationQueries(current, () => working, value => working = value, date, effects);
@@ -288,9 +316,17 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var target = current.ReadBaseRegistryNodePayload(node) ?? throw IndependenceForceMissing("Base_list_payload");
             if (IndependenceForceNeed(current.ReadBaseForceSlot(target), "Base_Force") == forceId)
-                TransferDistrictAdministrationBaseCurrent(current, target, created, operation);
+            {
+                if (transferResidents) TransferDistrictAdministrationBaseCurrent(current, target, created, operation);
+                else TransferForceAbsorptionBaseDistrictCurrent(current, target, created, new(0), operation,
+                    suppressMaintenance: false);
+            }
             else working = ApplyForceBaseTransferCurrent(working, current, pool, target, created, new(0), date, effects,
-                preserveResources: false, suppressMaintenance: false, fullCentralRadius: false);
+                // Both source callers pass the full central-radius flag.
+                preserveResources: false, suppressMaintenance: false, fullCentralRadius: true,
+                transferDistrict: transferResidents
+                    ? transfer => TransferDistrictAdministrationBaseCurrent(current, target, created, transfer) : null,
+                eventPlaybackPresent: eventPlaybackPresent);
             foreach (int person in DistrictCreationHomePeople(current, target))
                 if (IndependenceForceNeed(current.ReadPersonStatus(person), "resident_status") == 1) residentRuler = person;
                 else current.WritePersonStatus(person, 4);
@@ -319,6 +355,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private static GameState ResetStrategicIndependenceForceCurrent(GameState state, SourceWorldContext current, int force)
     {
+        state = OriginalAiStrategyMemoryLifecycle.ResetForce(state, force);
         var native = state.NativeArmySimulation ?? throw IndependenceForceMissing("reset_native");
         var owner = native.Forces.GetValueOrDefault(force) ?? throw IndependenceForceMissing("reset_Force");
         var module = state.NativeForceUnregisterCurrent ?? throw IndependenceForceMissing("reset_module");

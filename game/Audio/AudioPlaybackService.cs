@@ -9,8 +9,8 @@ using San14.Data;
 public partial class AudioPlaybackService : Node
 {
     private readonly ConcurrentQueue<Action> _engineActions = new();
-    private sealed record Voice(AudioStreamPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group,
-        float SourceGain, bool StaticCue, long Sequence = 0);
+    private sealed record Voice(OriginalAudioPlayer Player, float BaseVolumeDb, AudioVolumeGroup? Group,
+        float SourceGain, bool StaticCue, long Sequence = 0, EffectVoice? Effect = null);
     private readonly Dictionary<string, Voice> _players = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _postGate = new();
@@ -18,10 +18,23 @@ public partial class AudioPlaybackService : Node
     private IAudioDecoder? _decoder;
     private int _engineThread;
     private long _voiceSequence;
+    internal event Action? Retiring;
     internal event Action<string, long, string?>? ChannelStopped;
     internal long ReadVoiceSequence(string channel) => _players[channel].Sequence;
     public AudioVolumeOptions Volumes { get; private set; } = new();
     private bool _voiceEnabled = true;
+    private bool _windowFocused = true;
+
+    // Window focus controls music output only. Keep source cursors, mixer
+    // intervals, scene ownership and explicit pause/fade state advancing.
+    internal void SetWindowFocused(bool focused)
+    {
+        RequireEngineThread();
+        if (_windowFocused == focused) return;
+        _windowFocused = focused;
+        foreach (var voice in _players.Values)
+            if (voice.Group == AudioVolumeGroup.Music) ApplyVolume(voice);
+    }
 
     internal void SetVoiceEnabled(bool enabled)
     {
@@ -59,8 +72,11 @@ public partial class AudioPlaybackService : Node
             voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb);
         else voice.Player.VolumeDb = voice.BaseVolumeDb;
         if (_mapMusic.Values.FirstOrDefault(music => music.Player == voice.Player) is { } music)
-            voice.Player.VolumeLinear *= music.Gain;
+            voice.Player.VolumeLinear *= music.Gain * music.PauseGain;
+        if (voice.Effect is { } effect) voice.Player.VolumeLinear *=
+            voice.Player.HasSourceEnvelope ? effect.ScriptVolume : effect.ControlGain;
         if (voice.Group == AudioVolumeGroup.Voice && !_voiceEnabled) voice.Player.VolumeLinear = 0;
+        if (voice.Group == AudioVolumeGroup.Music && !_windowFocused) voice.Player.VolumeLinear = 0;
     }
 
     public void Configure(AudioRepository repository, IAudioDecoder decoder)
@@ -84,8 +100,10 @@ public partial class AudioPlaybackService : Node
     {
         while (_engineActions.TryDequeue(out Action? action)) action();
         UpdateEffects();
+        UpdateSourceEffectEnvelopes();
         UpdateSpatialVoices();
         UpdateMapMusic();
+        UpdateSpeakerLayoutChange();
     }
 
     public Task<AudioClip> PrepareAsync(uint fileId, int streamIndex,
@@ -187,6 +205,10 @@ public partial class AudioPlaybackService : Node
     /// <summary>Explicit caller-selected channel; each channel replaces its preceding voice.</summary>
     public void Play(AudioClip clip, string channel, float volumeDb = 0, string bus = "Master",
         AudioVolumeGroup? volumeGroup = null, float startSeconds = 0)
+        => PlayVoice(clip,channel,volumeDb,bus,volumeGroup,startSeconds);
+
+    private void PlayVoice(AudioClip clip,string channel,float volumeDb,string bus,
+        AudioVolumeGroup? volumeGroup,float startSeconds,EffectVoice? effect=null, SpatialSoundSpeakerMatrix? controlMatrix=null)
     {
         RequireEngineThread();
         ArgumentNullException.ThrowIfNull(clip);
@@ -199,26 +221,38 @@ public partial class AudioPlaybackService : Node
         float playbackRate = clip.StaticPlayback?.PlaybackRate ?? 1;
         if (!float.IsFinite(playbackRate) || playbackRate <= 0) throw new InvalidDataException("Audio playback rate must be finite and positive.");
         if (AudioServer.GetBusIndex(bus) < 0) throw new ArgumentException("Selected audio bus does not exist.", nameof(bus));
+        StopUniqueTacticVoiceRoutes(channel);
         _mapMusic.Remove(channel);
         if (!_players.TryGetValue(channel, out var previous))
         {
-            previous = new(new AudioStreamPlayer { Name = "OriginalAudioVoice" + _players.Count, Autoplay = false },
+            previous = new(new OriginalAudioPlayer { Name = "OriginalAudioVoice" + _players.Count },
                 volumeDb, volumeGroup, sourceGain, clip.StaticPlayback is not null);
             AddChild(previous.Player);
         }
         var voice = previous with { BaseVolumeDb = volumeDb, Group = volumeGroup, SourceGain = sourceGain,
-            StaticCue = clip.StaticPlayback is not null, Sequence = checked(++_voiceSequence) };
+            StaticCue = clip.StaticPlayback is not null, Sequence = checked(++_voiceSequence), Effect = effect };
         _players[channel] = voice;
         var player = voice.Player;
         player.ProcessMode = ProcessModeEnum.Inherit;
-        player.Stop(); player.Stream = clip.Stream; player.Bus = bus;
-        player.PitchScale = playbackRate; ApplyVolume(voice);
-        player.StreamPaused = false; player.Play(startSeconds);
+        AudioServer.Lock();
+        try
+        {
+            player.Stop(); player.Bus = bus;
+            if (controlMatrix is null) player.SetClip(clip);
+            else player.SetSpatialMatrixClip(clip, controlMatrix, GameAudioSpeakerLayout.Stereo);
+            if (effect is { NativeEnvelopeActive: true })
+                player.BeginSourceEnvelope(effect.NativeEnvelopeFrom, effect.NativeEnvelopeTarget,
+                    effect.NativeEnvelopeTicks, effect.NativeEnvelopeCurve);
+            player.PitchScale = playbackRate; ApplyVolume(voice);
+            player.StreamPaused = false; player.Play(startSeconds);
+        }
+        finally { AudioServer.Unlock(); }
     }
 
     public void Stop(string channel, string? reason = null)
     {
         RequireEngineThread();
+        StopUniqueTacticVoiceRoutes(channel);
         _mapMusic.Remove(channel);
         if (_players.TryGetValue(channel, out var voice) && voice.Player.Stream is not null)
         {
@@ -239,8 +273,16 @@ public partial class AudioPlaybackService : Node
 
     public override void _ExitTree()
     {
-        StopEffects();
+        //Borrowing scene sessions must release their owned sounds and pending
+        //requests while this service can still execute engine-thread commands.
+        //Sibling removal order (including failed-interface cleanup) is arbitrary.
+        Retiring?.Invoke();
+        Retiring = null;
+        StopUniqueTacticVoices();
+        ForceStopEffects();
         _lifetime.Cancel();
+        if (_speakerLayoutChange is { } changing)
+        { _speakerLayoutChange = null; changing.Completion.TrySetCanceled(_lifetime.Token); }
         StopAllSpatial();
         foreach (var voice in _players.Values) { voice.Player.Stop(); voice.Player.Stream = null; }
         _players.Clear();

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraState.h"
 #include "OctreeAdmission.h"
 
@@ -24,7 +25,7 @@ struct Current {
     std::array<bool,7> resetGroups{};
 };
 inline Profile loadProfile(const std::filesystem::path& path){
-    std::ifstream in(path,std::ios::binary);using source_camera::read;
+    NativePreparedInputFile in(path,std::ios::binary);using source_camera::read;
     if(!in||read<std::array<char,8>>(in)!=std::array<char,8>{'F','A','R','M','A','I','N','1'})throw std::runtime_error("Far Main source profile");
     Profile p;p.quality=read<int>(in);p.initialAppFlags=read<uint32_t>(in);p.selectedCloudy=read<uint32_t>(in);p.initialPriorCloudy=read<uint32_t>(in);p.changedAltitude=read<uint32_t>(in);
     p.phaseStart=read<int>(in);p.phaseEnd=read<int>(in);p.phaseDenominator=read<int>(in);

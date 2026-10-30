@@ -19,6 +19,9 @@ internal sealed record ForceHudView(int ForceId, int PeriodNumber, string Date,
     public ForceExperienceHeaderChange? PendingExperience { get; init; }
     public MapHeaderIdentity Identity { get; init; } = null!;
     public MapHeaderCommandBooks CommandBooks { get; init; } = null!;
+    public MapMainCommandStyle MainCommandStyle { get; init; } = new(null, "map.main_command.style_not_prepared");
+    public MapMainCommandPresentation MainCommandPresentation { get; init; } =
+        new([], ["map.main_command.presentation_not_prepared"]) { Update = MapHeaderUpdate.Unresolved };
     public string UnknownText { get; init; } = "";
 
     public static ForceHudView Create(GameState world, int forceId, MapHeaderProjection header, PreviewText text)
@@ -46,6 +49,8 @@ internal sealed record ForceHudView(int ForceId, int PeriodNumber, string Date,
         {
             Identity = identity,
             CommandBooks = header.CommandBooks,
+            MainCommandStyle = header.MainCommandStyle,
+            MainCommandPresentation = header.MainCommandPresentation,
             DoctrineProgress = doctrine?.Progress,
             ExperienceTotal = OwnedForce164Inputs.ReadCurrent(world, forceId),
             PendingExperience = ForceExperienceHeaderChange.Create(world, forceId),

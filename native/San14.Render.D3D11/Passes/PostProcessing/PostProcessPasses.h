@@ -2,6 +2,7 @@
 // Include after the native lab's load/check helpers. Resources and execution
 // belong to the caller; this does not allocate frame surfaces or submit work.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <map>
 #include <sstream>
 
@@ -69,11 +70,11 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
 
     // Only the already-validated target identities used by this finite recipe.
     UINT bloomIndex,bloomWidth,bloomHeight,bloomMips,bloomResource,bloomSrv,bloomRtv;
-    std::ifstream bloom(source/"bloom.txt");
+    NativePreparedInputFile bloom(source/"bloom.txt");
     if(!(bloom>>bloomIndex>>bloomWidth>>bloomHeight>>bloomMips>>bloomResource>>bloomSrv>>bloomRtv)||bloomIndex!=85)
         throw std::runtime_error("Normal post physical Bloom85 descriptor absent");
     targetExtents.emplace("Bloom85",std::make_pair(bloomWidth,bloomHeight));
-    std::ifstream ordered(source/"ordered-required-color-passes.txt");
+    NativePreparedInputFile ordered(source/"ordered-required-color-passes.txt");
     if(!ordered)throw std::runtime_error("Normal post ordered source passes absent");
     std::vector<NativeNormalPostPass> passes;
     std::string entry;
@@ -82,10 +83,10 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
         if(entry.empty())continue;
         NativeNormalPostPass pass;pass.name=entry;
         const fs::path directory=source/entry;
-        pass.compute=fs::exists(directory/"compute.dxbc");
+        pass.compute=fs::exists(nativePreparedFilePath(directory/"compute.dxbc"));
         const bool dof=entry.find("-dof")!=std::string::npos;
         std::string stage,file;UINT slot;
-        std::ifstream cbRows(directory/"cbuffers.txt");
+        NativePreparedInputFile cbRows(directory/"cbuffers.txt");
         while(cbRows>>stage>>slot>>file) {
             if(stage!="VS"&&stage!="PS"&&stage!="CS")
                 throw std::runtime_error("Normal post constant buffer stage invalid");
@@ -105,8 +106,8 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
             }
             pass.constants.push_back({stage,slot,found->second});
         }
-        if(fs::exists(directory/"views.txt")) {
-            std::ifstream rows(directory/"views.txt");std::string name;int mip,last;
+        if(fs::exists(nativePreparedFilePath(directory/"views.txt"))) {
+            NativePreparedInputFile rows(directory/"views.txt");std::string name;int mip,last;
             while(rows>>stage>>slot>>name>>mip>>last) {
                 if(stage!="VS"&&stage!="PS"&&stage!="CS")
                     throw std::runtime_error("Normal post SRV shader stage invalid");
@@ -115,11 +116,11 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                 pass.srvs.push_back({stage,slot,name,UINT(std::max(0,mip))});
             }
         } else {
-            std::ifstream rows(directory/"textures.txt");std::string name;
+            NativePreparedInputFile rows(directory/"textures.txt");std::string name;
             while(rows>>slot>>name)pass.srvs.push_back({pass.compute?"CS":"PS",slot,name,0});
         }
         if(pass.compute) {
-            std::ifstream rows(directory/"uavs.txt");std::string name;
+            NativePreparedInputFile rows(directory/"uavs.txt");std::string name;
             while(rows>>slot>>name)pass.uavs.push_back({slot,name});
             const fs::path path=directory/"compute.dxbc";
             const auto key=identity(path);auto found=computeShaders.find(key);
@@ -129,7 +130,7 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                 found=computeShaders.emplace(key,object).first;
             }
             pass.cs=found->second;
-            std::ifstream row(directory/"dispatch.txt");
+            NativePreparedInputFile row(directory/"dispatch.txt");
             if(!(row>>pass.dispatchX>>pass.dispatchY>>pass.dispatchZ)||!pass.dispatchX||!pass.dispatchY||!pass.dispatchZ)
                 throw std::runtime_error("Normal post source dispatch absent");
         } else {
@@ -149,7 +150,7 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
             pass.vs=vs->second;pass.ps=ps->second;
             UINT targetCount=0;pass.width=width;pass.height=height;
             if(dof) {
-                std::ifstream rows(directory/"targets.txt");std::string name;
+                NativePreparedInputFile rows(directory/"targets.txt");std::string name;
                 UINT mip,resource,sampled,rendered,w,h;
                 while(rows>>slot>>name>>mip>>resource>>sampled>>rendered>>w>>h) {
                     if(slot>=D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT)
@@ -158,7 +159,7 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                     if(slot==0){pass.width=w;pass.height=h;}
                 }
             } else {
-                std::string name;UINT mip=0;std::ifstream row(directory/"target-view.txt");
+                std::string name;UINT mip=0;NativePreparedInputFile row(directory/"target-view.txt");
                 if(!(row>>name>>mip))name=entry=="108-tone"?"Tone108":entry=="109-fxaa"?"Final109":"";
                 if(name.empty())throw std::runtime_error("Normal post explicit target view absent");
                 auto extent=targetExtents.at(name);
@@ -166,14 +167,14 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                 pass.width=std::max(1u,extent.first>>mip);pass.height=std::max(1u,extent.second>>mip);
             }
             if(!targetCount)throw std::runtime_error("Normal post source graphics pass has no target");
-            std::ifstream clear(directory/"clear.txt");
+            NativePreparedInputFile clear(directory/"clear.txt");
             if(clear>>pass.clearMask>>pass.clearPacked) {
                 if(pass.clearMask!=15||pass.clearPacked!=0)
                     throw std::runtime_error("Normal post source clear differs from current scatter recipe");
                 pass.clear=true;
             }
             D3D11_BLEND_DESC blend{};blend.IndependentBlendEnable=targetCount>1;
-            std::ifstream blendRows(directory/"blend.txt");
+            NativePreparedInputFile blendRows(directory/"blend.txt");
             UINT enabled,srcColor,dstColor,colorOp,srcAlpha,dstAlpha,alphaOp,mask,n=0;
             while(blendRows>>enabled>>srcColor>>dstColor>>colorOp>>srcAlpha>>dstAlpha>>alphaOp>>mask) {
                 if(n>=targetCount)throw std::runtime_error("Normal post blend target count differs");
@@ -188,20 +189,20 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                 row.RenderTargetWriteMask=15;
             }
             check(device->CreateBlendState(&blend,&pass.blend),"normal post source effective blend");
-            UINT cull,blendFlag,colorMask;std::ifstream rasterRow(directory/"raster.txt");
+            UINT cull,blendFlag,colorMask;NativePreparedInputFile rasterRow(directory/"raster.txt");
             if(!(rasterRow>>cull>>pass.depthTest>>pass.depthWrite>>blendFlag>>colorMask))
                 throw std::runtime_error("Normal post raster recipe absent");
             UINT scissorEnabled=1;
             pass.scissor={0,0,LONG(pass.width),LONG(pass.height)};
-            std::ifstream scissorRow(directory/"scissor.txt");
+            NativePreparedInputFile scissorRow(directory/"scissor.txt");
             if(scissorRow)scissorRow>>scissorEnabled>>pass.scissor.left>>pass.scissor.top>>pass.scissor.right>>pass.scissor.bottom;
             D3D11_RASTERIZER_DESC raster{};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=D3D11_CULL_MODE(cull);
             raster.DepthClipEnable=TRUE;raster.ScissorEnable=scissorEnabled!=0;
             check(device->CreateRasterizerState(&raster,&pass.raster),"normal post source fullscreen raster");
             pass.viewport={0,0,float(pass.width),float(pass.height),0,1};
-            std::ifstream viewportRow(directory/"viewport.txt");
+            NativePreparedInputFile viewportRow(directory/"viewport.txt");
             if(viewportRow)viewportRow>>pass.viewport.TopLeftX>>pass.viewport.TopLeftY>>pass.viewport.Width>>pass.viewport.Height>>pass.viewport.MinDepth>>pass.viewport.MaxDepth;
-            std::ifstream samplerRows(directory/"samplers.txt");std::string line;
+            NativePreparedInputFile samplerRows(directory/"samplers.txt");std::string line;
             while(std::getline(samplerRows,line)) {
                 std::istringstream row(line);if(!(row>>slot))continue;
                 const fs::path path=directory/("sampler"+std::to_string(slot)+".bin");
@@ -216,16 +217,16 @@ static std::vector<NativeNormalPostPass> loadNativeNormalPostPasses(
                 }
                 pass.samplers.push_back({slot,found->second});
             }
-            pass.indirect=fs::exists(directory/"indirect.txt");
+            pass.indirect=fs::exists(nativePreparedFilePath(directory/"indirect.txt"));
             if(pass.indirect) {
                 UINT topology;std::string method;
-                std::ifstream row(directory/"indirect.txt"),methodRow(directory/"indirect-method.txt");
+                NativePreparedInputFile row(directory/"indirect.txt"),methodRow(directory/"indirect-method.txt");
                 if(!(row>>pass.index>>pass.offset>>pass.stagingSide)||!(methodRow>>method>>topology)||
                     method!="DrawInstancedIndirect"||pass.stagingSide>=2)
                     throw std::runtime_error("Normal post original indirect recipe missing");
                 pass.topology=D3D11_PRIMITIVE_TOPOLOGY(topology);
             } else {
-                std::ifstream row(directory/"draw.txt");
+                NativePreparedInputFile row(directory/"draw.txt");
                 if(!(row>>pass.vertexCount>>pass.instanceCount>>pass.startVertex>>pass.startInstance))
                     throw std::runtime_error("Normal post source Draw command absent");
             }

@@ -89,6 +89,24 @@ public static class MapRouteShaderNativeInputs
             ["POSITION 0 6 0 0", "TEXCOORD 0 16 0 12"], Utf8);
         File.WriteAllText(Path.Combine(directory, "vertex-stride.txt"), "20\n", Utf8);
 
+        // The actual loaded program name drives the constant-color branch.
+        // CNS draws replace the caller's twelve feature words before matching.
+        File.WriteAllText(Path.Combine(directory, "route-program-kind.txt"),
+            shader.Container.NamePrefix + "\n", Utf8);
+        // The route creator supplies an unskinned type17 record of all zeros
+        // and three explicit affine rows. These are primitive source inputs,
+        // separate from dimension2's declared [8,0,0,0] and [9,7,128,0] rows.
+        var matrixMatch = G1ShaderMatrixBindingMatcher.Select(
+            [0u, 0u, 0u, 0u], shader.ReadMatrixBindings());
+        // The guarded source writer retains its constructor index zero on a
+        // matcher miss; a nonexact in-range nearest row still commits.
+        int matrixIndex = matrixMatch.RowIndex >= 0 &&
+            (uint)matrixMatch.RowIndex < resources.Bindings.RawDimensionCounts[2]
+            ? matrixMatch.RowIndex : 0;
+        File.WriteAllLines(Path.Combine(directory, "primitive-matrix.txt"),
+            ["0 0 0 0", "1 0 0 0", "0 1 0 0", "0 0 1 0",
+                matrixIndex.ToString(CultureInfo.InvariantCulture)], Utf8);
+
         var bindings = resources.Bindings;
         File.WriteAllText(Path.Combine(directory, "dimensions.txt"),
             bindings.PassCount.ToString(CultureInfo.InvariantCulture) + " " +

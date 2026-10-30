@@ -8,10 +8,11 @@ internal static partial class ArmyRouteSearch
 {
     private const int Count = 48400;
     internal static int[] Search(GameState state, SourceWorldContext current, UnitState army, int start, int goal, byte kind, ushort identity,
-        int? registeredSearchArmyPhysical, out int expanded, byte searchFlags = 1)
+        int? registeredSearchArmyPhysical, out int expanded, byte searchFlags = 1,
+        IReadOnlySet<int>? excludedHexIds = null, bool penalizeSurface7 = false, Func<int, byte?>? readHexForce = null)
     {
         var motion = new LiveMovement(state, current, army);
-        return Search(new Queries(state, current, motion, start, goal, kind, identity, registeredSearchArmyPhysical, searchFlags), out expanded);
+        return Search(new Queries(state, current, motion, start, goal, kind, identity, registeredSearchArmyPhysical, searchFlags, excludedHexIds: excludedHexIds, penalizeSurface7: penalizeSurface7, readHexForce: readHexForce), out expanded);
     }
 
     internal static int[] Search(Queries query, out int expanded)
@@ -22,7 +23,7 @@ internal static partial class ArmyRouteSearch
         expanded = 0; totalCost = 0;
         if (!query.AdmitGoal()) return [];
         float baseCost = query.TerrainCost(query.Surface(2));
-        float mobility = hasArmyDescriptor ? query.Mobility(query.LandFormation, 2) : baseCost;
+        float mobility = !query.UniformCost && hasArmyDescriptor ? query.Mobility(query.LandFormation, 2) : baseCost;
         float heuristicDenominator = baseCost <= mobility ? baseCost : mobility;
         var nodes = new Node?[Count];
         Node? root = new(query.Goal, 0, null) { Priority = InitialPriority(query.Goal, query.Start), Open = true };
@@ -45,6 +46,8 @@ internal static partial class ArmyRouteSearch
                 if (neighbor != query.Start)
                 {
                     if (!query.Passable(neighbor) || query.AvoidHostile && query.HostileAtHex(neighbor)) continue;
+                    if (query.ExcludedByDescriptor(neighbor)) continue;
+                    cost = unchecked(cost + query.DescriptorPenalty(neighbor));
                     if (query.BlockedScene(neighbor)) continue;
                     if (query.ForbidsOccupiedNonTarget && neighbor != query.Goal && query.Occupied(neighbor)) continue;
                     cost = unchecked(cost + query.OccupiedCost(neighbor));
@@ -59,7 +62,7 @@ internal static partial class ArmyRouteSearch
                     if (next.Open) Remove(ref root, next); //18B020 while old priority is still present.
                     next.Cost = cost; next.Parent = at; next.Closed = false;
                 }
-                next.Priority = unchecked(cost + NativeInt((float)Distance(neighbor, query.Start) *
+                next.Priority = query.UniformCost ? cost : unchecked(cost + NativeInt((float)Distance(neighbor, query.Start) *
                     (baseCost / heuristicDenominator)));
                 Insert(ref root, next); next.Open = true;
             }

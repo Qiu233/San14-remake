@@ -10,6 +10,7 @@ internal partial class OfficerOfficePage : Control
     private sealed record Row(Control Root, UiSourceHitButton Hit, IReadOnlyList<UiSourceText> Cells);
     private readonly Dictionary<int, Row> rows = [];
     private AdministrationPageChrome chrome = null!;
+    internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
     private UiSourceScrollbar scroll = null!;
     private UiSourceBottomButton autoPromote = null!, autoAssign = null!, dismissAll = null!;
     private UiSourceText promoted = null!, demoted = null!;
@@ -31,6 +32,7 @@ internal partial class OfficerOfficePage : Control
         this.draft = draft; this.text = text; this.admitted = admitted; this.choose = choose;
         Name = "OfficerOfficePage"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, 0x021C, returned, accepted);
         defaultGuide = GameLiteral(0x5978);
@@ -157,6 +159,8 @@ internal partial class OfficerOfficePage : Control
             row.Visible=row.Position.Y>-48&&row.Position.Y<592;
         }
     }
+    public override void _ExitTree() => CommonBackdrop = null!;
+
     internal void Abandon()
     {
         abandoned=true;admitted=null;choose=null;

@@ -5,6 +5,8 @@ using San14.Data.Formats;
 using San14.Core;
 using San14.Client.MapInteraction;
 
+internal enum MapCameraEntry { CurrentRuler, FreshController, NewGameForceSelection }
+
 /// <summary>Source-space preview with native unparented WorldPQ matrices.
 /// Camera, material execution and later parent binding remain separate.</summary>
 public partial class MapSceneView : Control
@@ -84,12 +86,15 @@ public partial class MapSceneView : Control
     private readonly MapSelection _mapSelection = new();
     private bool _detailsOpen;
     private bool _embedded;
+    private bool _worldScene;
+    private MapCameraEntry _cameraEntry;
     private string _sceneSummary = "";
     private uint _sceneLoadGeneration;
+    private CancellationTokenSource? _sceneSourcePreparation;
     private bool _sceneLoadInProgress;
     private bool _sceneSelectionWasDisabled;
     internal Task InitialSceneLoad { get; private set; } = Task.CompletedTask;
-    internal bool IsPlayableMapReady => _loaded && _projection is not null &&
+    internal bool IsPlayableMapReady => !IsNewGameScenarioPreview && !_adoptingStartedCampaign && _startedCampaignAccepted && !_cgQualityRebuilding && _loaded && _projection is not null &&
         (!UseD3D11Map || D3D11MapInteractive);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, PreviewText? safeText, Action close,
@@ -97,7 +102,8 @@ public partial class MapSceneView : Control
         Action<int>? openCityDetails = null, Action<int>? acceptHex = null,
         int? playerForceId = null, bool embedded = false,
         ScenarioCityPreview? sourceSnapshot = null, Action<int>? selectCommandCity = null,
-        Action<int>? selectCommandUnit = null, Action<int>? selectCommandArea = null)
+        Action<int>? selectCommandUnit = null, Action<int>? selectCommandArea = null, bool worldScene = false,
+        MapCameraEntry cameraEntry = MapCameraEntry.CurrentRuler, MapSeasonScenarioPreviewFrame? scenarioPreview = null)
     {
         _repository = repository;
         _text = text;
@@ -112,6 +118,11 @@ public partial class MapSceneView : Control
         _acceptHex = acceptHex;
         _playerForceId = playerForceId;
         _embedded = embedded;
+        // Rendering a world is independent of whether this caller accepts
+        // map commands. Existing target-picking callers keep their world view.
+        _worldScene = worldScene || acceptHex is not null;
+        _cameraEntry = cameraEntry;
+        SetScenarioPreviewCalendar(scenarioPreview);
         _closeScene = close;
         Name = embedded ? "PlayableWorldMap" : "OriginalScenePreview";
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -127,19 +138,19 @@ public partial class MapSceneView : Control
         var column = new VBoxContainer();
         margin.AddChild(column);
         var title = new Label { Name = "ScenePreviewTitle", Text = text.Get(
-            acceptHex is null ? "scene_preview_title" : "play_terrain_map_title") };
+            _worldScene ? "play_terrain_map_title" : "scene_preview_title") };
         title.AddThemeFontSizeOverride("font_size", 28);
         title.Visible = !embedded;
         column.AddChild(title);
         column.AddChild(new Label
         {
             Name = "ScenePreviewNotice", Text = text.Get(
-                acceptHex is null ? "scene_preview_notice" : "play_terrain_map_notice"),
+                _worldScene ? "play_terrain_map_notice" : "scene_preview_notice"),
             AutowrapMode = TextServer.AutowrapMode.WordSmart, Visible = !embedded
         });
         var toolbar = new HBoxContainer { Visible = !embedded };
         column.AddChild(toolbar);
-        _selection = new OptionButton { Name = "SceneSelection", Visible = acceptHex is null };
+        _selection = new OptionButton { Name = "SceneSelection", Visible = !_worldScene };
         toolbar.AddChild(_selection);
         var reset = new Button { Name = "ResetSceneCamera", Text = text.Get("scene_preview_reset") };
         reset.Pressed += () => Run(ResetCamera);
@@ -152,7 +163,7 @@ public partial class MapSceneView : Control
             toolbar.AddChild(territoryDisplay);
         }
         var terrainToggle = new CheckButton { Name = "ShowSceneTerrain", Text = text.Get("scene_preview_terrain"),
-            ButtonPressed = true, Visible = acceptHex is null };
+            ButtonPressed = true, Visible = !_worldScene };
         terrainToggle.Toggled += visible => Run(() =>
         {
             _terrain.Visible = visible;
@@ -160,7 +171,7 @@ public partial class MapSceneView : Control
         });
         toolbar.AddChild(terrainToggle);
         _terrainTextureToggle = new CheckButton { Name = "ShowTerrainTexture", Text = text.Get("scene_preview_terrain_texture"),
-            ButtonPressed = true, Visible = acceptHex is null };
+            ButtonPressed = true, Visible = !_worldScene };
         _terrainTextureToggle.Toggled += _ => Run(UpdateTerrainMaterial);
         toolbar.AddChild(_terrainTextureToggle);
         toolbar.AddChild(new Label { Text = text.Get("scene_preview_controls"), SizeFlagsHorizontal = SizeFlags.ExpandFill });
@@ -259,7 +270,7 @@ public partial class MapSceneView : Control
             {
                 if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails(cityId);
             });
-            AddChild(_mapCityInformation);
+            ContextActions().AddChild(_mapCityInformation);
         }
         if (_embedded && _selectCommandCity is not null)
         {
@@ -275,7 +286,7 @@ public partial class MapSceneView : Control
             {
                 if (_mapSelection.Current?.LocationCommand?.Id is int locationId) _selectCommandCity(locationId);
             });
-            AddChild(_mapCityOrders);
+            ContextActions().AddChild(_mapCityOrders);
         }
         if (_embedded && _selectCommandArea is not null)
         {
@@ -291,7 +302,7 @@ public partial class MapSceneView : Control
             {
                 if (_mapSelection.Current?.AreaCommand?.Id is int areaId) _selectCommandArea?.Invoke(areaId);
             });
-            AddChild(_mapAreaOrders);
+            ContextActions().AddChild(_mapAreaOrders);
         }
         if (_embedded && _selectCommandUnit is not null)
         {
@@ -307,7 +318,7 @@ public partial class MapSceneView : Control
             {
                 if (_mapSelection.Current?.SelectedUnit?.Id is int unitId) _selectCommandUnit(unitId);
             });
-            AddChild(_mapUnitOrders);
+            ContextActions().AddChild(_mapUnitOrders);
             _mapNextUnit = new Button
             {
                 Name = "MapNextUnit", Visible = false,
@@ -318,9 +329,9 @@ public partial class MapSceneView : Control
                 MouseFilter = MouseFilterEnum.Stop
             };
             _mapNextUnit.Pressed += () => Run(SelectNextUnitAtPickedHex);
-            AddChild(_mapNextUnit);
+            ContextActions().AddChild(_mapNextUnit);
         }
-        if (_embedded)
+        if (_embedded && System.Environment.GetEnvironmentVariable("SAN14_DEVELOPER_WORKSPACE") == "1")
         {
             var resetMapCamera = new Button
             {
@@ -343,7 +354,7 @@ public partial class MapSceneView : Control
             _sceneConfig = MapSceneConfiguration.Parse(sceneFile.GetAsText(), projectionFile.GetAsText(), _embedded);
             foreach (MapSceneDefinition scene in _sceneConfig.Scenes)
                 _selection.AddItem(text.Get(scene.LabelKey));
-            int initialScene = _sceneConfig.InitialSceneIndex(_acceptHex is not null);
+            int initialScene = _sceneConfig.InitialSceneIndex(_worldScene);
             _selection.Select(initialScene);
             InitialSceneLoad = StartSceneLoadAsync(initialScene);
         });
@@ -376,6 +387,8 @@ public partial class MapSceneView : Control
 
     private void ClearModels()
     {
+        var sourcePreparation = _sceneSourcePreparation; _sceneSourcePreparation = null;
+        sourcePreparation?.Cancel();
         ReleaseSceneryMap();
         ReleaseNativeMap();
         ReleaseSourceCamera();
@@ -461,14 +474,35 @@ public partial class MapSceneView : Control
         SetMeta("scene_loaded", false);
         RemoveMeta("scene_error");
         _status.Text = _text.Get("scene_preview_loading");
-        LoadedSceneResources scene = SceneResources.Load(_repository, _sceneConfig.Archive, _sceneConfig.Scenes[index].FileId);
-        ScenePlacements placements = ScenePlacementReader.Read(scene);
+        string sourceDirectory = _repository.SourceDirectory;
+        string? overrideDirectory = _repository.OverrideDirectory;
+        string archive = _sceneConfig.Archive;
+        uint sceneId = _sceneConfig.Scenes[index].FileId;
+        using var sourcePreparation = new CancellationTokenSource();
+        _sceneSourcePreparation = sourcePreparation;
+        var token = sourcePreparation.Token;
+        MapTerrainSourcePreparation preparedSource;
+        try
+        {
+            preparedSource = await Task.Run(() => MapTerrainSourcePreparation.Prepare(
+                sourceDirectory, overrideDirectory, archive, sceneId, token), token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+        finally
+        {
+            if (ReferenceEquals(_sceneSourcePreparation, sourcePreparation)) _sceneSourcePreparation = null;
+        }
+        if (token.IsCancellationRequested || generation != _sceneLoadGeneration ||
+            !GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
+        LoadedSceneResources scene = preparedSource.Scene;
+        ScenePlacements placements = preparedSource.Placements;
         var effects = new Godot.Collections.Array<Godot.Collections.Dictionary>();
         int missingQuaternions = 0, modelCount = 0;
         Aabb bounds = default;
         bool haveBounds = false;
-        MapTerrainResources preparedTerrain = await MapTerrainResources.PrepareAsync(_repository,
-            scene, _embedded ? 0 : _sceneConfig.TerrainDepth, UseD3D11Map);
+        // Mesh/ArrayMesh and optional GPU material construction stay on Main.
+        MapTerrainResources preparedTerrain = await MapTerrainResources.PrepareAsync(preparedSource,
+            _embedded ? 0 : _sceneConfig.TerrainDepth, UseD3D11Map);
         if (generation != _sceneLoadGeneration || !GodotObject.IsInstanceValid(this) || !IsInsideTree())
         {
             preparedTerrain.DiscardPrepared();
@@ -697,7 +731,7 @@ public partial class MapSceneView : Control
             InitializeD3D11MapLocations();
             return;
         }
-        if (_acceptHex is not null)
+        if (_worldScene)
         {
             _forcePresentation = LoadForcePresentation();
             _structureCatalog = LoadStructureCatalog();
@@ -710,16 +744,16 @@ public partial class MapSceneView : Control
         _sceneTerrain!.BuildPicker();
         _markerAssets ??= new UiAssets(_repository);
         _markerLayout ??= _repository.LoadLayout("ScreenLayout", 0xEDC35713);
-        if (_acceptHex is not null)
+        if (_worldScene)
             _unitMarkerLayout ??= _repository.LoadLayout("ScreenLayout", 0x3DA1641D);
         _locations = new MapLocationLayer { Visible = _showLocations.ButtonPressed };
         _previewWorld.AddChild(_locations);
         _locations.Build(projection, TerrainMeshes, _logicalWorld, _markerAssets,
             _markerLayout, ForceMarkerColors,
-            _acceptHex is null ? null : ResolveCityModelDisplays(_logicalWorld),
-            _acceptHex is null ? null : _sceneModels?.ResolveGates(_logicalWorld));
+            _worldScene ? ResolveCityModelDisplays(_logicalWorld) : null,
+            _worldScene ? _sceneModels?.ResolveGates(_logicalWorld) : null);
         _locations.SetViewportHeight(_surface.Size.Y);
-        if (_acceptHex is not null && _playerForceId is int playerId &&
+        if (_worldScene && _playerForceId is int playerId &&
             _logicalWorld.Forces.TryGetValue(playerId, out ForceState? force))
         {
             int? rulerCityId = force.RulerId is int rulerId &&
@@ -735,7 +769,7 @@ public partial class MapSceneView : Control
                 SetMeta("playable_start_city_id", start.Id);
             }
         }
-        if (_acceptHex is not null && _playerForceId is int player)
+        if (_worldScene && _playerForceId is int player)
         {
             _unitLayer = new MapUnitLayer();
             _previewWorld.AddChild(_unitLayer);
@@ -1055,7 +1089,12 @@ public partial class MapSceneView : Control
 
     internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
-        if (open) ResetSourceCameraInput();
+        if (open)
+        {
+            ResetSourceCameraInput();
+            if (_summaryHoverOwner is { } owner) SetMapSummaryHover(owner, null);
+            SuspendMapSummaries();
+        }
         if (open) _sceneryMap?.Suspend();
         if (open) { CloseCityCommandMenu(); _d3d11Markers?.ClearPointer(); }
         _detailsOpen = open;
@@ -1085,6 +1124,7 @@ public partial class MapSceneView : Control
 
     private void PickTerrain(Vector2 surfacePosition)
     {
+        if (InformationMapReadOnly) return;
         if (!_loaded || _projection is null || CurrentTerrainPicker is null || !_terrain.Visible ||
             _surface.Size.X <= 0 || _surface.Size.Y <= 0) return;
         SubViewport viewport = (SubViewport)_surface.GetChild(0);
@@ -1126,6 +1166,7 @@ public partial class MapSceneView : Control
             _locationSelection.Select(markerIndex);_focusLocation.Disabled=markerIndex<0;
             if(markerIndex>=0)_d3d11Markers.Select(markerIndex);else _d3d11Markers.ClearSelection();
             _acceptHex?.Invoke(markerHex);
+            if (TryOpenPickedEnemyFootholdCommands(surfacePosition)) return;
             OpenPickedCityMenu(surfacePosition);
             return;
         }
@@ -1161,6 +1202,7 @@ public partial class MapSceneView : Control
         else if (selected >= 0) _locations!.Select(selected);
         else _locations?.ClearSelection();
         if (_embedded) _acceptHex?.Invoke(hexId);
+        if (TryOpenPickedEnemyFootholdCommands(surfacePosition)) return;
         OpenPickedCityMenu(surfacePosition);
     }
 
@@ -1363,6 +1405,9 @@ public partial class MapSceneView : Control
 
     public override void _ExitTree()
     {
+        _startedMapFrame?.TrySetCanceled();
+        var sourcePreparation = _sceneSourcePreparation; _sceneSourcePreparation = null;
+        sourcePreparation?.Cancel();
         ReleaseSceneryMap();
         UnbindSceneryMapPresentation();
         ReleaseSourceNavigationInput();

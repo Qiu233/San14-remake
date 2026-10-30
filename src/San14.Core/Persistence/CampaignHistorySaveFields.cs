@@ -6,6 +6,51 @@ internal static class CampaignHistorySaveFields
 {
     internal static void Migrate(JsonObject state, int version)
     {
+        if (version < 212 && state["CampaignHistory"] is JsonObject legacyHistory &&
+            legacyHistory["EmperorReceptionChronicleSuppressed"] is not null)
+            throw new InvalidDataException("Legacy history contains a future emperor reception gate.");
+        const string restoreKey = "CampaignTemporaryHexRestoreEntries";
+        if (version < 205)
+        {
+            if (state[restoreKey] is not null)
+                throw new InvalidDataException("Legacy world contains a future temporary Hex restoration owner.");
+            state[restoreKey] = null;
+        }
+        else
+        {
+            if (!state.ContainsKey(restoreKey))
+                throw new InvalidDataException("Saved temporary Hex restoration knowledge is missing.");
+            if (state[restoreKey] is JsonNode restore)
+            {
+                if (restore is not JsonArray entries)
+                    throw new InvalidDataException("Saved temporary Hex restoration storage is invalid.");
+                int previous = -1;
+                foreach (var entry in entries)
+                {
+                    var fields = RequireExact(entry, "HexPhysicalSlot", "ForcePhysicalSlot");
+                    if (fields["HexPhysicalSlot"] is not JsonValue hex || !hex.TryGetValue<int>(out int physical) ||
+                        physical is < 0 or >= 48400 || physical <= previous ||
+                        fields["ForcePhysicalSlot"] is not JsonValue force || !force.TryGetValue<int>(out int owner) ||
+                        owner is < 0 or > 51)
+                        throw new InvalidDataException("Saved temporary Hex restoration entry is invalid.");
+                    previous = physical;
+                }
+            }
+        }
+        if (state["CampaignEventEligibility"] is JsonObject availableOwner)
+        {
+            const string available = "HasAvailableResult";
+            if (version < 205)
+            {
+                if (availableOwner[available] is not null)
+                    throw new InvalidDataException("Legacy event manager contains a future available-result fact.");
+                availableOwner[available] = null;
+            }
+            else if (!availableOwner.ContainsKey(available) || availableOwner[available] is JsonNode value &&
+                (value is not JsonValue boolean || !boolean.TryGetValue<bool>(out _)))
+                throw new InvalidDataException("Saved event manager available-result knowledge is missing or invalid.");
+        }
+
         if (version < 137)
         {
             state["CampaignHistory"] = null;
@@ -21,7 +66,19 @@ internal static class CampaignHistorySaveFields
             RequireKeys(state, "CampaignHistory", "DefaultForceReportColorIndex");
             if (state["CampaignHistory"] is JsonNode history)
             {
-                var fields = RequireExact(history, "Cursor", "Records", "DefaultSupplementalText");
+                if (history is not JsonObject historyFields)
+                    throw new InvalidDataException("Saved campaign history owner is invalid.");
+                const string reception = "EmperorReceptionChronicleSuppressed";
+                if (version < 212)
+                {
+                    if (historyFields[reception] is not null)
+                        throw new InvalidDataException("Legacy history contains a future emperor reception gate.");
+                    historyFields[reception] = null;
+                }
+                else if (!historyFields.ContainsKey(reception) || historyFields[reception] is JsonNode known &&
+                    (known is not JsonValue boolean || !boolean.TryGetValue<bool>(out _)))
+                    throw new InvalidDataException("Saved emperor reception gate knowledge is missing or invalid.");
+                var fields = RequireExact(historyFields, "Cursor", "Records", "DefaultSupplementalText", reception);
                 if (fields["Records"] is not JsonArray records || records.Count != CampaignHistoryState.Capacity)
                     throw new InvalidDataException("Saved campaign history records are incomplete.");
                 foreach (var record in records) CheckRecord(record);

@@ -13,7 +13,7 @@ public sealed record ReflectionUpstreamDeviceImage(Rid Storage, Rid Sample2D, Ri
 /// screen intermediates. Provider assets, prepared CB packets, samplers,
 /// current depth/camera and source gates are supplied explicitly. Borrowed
 /// final attachments must identify the actual selected raw/current targets.</summary>
-public sealed class ReflectionUpstreamOwner : IAsyncDisposable
+public sealed partial class ReflectionUpstreamOwner : IAsyncDisposable
 {
     public LoadedReflectionProducerPlan Source { get; }
     public ReflectionUpstreamState State { get; }

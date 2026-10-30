@@ -18,6 +18,7 @@ internal static class CombatSettlementSaveValidation
                     break;
                 case BaseCaptureRequest capture when (capture.WinnerUnitId is null or > 0) &&
                     (capture.WinnerDistrictId is null or >= 0 and <= 51) &&
+                    (!capture.HasNoWinner || capture.WinnerUnitId is null && capture.WinnerDistrictId is null) &&
                     !(capture.WinnerUnitId is not null && capture.WinnerDistrictId is not null):
                     ValidateBase(capture.Target);
                     break;

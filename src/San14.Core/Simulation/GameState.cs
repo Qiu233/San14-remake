@@ -1,10 +1,12 @@
+using System.Collections.Immutable;
+
 namespace San14.Core;
 
 public enum TurnPhase { Strategy, Reporting, Initializing }
 public enum OfficerRole { Officer, Ruler, DistrictLeader, Governor, Free, Unresolved }
 public enum OfficerSex { Male, Female }
 public enum OfficerPresence { Present, NotAppeared, Undiscovered, Dead }
-public enum CitySize { Small, Medium, Large, Giant }
+public enum CitySize { None = -1, Small = 0, Medium = 1, Large = 2, Giant = 3 }
 // Persisted values are independent of the original byte codes. Keep existing saves stable.
 // None is a known absence of focus; a nullable focus still means unresolved information.
 public enum AreaDevelopmentFocus { Commerce = 0, Agriculture = 1, Barracks = 2, None = 3 }
@@ -247,6 +249,8 @@ public sealed partial record GameState
     public Dictionary<int, ItemState>? Items { get; init; }
     public Dictionary<int, FormationDefinition> Formations { get; init; } = [];
     public Dictionary<int, TacticDefinition> Tactics { get; init; } = [];
+    // Null preserves unknown campaign definitions; an empty array is known empty.
+    public ImmutableArray<CreatedPersonality>? CreatedPersonalities { get; init; }
     public Dictionary<int, DistrictState> Districts { get; init; } = [];
     public Dictionary<int, CityState> Cities { get; init; } = [];
     public Dictionary<int, GateState> Gates { get; init; } = [];
@@ -309,6 +313,9 @@ public static class StateValidator
         foreach ((string key, string hash) in state.ContentHashes)
             if (string.IsNullOrWhiteSpace(key) || hash is null || hash.Length != 64 || hash.Any(c => !Uri.IsHexDigit(c)))
                 throw new InvalidDataException("Content revision reference is invalid.");
+        UnassignedForcePolicyEffectsValidation.Validate(state.UnassignedForcePolicyEffects);
+        if (state.CreatedPersonalities is { } personalities)
+            new PersonalityEditorLibrary(personalities).Validate();
         if (state.MapWidth < 1 || state.MapHeight < 1) throw new InvalidDataException("Map dimensions are invalid.");
         int mapSize = checked(state.MapWidth * state.MapHeight);
         if (state.FacilityFoodReduction is { } facilityFood &&
@@ -421,8 +428,11 @@ public static class StateValidator
         if (state.ItemDefinitions is null)
             throw new InvalidDataException("Item definitions are missing.");
         foreach ((int id, ItemDefinition definition) in state.ItemDefinitions)
+        {
             if (definition is null || id != definition.Id || id < 0 || definition.Name is null)
                 throw new InvalidDataException($"Item definition {id} is invalid.");
+            definition.Appearance?.Validate();
+        }
         if (state.Items is not null)
             foreach ((int id, ItemState item) in state.Items)
                 if (item is null || id != item.Id || id < 0 || !state.ItemDefinitions.ContainsKey(item.DefinitionId) ||
@@ -530,8 +540,8 @@ public static class StateValidator
                 !state.Officers.TryGetValue(unit.OfficerId, out OfficerState? officer) ||
                 officer.ForceId != unit.ForceId || !officer.Deployed || !deployedOfficers.Add(unit.OfficerId) ||
                 unit.HexId < 0 || unit.HexId >= state.MapWidth * state.MapHeight ||
-                unit.DestinationHexId < 0 || unit.DestinationHexId >= state.MapWidth * state.MapHeight ||
-                (unit.Troops < 1 && !(unit.Troops == 0 && IsOwnedTransport(state, unit) &&
+                (unit.DestinationHexId < 0 && !IsOwnedNoDestinationArmy(state, unit)) || unit.DestinationHexId >= state.MapWidth * state.MapHeight ||
+                (unit.Troops < 1 && !IsOwnedZeroTroopOrdinaryArmy(state, unit) && !(unit.Troops == 0 && IsOwnedTransport(state, unit) &&
                     unit.CarriedStores is { Gold: >= 0, Food: >= 0 } stores &&
                     (stores.Gold > 0 || stores.Food > 0) && stores.Food == unit.Supplies &&
                     stores.Gold == unit.Mission!.CargoGold)) || unit.Supplies < 0 ||
@@ -694,7 +704,13 @@ public static class StateValidator
         PlayableEventStateValidation.Validate(state);
         PlayablePersonnelStateValidation.Validate(state);
         CampaignTurnStopValidation.Validate(state);
+        CampaignEndingProgressValidation.Validate(state.EndingProgress);
+        EditedEventPlaybackValidation.Validate(state);
+        CampaignEventCommandValidation.Validate(state);
+        TutorialLessonProgressValidation.Validate(state.TutorialLessonProgress);
+        ProposalStateValidation.Validate(state.Proposals);
         RulerDecisionContinuationValidation.Validate(state);
+        AutomaticEmperorCaptureValidation.Validate(state);
         if (state.TutorialForceDefeat is { ExitParagraphIndex: < 0 })
             throw new InvalidDataException("The tutorial failure exit paragraph is invalid.");
         if (state.PendingCampaignServices is null)
@@ -706,7 +722,8 @@ public static class StateValidator
             !(monthlyScene.Family == MonthlySceneFamily.FinalOrder && monthlyScene.EventKind is 10 or 26 or 31 ||
               monthlyScene.Family == MonthlySceneFamily.PersonDeath && monthlyScene.EventKind is 4 or 5 or 6 ||
               monthlyScene.Family == MonthlySceneFamily.Coalition && monthlyScene.EventKind is 24 or 40 or 52 or 53 or 54 ||
-              monthlyScene.Family == MonthlySceneFamily.Emperor && monthlyScene.EventKind is 6 or 45 or 55))
+              monthlyScene.Family == MonthlySceneFamily.Emperor && monthlyScene.EventKind is 6 or 45 or 55 ||
+              monthlyScene.Family == MonthlySceneFamily.Personnel && monthlyScene.EventKind is 9 or 10 or 32 or 35 or 44 or 54))
             throw new InvalidDataException("The admitted monthly scene is invalid.");
         CoalitionCameraPresentationValidation.Validate(state);
         EconomyReportStateValidation.Validate(state);
@@ -736,6 +753,30 @@ public static class StateValidator
 
     //Only the real source-created transport receiver may defer target-kind
     //validation to its resource codec. Legacy convoys still require a City.
+    //1EC980/2D2CA0 can publish a real status1 receiver with zero requested
+    //troops. Admit that existing ordinary owner, not an unregistered ctor or
+    //a player request. Source disappearance/combat lifecycles remain separate.
+    private static bool IsOwnedNoDestinationArmy(GameState state, UnitState unit)
+    {
+        if (!unit.HasNoDestination || unit.NativeTacticRuntime?.Status10 != 1 ||
+            unit.NativeArmyOrigin?.NativeSlotIndex is not (>= 1 and <= 500) ||
+            state.ArmyLifecycle is not { } lifecycle) return false;
+        var receiver = lifecycle.Receivers.FindUnit(unit.Id);
+        return receiver is { Phase: ArmyReceiverPhase.Active } &&
+            lifecycle.Targets?.Find(receiver.ReceiverId)?.Kind is not null && unit.MilitaryPlan is null &&
+            unit.March is { Target.Kind: ArmyMarchDestinationKind.None, NextStep.Kind: ArmyMarchDestinationKind.None };
+    }
+
+    private static bool IsOwnedZeroTroopOrdinaryArmy(GameState state, UnitState unit)
+    {
+        if (unit.Troops != 0 || unit.NativeTacticRuntime?.Status10 != 1 ||
+            unit.NativeArmyOrigin?.NativeSlotIndex is not (>= 1 and <= 500) ||
+            state.ArmyLifecycle is null) return false;
+        // The existing lifecycle format validator owns receiver admission.
+        // Do not rescan its roster for every unit in this field check.
+        return true;
+    }
+
     private static bool IsOwnedTransport(GameState state, UnitState unit)
     {
         if (unit.NativeArmyOrigin is null || unit.NativeTacticRuntime?.Status10 != 2 ||

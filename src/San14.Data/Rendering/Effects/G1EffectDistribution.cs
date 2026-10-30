@@ -38,9 +38,28 @@ public static class G1EffectDistribution
                 F(bytes, at + 32), F(bytes, at + 36), F(bytes, at + 40), F(bytes, at + 44),
                 F(bytes, at + 48), F(bytes, at + 52), F(bytes, at + 56), F(bytes, at + 60));
         }
+        if (opcode == 7)
+        {
+            var translated = Matrix(bytes, ref cursor, context, random);
+            Vector4 offset = Vector(bytes, ref cursor, context, random);
+            // The native operation adds row.W * offset.xyz to every row.
+            translated.M11 = translated.M14 * offset.X + translated.M11;
+            translated.M12 = translated.M14 * offset.Y + translated.M12;
+            translated.M13 = translated.M14 * offset.Z + translated.M13;
+            translated.M21 = translated.M24 * offset.X + translated.M21;
+            translated.M22 = translated.M24 * offset.Y + translated.M22;
+            translated.M23 = translated.M24 * offset.Z + translated.M23;
+            translated.M31 = translated.M34 * offset.X + translated.M31;
+            translated.M32 = translated.M34 * offset.Y + translated.M32;
+            translated.M33 = translated.M34 * offset.Z + translated.M33;
+            translated.M41 = translated.M44 * offset.X + translated.M41;
+            translated.M42 = translated.M44 * offset.Y + translated.M42;
+            translated.M43 = translated.M44 * offset.Z + translated.M43;
+            return translated;
+        }
         if (opcode != 6) throw new NotSupportedException($"Effect distribution matrix opcode {opcode} is not implemented.");
         var result = Matrix(bytes, ref cursor, context, random);
-        Vector4 axis = Vector(bytes, ref cursor);
+        Vector4 axis = Vector(bytes, ref cursor, context, random);
         int trig = G1EffectBirthExpression.ReadInt(bytes, ref cursor);
         if (trig != 1) throw new NotSupportedException($"Effect distribution trigonometry opcode {trig} is not implemented.");
         float angle = G1EffectBirthExpression.Evaluate(bytes, ref cursor, context, random);
@@ -50,10 +69,17 @@ public static class G1EffectDistribution
         return Multiply(result, Rotation(axis, sine, cosine));
     }
 
-    private static Vector4 Vector(ReadOnlyMemory<byte> bytes, ref int cursor)
+    private static Vector4 Vector(ReadOnlyMemory<byte> bytes, ref int cursor,
+        ReadOnlyMemory<byte> context, G1EffectRandom random)
     {
         int opcode = G1EffectBirthExpression.ReadInt(bytes, ref cursor);
-        if (opcode == 0) return Vector(bytes, ref cursor);
+        if (opcode == 0) return Vector(bytes, ref cursor, context, random);
+        if (opcode == 8)
+        {
+            Vector4 vector = Vector(bytes, ref cursor, context, random);
+            float scale = G1EffectBirthExpression.Evaluate(bytes, ref cursor, context, random);
+            return new(scale * vector.X, scale * vector.Y, scale * vector.Z, scale * vector.W);
+        }
         if (opcode != 1) throw new NotSupportedException($"Effect distribution vector opcode {opcode} is not implemented.");
         int at = Relative(bytes, ref cursor, 16);
         return new(F(bytes, at), F(bytes, at + 4), F(bytes, at + 8), F(bytes, at + 12));

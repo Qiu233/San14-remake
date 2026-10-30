@@ -109,7 +109,7 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
             }
         }
         OfficerAbilities? appointment = Appointment(state, officer, status);
-        OfficerAbilities? doctrine = Doctrine(state, officer, dimension, panelReader);
+        OfficerAbilities? doctrine = Doctrine(state, officer, physical, dimension, panelReader);
         if (health is null || secondary is null || appointment is null || doctrine is null ||
             !ItemAbilityBonuses.TryCalculate(state, officerId, out OfficerAbilities? items, 10)) return null;
         int? forcedCharm = dimension is null or 4 && state.Items!.TryGetValue(123, out ItemState? seal) &&
@@ -141,14 +141,19 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         return id == 0 || office.CommandLimit == 0 ? Zero : office.AbilityBonus with { Charm = 0 };
     }
 
-    private static OfficerAbilities? Doctrine(GameState state, OfficerState officer, int? dimension,
+    private OfficerAbilities? Doctrine(GameState state, OfficerState officer, int physical, int? dimension,
         Func<int, int, int?>? panelReader)
     {
         int? doctrine = OfficerDoctrineRules.ReadDoctrineId(officer.DoctrineId, officer.AbilityState);
         if (doctrine == 0) return Zero;
-        if (doctrine is not >= 1 or > 6 || officer.ForceId is not int forceId ||
-            state.NativeArmySimulation!.Forces.GetValueOrDefault(forceId) is null ||
-            state.Forces.GetValueOrDefault(forceId)?.PolicyEffects is not { HasActivationKnowledge: true } effects) return null;
+        //22FE40 follows Person->District->Force, including the actual
+        //unassigned receiver. A missing Domain ForceId alone proves nothing.
+        if (doctrine is not >= 1 or > 6 ||
+            _current.ReadPersonForce(physical)?.PhysicalSlot is not int forceId) return null;
+        ForcePolicyEffects? effects = forceId == 0 ? state.UnassignedForcePolicyEffects
+            : state.NativeArmySimulation!.Forces.ContainsKey(forceId)
+                ? state.Forces.GetValueOrDefault(forceId)?.PolicyEffects : null;
+        if (effects is not { HasActivationKnowledge: true }) return null;
         var values = new int[5];
         for (int kind = 0; kind < 5; kind++)
         {

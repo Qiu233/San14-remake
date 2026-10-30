@@ -25,28 +25,7 @@ internal partial class EnvironmentSettingsView
         var narration = new AdministrationMessages(repository, text.SourceLocale);
         string Data(int table, int id) => messages.Sections[table].Records[id].Text ??
             throw new InvalidDataException($"Missing environment caption {table}/{id:X4}.");
-        // Platform display/quality and game-option consumers are still absent.
-        // Preserve their original rows without claiming a current selection.
-        int[] captions = [0x04CF,0x04D0,0x04D1,0x06D1];
-        int[][] values = [[0x6E,0x6F,0x70],[],[0x7D,0x7E,0x7F],[0x06D2,0x06D3]];
-        int[] nodes = [4,7,10];
-        for (int row = 0; row < captions.Length; row++)
-        {
-            var mount = source.Rectangle(row + 4).Position;
-            var layout = row == 1 ? new UiSourceLayout(repository,0x07D4EEEE) : rowSource;
-            layout.Art(page,2,layout.Rectangle(2,mount),chrome.Assets,chrome.SpriteShader);
-            layout.Text(page,3,mount,Data(1,captions[row]),chrome.Font);
-            for (int i = 0; i < values[row].Length; i++)
-            {
-                var box = rowSource.Rectangle(nodes[i],mount);
-                var button = new UiSourceRadioButton { Name = $"EnvironmentDisplay{row}_{i}",
-                    Position = box.Position, Size = box.Size, Disabled = true };
-                page.AddChild(button);
-                button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,
-                    i == 0 ? UiSourceRadioSegment.Left : i == values[row].Length-1 ? UiSourceRadioSegment.Right : UiSourceRadioSegment.Centre,
-                    Data(row == 3 ? 1 : 0,values[row][i]), () => { });
-            }
-        }
+        ConfigureDisplayPage(repository,text,source,rowSource,Data);
         var volume = new UiSourceLayout(repository,0x44F4B30D);
         int[] volumeCaptions = [0x04D5,0x06C3,0x04D6,0x04D7,0x04D8];
         for (int row = 0; row < volumeCaptions.Length; row++)

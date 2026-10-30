@@ -41,7 +41,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 candidateProbability = query.NegotiationAdjustedProbability(candidateProbability, recipientExpense, true);
         }
         int expense = 0;
-        if (!persuasionLocked && (task.NativeKind is 4 or 5 or 9) &&
+        if (!persuasionLocked && (task.NativeKind is 4 or 5 or 8 or 9) &&
             (recipientCounter ? candidateProbability < 100 : candidateProbability > 0))
             expense = query.NpcPersuasion(operation, recipientCounter ? senderFirstExpense : 0,
                 ref candidateProbability);

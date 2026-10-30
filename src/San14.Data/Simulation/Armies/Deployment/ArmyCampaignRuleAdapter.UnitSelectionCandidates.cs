@@ -141,7 +141,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         catch (InvalidDataException error) { return new(Array.Empty<UnitSelectionRow>(), error.Message); }
     }
 
-    private static UnitSelectionRow ReadSelectionRow(GameState state, SourceWorldContext current,
+    private UnitSelectionRow ReadSelectionRow(GameState state, SourceWorldContext current,
         int unitId, int? sourceDistrictPhysicalSlot)
     {
         var missing = new List<string>();
@@ -201,8 +201,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (values is null || values.GetValueOrDefault(TacticRemakeCurrentBattleControl.VersionKey) != 1 ||
                 !values.TryGetValue(TacticRemakeCurrentBattleControl.HeaderKey, out int tutorial))
                 clickMissing = SelectionMissing("click_tutorial_owner").Message;
-            else if (tutorial != 0) clickMissing = SelectionMissing("click_active_tutorial_selection").Message;
-            else click = true;
+            else
+            {
+                try { click = TutorialTargetQualification.AllowsArmy(ReadTutorialControlState(state), at, fields.Action); }
+                catch (InvalidDataException error) { clickMissing = error.Message; }
+            }
         }
         return new(unitId, physical, lookupHex, hex, partition, fields.Action, fields.Kind,
             fields.Identity, district, valid, click, missing.Count == 0 ? null : string.Join("; ", missing))

@@ -96,6 +96,15 @@ public sealed class OwnedForce164Inputs
         return unchecked(_experience.Doctrine.Records[level].RawCostLimitAddition + basis);
     }
 
+    //22D380/32C3B0: aggregate additional department slots, before subtracting
+    //the five independently saved expansion bytes. Reuse admitted experience.
+    internal int? ReadAdditionalDepartmentSlots(GameState state, int physical)
+    {
+        if (ReadCurrent(state, physical) is not int experience || ReadLevel(state, experience) is not int level)
+            return null;
+        return level == 0 ? 0 : _experience.Doctrine.Records[level].RawAdditionalSlots;
+    }
+
     /// <summary>The ordered experience-row query used by the map header.
     /// Invalid row0 keeps zero progress; missing inputs never become zero.
     /// The caller uses wrapped Int32 multiplication and signed division.</summary>

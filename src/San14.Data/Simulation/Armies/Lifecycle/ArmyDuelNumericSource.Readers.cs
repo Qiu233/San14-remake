@@ -33,24 +33,8 @@ public static partial class ArmyDuelNumericSource
 
         private int Age(int person)
         {
-            int mode = state.CampaignEventWorld?.ScenarioMode ?? throw Missing("age_world_mode");
-            bool special = mode == 2;
-            if (mode == 3) special = P("mode3-age-control") != 0;
-            int id = Id(person);
-            if (special)
-            {
-                for (int index = 0; index < 2; index++)
-                    if (id == P("special-age-person:" + index)) return 80;
-                //A known trait144 proves80 independently of the five-ID table.
-                //The missing table tail is reached only if it can affect age.
-                for (int index = 0; index < 9; index++)
-                    if (Need(TacticRemakeCurrentTraits.ResolveCommanderPersonalityLookup(current, person, index), "age_trait_slot") == 144) return 80;
-                for (int index = 2; index < 5; index++)
-                    if (id == P("special-age-person:" + index)) return 80;
-                return 20;
-            }
-            int birth = state.Officers.GetValueOrDefault(id)?.BirthYear ?? throw Missing("age_birth_year");
-            return Math.Max(0, unchecked((short)date.Year - birth + 1));
+            //This combat operation retains its actual pre-writer calendar.
+            return PersonCurrentAgeSource.Read(state, current, person, date.Year);
         }
         private int AgeBonus(int person)
         {

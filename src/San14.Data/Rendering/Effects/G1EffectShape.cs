@@ -21,7 +21,7 @@ public sealed class G1EffectShape
     public uint ShapeType { get; }
     public ReadOnlyMemory<byte> SourceBytes { get; }
     public Matrix4x4 Transform { get; set; }
-    public int Dimension => ShapeType switch { 0 or 2 => 3, 3 or 4 or 6 => 2, _ => 0 };
+    public int Dimension => ShapeType switch { 0 or 1 or 2 => 3, 3 or 4 or 5 or 6 => 2, 8 or 9 => 1, _ => 0 };
 
     private G1EffectShape(uint type, ReadOnlyMemory<byte> bytes)
     {
@@ -70,6 +70,13 @@ public sealed class G1EffectShape
             angleEnd = F(0x58);
             height = F(0x5C);
         }
+        else if (type == 8)
+        {
+            outerRadius = F(0x50);
+            angleStart = F(0x54);
+            angleEnd = F(0x58);
+        }
+        else if (type == 9) height = F(0x50);
     }
 
     public static G1EffectShape Read(G1EffectEmitterDeclaration declaration)
@@ -82,7 +89,7 @@ public sealed class G1EffectShape
     {
         int minimum = type switch
         {
-            0 => 0x80, 2 or 3 or 4 => 0x70, 6 => 0x60, 10 => 0x50,
+            0 => 0x80, 2 or 3 or 4 => 0x70, 1 or 5 or 6 or 8 or 9 => 0x60, 10 => 0x50,
             _ => throw new NotSupportedException($"G1FX shape {type} is not implemented.")
         };
         if (bytes.Length < minimum || BinaryPrimitives.ReadUInt32LittleEndian(bytes.Span) != bytes.Length ||
@@ -102,18 +109,23 @@ public sealed class G1EffectShape
             if (ShapeType == 3) return MathF.Abs((upperCosine - lowerCosine) * (angleEnd - angleStart)) *
                 (outerRadius * outerRadius);
             if (ShapeType == 6) return MathF.Abs(height * outerRadius * (angleEnd - angleStart));
+            if (ShapeType == 8) return MathF.Abs((angleEnd - angleStart) * outerRadius);
             Matrix4x4 m = Transform;
-            if (ShapeType == 4)
+            if (ShapeType == 9)
+                return MathF.Sqrt(m.M22*m.M22 + m.M21*m.M21 + m.M23*m.M23) * height;
+            if (ShapeType is 4 or 5)
             {
                 // The original annulus measure uses the lengths of its local
                 // X/Z axes, rather than the volume transform determinant.
                 float z = MathF.Sqrt(m.M32*m.M32 + m.M31*m.M31 + m.M33*m.M33);
                 float x = MathF.Sqrt(m.M12*m.M12 + m.M11*m.M11 + m.M13*m.M13);
+                if (ShapeType == 5) return MathF.Abs(z * x * F(0x50) * F(0x54));
                 return MathF.Abs(z * x * radiusSquareDifference * (angleEnd - angleStart) * 0.5f);
             }
             float determinant = (m.M21 * m.M13 - m.M11 * m.M23) * m.M32 +
                 (m.M12 * m.M23 - m.M13 * m.M22) * m.M31 +
                 (m.M11 * m.M22 - m.M21 * m.M12) * m.M33;
+            if (ShapeType == 1) return MathF.Abs(determinant * F(0x50) * F(0x54) * F(0x58));
             if (ShapeType == 2)
                 return MathF.Abs(determinant * height * radiusSquareDifference * (angleEnd - angleStart) * 0.5f);
             return MathF.Abs(determinant * radiusCubeDifference * (upperCosine - lowerCosine) *
@@ -123,14 +135,32 @@ public sealed class G1EffectShape
 
     /// <summary>One sample per scheduled birth batch, before iterating its
     /// particle definitions. Shape zero consumes azimuth, polar cosine, then
-    /// radius; shape two consumes azimuth, height, then squared radius; shape
+    /// radius; shape one consumes X/Y/Z; shape two consumes azimuth, height, then squared radius; shape
     /// three consumes azimuth then polar cosine; shape four consumes azimuth
-    /// then squared radius; shape six consumes azimuth then height; shape ten consumes none.</summary>
+    /// then squared radius; shape five consumes X then Z; shape six consumes azimuth then height; shape eight
+    /// consumes azimuth; shape nine consumes height; shape ten consumes none.</summary>
     public Vector4 Sample(G1EffectRandom random)
     {
         ArgumentNullException.ThrowIfNull(random);
         if (ShapeType == 10)
             return new(Transform.M41, Transform.M42, Transform.M43, Transform.M44);
+        if (ShapeType == 1)
+        {
+            // Box samples X, Y, then Z, even when an authored extent is zero.
+            float x = (random.NextUnit() - 0.5f) * F(0x50);
+            float y = (random.NextUnit() - 0.5f) * F(0x54);
+            float z = (random.NextUnit() - 0.5f) * F(0x58);
+            return ApplyTransform(new(x, y, z, 1), Transform);
+        }
+        if (ShapeType == 9)
+            return ApplyTransform(new(0, (random.NextUnit() - 0.5f) * height, 0, 1), Transform);
+        if (ShapeType == 5)
+        {
+            // Rectangle samples both authored axes even for a zero extent.
+            float x = (random.NextUnit() - 0.5f) * F(0x50);
+            float z = (random.NextUnit() - 0.5f) * F(0x54);
+            return ApplyTransform(new(x, 0, z, 1), Transform);
+        }
 
         float angle = random.NextUnit() * (angleEnd - angleStart) + angleStart;
         (float sine, float cosine) = G1EffectShapeMath.SinCos(angle);
@@ -143,6 +173,7 @@ public sealed class G1EffectShape
             float radius = MathF.Sqrt(random.NextUnit() * radiusSquareDifference + innerRadius * innerRadius);
             position = new(radius * sine, y, radius * cosine, 1);
         }
+        else if (ShapeType == 8) position = new(outerRadius * sine, 0, outerRadius * cosine, 1);
         else if (ShapeType == 6)
         {
             float y = (random.NextUnit() - 0.5f) * height;

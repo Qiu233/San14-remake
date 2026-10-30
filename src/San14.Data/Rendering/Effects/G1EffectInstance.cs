@@ -34,6 +34,9 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
     public LoadedMapEffectResources Resources { get; }
     public G1EffectWorldClock Clock { get; } = new();
     public Matrix4x4 WorldTransform { get; private set; }
+    /// <summary>Actual transform owners for non-root emitter bindings. Returning
+    /// null leaves that required binding explicitly unresolved.</summary>
+    public Func<int, int, Matrix4x4?>? EmitterTransformProvider { get; set; }
     public IReadOnlyList<G1EffectRuntimeMissing> Missing => missing.AsReadOnly();
     public bool IsInitialized => initialized;
     /// <summary>Independent system light exposure, initialized by the source
@@ -111,6 +114,7 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
                     foreach (var module in declaration.Modules)
                     {
                         var runtime = new G1EffectModuleRuntime(module, declaration.Index, context, ReportMissing);
+                        runtime.EmitterTransformProvider = EmitterTransformProvider;
                         modules.Add(runtime);
                         if (directStorageFactory is not null)
                             foreach (var generic in runtime.Generics)
@@ -145,7 +149,11 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
             { system.Timeline.Disable(); continue; }
             if (!system.Timeline.Advance(seconds)) continue;
             Matrix4x4 world = SystemWorld(system.Declaration);
-            foreach (var module in system.Modules) module.Advance(seconds, world);
+            foreach (var module in system.Modules)
+            {
+                module.EmitterTransformProvider = EmitterTransformProvider;
+                module.Advance(seconds, world);
+            }
         }
     }
 

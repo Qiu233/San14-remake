@@ -30,19 +30,18 @@ public static class MapControlProjection
             float z = F.Multiply(Column(p,camera.M13,camera.M23,camera.M33,camera.M43,true),reciprocal);
             if (!(x > -1f && x < 1f && y > -1f && y < 1f && z > 0f && z < 1f)) return null;
         }
-        // Projection repeats the source transform: X sums Y first; YZW
-        // sum X first. Normalize every component before viewport products.
-        float w = Column(p,camera.M14,camera.M24,camera.M34,camera.M44,false);
-        float inverse = F.Divide(1f,w);
-        var normalized = new Vector4(
-            F.Multiply(Column(p,camera.M11,camera.M21,camera.M31,camera.M41,true),inverse),
-            F.Multiply(Column(p,camera.M12,camera.M22,camera.M32,camera.M42,false),inverse),
-            F.Multiply(Column(p,camera.M13,camera.M23,camera.M33,camera.M43,false),inverse),
-            F.Multiply(w,inverse));
-        int px = BattleUnitSourceMath.TruncateSingleToInt32(Column(normalized,
-            viewport.M11,viewport.M21,viewport.M31,viewport.M41,true));
-        int py = BattleUnitSourceMath.TruncateSingleToInt32(Column(normalized,
-            viewport.M12,viewport.M22,viewport.M32,viewport.M42,true));
+        // 016900 repeats the transform: X sums Y first; YZW sum X first.
+        // 012780 multiplies each viewport coefficient by its clip component
+        // BEFORE the reciprocal, retaining the source binary32 term order.
+        var clip = new Vector4(Column(p,camera.M11,camera.M21,camera.M31,camera.M41,true),
+            Column(p,camera.M12,camera.M22,camera.M32,camera.M42,false),
+            Column(p,camera.M13,camera.M23,camera.M33,camera.M43,false),
+            Column(p,camera.M14,camera.M24,camera.M34,camera.M44,false));
+        float inverse = F.Divide(1f,clip.W);
+        int px = BattleUnitSourceMath.TruncateSingleToInt32(ViewportColumn(clip,
+            viewport.M11,viewport.M21,viewport.M31,viewport.M41,inverse));
+        int py = BattleUnitSourceMath.TruncateSingleToInt32(ViewportColumn(clip,
+            viewport.M12,viewport.M22,viewport.M32,viewport.M42,inverse));
         if (applicationSurface is { } surface)
         {
             if (surface.Width == 0 || surface.Height == 0)
@@ -51,6 +50,13 @@ public static class MapControlProjection
             py = unchecked((int)(unchecked((uint)(py * 1080)) / surface.Height));
         }
         return new(px,py);
+    }
+
+    private static float ViewportColumn(Vector4 p,float a,float b,float c,float d,float inverse)
+    {
+        float x=F.Multiply(F.Multiply(a,p.X),inverse),y=F.Multiply(F.Multiply(b,p.Y),inverse);
+        return F.Add(F.Add(F.Add(y,x),F.Multiply(F.Multiply(c,p.Z),inverse)),
+            F.Multiply(F.Multiply(d,p.W),inverse));
     }
 
     private static float Column(Vector4 p,float a,float b,float c,float d,bool yFirst)

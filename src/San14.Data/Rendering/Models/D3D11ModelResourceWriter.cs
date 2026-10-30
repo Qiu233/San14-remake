@@ -31,6 +31,17 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         byte[] vertex,byte[] pixel,LoadedModelShaderBindings bindings,ModelQueueStateSource queue,
         bool reverseDepth,IReadOnlySet<int>? singleInstanceStreams=null,
         bool stencilEnabled=false,byte? stencilReference=null)
+        => WriteGeometryAndPrograms(directory,meshDirectory,geometry,draw,shader,vs,ps,
+            vertex,pixel,bindings,ModelRendererStateSourceReader.PrepareQueueDepth(queue,reverseDepth),
+            singleInstanceStreams,stencilEnabled,stencilReference);
+
+    /// <summary>Media writer for a caller's actual independently prepared depth
+    /// state. Capture uses its own EC7100 scope rather than the Main queue.</summary>
+    public void WriteGeometryAndPrograms(string directory,string meshDirectory,
+        G1ModelGeometry geometry,G1DrawRecord draw,LoadedShaderContainer shader,int vs,int ps,
+        byte[] vertex,byte[] pixel,LoadedModelShaderBindings bindings,ModelQueueDepthState depth,
+        IReadOnlySet<int>? singleInstanceStreams=null,
+        bool stencilEnabled=false,byte? stencilReference=null)
     {
         foreach(var buffer in geometry.VertexBuffers)
         {
@@ -58,7 +69,6 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
             $"{slot} {geometry.VertexBuffers[i].Stride} {Relative(directory,Path.Combine(meshDirectory,$"vb-{i}.bin"))}"));
         var raster=ModelRendererStateSourceReader.ReadGroupRaster(bindings,draw.Index)
             ??throw new NotSupportedException("Source raster override is absent.");
-        var depth=ModelRendererStateSourceReader.PrepareQueueDepth(queue,reverseDepth);
         string reference=stencilReference is byte value?$" {value}":string.Empty;
         AddText(Path.Combine(directory,"draw.txt"),
             $"{draw.IndexCount} {draw.IndexStart} 0 4 {geometry.IndexBuffers[draw.IndexBufferIndex].BitsPerIndex}\n"+
@@ -89,6 +99,28 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         }
         AddLines(Path.Combine(directory,"textures-native.txt"),textureRows);
         AddLines(Path.Combine(directory,"samplers-native.txt"),samplerRows);
+    }
+
+    /// <summary>Tree2 uses the same numeric PB2 material registrations as the
+    /// ground templates. VS wind resources remain with the shared current owner.</summary>
+    public void WriteTree2Textures(string directory, LoadedModelTextureResources resources, int drawIndex,
+        NamedModelShader provider, LoadedShaderContainer shader, int combination)
+    {
+        var plan = ProceduralTree2TextureSource.Resolve(resources, drawIndex, provider, shader, combination);
+        var textureRows = new List<string>(); var samplerRows = new List<string>();
+        foreach (var binding in plan.Bindings)
+        {
+            var image = ModelStageTextures.LoadImage(repository, plan, binding.TextureRegister);
+            var formats = ModelTextureFormatMath.Resolve(image.Image.PixelFormat, (byte)(image.Image.RawHeader[19] & 1));
+            string texture = $"ps-t{binding.TextureRegister}.tex";
+            AddBytes(Path.Combine(directory, texture), EncodeTexture(image.Container, image.Image, formats.ShaderViewFormat));
+            string sampler = $"ps-s{binding.SamplerRegister}.bin";
+            AddBytes(Path.Combine(directory, sampler), image.Sampler.EncodeD3D11Descriptor());
+            textureRows.Add(FormattableString.Invariant($"{binding.TextureRegister} {formats.ResourceFormat} {formats.ShaderViewFormat} {texture}"));
+            samplerRows.Add(FormattableString.Invariant($"{binding.SamplerRegister} {sampler}"));
+        }
+        AddLines(Path.Combine(directory, "textures-native.txt"), textureRows);
+        AddLines(Path.Combine(directory, "samplers-native.txt"), samplerRows);
     }
 
     void AddBytes(string path,byte[] bytes)=>files[path.Replace('\\','/').TrimStart('.','/')]=bytes.ToArray();

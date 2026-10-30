@@ -31,25 +31,13 @@ internal static class FacilityConstructionLegality
         int first = Person(entries[0]);
         var force = current.ReadPersonForce(first) ?? throw Missing("legality_first_Person_Force");
         if (!ForceSite(state, current, force, target, definition, reject)) return false;
+        if (definition.Physical is >= 15 and <= 17 &&
+            K(current.ConstructionTutorialQualification?.Invoke(), "legality_tutorial_qualification")) return true;
         bool qualified = false;
         foreach (var entry in entries)
         {
             int person = Person(entry);
-            if (!K(current.ReadPersonNativeValidity(person), "legality_person_validity")) continue;
-            var personForce = current.ReadPersonForce(person) ?? throw Missing("legality_Person_Force");
-            if (!K(current.ReadForceNativeValidity(personForce), "legality_Person_Force_validity")) continue;
-            int physical = K(personForce.PhysicalSlot, "legality_Person_Force_pointer");
-            if (!state.Forces.TryGetValue(physical, out var ownedForce)) throw Missing("legality_Force_owner");
-            if (definition.RequiredPolicyEffect != 0)
-            {
-                if (!state.PolicyEffects.ContainsKey(definition.RequiredPolicyEffect)) throw Missing("legality_policy_definition");
-                int level = K(BattleRemakeCurrentForcePolicies.ReadForceLevel(state, ownedForce,
-                    definition.RequiredPolicyEffect), "legality_policy_current_level");
-                if (level < definition.RequiredPolicyLevel) continue;
-            }
-            // The accepted consumer is ordinary kind7. Its required trait is
-            // exactly zero; other definitions need2307D0's actual pool collector.
-            if (definition.RequiredTrait != 0) throw Missing("legality_required_trait_collector");
+            if(!FacilityConstructionQualification.PersonQualifies(state,current,person,definition))continue;
             qualified = true; break;
         }
         if (!qualified) return Deny("structure.site.commander_or_policy");

@@ -67,7 +67,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             abilities = new(current, adapter._scenario, adapter.Seed.Language, p.RuleVersion);
         }
 
-        internal List<DeploymentDraftRow> Create(DeploymentAutomaticStyle style, int[] newCounts)
+        internal List<DeploymentDraftRow> Create(DeploymentAutomaticStyle style, int[] newCounts, int externalRowCount = 0)
         {
             var candidates = Candidates();
             if (style is DeploymentAutomaticStyle.FieldAttack or DeploymentAutomaticStyle.SiegeTroops)
@@ -79,10 +79,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             int district = Need(current.ReadBaseDistrictSlot(sourceBase), "source_district");
             district = district < 52 && district >= 0 ? district : 0;
             int books = state.Districts.GetValueOrDefault(district)?.OrdersRemaining is int b && b is >= 0 and <= 255 ? b : throw AutomaticMissing("command_books");
-            number = Math.Max(0, Math.Min(number, Math.Min(books, 9)));
+            number = Math.Max(0, Math.Min(number, Math.Min(unchecked(books - externalRowCount), 9)));
             var descriptor = current.ReadRegistryDescriptor(RegistryKind.Army) ?? throw AutomaticMissing("army_registry");
             int armyCount = Need(current.ReadTemporaryHexListCount(new(descriptor.Identity)), "army_count");
-            number = Math.Min(number, unchecked(500 - armyCount));
+            number = Math.Min(number, unchecked(500 - armyCount - externalRowCount));
             if (number < 1) return [];
             int stock = Need(current.ReadBaseResource(sourceBase, BaseResourceKind.Troops), "base_troops");
             int[] scores = candidates.Select(person => Score(person, style, stock, number)).ToArray();
@@ -143,6 +143,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 _ = Identity(person); result.Add(person);
             }
             return result;
+        }
+        //2680A0's usable troop bound, also consumed by the ordinary general
+        //target entry before its shared260D70 composition call.
+        internal int ReadUsableTroops(IReadOnlyList<int> candidates, int adjacentEnemyReserve)
+        {
+            int capacity = 0;
+            foreach (int person in candidates) capacity = unchecked(capacity + Capacity(person));
+            int stock = Need(current.ReadBaseResource(sourceBase, BaseResourceKind.Troops), "base_troops");
+            return Math.Min(capacity, unchecked(stock - (HasAdjacentEnemy() ? adjacentEnemyReserve : 0)));
         }
         private bool HasAdjacentEnemy()
         {

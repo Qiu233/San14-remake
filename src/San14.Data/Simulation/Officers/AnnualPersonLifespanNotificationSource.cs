@@ -19,7 +19,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         // Explicit project CE fresh catalog. TC and SC have independent file
         // evidence for these three initial values, not all live writer proof.
-        // The fourth has no proved initializer and is deliberately uninstalled.
+        //The independent normal/category-zero scalar has a proved TC loader
+        //zero initial value; SC and legacy banks are not inferred from it.
         internal static GameState InstallFreshParameters(GameState input, LoadedScenario source, string locale)
         {
             if (locale is not ("TC" or "SC") || source.Snapshot.Locale != locale ||
@@ -31,9 +32,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             string[] keys = [NormalZeroOffsetKey, NormalNonzeroOffsetKey, ExtendedZeroOffsetKey, ExtendedNonzeroOffsetKey];
             if (keys.Any(key => parameters.Int32Values.ContainsKey(key) || parameters.Float32Values.ContainsKey(key)))
                 throw Missing("fresh_parameters_already_owned");
+            var values = new Dictionary<string, int>(parameters.Int32Values)
+                { [NormalNonzeroOffsetKey] = 10, [ExtendedZeroOffsetKey] = 20, [ExtendedNonzeroOffsetKey] = 30 };
+            if (locale == "TC") values.Add(NormalZeroOffsetKey, 0);
             return input with { NativeArmySimulation = simulation with { Parameters = parameters with
-            { Int32Values = new(parameters.Int32Values)
-                { [NormalNonzeroOffsetKey] = 10, [ExtendedZeroOffsetKey] = 20, [ExtendedNonzeroOffsetKey] = 30 } } } };
+                { Int32Values = values } } };
         }
 
         internal GameState Run()

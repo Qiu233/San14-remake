@@ -40,8 +40,30 @@ public partial class MapSceneView
     private readonly uint[] _sourceCameraRawCounters=new uint[3];
     private bool _sourceCameraLeftUiPressed;
     private MainMapCameraCanonicalPoint? _sourceRightCancelPress;
+    private double _sourceActiveMilliseconds;
+    internal uint SourceActiveMilliseconds => unchecked((uint)(ulong)_sourceActiveMilliseconds);
+    internal long SourceAnimationUpdateSequence { get; private set; }
+
+    internal bool TryReadSourceFocusHex(out int hex)
+    {
+        hex = -1;
+        return _sourceMainCameraFrame is { ControllerState: var state } &&
+            CeHexWorldCoordinates.TryPick((float)state.FocusX, (float)state.FocusZ, out hex);
+    }
     private Func<MainMapCameraTerrainPitchInput,MainMapCameraTerrainPitchResult>? SourceCameraTerrainQualifier =>
         _sourceMainCameraTerrain is { } terrain?terrain.QualifyPitch:null;
+
+    internal float? MainCommandZoomLevel { get; private set; }
+    internal event Action<float?>? MainCommandZoomChanged;
+    private void PublishMainCommandZoom(float? zoom)
+    {
+        //Only the strict threshold matters to this presentation consumer.
+        //Do not query or capture world/header state on camera frames.
+        bool? previous = MainCommandZoomLevel is float old ? old > 4 : null;
+        bool? current = zoom is float value ? value > 4 : null;
+        MainCommandZoomLevel = zoom;
+        if (previous != current) MainCommandZoomChanged?.Invoke(zoom);
+    }
 
     public MainMapCameraFrame? SourceMainCameraFrame => _sourceMainCameraFrame;
     internal bool SourcePointerInputActive => _embedded&&!_detailsOpen&&IsVisibleInTree()&&_sourceMainCameraFrame is not null;
@@ -58,7 +80,7 @@ public partial class MapSceneView
         _sourceMainCameraInputs=inputs;
         if(_loaded)
         {
-            if(_sourceMainCamera is null)InitializeSourceCamera();
+            if(_sourceMainCamera is null&&_sourceStartupCamera is null)InitializeSourceCamera();
             else PublishSourceCamera();
         }
     }
@@ -93,7 +115,8 @@ public partial class MapSceneView
 
     private void InitializeSourceCamera()
     {
-        if(!_embedded||_logicalWorld is not GameState world||_playerForceId is not int player||_loadedSceneResources is null)return;
+        if(!_embedded||_logicalWorld is not GameState world||_loadedSceneResources is null)return;
+        if(_cameraEntry == MapCameraEntry.CurrentRuler && _playerForceId is null)return;
         ReadSourceCameraMessages();
         try
         {
@@ -104,18 +127,28 @@ public partial class MapSceneView
                 catch(InvalidDataException error)
                 {SetMeta("source_main_camera_terrain_error",error.Message);SetSourceCameraStatus("pending_terrain");}
             }
-            _sourceMainCamera=MainMapCameraAdapter.FromOwnedCampaign(_repository,_text.SourceLocale,
-                world,player,$"remake-owned-world:{world.ScenarioKey}@{world.ContentHashes.GetValueOrDefault(world.ScenarioKey,"")};map={world.MapSha256}",
-                _sourceMainCameraInputs.CurrentMaximumYOverride);
+            string provenance=$"remake-owned-world:{world.ScenarioKey}@{world.ContentHashes.GetValueOrDefault(world.ScenarioKey,"")};map={world.MapSha256}";
+            if(_cameraEntry==MapCameraEntry.NewGameForceSelection)
+            {
+                _sourceStartupCamera=StartupMapCameraAdapter.FromTitleMap(_repository,_text.SourceLocale,provenance,
+                    new(MainDataPresent:true,HostGate210Present:_loadedSceneResources is not null,MainCpuPresent:true));
+            }
+            else _sourceMainCamera=_cameraEntry == MapCameraEntry.FreshController
+                ? MainMapCameraAdapter.FromFreshController(_repository,_text.SourceLocale,provenance,
+                    _sourceMainCameraInputs.CurrentMaximumYOverride)
+                : MainMapCameraAdapter.FromOwnedCampaign(_repository,_text.SourceLocale,world,_playerForceId!.Value,provenance,
+                    _sourceMainCameraInputs.CurrentMaximumYOverride);
             _sourceMainCameraNorth??=MainMapCameraNorthCommandSource.Load(_repository,_text.SourceLocale);
             // Host210 is the successfully created asset context. This Scene
             // has actually loaded its assets; the owned Main Data/CPU above
             // exist. Fresh context flags or GPU target readiness are unrelated.
-            _sourceMainCamera.ApplyTitleExitFar(MainMapCameraEntrySource.Load(_repository,_text.SourceLocale),
-                new(MainDataPresent:true,HostGate210Present:_loadedSceneResources is not null,MainCpuPresent:true));
+            if(_cameraEntry == MapCameraEntry.CurrentRuler)
+                _sourceMainCamera!.ApplyTitleExitFar(MainMapCameraEntrySource.Load(_repository,_text.SourceLocale),
+                    new(MainDataPresent:true,HostGate210Present:_loadedSceneResources is not null,MainCpuPresent:true));
             _sourceMainCameraOptics=null;_sourceMainCameraOpticsSeason=null;_sourceMainCameraFrame=null;
             _sourceMainCameraFrameNumber=0;
             _sourceMainMode??=MainMapCameraModeOwner.CreateFresh(_text.SourceLocale,"resident-map/primary-Main");
+            _sourceMainMode.SetCurrentOverride28C(_sourceStartupCamera?.AppModeOverride28C??-1);
             InitializeSceneryMap();
             ResetSourceCameraInput();
             PublishSourceCamera();
@@ -123,7 +156,7 @@ public partial class MapSceneView
         }
         catch(InvalidDataException error)
         {
-            _sourceMainCamera=null;_sourceMainCameraFrame=null;
+            _sourceMainCamera=null;_sourceStartupCamera=null;_sourceMainCameraFrame=null;
             SetMeta("source_main_camera_error",error.Message);
             SetSourceCameraStatus("unavailable");
         }
@@ -132,7 +165,10 @@ public partial class MapSceneView
     private void ReleaseSourceCamera()
     {
         TacticPresentationViews.Clear();
-        _sourceMainCamera=null;_sourceMainCameraFrame=null;_sourceMainCameraTerrain=null;
+        RetireStoryEffectCommonCamera();
+        RetireChronologyMap(restore:false);
+        _sourceMainCamera=null;_sourceStartupCamera=null;_sourceMainCameraFrame=null;_sourceMainCameraTerrain=null;
+        PublishMainCommandZoom(null);
         _deploymentTargetAnchors=null;_commandTargetPicked=null;_commandTargetPointerAllowed=null;
         _commandTargetShiftWaypoint=false;
         _sourceMainCameraNorth=null;
@@ -163,12 +199,17 @@ public partial class MapSceneView
 
     private bool PublishSourceCamera()
     {
-        if(!_loaded||_sourceMainCamera is null||_sourceMainCameraInputs is not { } input)return false;
-        var frame=_sourceMainCamera.PrepareCurrent(new(input.CurrentScale90,input.ContextOwner3E4Bit29,
+        if(!_loaded||_sourceMainCamera is null&&_sourceStartupCamera is null||_sourceMainCameraInputs is not { } input)return false;
+        var frameInputs=new MainMapCameraFrameInputs(input.CurrentScale90,input.ContextOwner3E4Bit29,
             input.NativeClipProfile,input.TangentDispatch,input.OwnerFovOverride290,
             ++_sourceMainCameraFrameNumber,input.Provenance)
-            {SourceSelectedFovV410=PrepareSourceSeasonCameraFov()});
+            {SourceSelectedFovV410=PrepareSourceSeasonCameraFov()};
+        var frame=chronologyCamera is {} chronology?chronology.PrepareCurrent(frameInputs):
+            _sourceStartupCamera is {} startup?startup.PrepareCurrent(frameInputs):_sourceMainCamera!.PrepareCurrent(frameInputs);
         _sourceMainCameraFrame=frame;
+        PublishMainCommandZoom(MapSeasonMainCameraPhase.FromOwnerZoomFields(
+            frame.ZoomSelection.Band1E0, frame.ZoomSelection.Fraction1E4));
+        if(_sourceMainCamera is {} primary)PublishStoryEffectCommonCamera(primary.CurrentState, input);
         PublishTacticPresentationViews();
         var camera=frame.Camera;
         var position=ToGodot(camera.CurrentPose.Position80);
@@ -194,7 +235,7 @@ public partial class MapSceneView
         SetMeta("source_main_camera_distance",state.Distance90);
         SetMeta("source_main_camera_zoom_band",frame.ZoomSelection.Band1E0);
         SetMeta("source_main_camera_fraction_10000",frame.ZoomSelection.Fraction1E4);
-        SetMeta("playable_camera_calibration","original-source-main38D-controller");
+        SetMeta("playable_camera_calibration",_sourceStartupCamera is not null?"original-source-startup-CB60-controller":"original-source-main38D-controller");
         SetMeta("playable_zoom_level",frame.ZoomSelection.Band1E0);
         RemoveMeta("playable_zoom_factor");
         ScheduleNativeMapFrame();
@@ -204,11 +245,13 @@ public partial class MapSceneView
 
     private float? PrepareSourceSeasonCameraFov()
     {
-        if(_logicalWorld?.NativeMapSeason is not { } season||_sourceMainCamera is null)return null;
-        var selectedSeason=MapSeasonMath.SelectMonth(season.ThirdDate.Month);
+        var source=_sourceStartupCamera?.Source??_sourceMainCamera?.Source;
+        int? month=_scenarioPreviewCalendar?.ThirdDate.Month??_logicalWorld?.NativeMapSeason?.ThirdDate.Month;
+        if(month is null||source is null)return null;
+        var selectedSeason=MapSeasonMath.SelectMonth(month.Value);
         if(_sourceMainCameraOptics is null||_sourceMainCameraOpticsSeason!=selectedSeason)
         {
-            var resources=MapSeasonResourceConsumer.Load(_repository,season.ThirdDate.Month);
+            var resources=MapSeasonResourceConsumer.Load(_repository,month.Value);
             var provider=MapSeasonCameraApplication.ReadProvider(resources.Action);
             var seed=MapSeasonCameraApplication.ReadSourceSceneClockSeed(provider);
             var selected=MapSeasonCameraApplication.SelectSourceEmptyAxes(provider,
@@ -218,7 +261,7 @@ public partial class MapSceneView
             _sourceMainCameraOpticsSeason=selectedSeason;
         }
         uint extension=BinaryPrimitives.ReadUInt32LittleEndian(
-            _sourceMainCamera.Source.Camera.Properties[315].RawValue);
+            source.Camera.Properties[315].RawValue);
         // The source Main constructor sets1324.bit0. The owned primary Main
         // is Perspective (1488.bit0 clear); clip reversal does not gate V410.
         // This supported fresh Main has no later1078 edit; property315 is0.
@@ -240,26 +283,50 @@ public partial class MapSceneView
 
     public override void _Process(double delta)
     {
-        if(!_loaded||_sourceMainCamera is null||_sourceMainCameraInputs is not { } input)return;
-        if((_detailsOpen&&storyPresentationOwner is null)||!IsVisibleInTree()){ResetSourceCameraInput();return;}
-        if(UseD3D11Map&&_d3d11Map is {LastError:not null})return;
-        Run(()=>
+        if(!_loaded||_adoptingStartedCampaign||_sourceMainCamera is null&&_sourceStartupCamera is null||_sourceMainCameraInputs is not { } input)return;
+        if((_detailsOpen&&storyPresentationOwner is null&&chronologyOwner is null)||!IsVisibleInTree())
         {
+            ResetSourceCameraInput();
+            // A settings preview may rebuild the physical Cloud graph. Give
+            // its bootstrap real process elapsed time while the dialog owns
+            // input; do not tick the camera or advance campaign simulation.
+            if (_cgQualityRebuilding && IsVisibleInTree()) AdvanceNativeMapPresentationTime(delta);
+            return;
+        }
+        if(UseD3D11Map&&_d3d11Map is {LastError:not null})return;
+        // The explicit owner gate above admits Story presentation. UI Run
+        // intentionally rejects all details input and cannot drive this clock.
+        try
+        {
+            if (!_periodMapActive || !_periodMapPaused) _sourceActiveMilliseconds += delta * 1000;
             int clock=unchecked((int)Time.GetTicksMsec());
-            if(storyPresentationOwner is null)ApplySourceCameraInputFrame(clock,input);
-            _sourceMainCamera.Tick(clock,clock,_sourceMainCamera.Parameters.SourceInertiaTimeoutMilliseconds,
-                input.CurrentMaximumYOverride,SourceCameraTerrainQualifier);
+            if(chronologyCamera is not null) { } // Dedicated source controller has no input override.
+            else if(_sourceStartupCamera is {} startup)startup.Advance(clock);
+            else
+            {
+                if(storyPresentationOwner is null && uniqueDirectionOwner is null)ApplySourceCameraInputFrame(clock,input);
+                _sourceMainCamera!.Tick(clock,clock,_sourceMainCamera.Parameters.SourceInertiaTimeoutMilliseconds,
+                    input.CurrentMaximumYOverride,SourceCameraTerrainQualifier);
+            }
             AdvanceNativeMapPresentationTime(delta);
             if(_d3d11Map is not null)_d3d11Elapsed+=delta;
             // Normal interactive Map scope; original dialog/transition v30
             // mappings are still a separate UI-state task.
             _d3d11AnimationDue=D3D11MapInteractive&&_d3d11AnimationPacer?.TryAccept()==true;
+            if (_d3d11AnimationDue) SourceAnimationUpdateSequence++;
             bool tacticUpdateDue = _d3d11AnimationDue;
             if (_d3d11AnimationDue && _d3d11AnimationPacer is { } pacer)
+            {
+                AdvanceMapSummaryIndicators(pacer.FramesPerSecond(pacer.FpsMode));
                 _d3d11Markers?.AdvanceCityAttention(pacer.FramesPerSecond(pacer.FpsMode));
+                _d3d11Markers?.AdvanceDamageFeedback(pacer.FpsMode);
+            }
             PublishSourceCamera();
+            AdvanceUniqueDirectionClock(delta, tacticUpdateDue);
+            AdvanceStoryEffectClock(delta, tacticUpdateDue);
             if (tacticUpdateDue) ordinaryTacticUpdate?.Invoke();
-        });
+        }
+        catch (Exception error) { HandleSceneError(error); }
     }
 
     private bool HandleSourceCameraInput(InputEvent input)
@@ -282,8 +349,9 @@ public partial class MapSceneView
                 if(button.Pressed)
                 {
                     _sourceCameraLeftUiPressed=true;_pressPosition=button.Position;_dragDistance=0;
-                    if(!_periodMapActive){_commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
-                    SampleUnitSelectionPointer(cursor,3);}
+                    if(!_periodMapActive || _periodMapOwner?.ManualCommandSelectionOpen == true && _commandTargetPicked is not null)
+                        _commandTargetPressAllowed=CommandTargetPointerDown(button.Position);
+                    if(!_periodMapActive) SampleUnitSelectionPointer(cursor,3);
                 }
                 else
                 {
@@ -295,7 +363,8 @@ public partial class MapSceneView
                         (selectionShift?unchecked(dx*dx+dy*dy)<=100:
                             _dragDistance<=4&&_pressPosition.DistanceTo(button.Position)<=4);
                     _sourceCameraLeftUiPressed=false;
-                    if(!_periodMapActive&&click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    bool manualTarget = _periodMapOwner?.ManualCommandSelectionOpen == true && _commandTargetPicked is not null;
+                    if((!_periodMapActive||manualTarget)&&click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
                     _commandTargetPressAllowed=false;
                 }
             }

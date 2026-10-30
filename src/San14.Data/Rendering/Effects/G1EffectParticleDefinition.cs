@@ -44,15 +44,16 @@ public sealed record G1EffectParticleDefinition(G1EffectRecord Record,
             bytes[countAt..], distribution);
     }
 
-    /// <summary>All four supported installed effects use literal count ASTs.
-    /// Rounding still consumes one shared random draw for an integral literal.
+    /// <summary>Evaluate the installed literal or random-range count expression.
+    /// Rounding consumes a shared random draw even for an integral result.
     /// This returns attempts, not allocated or initialized live particles.</summary>
     public int SampleCount(G1EffectRandom random)
     {
         ArgumentNullException.ThrowIfNull(random);
-        if (CountOpcode != 0)
+        if (CountOpcode is not (0 or 2))
             throw new NotSupportedException($"Particle count expression opcode {CountOpcode} is not implemented.");
-        float value = BinaryPrimitives.ReadSingleLittleEndian(CountExpression.Span[4..]);
+        int cursor = 0;
+        float value = G1EffectBirthExpression.Evaluate(CountExpression, ref cursor, default, random);
         return random.RoundCount(value);
     }
 

@@ -28,9 +28,12 @@ public sealed partial class ArmyCampaignRuleAdapter
         return state with
         {
             CampaignEventWorld = new(scenarioId, source.RawModeValue, source.RawPastGameTime)
-                { CurrentUserIndex = userIndex, SpecialPersonEncounterFlags = 0, EventAchievementFlags = 0 },
+                { CurrentUserIndex = userIndex, SpecialPersonEncounterFlags = 0, EventAchievementFlags = 0,
+                    HistoricalEventControl = source.RawHistoricalEventControl
+                        ?? throw new InvalidDataException("Fresh world historical-event control is missing from the actual archive.") },
+            CampaignTemporaryHexRestoreEntries = System.Collections.Immutable.ImmutableArray<CampaignTemporaryHexRestoreEntry>.Empty,
             CampaignEvents = new(new bool[1024], new bool[1024], new CampaignEventOccurrenceDate?[1024], false),
-            CampaignEventEligibility = new(new bool[992]) { HistoryRecordingSuppressed = false },
+            CampaignEventEligibility = new(new bool[992]) { HistoryRecordingSuppressed = false, HasAvailableResult = false },
             CampaignHistory = state.CampaignHistory is null ? CampaignHistoryState.Fresh()
                 : throw new InvalidDataException("Fresh campaign history is already owned."),
             CampaignChronicle = state.CampaignChronicle is null ? CampaignChronicleState.Fresh()
@@ -67,6 +70,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         PersonReturnCommands.BindCurrent(state, current);
         PersonArmyCaptureInputs.BindCurrent(state, current);
         _moraleWaveInputs.BindCurrent(state, current);
+        _force164Inputs.BindCurrent(state, current);
         current.ConditionLoyaltyReader = physical => ArmyDestructionLoyalty.ReadCurrentRawE8(state, current, physical, _governorInputs);
         current.ConditionBaseAbilityReader = (physical, index) =>
         {
@@ -174,6 +178,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.EventConditions.CurrentDate = new(date.Year, date.Month, date.Day, date.Hour);
         current.EventConditions.PastGameTime = unchecked(world.ElapsedPeriodOffset + (int)elapsed);
         current.EventEligibility.IsPresent = true;
+        current.EventEligibility.RestoreAvailableResult(manager.HasAvailableResult);
         for (int i = 0; i < 1024; i++)
         {
             current.SetWorldEventFlag(i, history.Occurred[i]);
@@ -182,6 +187,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.EventConditions.SetOccurrenceDate(i, occurred is null ? new(0, 0, 0) : new(occurred.Year, occurred.Month, occurred.Day));
         }
         for (int i = 0; i < 992; i++) current.SetManagerEventFlag(i, manager.Blocked[i]);
+        BindStoryAggregateConditionsCurrent(state, current);
+        BindStoryPresenceConditionsCurrent(state, current);
+        BindStoryCoalitionInputsCurrent(state, current);
         return current;
     }
 
@@ -202,7 +210,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         var blocked = Enumerable.Range(0, 992).Select(i => OccupationKnown(current.ReadManagerEventFlag(i), "campaign_event_manager_result")).ToArray();
         var pool = current.ReadOwnedCurrentListPool() ?? throw OccupationMissing("campaign_event_list_pool");
         var next = state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
-        return new(next with { CampaignEventEligibility = state.CampaignEventEligibility! with { Blocked = blocked } }, result);
+        return new(next with { CampaignEventEligibility = state.CampaignEventEligibility! with { Blocked = blocked, HasAvailableResult = result.HasAvailableResult } }, result);
     }
 
     public static S14ConditionDispatchInputs ReadOrdinaryEventDispatchInputs(GameState state)

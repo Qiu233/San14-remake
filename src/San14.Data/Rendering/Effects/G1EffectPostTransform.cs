@@ -11,8 +11,8 @@ public static class G1EffectPostTransform
     public static void Initialize(Memory<byte> descriptor)
     {
         int type = I(descriptor.Span, 4);
-        if (type is 9 or 12 or 16 or 17 or 18) Initialize(descriptor[0x10..]);
-        else if (type is not (0 or 4))
+        if (type is 9 or 10 or 11 or 12 or 16 or 17 or 18) Initialize(descriptor[0x10..]);
+        else if (type is not (0 or 4 or 6))
             throw new NotSupportedException($"Effect post-transform {type} is not implemented.");
     }
 
@@ -21,6 +21,36 @@ public static class G1EffectPostTransform
     {
         int type = I(descriptor.Span, 4);
         if (type == 0) return;
+        if (type == 6)
+        {
+            FaceVelocity(descriptor.Span, generic, particle);
+            return;
+        }
+        if (type == 11)
+        {
+            int at = I(generic.Bytes.Span, 0x34);
+            Vector4 pivot = V(particle.Span, I(generic.Bytes.Span, 0x5C));
+            var before = ReadMatrix(particle.Span, at);
+            OffsetPivot(ref before, pivot, false);
+            WriteMatrix(particle.Span, at, before);
+            Apply(descriptor[0x10..], generic, particle, dt, parentState);
+            var after = ReadMatrix(particle.Span, at);
+            OffsetPivot(ref after, pivot, true);
+            WriteMatrix(particle.Span, at, after);
+            return;
+        }
+        if (type == 10)
+        {
+            Apply(descriptor[0x10..], generic, particle, dt, parentState);
+            int localAt = I(generic.Bytes.Span, 0x3C), postDestination = I(generic.Bytes.Span, 0x34);
+            var local = ReadMatrix(particle.Span, localAt);
+            var orientation = ReadMatrix(particle.Span, I(generic.Bytes.Span, 0x50));
+            var intermediate = G1EffectDistribution.Multiply(local, orientation);
+            WriteMatrix(particle.Span, postDestination, intermediate);
+            var parent = ReadMatrix(parentState.Span, 0x10);
+            WriteMatrix(particle.Span, postDestination, G1EffectDistribution.Multiply(intermediate, parent));
+            return;
+        }
         if (type == 4)
         {
             int cursor = 0x1C;
@@ -90,6 +120,56 @@ public static class G1EffectPostTransform
             SetRow(ref result, 3, position);
         }
         WriteMatrix(particle.Span, destination, result);
+    }
+
+    private static void OffsetPivot(ref Matrix4x4 matrix, Vector4 pivot, bool add)
+    {
+        float x = pivot.Y*matrix.M21 + pivot.X*matrix.M11 + pivot.Z*matrix.M31;
+        float y = pivot.Y*matrix.M22 + pivot.X*matrix.M12 + pivot.Z*matrix.M32;
+        float z = pivot.Y*matrix.M23 + pivot.X*matrix.M13 + pivot.Z*matrix.M33;
+        matrix.M41 = add ? x + matrix.M41 : matrix.M41 - x;
+        matrix.M42 = add ? y + matrix.M42 : matrix.M42 - y;
+        matrix.M43 = add ? z + matrix.M43 : matrix.M43 - z;
+        matrix.M44 = add ? pivot.W + matrix.M44 : matrix.M44 - pivot.W;
+    }
+
+    private static void FaceVelocity(ReadOnlySpan<byte> descriptor, G1EffectRecord generic, Memory<byte> particle)
+    {
+        Vector4 velocity = V(particle.Span, I(generic.Bytes.Span, 0x48));
+        float square = velocity.X*velocity.X + velocity.Y*velocity.Y + velocity.Z*velocity.Z;
+        if (!(square >= 1.1920929e-05f)) return;
+        Range(descriptor, 0x10, 3);
+        int axisIndex = descriptor[0x10], oppositeIndex = descriptor[0x12];
+        if (axisIndex > 2 || oppositeIndex > 2)
+            throw new InvalidDataException("Velocity-facing transform references an invalid basis axis.");
+        int localAt = I(generic.Bytes.Span, 0x3C);
+        var local = ReadMatrix(particle.Span, localAt);
+        Vector4 axis = Row(local, axisIndex);
+        float inverse = 1f / MathF.Sqrt((axis.X*axis.X + axis.Y*axis.Y + axis.Z*axis.Z) * square);
+        float cosine = (axis.X*velocity.X + axis.Y*velocity.Y + axis.Z*velocity.Z) * inverse;
+        if (!(1f - cosine >= 0.0011920929f)) return;
+        if (cosine + 1f >= 0.0011920929f)
+        {
+            float x = (axis.Y*velocity.Z - axis.Z*velocity.Y) * inverse;
+            float y = (axis.Z*velocity.X - axis.X*velocity.Z) * inverse;
+            float z = (axis.X*velocity.Y - axis.Y*velocity.X) * inverse;
+            float sine = MathF.Sqrt(y*y + x*x + z*z), normalize = 1f / sine;
+            var rotation = G1EffectDistribution.Rotation(new(x*normalize, y*normalize, z*normalize, 0), sine, cosine);
+            for (int row = 0; row < 3; row++)
+            {
+                Vector4 value = Row(local, row);
+                SetRow(ref local, row, new(
+                    rotation.M11*value.X + rotation.M21*value.Y + rotation.M31*value.Z,
+                    rotation.M12*value.X + rotation.M22*value.Y + rotation.M32*value.Z,
+                    rotation.M13*value.X + rotation.M23*value.Y + rotation.M33*value.Z, value.W));
+            }
+        }
+        else
+        {
+            SetRow(ref local, axisIndex, -Row(local, axisIndex));
+            SetRow(ref local, oppositeIndex, -Row(local, oppositeIndex));
+        }
+        WriteMatrix(particle.Span, localAt, local);
     }
 
     private static Matrix4x4 MultiplyBasis(Matrix4x4 value, Matrix4x4 basis)

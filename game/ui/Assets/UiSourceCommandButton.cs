@@ -15,7 +15,7 @@ internal partial class UiSourceCommandButton : UiSourceButton
         MapFont font, string text, Action? released)
     {
         this.released = released;
-        var source = new UiSourceLayout(repository, 0x16D9E461).ResizedSubtree(0, Size, true);
+        var source = assets.CommandButtonLayout(Size);
         var rectangle = source.Rectangle(1);
         var centre = rectangle.GetCenter();
         hitArea = new(new Vector2((int)centre.X - (int)(rectangle.Size.X * .5f),

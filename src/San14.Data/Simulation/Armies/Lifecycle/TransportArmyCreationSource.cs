@@ -14,12 +14,18 @@ public sealed record TransportArmyCreatedFields(int NativeSlot, byte Status10, u
     public byte? MapUiByte13C { get; init; }
 }
 public sealed record TransportArmyCreationResourceReceipt(int SourceCityPhysical,
-    int TroopsBefore, int TroopsAfter, int GoldBefore, int GoldAfter, int SuppliesBefore, int SuppliesAfter);
+    int TroopsBefore, int TroopsAfter, int GoldBefore, int GoldAfter, int SuppliesBefore, int SuppliesAfter)
+{
+    public BaseReference? SourceBase { get; init; }
+}
 public sealed record TransportArmyCreationPrefixReceipt(TransportArmyPacket Packet,
     TransportArmyCreatedFields Fields, TransportArmyCreationResourceReceipt Resources,
     bool GovernorUpdateReached, IReadOnlyList<string> FieldOwnersMissing);
 public sealed record TransportArmyCreationPrefixResult(TransportArmyCreationPrefixReceipt? Receipt,
-    string? UnresolvedOwner);
+    string? UnresolvedOwner)
+{
+    public int? NativeReturn { get; init; }
+}
 
 /// <summary>Actual2D8FE0 fields and source City debits, before registration/
 /// Governor/CTroops tails. This only prepares values. It neither changes the
@@ -47,6 +53,8 @@ public sealed class TransportArmyCreationSource
                 return Missing("current.transport_owned_reset_arena");
             var recomposed = packet.CommandOrder is { } command
                 ? TransportArmyPacketSource.TryComposeCommand(state, current, command)
+                : packet.EmergencyRequest is { } emergency
+                    ? TransportArmyPacketSource.TryComposeEmergency(state, current, emergency)
                 : packet.Request is { } cityRequest
                     ? TransportArmyPacketSource.TryComposeCity(state, current, cityRequest)
                     : new TransportArmyPacketResult(null, "current.transport_packet_request");
@@ -70,25 +78,30 @@ public sealed class TransportArmyCreationSource
                 ?? throw Unknown("Person22AC00");
             if (Need(current.ReadLinkedEntityNativeValidity(associated), "Person22AC00_validity"))
                 return Missing("branch.transport_existing_associated_command");
-            int nativeSlot = OwnedArmyLifecycleCurrent.FirstCreationSlot(state) ?? 0;
-            if (nativeSlot == 0) return Missing("current.transport_first_invalid_501_receiver");
+            var allocation = arena.Receivers.ReadFirstAllocation();
+            if (allocation.Kind == ArmyReceiverAllocationKind.Unknown)
+                return Missing("current.transport_first_invalid_501_receiver");
+            if (allocation.Kind == ArmyReceiverAllocationKind.Unavailable)
+                return new(null, null) { NativeReturn = 0 };
+            int nativeSlot = arena.Slots.First(slot => slot.ReceiverId == allocation.ReceiverId).PhysicalSlot;
             var receiver = arena.ReceiverSlots()[nativeSlot];
             if (receiver.OverrideTarget is not { Kind: not null, Destination: not null } inherited)
                 return Missing("current.transport_reset_override3C3E");
 
-            var home = new BaseReference(BaseKind.City, packet.SourceCityPhysical);
+            var home = packet.SourceBase;
+            var currency = BaseCurrencyAdditionSource.CurrencyCity(home, current);
             var force = current.ReadPersonForce(person) ?? throw Unknown("Person_Force");
             int beforeTroops = Need(current.ReadBaseResource(home, BaseResourceKind.Troops), "Base3C");
             int ready = Bound(unchecked(beforeTroops - packet.Dwords[1]), BasePostLoad.ReadResourceCapacities(home, current).Troops);
             ready = Bound(ready, BasePostLoad.ReadResourceCapacities(home, current).Troops);
             byte morale = ArmyMoraleSource.SetByte2419A0(Need(current.ReadBaseMorale44(home), "Base44"),
                 BasePostLoad.ReadMoraleUpper(force, current));
-            int beforeGold = Need(current.ReadBaseResource(home, BaseResourceKind.Gold), "Base_virtual90");
-            int gold = Bound(unchecked(beforeGold - packet.Dwords[3]), BasePostLoad.ReadResourceCapacities(home, current).Gold);
-            gold = Bound(gold, BasePostLoad.ReadResourceCapacities(home, current).Gold);
-            int beforeSupplies = Need(current.ReadBaseResource(home, BaseResourceKind.Supplies), "Base_virtualA0");
-            int supplies = Bound(unchecked(beforeSupplies - packet.Dwords[4]), BasePostLoad.ReadResourceCapacities(home, current).Supplies);
-            supplies = Bound(supplies, BasePostLoad.ReadResourceCapacities(home, current).Supplies);
+            int beforeGold = Need(current.ReadBaseResource(currency, BaseResourceKind.Gold), "Base_virtual90");
+            int gold = Bound(unchecked(beforeGold - packet.Dwords[3]), BasePostLoad.ReadResourceCapacities(currency, current).Gold);
+            gold = Bound(gold, BasePostLoad.ReadResourceCapacities(currency, current).Gold);
+            int beforeSupplies = Need(current.ReadBaseResource(currency, BaseResourceKind.Supplies), "Base_virtualA0");
+            int supplies = Bound(unchecked(beforeSupplies - packet.Dwords[4]), BasePostLoad.ReadResourceCapacities(currency, current).Supplies);
+            supplies = Bound(supplies, BasePostLoad.ReadResourceCapacities(currency, current).Supplies);
 
             //The source lookup scans every valid physical header, including
             //pending/in-the-field Armies. It does not apply2C96E0 here.
@@ -132,8 +145,10 @@ public sealed class TransportArmyCreationSource
                 Math.Clamp(packet.Dwords[3], 0, 100000), Math.Clamp(packet.Dwords[4], 0, 5000000), currentHex.Value,
                 PersonArmyLocationSource.EncodeArmySecondLocation(nativeSlot), inherited with { })
                 { MapUiByte13C = receiver.MapUiByte13C };
-            return new(new(packet, fields, new(packet.SourceCityPhysical, beforeTroops, ready, beforeGold, gold, beforeSupplies, supplies),
-                governor == packet.Dwords[0], sequenceKnown ? Array.Empty<string>() : new[] { "current.sameHome_Army_word28" }), null);
+            return new(new(packet, fields, new(packet.SourceCityPhysical, beforeTroops, ready, beforeGold, gold, beforeSupplies, supplies)
+                { SourceBase = home },
+                governor == packet.Dwords[0], sequenceKnown ? Array.Empty<string>() : new[] { "current.sameHome_Army_word28" }), null)
+                { NativeReturn = 1 };
         }
         catch (MissingOwner error) { return Missing(error.Message); }
         catch (InvalidDataException error) { return Missing(error.Message); }

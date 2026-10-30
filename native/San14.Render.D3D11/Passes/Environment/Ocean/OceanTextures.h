@@ -1,5 +1,6 @@
 // Include after the lab's ComPtr/fs/load/check helpers. No draw or context mutation.
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include <sstream>
 #include <optional>
 #include "OceanTextureMaterialSettings.h"
@@ -30,7 +31,7 @@ static ID3D11SamplerState* oceanTextureSampler(const std::optional<OceanNativeTe
     return texture?texture->sampler.Get():nullptr;
 }
 static OceanNativeTextures loadOceanTextures(ID3D11Device* device,const fs::path& source) {
-    std::ifstream rows(source/"ocean-textures.tsv");
+    NativePreparedInputFile rows(source/"ocean-textures.tsv");
     if(!rows)throw std::runtime_error("ocean-textures.tsv missing");
     OceanNativeTextures result;unsigned seen=0;std::string line;
     while(std::getline(rows,line)) {

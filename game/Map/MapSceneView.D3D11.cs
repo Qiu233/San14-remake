@@ -24,9 +24,18 @@ public partial class MapSceneView
     private Func<GameState, SourceWorldContext?>? _d3d11CurrentWorldQueries;
     private Func<GameState, UnitState, ArmyGraphicsCurrentInputs?>? _d3d11ArmyMotionQueries;
     private Func<GameState, ArmyMapGroupingFrame?>? _d3d11ArmyGroupingQueries;
+    private Func<GameState,MapStaticModelAssetCatalog,UnitGeometry,MapStaticModelGroundHeightSource,
+        IReadOnlyList<FacilitySceneConnection>,FacilitySceneModelFrame>? _facilityModelQuery;
+    private Func<GameState,IReadOnlyList<FacilitySceneConnection>>? _initialFacilityConnectionsQuery;
+    private Func<GameState,int,AreaAdministrationQuery<FacilityMapInfo>>? _facilityMapInfoQuery;
+    private GameState? _facilityInfoCaptureWorld;
+    private D3D11FacilityPublication? _facilityInfoCaptureModels;
+    private FacilityMapInfoPublication? _facilityInfoCapture;
     private uint _d3d11CommonFrustumMode;
     private D3D11MapInput? _d3d11PresentedInput;
     private Task _d3d11Retirement = Task.CompletedTask;
+    private CancellationTokenSource? _d3d11Opening;
+    private D3D11MapInputDirectory? _d3d11InputDirectory;
     private double _d3d11Elapsed;
     private bool _d3d11TerritoryDisplay = true;
     private D3D11AnimationPacer? _d3d11AnimationPacer;
@@ -43,18 +52,62 @@ public partial class MapSceneView
         _d3d11ArmyGroupingQueries = armyGrouping;
     }
 
-    private async Task InitializeD3D11MapAsync(uint generation)
+    internal void SetFacilitySceneModelQuery(Func<GameState,MapStaticModelAssetCatalog,UnitGeometry,
+        MapStaticModelGroundHeightSource,IReadOnlyList<FacilitySceneConnection>,FacilitySceneModelFrame> query,
+        Func<GameState,IReadOnlyList<FacilitySceneConnection>> initialConnections)
+        => (_facilityModelQuery,_initialFacilityConnectionsQuery)=(query,initialConnections);
+
+    internal void SetFacilityMapInfoQuery(Func<GameState,int,AreaAdministrationQuery<FacilityMapInfo>> query)
     {
-        if (_d3d11Map is not null || _sourceMainCameraFrame is not { } frame ||
+        _facilityMapInfoQuery=query;
+        _d3d11Markers?.SetFacilityMapInfoQuery(query);
+    }
+
+    private FacilityMapInfoPublication? CaptureNormalFacilityInfo(GameState world,D3D11FacilityPublication? models)
+    {
+        //Startup renders the real facility models, but has not installed the
+        //campaign information-label query/service. Adoption binds it normally.
+        if (IsNewGameScenarioPreview) return null;
+        if(!ReferenceEquals(world,_facilityInfoCaptureWorld)||!ReferenceEquals(models,_facilityInfoCaptureModels))
+        {
+            _facilityInfoCapture=_d3d11Markers?.CaptureFacilityInfo(world,models);
+            _facilityInfoCaptureWorld=world;_facilityInfoCaptureModels=models;
+        }
+        return _facilityInfoCapture;
+    }
+
+    private D3D11CityGatePublication? CaptureCityGateFacilityWorld(GameState world,D3D11CityGatePublication? cities)
+    {
+        if(cities is null)return null;
+        var publisher=_d3d11Facilities??throw new InvalidDataException("facility.presentation.publisher");
+        return publisher.Combine(cities,publisher.Capture(world,_d3d11CommonFrustumMode,CaptureFacilitySceneConnections(world)));
+    }
+
+    private async Task InitializeD3D11MapAsync(uint generation, CgQuality? quality = null)
+    {
+        if (_d3d11Map is not null || _d3d11Opening is not null || _sourceMainCameraFrame is not { } frame ||
             _sceneTerrain?.Source is not { } terrainSources) return;
         var scene = terrainSources.Scene;
         D3D11MapSurface? surface = null;
+        D3D11MapCpuResources? cpu = null;
+        D3D11MapInitialEnvironment? environment = null;
+        D3D11MapInputDirectory? inputDirectory = null;
+        bool adopted = false;
+        var opening = new CancellationTokenSource();
+        _d3d11Opening = opening;
+        var token = opening.Token;
+        bool IsCurrent() => ReferenceEquals(_d3d11Opening, opening) && !token.IsCancellationRequested &&
+            generation == _sceneLoadGeneration && !_nativeMapClosing &&
+            GodotObject.IsInstanceValid(this) && IsInsideTree();
         try
         {
+            // Keep this opening's transition flag with the accepted camera
+            // captured above; background preparation may outlive later ticks.
+            bool openingSceneryCameraStable = ActiveSourceCameraStable;
             // Logical locations are built before the source camera owner.
             // Army screen offsets need that loaded owner's E940 anchors.
-            _d3d11Markers!.ConfigureArmyLabels(_repository, _sourceSnapshot!, _d3d11CurrentWorldQueries,
-                _sourceMainCamera!.Parameters);
+            if(!IsNewGameScenarioPreview)_d3d11Markers!.ConfigureArmyLabels(_repository, _sourceSnapshot!,
+                CaptureCurrentVisualWorld,ActiveSourceCameraParameters);
             string source = Path.GetFullPath(ProjectSettings.GlobalizePath(ProjectSettings.GetSetting(
                 "san14/render/source_package",
                 $"user://render-cache/{_text.SourceLocale}/{scene.Scene.Source.DecodedSha256}/input").AsString()));
@@ -64,100 +117,106 @@ public partial class MapSceneView
             string librarySetting = System.Environment.GetEnvironmentVariable("SAN14_RENDER_NATIVE_LIBRARY")
                 ?? ProjectSettings.GetSetting("san14/render/native_library", libraryDefault).AsString();
             string library = Path.GetFullPath(ProjectSettings.GlobalizePath(librarySetting));
-            // These banks are produced from this scene and accepted camera.
-            // Their metadata describes this output, not a required offline package.
-            var sceneMedia = D3D11SceneMediaPreparation.Prepare(_repository, terrainSources, frame.Camera,
-                source, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-            var cloudPrograms=SkyCloudProgramResources.Load(_repository,sceneMedia.Renderer);
-            var groundDetails = GroundDetailResources.Prepare(_repository, scene,
-                frame.Camera.Lens.ReverseDepth, _text.SourceLocale);
-            var fogPrograms=HeightFogProgramResources.Load(_repository);
-            var fogAcceleration=FogAccelerationResources.Load(_repository);
-            var skyPrograms=SkyMainProgramResources.Load(_repository,sceneMedia.Renderer);
-            SkyMainResourceOwner? skyResources=null;
-            SkyAtmosphereResourceOwner? atmosphereOwner=null;
-            SkyAtmosphereResourceOwner.Replacement? pendingAtmosphere=null;
-            string? pendingAtmosphereDirectory=null;
-            D3D11SkyAtmosphereResources? atmosphereResources=null;
-            SkyStarResources? starResources=null;
-            D3D11AmbientRenderResources? ambientResources=null;
-            D3D11CloudProgramMedia? cloudMedia=null;
-            D3D11CloudRenderResources? cloudResources = null;
-            ShadowReceiverPatternResources? receiverPatterns = null;
-            string inputs = Path.GetDirectoryName(source)!;
-            _d3d11Ownership!.WriteStaticInputs(Path.Combine(inputs, TerritoryStaticMapEncoding.NativeDirectory));
-            D3D11ProjectShaderInputPreparation.WriteNativeInputs(source, _text.SourceLocale);
-            D3D11TimingInputPreparation.Load(_repository, _text.SourceLocale)
-                .WriteAnimationCadenceInputs(Path.Combine(inputs, "animation-cadence-input"));
-            var seasonResources = D3D11CurrentSeasonResources.LoadSourceReadyCpu(_repository,
-                _logicalWorld!.NativeMapSeason ?? throw new InvalidDataException("Playable Main has no owned third-date season."), frame);
-            string seasonalInputs = Path.Combine(Path.GetDirectoryName(source)!, "current-season-resource-input");
-            var seasonLibrary = new D3D11CurrentSeasonLibrary(_repository, seasonResources, frame);
-            seasonLibrary.WriteNativeLutInputs(seasonalInputs);
-            new D3D11TerrainSeasonPalette(sceneMedia.Terrain.Parameters).WriteNativeInputs(seasonalInputs);
-            var season = new D3D11CurrentSeasonPublisher(_repository, seasonResources,
-                actualMainMode:_sourceMainMode,resourceLibrary: seasonLibrary);
-            var writtenSeasonResources = seasonResources;
+            // Capture only CPU source data before either exclusive worker starts.
+            // Each opening writes its own bank; a retired native session can
+            // continue borrowing its previous files until its normal close.
+            inputDirectory = new(source);
+            source = inputDirectory.Source;
+            string sourceDirectory = _repository.SourceDirectory;
+            string? overrideDirectory = _repository.OverrideDirectory;
+            string locale = _text.SourceLocale;
+            string scenarioKey = _logicalWorld!.ScenarioKey;
+            var previewSeason=_scenarioPreviewCalendar;
+            var ownedSeason=_logicalWorld.NativeMapSeason;
+            if(previewSeason is null&&ownedSeason is null)
+                throw new InvalidDataException("Playable Main has no owned third-date season.");
+            var cameraInputs = _sourceMainCameraInputs!;
+            var currentField = _sourceMainCameraTerrain!.CurrentField;
+            cpu = await Task.Run(() => previewSeason is {} preview
+                ? D3D11MapCpuResources.PrepareScenarioPreview(sourceDirectory,overrideDirectory,terrainSources,frame,
+                    preview,locale,source,D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight,scenarioKey,token)
+                : D3D11MapCpuResources.Prepare(sourceDirectory,overrideDirectory,terrainSources,frame,
+                    ownedSeason!,locale,source,D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight,scenarioKey,token),token);
+            if (!IsCurrent()) return;
+            var mapRepository = cpu.Repository;
+            var seasonResources = cpu.SeasonResources;
+            var seasonLibrary = cpu.SeasonLibrary;
+            // Actual camera/Main state remains on its owning thread.
+            var season = new D3D11CurrentSeasonPublisher(mapRepository, seasonResources,
+                actualMainMode:_sourceMainMode, resourceLibrary:seasonLibrary);
+            if (quality is { } appliedQuality) season.ApplyCgQuality(appliedQuality);
+            long preparationNumber = 1;
+            var openingMain = frame with { Camera = frame.Camera.CopyAcceptedSnapshotForOwnedFrame(
+                preparationNumber, frame.Camera.FrameProvenance) };
+            D3D11CurrentSeasonFrame? openingCurrent = previewSeason is {} openingPreview
+                ? season.PrepareScenarioPreview(openingPreview,openingMain,0)
+                : season.PrepareCurrent(ownedSeason!,openingMain,0);
+            // The CPU writers consume the stored Mode packet values and its
+            // accepted camera, never Mode.ValidateCurrent or the mode owner.
+            // D3D12 scenery skips the fallback mode writer; while surface is
+            // absent, ScheduleD3D11MapFrame cannot run another current update.
+            var initialCurrent = openingCurrent;
+            var preparingCpu = cpu;
+            environment = await Task.Run(() => D3D11MapInitialEnvironment.Prepare(preparingCpu,
+                initialCurrent, openingMain, cameraInputs, currentField, token), token);
+            if (!IsCurrent()) return;
+
+            // Transfer all prepared CPU owners together. No worker can access
+            // this repository or these owners after the awaited preparation.
+            string inputs = cpu.Inputs;
+            string seasonalInputs = cpu.SeasonalInputsDirectory;
+            var sceneMedia = cpu.SceneMedia;
+            var skyPrograms = cpu.SkyPrograms;
+            var fogPrograms = cpu.FogPrograms;
+            var resourceContext = cpu.ResourceContext;
+            var resourceSeasonBatch = cpu.ResourceSeasonBatch;
             var contextSeason = seasonResources.Source.CameraSource.Season.Resources.Action.Objects;
-            var resourceContext = RenderResourceContext.LoadCurrentMap(_repository, scene,
-                seasonResources.Source.CameraSource.Season.Resources.Action, out var resourceSeasonBatch);
+            var rainProvider = cpu.RainProvider;
+            var specialEffectInputs = cpu.SpecialEffectInputs;
+            var hdr = cpu.Hdr;
+            var writtenSeasonResources = seasonResources;
+            int writtenSeasonCount = seasonLibrary.LoadedInstallations.Count;
             RenderResourceContext.Batch? pendingResourceSeasonBatch = null;
             LoadedObjects? pendingContextSeason = null;
+            SkyAtmosphereResourceOwner.Replacement? pendingAtmosphere = null;
+            string? pendingAtmosphereDirectory = null;
+            var atmosphereOwner = environment.AtmosphereOwner;
+            var atmosphereResources = environment.AtmosphereResources;
+            var skyResources = environment.SkyResources;
+            var starResources = environment.StarResources;
+            var ambientResources = environment.AmbientResources;
+            var cloudMedia = environment.CloudMedia;
+            var cloudResources = environment.CloudResources;
+            var receiverPatterns = environment.ReceiverPatterns;
             _d3d11ResourceContext = resourceContext;
-            var captureEffects = new D3D11CaptureEffects(_repository, resourceContext, generation);
+            string resourceContextDirectory = cpu.ResourceContextDirectory;
+            _d3d11ResourceContextDirectory = resourceContextDirectory;
+            var captureEffects = new D3D11CaptureEffects(mapRepository, resourceContext, generation);
             _captureEffects = captureEffects;
             G1EffectMapInputs? effectInputs = null;
+            G1EffectStoryViewInputs? storyEffectInputs = null;
             D3D11CurrentSeasonResources? effectInputResources = null;
-            string resourceContextDirectory = Path.Combine(inputs, "resource-context-input");
-            _d3d11ResourceContextDirectory = resourceContextDirectory;
-            resourceContext.WriteNativeInputs(resourceContextDirectory);
-            int writtenSeasonCount = seasonLibrary.LoadedInstallations.Count;
-            var hdrResources = HdrShaderResources.Load(_repository);
-            var hdr = D3D11CurrentHdrCatalog.Create(_repository, frame, hdrResources);
-            var scenarioMetadata = _repository.EffectiveScenarios.Single(s =>
-                GameResourceId.File(s.SourcePath).ToString() == _logicalWorld!.ScenarioKey && s.Locale == _text.SourceLocale);
-            var initialModelCommon = MapCommonRenderState.FromSettings(
-                CommonRenderResources.ImportSettings(_repository.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId)),
-                frame.Camera.FrameNumber,"map-model/settings","map-model/common","map-model/view","initial-resource-preparation");
-            var initialContext = MainMapContextOwnerSource.LoadFreshHostDefaults(_text.SourceLocale);
-            var primaryTemplates = D3D11CityGateTemplateBank.Prepare(_repository,scene,frame.Camera,
-                initialModelCommon,initialContext.ContextFlags3E4,
-                MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(seasonResources.Source.DirectionalDeclarations),
-                sceneMedia.FieldModels.ShaderTableOwners,Path.Combine(inputs,"base-visual-world-input","primary-templates"));
-            primaryTemplates.WriteNativeInputs();
-            var cityAccessories = CityGateAccessoryResources.Load(_repository,scene);
-            cityAccessories.WriteNativeInputs(Path.Combine(inputs,"city-accessory-input"));
-            var accessoryGeometry = CityGateAccessoryGeometryResources.Prepare(_repository,cityAccessories,
-                frame.Camera,initialModelCommon,initialContext.ContextFlags3E4,
-                MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(seasonResources.Source.DirectionalDeclarations),
-                _text.SourceLocale,Path.Combine(inputs,"city-accessory-input"));
-            accessoryGeometry.WriteNativeInputs();
-            var armyResources = ArmyGeometryResources.Prepare(_repository,frame.Camera,initialModelCommon,
-                initialContext.ContextFlags3E4,
-                MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(seasonResources.Source.DirectionalDeclarations),
-                accessoryGeometry,_text.SourceLocale,Path.Combine(inputs,"army-visual-input"));
-            armyResources.WriteNativeInputs();
-            armyResources.WriteActionInputs(Path.Combine(inputs,"army-graphics-action-input"));
-            _d3d11Army = new(_repository,_repository.LoadScenario(scenarioMetadata),_repository.LoadCeMap(),
-                _projection!,TerrainMeshes!.Source.HeightField,_text.SourceLocale,_d3d11ArmyMotionQueries,
-                armyResources.GraphicsActions);
-            _d3d11ArmyMaterials = ArmyMaterialResources.Load(_repository,_text.SourceLocale,armyResources);
-            _d3d11ArmyMaterialDirectory = Path.Combine(inputs,"army-visual-input","material-source");
-            ArmyMaterialManagerResources.Load(_repository, armyResources.Catalog,
-                resourceContext.MaterialInitialization!).WriteNativeInputs(_d3d11ArmyMaterialDirectory);
-            _d3d11FlagMaterials = CityGateFlagMaterialResources.Load(_repository,_text.SourceLocale,accessoryGeometry);
-            _d3d11FlagMaterialDirectory = Path.Combine(inputs,"city-accessory-input","material-source");
-            var cityGatePublisher = new D3D11CityGatePublisher(_repository, scene, _repository.LoadScenario(scenarioMetadata), _repository.LoadCeMap(),
-                _logicalWorld!.NewGameOptions!, _d3d11CurrentWorldQueries ??
-                    throw new InvalidDataException("Native City/Gate visuals require the current campaign query owner."),
-                primaryTemplates,cityAccessories);
+            _d3d11Ownership!.WriteStaticInputs(Path.Combine(inputs, TerritoryStaticMapEncoding.NativeDirectory));
+            _d3d11ArmySources = new(mapRepository, cpu.Scenario, cpu.Map,
+                _projection!, TerrainMeshes!.Source.HeightField, locale, cpu.ArmyResources.GraphicsActions);
+            if (!IsNewGameScenarioPreview) InstallCampaignArmyPublisher();
+            _d3d11ArmyMaterials = cpu.ArmyMaterials;
+            _d3d11ArmyMaterialDirectory = cpu.ArmyMaterialDirectory;
+            _d3d11FlagMaterials = cpu.FlagMaterials;
+            _d3d11FlagMaterialDirectory = cpu.FlagMaterialDirectory;
+            var cityGatePublisher = new D3D11CityGatePublisher(mapRepository, scene, cpu.Scenario, cpu.Map,
+                _logicalWorld!.NewGameOptions!, CaptureCurrentVisualWorld,
+                cpu.PrimaryTemplates, cpu.CityAccessories);
             _d3d11CityGate = cityGatePublisher;
-            _d3d11AreaCapital = new(_repository, scene, _repository.LoadScenario(scenarioMetadata),
-                cityGatePublisher.PreparedBank, _d3d11CurrentWorldQueries);
-            _d3d11CommonFrustumMode = MapModelNativeVisibilitySources.ReadCommonViewTemplate(
-                _repository.LoadObjects("KIDSSystemResource", 0x6D011726), 0x899F101B).Value;
-            long preparationNumber = 0;
-            bool nativeRuleInputsPrepared = false;
+            _facilityConnections = CaptureFacilitySceneConnections(_logicalWorld!);
+            _d3d11Facilities = new(mapRepository, scene, cpu.PrimaryTemplates, CaptureCurrentFacilityModels);
+            _d3d11AreaCapital = new(mapRepository, scene, cpu.Scenario,
+                cityGatePublisher.PreparedBank,CaptureCurrentVisualWorld);
+            _d3d11CommonFrustumMode = cpu.CommonFrustumMode;
+            _d3d11SkyResources = atmosphereOwner;
+            cpu.DetachResourceContext();
+            _d3d11InputDirectory = inputDirectory;
+            adopted = true;
             surface = new D3D11MapSurface { Name = "OriginalD3D11WorldMap" };
             _d3d11Map = surface;
             var parent = _sourceMainCameraAspect as Control ?? _surface.GetParent() as Control ?? this;
@@ -187,6 +246,7 @@ public partial class MapSceneView
                     _d3d11Markers?.Present(camera, input.AreaCapitalWorld, input.CityGateWorld);
                 _d3d11Markers?.PresentArmy(input, receipt);
                 PresentInformationLayers(input);
+                if(input.SourceFrame is {} hitFrame)_d3d11Markers?.PrepareInformationHits(hitFrame);
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Present(scenery,false);
                 SetMeta("native_map_army_label_unit_count", receipt.ArmyUnitPositions.Count);
             };
@@ -194,10 +254,19 @@ public partial class MapSceneView
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
                 _d3d11PresentedInput = input;
+                PresentChronologyFrame(input);
+                AcceptOccupationTerritory(input.TerritoryOwnership);
+                _d3d11Markers?.PresentFacilities(input.FacilityInfo);
+                AcceptFacilityConstructionModels(input.CityGateWorld?.Facilities);
+                AcceptFacilityRepairModels(input.CityGateWorld?.Facilities);
+                AcceptMapObjectRetirementModels(input.CityGateWorld?.Facilities);
                 tacticArmyPositions = receipt.ArmyUnitPositions;
                 PublishTacticPresentationViews();
+                PublishFacilityArmyViews();
+                BindHexFirePresentation(input.HexFire);
                 captureEffects.Accept(input.Effects);
                 _d3d11Markers?.AcceptArmyHits();
+                if(input.SourceFrame is {} hitFrame)_d3d11Markers?.AcceptInformationHits(hitFrame);
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Accept(scenery);
                 _surface.Visible = false;
                 ((SubViewport)_surface.GetChild(0)).RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
@@ -214,9 +283,11 @@ public partial class MapSceneView
                 SetMeta("native_map_current_season", input.CurrentSeason?.SeasonIndex ?? -1);
                 RemoveMeta("native_map_source_error");
                 RemoveMeta("native_map_source_error_detail");
+                AcceptScenarioMapRoleFrame(surface,input,receipt);
             };
             surface.Failed += error =>
             {
+                _startedMapFrame?.TrySetException(error);
                 pendingResourceSeasonBatch?.Dispose();
                 pendingResourceSeasonBatch = null; pendingContextSeason = null;
                 pendingAtmosphere?.Dispose();
@@ -224,119 +295,29 @@ public partial class MapSceneView
                 if (_d3d11Map == surface && generation == _sceneLoadGeneration)
                     RecordD3D11MapFailure(error);
             };
-            await surface.ConfigureAsync(source, library, CaptureD3D11Input(frame, 0,initialManagerUpdate:true), populationMask: 3,
+            await surface.ConfigureAsync(source, library, CaptureD3D11Input(frame, 0,initialManagerUpdate:true,
+                    sceneryCameraStable:openingSceneryCameraStable), populationMask: 3,
                 prepareCurrent: input =>
                 {
                     var geometry = input.SourceFrame!;
-                    var currentMain = geometry with { Camera = geometry.Camera.CopyAcceptedSnapshotForOwnedFrame(
+                    var firstPrepared = openingCurrent;
+                    openingCurrent = null;
+                    var currentMain = firstPrepared?.Mode.AcceptedMainFrame ?? geometry with
+                    { Camera = geometry.Camera.CopyAcceptedSnapshotForOwnedFrame(
                         ++preparationNumber, geometry.Camera.FrameProvenance) };
-                    var current = input.PeriodSeason is { } periodSeason
-                        ? season.PrepareCurrent(periodSeason, currentMain, (float)input.ElapsedSeconds)
-                        : season.PrepareCurrent(input.WorldState!, currentMain, (float)input.ElapsedSeconds);
-                    string? atmosphereDirectory = null;
-                    if (!nativeRuleInputsPrepared)
+                    if(firstPrepared is null&&_pendingStartedSeason is {} adoptingSeason)
                     {
-                        groundDetails.WriteNativeInputs(inputs, current.Rgb.Inputs.MainPostSelection!.AppFlags);
-                        var globalFog=current.Lights.First(light=>(light.GroupMask&0x80)!=0).State;
-                        var fogRgb=globalFog.Lighting.Directional[0].Color;
-                        var initialFog=fogAcceleration.PrepareInitialFrame(globalFog.Fog,
-                            new System.Numerics.Vector3(fogRgb.X,fogRgb.Y,fogRgb.Z),current.Present.CapturePreparedCamera());
-                        fogAcceleration.WriteNativeInputs(initialFog,Path.Combine(inputs,"fog-accel-input"));
-                        cloudMedia=D3D11CloudProgramMedia.Prepare(cloudPrograms,current.Present,
-                            current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
-                        cloudMedia.WriteNativeInputs(inputs);
-                        D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
-                        ambientResources = D3D11AmbientRenderResources.Load(_repository,current.Present,season.LoadedResources.Source.Locale);
-                        ambientResources.WriteNativeInputs(inputs);
-                        var images = SkyAppliedCloudTextureSet.Import(current.Present.AcceptedSeasonCamera.Inputs.Source.CloudTextures);
-                        atmosphereResources = D3D11SkyAtmosphereResources.Load(
-                            current.Present.AcceptedSeasonCamera.Inputs.Source, images);
-                        atmosphereResources.WriteNativeInputs(inputs);
-                        D3D11PatternRenderResources.Load(_repository,ambientResources.Declaration,season.LoadedResources.Source.Locale)
-                            .WriteNativeInputs(inputs);
-                        skyResources = SkyMainResourceOwner.CreateFresh(_repository, current.Present, skyPrograms, images);
-                        atmosphereOwner = new(atmosphereResources, images, skyResources, null);
-                        _d3d11SkyResources = atmosphereOwner;
-                        cloudResources = D3D11CloudRenderResources.Prepare(_repository, current.Present,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight, images,
-                            skyResources.Sampling, cloudMedia);
-                        cloudResources.WriteNativeInputs(inputs);
-                        var starPackage = current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage;
-                        starResources = SkyStarResources.Load(_repository, sceneMedia.Renderer, starPackage);
-                        string starDirectory = Path.Combine(inputs, "main-sky-input", "stars");
-                        Directory.CreateDirectory(starDirectory);
-                        File.WriteAllBytes(Path.Combine(starDirectory, "program-presence.bin"),
-                            BitConverter.GetBytes(starResources is not null ? 1u : 0u));
-                        if (starResources is not null)
-                            D3D11MainStarInputPreparation.Load(starResources).WriteNativeInputs(starDirectory);
-                        SkyStarCurrentEncoding.WriteNativeInputs(starDirectory, current.Stars,
-                            current.Atmosphere.Controller.MatrixF0, current.Atmosphere.Controller.Controller.Scalar38);
-                        var cameraInputs = _sourceMainCameraInputs!;
-                        var post = current.Rgb.Inputs.MainPostSelection!;
-                        var fieldModels = sceneMedia.FieldModels;
-                        D3D11OwnCameraInputPreparation.WriteFreshNativeInputs(_repository, scene,
-                            new(currentMain, cameraInputs.CurrentMaximumYOverride,
-                                cameraInputs.NativeClipProfile, cameraInputs.TangentDispatch),
-                            new(post.QualityOption18, post.MainMode288, post.AppFlags,
-                                post.PriorCloudy430Bits, post.SelectedCloudy430Bits),
-                            _sourceMainCameraTerrain!.CurrentField, inputs, fieldModels, sceneMedia.Terrain);
-                        var initialMainNumeric = D3D11MainCameraInitialNumericInputs.Create(_repository, currentMain);
-                        initialMainNumeric.WriteNativeInputs(inputs);
-                        ShadowReceiverResources.Load(_repository).WriteNativeInputs(inputs);
-                        ShadowReceiverSamplerEncoding.WriteNativeInputs(_repository, _text.SourceLocale, inputs);
-                        receiverPatterns = ShadowReceiverPatternResources.Load(_repository, starPackage, _text.SourceLocale,
-                            season.LoadedResources.PatternTextures);
-                        receiverPatterns.WriteNativeInputs(inputs);
-                        D3D11ShadowInputs.WriteNativeInputs(_repository, fieldModels, source,
-                            cityGatePublisher.PreparedBank, season.LoadedResources, current);
-                        D3D11OwnedNumericInputPreparation.WriteFreshNativeInputs(_repository, scene,
-                            currentMain, current, season.LoadedResources, seasonLibrary,
-                            fieldModels,initialContext.ContextFlags3E4,inputs,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        var sceneColor=SceneColorTargetResources.PrepareFresh(_repository,
-                            current.Present.CapturePreparedCamera(),season.LoadedResources.InitialCommonSettings,
-                            D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight);
-                        ScreenMapResources.PrepareNormal(_repository,
-                            current.Present.CapturePreparedCamera(),_text.SourceLocale).WriteNativeInputs(inputs);
-                        ContactOcclusionResources.Load(_repository,_text.SourceLocale).WriteNativeInputs(inputs);
-                        D3D11HdrResourceBindings.WriteProducerTargets(_repository,
-                            Path.Combine(inputs, "hdr-bank"),
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11RefractionCopyInputPreparation.WriteNativeInputs(_repository, current,sceneColor,
-                            Path.Combine(inputs, "refraction-source-input"),
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11RefractionFilterInputPreparation.WriteNativeInputs(_repository, current,sceneColor,
-                            Path.Combine(inputs, "refraction-source-input", "filter137"),
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        D3D11HdrProgramMediaPreparation.WriteNativeInputs(_repository,
-                            current, season.LoadedResources, hdr, sceneColor, inputs,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        var atmosphere = AtmosphereInitialConstantsWriter.WriteFreshNativeInputs(_repository, current,
-                            sceneColor,
-                            cloudElapsedSeconds: 0, commonClock: 0,
-                            Path.Combine(inputs, "atmosphere-camera-continuous-input", "initial"),
-                            Path.Combine(inputs, "main-sky-input"), Path.Combine(inputs, "main-cloud-input"),
-                            Path.Combine(inputs, "ssfog-population-input"),cloudMedia,cloudResources,
-                            skyPrograms,skyResources.Sampling,fogPrograms);
-                        if (atmosphere.Sky is { } sky)
-                            skyResources.Prepare(sky.Program).WriteNativeInputs(Path.Combine(inputs, "main-sky-input"));
-                        if (current.Present.AcceptedSeasonCamera.Inputs.Source.RenderingAtmosphere is not null)
-                        {
-                            var workSky = atmosphereOwner.PrepareWorkSky(_repository, current.Present, skyPrograms);
-                            var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
-                                current, cloudMedia, ambientResources.Declaration,
-                                skyPrograms, workSky.Sampling);
-                            workSky.Prepare(work.SkyMedia.Program);
-                            D3D11AmbientWorkInputPreparation.WriteNativeInputs(work, inputs);
-                        }
-                        D3D11NormalPostInitialConstantPreparation.WriteNativeInputs(_repository,
-                            current, inputs, D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight,sceneColor);
-                        D3D11PrimaryForwardInputs.WriteFreshNativeInputs(_repository,
-                            cityGatePublisher.PreparedBank, season.LoadedResources, current, inputs,
-                            D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
-                        nativeRuleInputsPrepared = true;
+                        season.AdoptStartedCampaignCalendar(adoptingSeason,currentMain,
+                            _pendingAcceptedPreviewSeason??throw new InvalidDataException("The real final preview frame is absent."));
+                        _pendingStartedSeason=null;_pendingAcceptedPreviewSeason=null;
                     }
-                    else
+                    var current = firstPrepared ?? (_scenarioPreviewCalendar is {} scenarioCalendar
+                        ? season.PrepareScenarioPreview(scenarioCalendar,currentMain,(float)input.ElapsedSeconds)
+                        : input.PeriodSeason is { } periodSeason
+                            ? season.PrepareCurrent(periodSeason,currentMain,(float)input.ElapsedSeconds)
+                            : season.PrepareCurrent(input.WorldState!,currentMain,(float)input.ElapsedSeconds));
+                    string? atmosphereDirectory = null;
+                    if (firstPrepared is null)
                     {
                         ambientResources!.RequireCurrent(current.Present);
                         cloudMedia!.RequireCurrent(current.Present,
@@ -344,7 +325,7 @@ public partial class MapSceneView
                         cloudResources!.RequireCurrentSurfaces(current.Present,
                             D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
                         fogPrograms.RequireCurrentMask(current.Present);
-                        var replacement = atmosphereOwner!.PrepareReplacement(_repository, skyPrograms, current.Present);
+                        var replacement = atmosphereOwner!.PrepareReplacement(mapRepository, skyPrograms, current.Present);
                         try
                         {
                             var candidateSky = replacement?.MainSky ?? atmosphereOwner.MainSky;
@@ -356,13 +337,13 @@ public partial class MapSceneView
                                 candidateSky.RequireCurrent(selectedSky);
                                 if (replacement is not null)
                                 {
-                                    var work = D3D11AmbientWorkInitialConstants.Prepare(_repository,
+                                    var work = D3D11AmbientWorkInitialConstants.Prepare(mapRepository,
                                         current, cloudMedia, ambientResources.Declaration,
                                         skyPrograms, replacement.WorkSky!.Sampling);
                                     replacement.WorkSky.RequireCurrent(work.SkyMedia.Program);
                                 }
                             }
-                            starResources?.RequireCompatiblePackage(_repository,
+                            starResources?.RequireCompatiblePackage(mapRepository,
                                 current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage);
                             if (replacement is not null)
                             {
@@ -384,14 +365,14 @@ public partial class MapSceneView
                     {
                         if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                         {
-                            receiverPatterns!.RequireCompatible(_repository,
+                            receiverPatterns!.RequireCompatible(mapRepository,
                                 current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,
                                 season.LoadedResources.PatternTextures);
                             int loadedCount = seasonLibrary.LoadedInstallations.Count;
                             if (loadedCount != writtenSeasonCount)
                             {
                                 seasonLibrary.WriteNativeLutInputs(seasonalInputs);
-                                D3D11OwnedNumericInputPreparation.WritePostCallers(_repository,
+                                D3D11OwnedNumericInputPreparation.WritePostCallers(mapRepository,
                                     seasonLibrary, inputs);
                                 writtenSeasonCount = loadedCount;
                             }
@@ -410,6 +391,10 @@ public partial class MapSceneView
                             pendingContextSeason = nextContextSeason;
                         }
                         resourceContext.WriteNativeInputs(resourceContextDirectory);
+                        if (!rainProvider.IsCurrent(resourceContext))
+                            rainProvider = RainDropProviderSource.Load(mapRepository, resourceContext);
+                        current.BindRainProvider(rainProvider);
+                        specialEffectInputs.Bind(current);
                         var scenery=input.PeriodSeason is not null ? null : _sceneryMap?.Capture(input.WorldState!,current.Mode,
                             input.SceneryCameraStable??throw new InvalidDataException("Captured camera transition state is unavailable."),
                             new(D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight),
@@ -420,7 +405,7 @@ public partial class MapSceneView
                         {
                             if (!ReferenceEquals(effectInputResources, season.LoadedResources))
                             {
-                                effectInputs = new(_repository, season.LoadedResources);
+                                effectInputs = new(mapRepository, season.LoadedResources);
                                 effectInputResources = season.LoadedResources;
                             }
                             //The current native View has no primary-light
@@ -429,9 +414,17 @@ public partial class MapSceneView
                             var effectFrame = effectInputs!.Prepare(current, D3D11MapSurface.OutputWidth,
                                 D3D11MapSurface.OutputHeight, effectInputs.OwnedRendererSelection(current),
                                 pendingAtmosphere?.MainSky ?? atmosphereOwner?.MainSky);
+                            G1EffectMapInputFrame? storyFrame = null;
+                            if (captureEffects.HasStoryWork)
+                            {
+                                storyEffectInputs ??= new(mapRepository);
+                                storyFrame = storyEffectInputs.Prepare(input.StoryEffectCamera ??
+                                    throw new InvalidOperationException("story_effect.mode1_captured_camera"), effectFrame,
+                                    D3D11MapSurface.OutputWidth, D3D11MapSurface.OutputHeight);
+                            }
                             preparedInput = preparedInput.WithEffects(captureEffects.PrepareFrame(effectFrame,
                                 input.ElapsedSeconds, effectPacer.FramesPerSecond(input.CommandMapFpsMode),
-                                current.Mode.EcB0Index, surface.EffectComputeDevice));
+                                current.Mode.EcB0Index, surface.EffectComputeDevice, storyFrame));
                         }
                         return preparedInput;
                     }
@@ -451,18 +444,35 @@ public partial class MapSceneView
             surface.Resized += () => _surface.Size = surface.Size;
             _surface.Size = surface.Size;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || !IsCurrent()) { }
         catch (Exception error)
         {
             // Release/reload can cancel an old opening. It has no claim on
             // the current map; genuine surface failures are published above.
-            if (generation == _sceneLoadGeneration && _d3d11Map == surface &&
+            if (IsCurrent() && _d3d11Map == surface &&
                 surface?.IsClosed != true && surface?.LastError is null)
                 RecordD3D11MapFailure(error);
+        }
+        finally
+        {
+            try
+            {
+                if (!adopted) environment?.AtmosphereOwner.Dispose();
+                cpu?.Dispose();
+            }
+            finally
+            {
+                if (!adopted) DisposeD3D11MapInputs(inputDirectory);
+                if (ReferenceEquals(_d3d11Opening, opening)) _d3d11Opening = null;
+                opening.Dispose();
+            }
         }
     }
 
     private void RecordD3D11MapFailure(Exception error)
     {
+        FailMapObjectRetirementPresentation(error.Message);
+        if (uniqueDirectionOwner is not null) uniqueDirectionFailure?.Invoke(error);
         _d3d11PresentedInput = null;
         tacticArmyPositions = null;
         PublishTacticPresentationViews();
@@ -479,31 +489,42 @@ public partial class MapSceneView
         }
     }
 
-    private D3D11MapInput CaptureD3D11Input(San14.Data.MainMapCameraFrame frame, double delta,bool initialManagerUpdate=false)
+    private D3D11MapInput CaptureD3D11Input(San14.Data.MainMapCameraFrame frame, double delta,
+        bool initialManagerUpdate=false, bool? sceneryCameraStable=null)
     {
         if(initialManagerUpdate&&!_periodMapActive)_d3d11Army?.AdvanceMotion(_logicalWorld!,0);
         var state = frame.ControllerState;
+        var cityGateWorld=_periodMapFrame is {} periodCities ? periodCities.Cities :
+            CaptureCityGateFacilityWorld(_logicalWorld!,CaptureCurrentCityGate());
         var input = new D3D11MapInput(frame.Camera.Prefix.Span,
             [state.FocusX, state.FocusY, state.FocusZ, state.FocusW, state.Distance90, state.YawA8, state.PitchC0],
             frame.ZoomSelection.Band1E0, frame.ZoomSelection.Fraction1E4, delta,
             paused:_periodMapActive&&_periodMapPaused, eligibleAnimationUpdate:initialManagerUpdate, sourceFrame: frame)
         {
             TerrainPicker = CurrentTerrainPicker,
-            TerritoryOwnership = _periodMapFrame is {} periodTerritory ? periodTerritory.Territory : _d3d11Ownership?.Capture(_logicalWorld!),
-            CommandMap = _commandMapDisplay,
+            StoryEffectCamera = storyEffectCommonCamera?.Capture(),
+            TerritoryOwnership = chronologyTerritory ?? GeographicTerritory(_logicalWorld!) ?? (_occupationTerritory ?? (_periodMapFrame is {} periodTerritory ? periodTerritory.Territory : _d3d11Ownership?.Capture(_logicalWorld!))),
+            CommandMap = CaptureMapDisplay(),
             Routes = CaptureDeploymentRoutes(frame),
             InformationTerritoryStyle = InformationTerritoryStyle,
             InformationLayers = CaptureInformationLayers(_logicalWorld!),
             CommandMapFpsMode = _d3d11AnimationPacer?.FpsMode ?? 0,
+            ArmyPublicationRole = IsNewGameScenarioPreview ? D3D11ArmyPublicationRole.StartupAbsent :
+                D3D11ArmyPublicationRole.Campaign,
             ArmyWorld = _periodMapFrame is {} periodArmy ? periodArmy.Army : _d3d11Army?.Capture(_logicalWorld!),
             ArmyGroupingWorld = _periodMapFrame is {} periodGroups ? periodGroups.Groups : _d3d11ArmyGroupingQueries?.Invoke(_logicalWorld!),
-            CityGateWorld = _periodMapFrame is {} periodCities ? periodCities.Cities : _d3d11CityGate?.Capture(_logicalWorld!, _d3d11CommonFrustumMode),
+            CityGateWorld = cityGateWorld,
+            FacilityInfo = _periodMapFrame is {} periodFacilities ? periodFacilities.FacilityInfo :
+                CaptureNormalFacilityInfo(_logicalWorld!,cityGateWorld?.Facilities),
+            HexFire = _periodMapFrame is { } periodFire ? periodFire.HexFire :
+                CaptureNormalHexFirePresentation(_logicalWorld!),
             AreaCapitalWorld = _periodMapFrame is {} periodAreas ? periodAreas.Areas : _d3d11AreaCapital?.Capture(_logicalWorld!, _d3d11CommonFrustumMode),
             PeriodSeason = _periodMapFrame?.Season,
             PeriodArmyLabels = _periodMapFrame?.Labels,
             WorldState = _logicalWorld,
             SceneryPresentation=_mapPresentation?.Capture(),
-            SceneryCameraStable=_sourceMainCamera is {} mainOwner?mainOwner.CurrentRuntime.Transition is null:null,
+            SceneryCameraStable=sceneryCameraStable ??
+                ActiveSourceCameraStable,
             TerritoryDisplayEnabled = _d3d11TerritoryDisplay
         };
         // Animation callbacks retain their own World even when draw requests
@@ -542,7 +563,7 @@ public partial class MapSceneView
     }
     private void ScheduleD3D11MapFrame()
     {
-        if (_d3d11Map is not { IsClosed: false, LastError: null } surface || _sourceMainCameraFrame is not { } frame) return;
+        if (_adoptingStartedCampaign || _d3d11Map is not { IsClosed: false, LastError: null } surface || _sourceMainCameraFrame is not { } frame) return;
         if(!_periodMapActive&&_d3d11AnimationDue&&_d3d11AnimationPacer is { } motionPacer)
             _d3d11Army?.AdvanceMotion(_logicalWorld!,motionPacer.FpsMode);
         else if(_periodMapActive&&!_periodMapPaused&&_periodBorrowedCandidate is {} borrowed&&
@@ -555,19 +576,33 @@ public partial class MapSceneView
     }
     private void ReleaseD3D11Map()
     {
+        var sourcePreparation = _sceneSourcePreparation; _sceneSourcePreparation = null;
+        sourcePreparation?.Cancel();
+        var opening = _d3d11Opening; _d3d11Opening = null;
+        opening?.Cancel();
+        RetireFirePresentation();
+        RetireDamagePresentation();
+        RetireHexFirePresentation();
+        ResetHexFirePublicationCapture();
+        RetireFacilityEffectsPresentation();
+        RetireFacilityRepairPresentation();
+        RetireMapObjectRetirementPresentation();
         tacticArmyPositions = null;
         TacticPresentationViews.Clear();
-        _traitRefreshWorld = null; _traitRefreshArmy = null;
+        _traitRefreshWorld = null; _traitRefreshArmy = null; _traitPersonalities = null;
         EndCampaignTargetMapPick();
         ReleaseInformationLayers();
         _periodMapActive=false;_periodMapFrame=null;_periodBorrowedCandidate=null;
         _periodMapOwner=null;
         _periodOriginalArmy?.Dispose();_periodOriginalArmy=null;
+        ReleaseFacilitySceneConnections();
         ReleaseDeploymentRoutes();
         if (_d3d11Markers is not null) { _d3d11Markers.QueueFree(); _d3d11Markers = null; }
         _d3d11Ownership = null;
         _d3d11Army?.Dispose(); _d3d11Army = null;
+        _d3d11ArmySources = null;
         _d3d11CityGate = null;
+        _d3d11Facilities=null;
         _d3d11AreaCapital = null;
         _d3d11FlagMaterials = null; _d3d11FlagMaterialDirectory = null;
         _d3d11ArmyMaterials = null; _d3d11ArmyMaterialDirectory = null;
@@ -576,23 +611,55 @@ public partial class MapSceneView
         _d3d11ResourceContextDirectory = null;
         _d3d11AnimationPacer=null;_d3d11AnimationDue=false;
         var surface = _d3d11Map; _d3d11Map = null; _d3d11PresentedInput = null; _d3d11Elapsed = 0;
+        var inputDirectory = _d3d11InputDirectory; _d3d11InputDirectory = null;
         var skyResources = _d3d11SkyResources; _d3d11SkyResources = null;
         var effects = _captureEffects; _captureEffects = null;
         effects?.CancelPending();
-        if (surface is null) { skyResources?.Dispose(); effects?.Dispose(); retiringResourceContext?.Dispose(); return; }
         _d3d11Retirement = RetireWithEffects();
         async Task RetireWithEffects()
         {
-            try { await RetireD3D11MapAsync(surface, skyResources); }
-            finally { effects?.Dispose(); retiringResourceContext?.Dispose(); }
+            bool nativeClosed = surface is null;
+            try
+            {
+                try { await RetireUniqueTacticEffectsAsync(); }
+                finally
+                {
+                    // A failed per-owner retirement cannot leave the retained
+                    // native Map alive while its shared resources are disposed.
+                    if (surface is not null)
+                    {
+                        await RetireD3D11MapAsync(surface, skyResources);
+                        nativeClosed = true;
+                    }
+                    else skyResources?.Dispose();
+                }
+            }
+            finally
+            {
+                try { effects?.Dispose(); retiringResourceContext?.Dispose(); }
+                finally
+                {
+                    if (nativeClosed) DisposeD3D11MapInputs(inputDirectory);
+                    else if (inputDirectory is not null)
+                        GD.PushWarning($"Generated map inputs retained because native close failed: {inputDirectory.Root}");
+                }
+            }
         }
+    }
+
+    private static void DisposeD3D11MapInputs(D3D11MapInputDirectory? directory)
+    {
+        try { directory?.Dispose(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { GD.PushWarning($"Generated map input cleanup failed for {directory!.Root}: {error.Message}"); }
     }
 
     private void InitializeD3D11MapLocations()
     {
         var markers = new D3D11MapMarkers { Name = "NativeMapLocations", ZIndex = 1, Visible = _showLocations.ButtonPressed };
         _d3d11Markers = markers;
-        var parent = _sourceMainCameraAspect as Control ?? _surface.GetParent() as Control ?? this;
+        if(_facilityMapInfoQuery is {} facilityQuery)markers.SetFacilityMapInfoQuery(facilityQuery);
+        var parent = StrategicMapOverlayParent();
         parent.AddChild(markers); markers.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         markers.Configure(_repository, _logicalWorld!, _projection!, TerrainMeshes!.Source, ForceMarkerColors,
             _text.SourceLocale, _playerForceId, _sourceSnapshot!);

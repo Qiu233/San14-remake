@@ -13,6 +13,8 @@ internal static class BaseCapturePublicationSource
         var working = OwnedArmyReturnCurrentFields.PublishCurrent(state, current);
         working = OwnedArmyLifecycleDetachedInputs.PublishCurrent(working, current);
         working = PersonAssignmentPrecallInputs.PublishCurrent(working, current);
+        working = CityCaptureTerritorySource.PublishStateAdvantageFlags(working, current);
+        if (current.ReadOwnedPersonCommandManager() is { } personnel) working = working with { PersonnelCommands = personnel };
         working = BaseCaptureCurrentInputs.PublishCurrent(working, current);
         working = CaptureBaseThreatInputs.PublishCurrent(working, current);
         var areas = new Dictionary<int, AreaState>(working.Areas);

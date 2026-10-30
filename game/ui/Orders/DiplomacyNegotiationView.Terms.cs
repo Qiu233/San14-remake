@@ -25,8 +25,15 @@ internal partial class DiplomacyNegotiationView
         IReadOnlyDictionary<int,DetailForceAppearance?> appearances, PreviewText text,
         Func<bool> admitted, Action<bool> submit, Action showForce, Action showMap,
         Action<DiplomacyNegotiationConditionKind> chooseCondition, Action clear,
-        Action calculateIntelligence, Action<int> setIntelligence)
+        Action calculateIntelligence, Action<int> setIntelligence,
+        DiplomacyPeopleVisuals? people = null)
     {
+        if (draft.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
+        {
+            ConfigureAdditionalTerms(repository,candidate,draft,playerForceId,appearances,text,admitted,submit,
+                showForce,showMap,chooseCondition,clear,calculateIntelligence,setIntelligence,people);
+            return;
+        }
         terms=draft;this.admitted=admitted;this.submit=submit;unknown=text.Get("detail_unknown");
         playerSender=playerForceId==draft.Request.ForceId;
         Name="DiplomacyTerms";ZIndex=90;MouseFilter=MouseFilterEnum.Stop;
@@ -145,6 +152,7 @@ internal partial class DiplomacyNegotiationView
     internal void ApplyTerms()
     {
         if(terms is not {} draft||abandoned)return;
+        if(additionalArrival){ApplyAdditionalTerms();return;}
         string Number(int? value)=>value?.ToString(CultureInfo.InvariantCulture)??unknown;
         string Format(int id,int amount)=>termsMessage!(1,id).Replace("%d",Number(amount));
         conditionText!.Text=draft.Page.NamedCondition??(draft.Offer.Gold!=0?Format(0x05F8,draft.Offer.Gold):
@@ -161,6 +169,7 @@ internal partial class DiplomacyNegotiationView
 
     private void SetTermsBusy()
     {
+        if(additionalArrival){SetAdditionalTermsBusy();return;}
         if(terms is not {} draft||clearCondition is null||intelligence is null||
             intelligenceSlider is null||intelligenceRequired is null)return;
         bool unavailable=abandoned||busy;

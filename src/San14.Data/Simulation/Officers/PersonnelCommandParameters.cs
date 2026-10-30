@@ -9,6 +9,8 @@ public static class PersonnelCommandParameters
     public const string Version = "simulation.personnel.version";
     public const string ItemCommandBooks = "simulation.personnel.item-command-books";
     public const string ConfiscationPenalty = "simulation.personnel.confiscation-penalty";
+    public const string MovementCommandBooks = "simulation.personnel.movement-command-books";
+    public const string OfficeLoyaltyPerGrade = "officer-office:grade-loyalty-multiplier";
     public const string Revision = "san14:ce-item-personnel-v1";
 
     internal static GameState InstallFresh(GameState state)
@@ -17,7 +19,12 @@ public static class PersonnelCommandParameters
             state.NativeArmySimulation is not { Parameters.Language: "SC" or "TC" } native)
             throw new InvalidDataException("Personnel parameters require a fresh CE campaign.");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
-        foreach (var pair in new[] { (Version, 1), (ItemCommandBooks, 1), (ConfiscationPenalty, 5) })
+        //Independent SC and TC initial images establish these values. The
+        //actual SC Dispatch/Summon bodies debit the same signed cost once
+        //after all home groups. Install only at this real fresh boundary;
+        //current saved values are read below, never filled by a query/load.
+        foreach (var pair in new[] { (Version, 1), (ItemCommandBooks, 1), (ConfiscationPenalty, 5),
+            (MovementCommandBooks, 1), (OfficeLoyaltyPerGrade, 2) })
             if (native.Parameters.Float32Values.ContainsKey(pair.Item1) || !values.TryAdd(pair.Item1, pair.Item2))
                 throw new InvalidDataException("Personnel parameters already have an owner.");
         return state with { NativeArmySimulation = native with

@@ -188,8 +188,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             string key = "simulation.normal-turn.final-orders." + name;
             if (bank.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
-            if (bank.Language != "TC") throw Missing("locale_parameter_" + name);
-            return tc; //Immutable file-backed TC rules, not live BSS observations.
+            return NormalTurnFinalOrderParameters.ReadInitial(bank.Language, name, tc);
         }
         private static T N<T>(T? value, string name) where T : struct => value ?? throw Missing(name);
         private static InvalidDataException Missing(string name) => FinalOrdersMissing(name);

@@ -1,3 +1,4 @@
+#include "../../Runtime/PreparedFileInput.h"
 // Original Effect2 consumer. CPU writers have already emitted the one sorted
 // shared stream; this native experiment only submits its original GPU ABI.
 struct NativeEffectPass {
@@ -48,18 +49,18 @@ static NativeEffectInputs loadNativeEffectInputs(ID3D11Device* device,const fs::
         check(device->CreateVertexShader(vs.data(),vs.size(),nullptr,&pass.vertex),"Effect original VS");
         check(device->CreatePixelShader(ps.data(),ps.size(),nullptr,&pass.pixel),"Effect original PS");
         struct Element { std::string semantic;UINT index,format,slot,offset,classification,step; };
-        std::vector<Element> fields;std::ifstream layout(directory/"layout.txt");Element field;
+        std::vector<Element> fields;NativePreparedInputFile layout(directory/"layout.txt");Element field;
         while(layout>>field.semantic>>field.index>>field.format>>field.slot>>field.offset>>field.classification>>field.step)fields.push_back(field);
         if(fields.empty())throw std::runtime_error("Original Effect input layout absent");
         std::vector<D3D11_INPUT_ELEMENT_DESC> elements;
         for(const auto& e:fields)elements.push_back({e.semantic.c_str(),e.index,DXGI_FORMAT(e.format),e.slot,e.offset,D3D11_INPUT_CLASSIFICATION(e.classification),e.step});
         check(device->CreateInputLayout(elements.data(),UINT(elements.size()),vs.data(),vs.size(),&pass.layout),"Effect original physical input layout");
-        std::ifstream constants(directory/"cbuffers.txt");std::string stage,file;UINT slot;
+        NativePreparedInputFile constants(directory/"cbuffers.txt");std::string stage,file;UINT slot;
         while(constants>>stage>>slot>>file)pass.constants.push_back({stage=="vs",slot,buffer(device,load(directory/file),D3D11_BIND_CONSTANT_BUFFER)});
         if(pass.constants.empty())throw std::runtime_error("Original Effect constants absent");
         out.passes.emplace(index,std::move(pass));
     }
-    std::ifstream rows(source/"draws.tsv");std::string line,family,command;UINT ordinal,slot,stride;
+    NativePreparedInputFile rows(source/"draws.tsv");std::string line,family,command;UINT ordinal,slot,stride;
     if(!rows)throw std::runtime_error("Original Effect queue absent");
     while(std::getline(rows,line)) {
         if(line.empty()||line[0]=='#')continue;
@@ -134,5 +135,4 @@ static void drawNativeEffects188(ID3D11Device* device,ID3D11DeviceContext* conte
     context->OMSetBlendState(entryBlend.Get(),entryFactor,entryMask);context->RSSetState(entryRaster.Get());
     ID3D11Buffer* noVertices=nullptr;UINT zero=0;
     context->IASetVertexBuffers(0,1,&noVertices,&zero,&zero);
-    std::cout<<"source Effects188 draws="<<input.draws.size()<<" sprite="<<sprites<<" mesh="<<meshes<<" original joint order; AA0AA0 saved fields restored\n";
 }

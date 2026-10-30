@@ -9,6 +9,7 @@ public partial class Main
 
     private void AttachCampaignApplication(bool playable)
     {
+        if(playable) AttachApplicationProfile(_campaignComposition!,_session!.World);
         _terminalReturn = null;
         _campaignApplication?.Detach(playable ? _campaignComposition?.ApplicationGameplay : null);
         _campaignApplication = playable ? new CampaignApplicationState(_campaignComposition!.ApplicationGameplay) : null;
@@ -34,6 +35,7 @@ public partial class Main
     {
         try
         {
+            RetireTutorialLessonForReturn();
             ResetMilitaryDeploymentComposition();
             LeaveSceneAudioContext();
             ClosePlayablePeriodReport();

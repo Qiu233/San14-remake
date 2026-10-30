@@ -16,6 +16,7 @@ internal partial class DeploymentSetupView : Control
     private UiSourceHeader sourceHeader = null!;
     private Action? close;
     private DeploymentResourceHeader resourceHeader=null!;
+    internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
 
 
     private DeploymentSummaryList summaries=null!;
@@ -31,10 +32,11 @@ internal partial class DeploymentSetupView : Control
     private Action<DeploymentSetupBatchAction>? batchRequested;
     private bool abandoned;
     internal DeploymentUnitInformationView UnitInformation {get;private set;}=null!;
+    internal DeploymentOfficerInformationView OfficerInformation {get;private set;}=null!;
     internal void RequestClose() => close?.Invoke();
     internal void Abandon()
     {
-        abandoned=true;close=null;decide=null;batchRequested=null;
+        abandoned=true;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
         foreach(var button in batchButtons)button.Disabled=true;
         balloonOwner=null;balloon?.DisplayText(null);
         Hide();
@@ -51,14 +53,10 @@ internal partial class DeploymentSetupView : Control
 
         assets = new(repository); font = new(repository, text.SourceLocale);
         shader = UiSourceSprite.CreateShader();
-        var textPresets=MapTextPresets.Create();
 
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
         canvas = new Control { Name = "SourceCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        var backdrop = new UiSourceLayout(repository, 0xAEF1609E);
-        // Static endpoint of this page's original blur_medium_in action.
-        backdrop.Blur(canvas, 1, backdrop.Rectangle(1), weightInput: 100);
-        backdrop.Blur(canvas, 2, backdrop.Rectangle(2), weightInput: 100);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing deployment message {id}.");
         var page = new UiSourceLayout(repository, 0xFC796D9B);
@@ -76,17 +74,9 @@ internal partial class DeploymentSetupView : Control
         Vector2 unitMount = page.Rectangle(51).Position;
         var unitPanel=new DeploymentUnitInformationView {Name="UnitInformation",Position=unitMount};
         UnitInformation=unitPanel;canvas.AddChild(unitPanel);unitPanel.Configure(repository,assets,shader,font,text,this);
-        var officerPanel=new Control { Name="OfficerInformation",Size=canvas.Size,Visible=false,MouseFilter=MouseFilterEnum.Ignore };
-        canvas.AddChild(officerPanel);
-        var officer=new UiSourceLayout(repository,0xC11503D0);
-        foreach(int i in new[]{27,28,29,32,40,46,52,54,60,66,72,74,84})
-            officer.Art(officerPanel,i,officer.Rectangle(i,unitMount),assets,shader);
-        foreach(var binding in new[]{(30,0x03D2),(16,0x023D),(33,0x042C),(34,0x042D),(35,0x042E),(55,0x02BF),(75,0x02BC),(85,0x02BD)})
-            officer.Text(officerPanel,binding.Item1,unitMount,Message(binding.Item2),font,textPresets[13]);
-        var personRadar=new UiSourceLayout(repository,0x7E8AD398);
-        Vector2 personRadarMount=officer.Rectangle(3,unitMount).Position;
-        foreach(int i in new[]{1,4}) personRadar.Art(officerPanel,i,personRadar.Rectangle(i,personRadarMount),assets,shader);
-        for(int i=0;i<5;i++)personRadar.Text(officerPanel,5+i*2,personRadarMount,Message(0x0238+i),font,textPresets[13]);
+        var officerPanel=new DeploymentOfficerInformationView {Name="OfficerInformation",Position=unitMount,Visible=false};
+        OfficerInformation=officerPanel;canvas.AddChild(officerPanel);
+        officerPanel.Configure(repository,assets,shader,font,text,this);
         var tabs=new List<Action>();
         Tab(0x172EDC24, page.Rectangle(41), Message(0x035D), true);
         Tab(0xD45873AA, page.Rectangle(43), Message(0x035E), false);
@@ -225,7 +215,7 @@ internal partial class DeploymentSetupView : Control
     }
     public override void _ExitTree()
     {
-        close=null;decide=null;batchRequested=null;
+        close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
         font?.Dispose(); assets?.Dispose(); shader?.Dispose();
     }
 }

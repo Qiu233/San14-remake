@@ -7,11 +7,16 @@ internal partial class D3D11ArmyMapLabels
     private readonly Dictionary<int, TacticAction> tacticActions = [];
     private Vector2? tacticActionOffset;
 
-    internal void StartTacticName(int unit, OrdinaryTacticNamePublication name) => Action(unit)?.Name.StartName(name);
-    internal void StartTacticNumber(int unit, uint amount, int palette) => Action(unit)?.Number.TryStartNumber(amount, palette);
+    internal void StartTacticName(int receiver, OrdinaryTacticNamePublication name) => Action(receiver)?.Name.StartName(name);
+    internal void StartTacticNumber(int receiver, uint amount, int palette) => Action(receiver)?.Number.TryStartNumber(amount, palette);
 
-    private TacticAction? Action(int unit)
+    private bool DirectionSuppressesUnit(int unit) =>
+        _armyReceiversByUnitId.TryGetValue(unit, out int receiver) &&
+        directionSuppression?.ContainsKey(new(OrdinaryTacticViewKind.Army, receiver)) == true;
+
+    private TacticAction? Action(int receiver)
     {
+        if (_armyUnitIdsByReceiver is null || !_armyUnitIdsByReceiver.TryGetValue(receiver, out int unit)) return null;
         if (!_rows.TryGetValue(unit, out var row) || row.ArmyValid != true || !_cards.ContainsKey(unit)) return null;
         if (tacticActions.TryGetValue(unit, out var existing)) return existing;
         var name = new ArmyTacticNameView { Name = "Tactic_" + unit, ZIndex = 40 };
@@ -42,8 +47,10 @@ internal partial class D3D11ArmyMapLabels
             var parentSize = new Vector2(_source.UnitAction.Nodes[0].Value44, _source.UnitAction.Nodes[0].Value46);
             action.Name.Position = origin + new Vector2((parentSize.X - action.Name.Size.X) / 2, -100 - action.Name.Size.Y / 2);
             action.Number.Position = origin + new Vector2((parentSize.X - action.Number.Size.X) / 2, 0);
-            action.Name.Visible = card.Visible && action.Name.IsPlaying;
-            action.Number.Visible = card.Visible && action.Number.IsPlaying;
+            //The info suppression counter hides the Army card, not its
+            //independent UnitAction result child in Direction's final group.
+            action.Name.Visible = card.ProjectedVisible && action.Name.IsPlaying;
+            action.Number.Visible = card.ProjectedVisible && action.Number.IsPlaying;
         }
     }
 }

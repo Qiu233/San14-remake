@@ -112,7 +112,7 @@ public sealed partial class CityDomesticDraft
         try
         {
             CheckPersonSelection(selection); var ordered = PersonOrder(selection, order);
-            var source = new CityDomesticPersonCellSource(_state, _current, _definitions, _governorInputs, _scenario, _personResources, _language);
+            var source = new CityDomesticPersonCellSource(_state, _current, _definitions, _governorInputs, _scenario, _personResources, _language, _userSelectionServicePresent);
             var rows = new List<TRow>(ordered.Length);
             foreach (int occurrence in ordered) rows.Add(read(source, selection.Candidates[occurrence], occurrence));
             return AreaAdministrationQuery<CityDomesticPersonPage<TRow>>.Known(new(selection, Revision,
@@ -137,7 +137,11 @@ public sealed partial class CityDomesticDraft
             var years = PersonCell(() => source.ServiceYears(c, true));
             var paint = PersonCell<int?>(() => source.RowState(c));
             return new CityDomesticPersonAffiliationRow(occurrence, c, name, paint, force, district, home, location,
-                status, responsibility, loyalty, officeName, metric, years);
+                status, responsibility, loyalty, officeName, metric, years)
+            {
+                CommandCapacity=PersonCell<int?>(()=>source.CommandCapacity(c)),
+                CommandCapacityEmphasized=PersonCell(()=>source.CommandCapacityEmphasized(c,_panels))
+            };
         });
     public AreaAdministrationQuery<CityDomesticPersonPage<CityDomesticPersonAbilityRow>> QueryPersonAbilityPage(
         CityDomesticPersonSelection selection, IReadOnlyList<int> order) => PersonPage(selection, order, (source, c, occurrence) =>
@@ -157,7 +161,7 @@ public sealed partial class CityDomesticDraft
             var name = PersonCell(() => source.Name(c)); var stage = PersonCell(() => source.RankName(c));
             var merit = PersonCell(() => source.Merit(c, true));
             var command = PersonCell(() => source.BonusDisplay(c, () => source.CreditBonus(c, 1)));
-            var areas = PersonCell(() => source.BonusDisplay(c, () => source.AdditionalBonus(c, () => Additional(c.PhysicalSlot))));
+            var areas = PersonCell(() => source.BonusDisplay(c, () => source.AdditionalBonus(c)));
             var credit3 = PersonCell(() => source.BonusDisplay(c, () => source.CreditBonus(c, 3)));
             var paint = PersonCell<int?>(() => source.RowState(c));
             return new CityDomesticPersonMeritRow(occurrence, c, name, paint, stage, merit, command, areas, credit3);

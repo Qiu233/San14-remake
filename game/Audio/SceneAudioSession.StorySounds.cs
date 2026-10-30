@@ -8,7 +8,19 @@ public partial class SceneAudioSession
         RequireEngineThread(); cancellation.ThrowIfCancellationRequested();
         if (_service is null || _repository is null || _sceneCancellation is null || SceneKey is null)
             throw new InvalidOperationException("story.audio.sound_scene_owner");
-        if (command.Flags != 0 || command.ScalarA != 0 || command.ScalarB != 0)
+        if (command.Flags != 0 || command.ScalarB != 0 || !float.IsFinite(command.ScalarA))
+            throw new InvalidDataException("story.audio.sound_manager_parameters");
+        switch(command.AudioKind)
+        {
+            case StoryAudioKind.ChangeSelectedSoundVolumes:
+                _service.ChangeSelectedStorySoundVolumes(command.ScalarA);return;
+            case StoryAudioKind.FadeOutMatchingSounds:
+                _service.ControlMatchingStorySounds(command.Id,command.ScalarA);return;
+            case StoryAudioKind.StopMatchingSounds:
+                _service.ControlMatchingStorySounds(command.Id,null);return;
+        }
+        bool fadeIn=command.AudioKind==StoryAudioKind.FadeInSoundIfNotSkipped;
+        if(!fadeIn&&command.ScalarA!=0)
             throw new InvalidDataException("story.audio.sound_manager_parameters");
         switch (command.AudioKind)
         {
@@ -16,7 +28,8 @@ public partial class SceneAudioSession
             case StoryAudioKind.StopSoundSlot: _service.StopOrdinarySoundSlot(command.Id); return;
             case StoryAudioKind.StopActiveSoundSlots: _service.StopActiveOrdinarySounds(); return;
             case StoryAudioKind.Sound:
-            case StoryAudioKind.SoundIfNotSkipped: break;
+            case StoryAudioKind.SoundIfNotSkipped:
+            case StoryAudioKind.FadeInSoundIfNotSkipped: break;
             default: throw new InvalidDataException("story.audio.sound_operation");
         }
         if (NormalSoundSource.CueHash(command.Id) is null || _service.IsRecentOrdinarySound(command.Id)) return;
@@ -37,7 +50,7 @@ public partial class SceneAudioSession
             throw new OperationCanceledException("Story sound belongs to a retired audio scene.");
         //Queue acceptance is synchronous on the actual audio service owner.
         //After this point only the map/scene lifetime controls the sound.
-        _service.QueueStorySound(command.Id, selected, owner, owner.Token);
+        _service.QueueStorySound(command.Id, selected, owner, owner.Token,fadeIn?command.ScalarA:null);
     }
 
     internal void StopStorySounds()

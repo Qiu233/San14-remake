@@ -9,10 +9,12 @@ public sealed partial class GameSimulation
 {
     public GameSimulation(GameState initialState)
     {
-        if (initialState.NativePeriodContinuation is not null || initialState.NativeNormalTurnContinuation is not null)
+        if (initialState.NativePeriodContinuation is not null || initialState.NativeNormalTurnContinuation is not null ||
+            initialState.ManualTacticExecutionContinuation is not null)
             throw new InvalidDataException("A normal period candidate requires its session continuation owner.");
         StateValidator.Validate(initialState);
         State = GameStateCopy.Copy(initialState);
+        LastStorySequence = State.CampaignEventCommandPlayback?.Invocation.Story.Sequence ?? State.EditedEventPlayback?.Story.Sequence ?? 0;
     }
 
     public GameState State { get; private set; }
@@ -22,14 +24,33 @@ public sealed partial class GameSimulation
         => Apply(order, rules, context, authority, null);
 
     public CommandResult Apply(GameOrder order, IOrderRules rules,
-        CommandContext context, IOrderAuthority authority, CampaignAppRandomState? appRandomSnapshot)
+        CommandContext context, IOrderAuthority authority, CampaignAppRandomState? appRandomSnapshot,
+        GameState? preparedCandidate = null)
     {
         if (_normalPeriod is not null)
             return ConfirmNormalPeriod(order, rules, context, authority, appRandomSnapshot);
+        if (State.CampaignEventCommandPlayback is not null)
+        {
+            if (State.PersonDeathContinuation?.PendingSuccession is not { } request ||
+                order is not ConfirmRulerSuccessionOrder decision || decision.ForceId != request.ForceId)
+                return CommandResult.Reject("The campaign is awaiting its ordinary event command.", "command.pending_event");
+            var decisionResult = GameEngine.ApplyCandidate(State, order, rules, context, authority);
+            if (decisionResult.Accepted) State = decisionResult.State!;
+            return decisionResult;
+        }
+        if (_progress?.ManualTactic is { Candidate.ManualTacticExecutionContinuation: not null } manual)
+            return ConfirmManualTacticDecision(manual, order, rules, context, authority);
         RequireNoProgress();
         // The live host lends its current App stream to this same private
         // command transaction. Rejection retains the exact committed world.
-        GameState source = appRandomSnapshot is null ? State : State with { CampaignAppRandom32 = appRandomSnapshot };
+        GameState source;
+        if (preparedCandidate is not null)
+        {
+            CheckAuxiliaryTransition(State, preparedCandidate);
+            source = appRandomSnapshot is null ? preparedCandidate :
+                preparedCandidate with { CampaignAppRandom32 = appRandomSnapshot };
+        }
+        else source = appRandomSnapshot is null ? State : State with { CampaignAppRandom32 = appRandomSnapshot };
         CommandResult result = GameEngine.ApplyCandidate(source, order, rules, context, authority);
         if (result.Accepted) State = result.State!;
         return result;
@@ -69,10 +90,18 @@ public sealed partial class GameSimulation
         return State;
     }
 
-    public GameState FinishReport(IReportingRules rules)
+    public GameState FinishReport(IReportingRules rules, CampaignAppRandomState? appRandomSnapshot = null,
+        GameState? preparedCandidate = null)
     {
         RequireNoProgress();
-        GameState result = GameEngine.FinishReportOwned(State, GameStateCopy.Copy(State), rules);
+        GameState source = State;
+        if (preparedCandidate is not null)
+        {
+            CheckAuxiliaryTransition(State, preparedCandidate);
+            source = preparedCandidate;
+        }
+        if (appRandomSnapshot is not null) source = source with { CampaignAppRandom32 = appRandomSnapshot };
+        GameState result = GameEngine.FinishReportOwned(State, GameStateCopy.Copy(source), rules);
         result = result with { PreparedActionReport = null };
         State = result;
         return State;

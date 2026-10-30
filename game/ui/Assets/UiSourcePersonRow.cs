@@ -7,7 +7,7 @@ internal partial class UiSourcePersonRow : UiSourceButton
 {
     private UiSourceText? _check;
     private string _checkedGlyph = "";
-    private readonly List<(UiSourceText Label, MapFontProfile Profile, bool Emphasized)> _labels = [];
+    private readonly List<(UiSourceText Label, MapFontProfile Profile, bool Emphasized, int? SourcePreset)> _labels = [];
     private Action<int>? _applyTextState;
     private bool? _alteredHealth = false;
 
@@ -24,12 +24,11 @@ internal partial class UiSourcePersonRow : UiSourceButton
         bool styleChanged=false;
         for(int i=0;i<cells.Count;i++)
         {
-            var (label,profile,emphasized)=_labels[i];
-            label.Text=cells[i].Text;
-            label.FirstGlyphColour=cells[i].FirstGlyphColour;
-            if(emphasized!=cells[i].Emphasized)
+            var (label,profile,emphasized,preset)=_labels[i];
+            ApplyText(label,cells[i]);
+            if(emphasized!=cells[i].Emphasized || preset!=cells[i].SourcePreset)
             {
-                _labels[i]=(label,profile,cells[i].Emphasized);
+                _labels[i]=(label,profile,cells[i].Emphasized,cells[i].SourcePreset);
                 styleChanged=true;
             }
         }
@@ -78,9 +77,8 @@ internal partial class UiSourcePersonRow : UiSourceButton
                 Position = new(x + 10, 10), Size = new(column.Width - 20, 28) };
             AddChild(label);
             label.Configure(font, profile.WithPreset(presets[8]));
-            label.Text = cells[i].Text;
-            label.FirstGlyphColour = cells[i].FirstGlyphColour;
-            _labels.Add((label, profile, cells[i].Emphasized));
+            ApplyText(label,cells[i]);
+            _labels.Add((label, profile, cells[i].Emphasized, cells[i].SourcePreset));
             x += column.Width;
         }
         _applyTextState=ApplyTextState;
@@ -93,9 +91,9 @@ internal partial class UiSourcePersonRow : UiSourceButton
             int ordinary = _alteredHealth == true && state < 3 ? state == 2 ? 68 : 67 : 8 + Math.Min(state, 3);
             _check.Configure(font, checkProfile.WithPreset(presets[ordinary]));
             _check.QueueRedraw();
-            foreach (var (label, profile, emphasized) in _labels)
+            foreach (var (label, profile, emphasized, sourcePreset) in _labels)
             {
-                int preset = emphasized ? state is 0 or 1 ? 65 : state == 2 ? 66 : 11 : ordinary;
+                int preset = sourcePreset ?? (emphasized ? state is 0 or 1 ? 65 : state == 2 ? 66 : 11 : ordinary);
                 label.Configure(font, profile.WithPreset(presets[preset]));
                 label.QueueRedraw();
             }
@@ -105,5 +103,12 @@ internal partial class UiSourcePersonRow : UiSourceButton
     private void RefreshCheck()
     {
         if (_check is not null) _check.Text = Selected ? _checkedGlyph : "";
+    }
+
+    private static void ApplyText(UiSourceText label, DeploymentPersonCell cell)
+    {
+        if (cell.SourceFormattedText is { } formatted) label.SetPersonnelPreviewLine(formatted);
+        else label.Text = cell.Text;
+        label.FirstGlyphColour = cell.FirstGlyphColour;
     }
 }

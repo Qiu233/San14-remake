@@ -33,7 +33,9 @@ internal static class CityDomesticPersonListContent
             {f.Force(r.ForceName), new(f.PatternNumber(r.DistrictNumber, 0x0494)), new(f.Text(r.HomeName, nullIsNotApplicable: true)),
              new(f.Text(r.CurrentLocationName)), new(f.Status(r.ServiceStatus)), new(f.Responsibility(r.PrimaryResponsibility)),
              new(f.Number(r.Loyalty, nullIsNotApplicable: true)), new(f.Text(r.OfficeName, nullIsNotApplicable: true)),
-             new(f.Number(r.OtherMetric, nullIsNotApplicable: true)), new(f.Number(r.ServiceYears, nullIsNotApplicable: true))})).ToArray();
+             new(f.Number(r.CommandCapacity), Emphasized:r.CommandCapacityEmphasized.Available && r.CommandCapacityEmphasized.Value),
+             new(f.Number(r.OtherMetric, nullIsNotApplicable: true)), new(f.Number(r.ServiceYears, nullIsNotApplicable: true))}) with
+            {StyleUnresolvedInput=r.CommandCapacityEmphasized.UnresolvedInput}).ToArray();
     }
 
     internal static IReadOnlyList<CityDomesticPersonEntry> Create(GameResourceRepository repository,
@@ -72,7 +74,7 @@ internal static class CityDomesticPersonListContent
              f.Text(r.MotherName), f.Text(r.PartnerName), f.Text(r.SwornName)])).ToArray();
     }
 
-    private sealed class Formatting(GameResourceRepository repository, PreviewText text, GameState world)
+    internal sealed class Formatting(GameResourceRepository repository, PreviewText text, GameState world)
     {
         private readonly MessageDocument messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages;
         private readonly string unknown = text.Get("detail_unknown");
@@ -109,7 +111,8 @@ internal static class CityDomesticPersonListContent
             : field.Value is >= 0 and <= 3 ? Message(0x0123 + field.Value.Value, 0) : "";
         internal string Sex(AreaAdministrationQuery<int?> field) => !field.Available ? unknown
             : field.Value is 0 or 1 ? Message(0x0495 + field.Value.Value) : field.Value is null ? "" : unknown;
-        internal string Task(AreaAdministrationQuery<int?> field) => field.Available && field.Value is null ? "" : unknown;
+        internal string Task(AreaAdministrationQuery<int?> field) => !field.Available ? unknown
+            : field.Value is null ? Message(0x0353) : field.Value == -1 ? "" : Message(field.Value.Value, 0);
         internal string Remaining(AreaAdministrationQuery<CityDomesticPersonTaskRemaining?> field) => !field.Available ? unknown
             : field.Value is not { } value ? "" : value.NotApplicable ? Message(0x0353)
             : value.Value?.ToString(CultureInfo.InvariantCulture) ?? unknown;
@@ -150,6 +153,7 @@ internal static class CityDomesticPersonListContent
         10 => CityDomesticPersonSortColumn.Intelligence, 11 => CityDomesticPersonSortColumn.Politics,
         12 => CityDomesticPersonSortColumn.Charm, 18 => CityDomesticPersonSortColumn.Health,
         20 => CityDomesticPersonSortColumn.ItemCount, 21 => CityDomesticPersonSortColumn.Office,
+        22 => CityDomesticPersonSortColumn.CommandCapacity,
         23 => CityDomesticPersonSortColumn.OtherMetric, 24 => CityDomesticPersonSortColumn.Doctrine,
         28 => CityDomesticPersonSortColumn.Age, 29 => CityDomesticPersonSortColumn.Sex,
         30 => CityDomesticPersonSortColumn.Father, 31 => CityDomesticPersonSortColumn.Mother,

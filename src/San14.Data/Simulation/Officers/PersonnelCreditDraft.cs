@@ -39,10 +39,11 @@ public sealed class PersonnelCreditDraft
     internal PersonnelCreditDraft(int forceId, bool rankup, CreditCommandCurrentRules rules,
         Func<CreditCommandPerson, bool, byte, PersonnelCreditRow> project,
         Func<CreditCommandPerson, int, byte> automatic,
-        Func<IReadOnlyList<int>, IReadOnlyList<PersonnelCreditDoctrineReserve>> reserves)
+        Func<IReadOnlyList<int>, IReadOnlyList<PersonnelCreditDoctrineReserve>> reserves,
+        PersonnelAdministrationSelectionSource selectionSource)
     {
         this.forceId = forceId; Rankup = rankup; this.rules = rules; this.project = project;
-        this.automatic = automatic; this.reserves = reserves;
+        this.automatic = automatic; this.reserves = reserves; SelectionSource = selectionSource;
         foreach (var person in rules.People) codes.Add(person.Id, CreditChoiceSource.Original(person));
         budget = ReadBudget(0); Refresh();
     }
@@ -51,6 +52,7 @@ public sealed class PersonnelCreditDraft
         this.forceId = forceId; Rankup = rankup; UnresolvedOwner = missing;
         budget = new(0, null, null, null, null, null, null, null, missing);
     }
+    internal PersonnelAdministrationSelectionSource? SelectionSource { get; }
     public bool Rankup { get; }
     public int ForceId => forceId;
     public int DistrictId => rules?.DistrictId ?? 0;
@@ -72,7 +74,12 @@ public sealed class PersonnelCreditDraft
             officerIds.Any(id => rules.People.All(person => person.Id != id))) return false;
         var next = ReadBudget(officerIds.Count);
         if (next.MaximumSelection is not int maximum || officerIds.Count > maximum) return false;
-        selected = officerIds.ToImmutableArray();
+        //74B630 reapplies69D020's rank comparator after the child returns.
+        //The captured rules.People already has exactly that immutable order.
+        //74B1C0 instead keeps the accepted body's checked order.
+        var membership = officerIds.ToHashSet();
+        selected = Rankup ? rules.People.Where(person => membership.Contains(person.Id))
+            .Select(person => person.Id).ToImmutableArray() : officerIds.ToImmutableArray();
         Refresh(); return true;
     }
     public bool Toggle(int officerId) => SelectTargets(selected.Contains(officerId)

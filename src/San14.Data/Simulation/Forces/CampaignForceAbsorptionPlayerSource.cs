@@ -107,12 +107,32 @@ public sealed partial class ArmyCampaignRuleAdapter
                     History(head, string.Empty, Format(0x5EB0, new(Person0: RulerIdentity(head),
                         Force0: Ordinal(head), Force1: Ordinal(member), Integers: [absorbed.Count - 1])));
             }
-            foreach (var member in absorbed) if (member != head)
-                state = package.ApplyNormalTurnForceAbsorptionCurrent(state, current, pool, member, head);
+            try
+            {
+                return CompleteMembers(head, absorbed.Where(member => member != head).ToArray(), season.ThirdDate,
+                    visible, membershipText);
+            }
+            finally { Release(members); Release(candidates); }
+        }
 
+        internal GameState Resume(PlayerCoalitionAbsorptionTail tail)
+            => CompleteMembers(new(tail.HeadForcePhysicalSlot),
+                tail.RemainingMemberForcePhysicalSlots.Select(id => new ForceReference(id)).ToArray(),
+                tail.CooldownSourceDate, tail.Visible, tail.MembershipText);
+
+        private GameState CompleteMembers(ForceReference head, IReadOnlyList<ForceReference> remaining,
+            NativeMapSeasonDate sourceDate, bool visible, string? membershipText)
+        {
+            for (int index = 0; index < remaining.Count; index++)
+            {
+                state = package.ApplyNormalTurnForceAbsorptionCurrent(state, current, pool, remaining[index], head);
+                if (HasPendingForceAbsorptionCurrent(state))
+                    return state with { PlayerCoalitionAbsorptionTail = new(Ordinal(player), Ordinal(head),
+                        remaining.Skip(index + 1).Select(Ordinal).ToImmutableArray(), sourceDate, visible, membershipText) };
+            }
             //32C0F0/33B9E0 use the source's 360-day calendar and clear hour.
-            int ordinal = unchecked(season.ThirdDate.Year * 360 + (season.ThirdDate.Month - 1) * 30 +
-                season.ThirdDate.Day - 1 + 90);
+            int ordinal = unchecked(sourceDate.Year * 360 + (sourceDate.Month - 1) * 30 +
+                sourceDate.Day - 1 + 90);
             int year = ordinal / 360, rest = Math.Max(ordinal - year * 360, 0);
             var native = state.NativeArmySimulation ?? throw Missing("world_owner");
             state = state with { NativeArmySimulation = native with { World = native.World with
@@ -182,8 +202,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = SpendDiplomacyDistrictCurrent(state, current, district, budget - target);
             state = package.ApplyNormalTurnForceDevelopmentMomentumCurrent(state, current, head, 6);
             RaiseLoyalty(player, 100);
-            Release(members); Release(candidates);
-            return state;
+            return state with { PlayerCoalitionAbsorptionTail = null };
         }
 
         private HistoryMessageOperands MemberOperands(IReadOnlyList<ForceReference> members, bool includePlayer)

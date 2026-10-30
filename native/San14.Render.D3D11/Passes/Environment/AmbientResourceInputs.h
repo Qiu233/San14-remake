@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraTransform.h"
 #include <array>
 #include <cstdint>
@@ -26,7 +27,7 @@ struct AmbientMaterialState {
 };
 namespace Interop {
 inline AmbientResourceDescription readAmbientResourceDescription(const std::filesystem::path& path) {
-    std::ifstream stream(path,std::ios::binary);
+    NativePreparedInputFile stream(path,std::ios::binary);
     auto word=[&](){std::uint32_t value{};stream.read(reinterpret_cast<char*>(&value),4);
         if(!stream)throw std::runtime_error("Incomplete ambient ASR1 resources");return value;};
     if(word()!=0x31525341u)throw std::runtime_error("Ambient ASR1 resources version");
@@ -71,7 +72,7 @@ struct AmbientProgramLayout {
     std::vector<AmbientMaterialBinding> resources,samplers;
 };
 inline std::array<AmbientProgramLayout,3> readAmbientMaterialLayout(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     auto word=[&](){std::uint32_t value{};input.read(reinterpret_cast<char*>(&value),4);
         if(!input)throw std::runtime_error("Incomplete ambient AML1 material");return value;};
     if(word()!=0x314c4d41u||word()!=3)throw std::runtime_error("Ambient AML1 material version");
@@ -111,7 +112,7 @@ inline std::array<AmbientProgramLayout,3> readAmbientMaterialLayout(const std::f
     return result;
 }
 inline std::array<source_camera::Matrix,6> readAmbientBlendCameras(const std::filesystem::path& path) {
-    std::array<source_camera::Matrix,6> result{};std::ifstream input(path,std::ios::binary);
+    std::array<source_camera::Matrix,6> result{};NativePreparedInputFile input(path,std::ios::binary);
     input.read(reinterpret_cast<char*>(result.data()),sizeof(result));
     if(!input||input.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Ambient blend camera extent");
     return result;

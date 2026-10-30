@@ -5,7 +5,7 @@ using San14.Data.Formats;
 internal partial class EnvironmentSettingsView
 {
     private KeyboardBindingCatalog keyboardCatalog = null!;
-    private readonly List<(int Action, int Slot, UiSourceCommandButton Button)> keyboardButtons = [];
+    private readonly List<(int Action, int Slot, UiSourceKeyboardBindingButton Button)> keyboardButtons = [];
     private readonly List<Control> keyboardRows = [];
     private UiSourceScrollbar keyboardScroll = null!;
     private Control keyboardCaptureMask = null!;
@@ -55,7 +55,7 @@ internal partial class EnvironmentSettingsView
             {
                 int actionId = action.ActionId, selectedSlot = slot;
                 var rectangle = rowSource.Rectangle(4 + slot);
-                var button = new UiSourceCommandButton { Name = $"KeyboardBinding{actionId}_{slot}",
+                var button = new UiSourceKeyboardBindingButton { Name = $"KeyboardBinding{actionId}_{slot}",
                     Position = rectangle.Position, Size = rectangle.Size, InputAdmission = KeyboardEditable };
                 row.AddChild(button);
                 button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,

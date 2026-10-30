@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "SkyTextureIdentity.h"
 #include <array>
 #include <cstddef>
@@ -31,7 +32,7 @@ struct SkyAtmosphereInputs {
 
 namespace Interop {
 inline SkyAtmosphereSelection readSkyAtmosphereSelection(const std::filesystem::path& directory) {
-    std::ifstream input(directory/"selection.bin",std::ios::binary);
+    NativePreparedInputFile input(directory/"selection.bin",std::ios::binary);
     std::array<std::uint32_t,3> words{};
     input.read(reinterpret_cast<char*>(words.data()),sizeof(words));
     if(!input||words[0]!=0x31534153u||input.peek()!=std::char_traits<char>::eof())
@@ -39,7 +40,7 @@ inline SkyAtmosphereSelection readSkyAtmosphereSelection(const std::filesystem::
     return {words[1],words[2]};
 }
 inline SkyAtmosphereInputs readSkyAtmosphereInputs(const std::filesystem::path& directory) {
-    std::ifstream input(directory / "settings.bin", std::ios::binary);
+    NativePreparedInputFile input(directory / "settings.bin", std::ios::binary);
     auto read = [&]<class T>() {
         T value{};
         input.read(reinterpret_cast<char*>(&value), sizeof(value));
@@ -74,10 +75,10 @@ inline SkyAtmosphereInputs readSkyAtmosphereInputs(const std::filesystem::path& 
     const auto bytes = std::size_t(cells * 8);
     auto table = [&](const char* name) {
         const auto path = directory / name;
-        if (std::filesystem::file_size(path) != bytes)
+        if (std::filesystem::file_size(nativePreparedFilePath(path)) != bytes)
             throw std::runtime_error("Atmosphere raw half4 table extent differs from its declaration");
         std::vector<std::uint8_t> payload(bytes);
-        std::ifstream raw(path, std::ios::binary);
+        NativePreparedInputFile raw(path, std::ios::binary);
         raw.read(reinterpret_cast<char*>(payload.data()), std::streamsize(bytes));
         if (!raw) throw std::runtime_error("Incomplete atmosphere raw half4 table");
         return payload;
@@ -85,7 +86,7 @@ inline SkyAtmosphereInputs readSkyAtmosphereInputs(const std::filesystem::path& 
     if (settings.transmittanceKey) result.transmittance = table("transmittance-half4.bin");
     if (settings.ambientKey) result.ambient = table("ambient-half4.bin");
 
-    std::ifstream plane(directory / "plane.tsv");
+    NativePreparedInputFile plane(directory / "plane.tsv");
     if (!plane) throw std::runtime_error("Atmosphere Plane mapping is missing");
     std::string line;
     while (std::getline(plane, line)) {

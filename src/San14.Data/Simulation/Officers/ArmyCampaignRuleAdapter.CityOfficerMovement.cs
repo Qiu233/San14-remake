@@ -9,11 +9,16 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityOfficerMovementExecut
     {
         try
         {
-            var source = CreateCityOfficerMovementSource(state, cityId, mode);
+            var source = CreateCityOfficerMovementSource(state, cityId, mode, prepareDestinationCells: true);
             var cards = new AreaAdministrationOfficerCardSource(state, source.Current, _definitions, _scenario,
                 Seed.Language, _baseCapacityInputs, _repository);
             var cache = new Dictionary<int, AreaAdministrationQuery<AreaAdministrationOfficerCard>>();
-            return AreaAdministrationQuery<CityOfficerMovementDraft>.Known(new(source.Page, ReadCard));
+            var draft=new CityOfficerMovementDraft(source.Page,ReadCard,player=>PrepareCityOfficerMovementPersonSelection(source,player),source.DestinationSelection);
+            // The parent has a sole-destination default. Opening its child
+            // selector still starts with an empty selection, independently.
+            if(mode==OfficerMoveMode.Dispatch&&source.Destinations.Count==1)
+                draft.SelectDestination(source.Destinations[0].CityId);
+            return AreaAdministrationQuery<CityOfficerMovementDraft>.Known(draft);
 
             AreaAdministrationQuery<AreaAdministrationOfficerCard> ReadCard(int id)
             {
@@ -21,6 +26,11 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityOfficerMovementExecut
                 AreaAdministrationQuery<AreaAdministrationOfficerCard> result;
                 try
                 {
+                    if (id == 0)
+                    {
+                        result = AreaAdministrationQuery<AreaAdministrationOfficerCard>.Known(cards.ReadCity(0, 0, false, 0));
+                        cache.Add(id, result); return result;
+                    }
                     if (!source.People.Any(person => person.OfficerId == id))
                         throw CityOfficerMovementSource.Missing("card_candidate");
                     int physical = source.Current.ResolveOfficerSource(id)
@@ -42,11 +52,20 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityOfficerMovementExecut
         catch (InvalidDataException missing) { return AreaAdministrationQuery<CityOfficerMovementDraft>.Unknown(missing.Message); }
     }
 
-    private CityOfficerMovementSource CreateCityOfficerMovementSource(GameState state, int cityId, OfficerMoveMode mode)
+    private CityOfficerMovementSource CreateCityOfficerMovementSource(GameState state, int cityId, OfficerMoveMode mode, bool prepareDestinationCells = false)
     {
         var current = CaptureOwnedArmyReturnWorld(state).Context;
         PersonReturnCommands.BindCurrent(state, current);
-        return new(state, current, cityId, mode);
+        Func<BaseReference, CityOfficerMovementCity>? readDestination = null;
+        if (prepareDestinationCells) readDestination = new CityOfficerMovementDestinationCurrent(this, state, current, cityId).Read;
+        var source = new CityOfficerMovementSource(state, current, cityId, mode, readDestination);
+        if (prepareDestinationCells && mode == OfficerMoveMode.Dispatch)
+        {
+            source.DestinationMap = CreateCityOfficerMovementMap(current, source.Destinations);
+            var selectionMap=CreateDiplomacyTargetMap(current,DiplomacyTargetSelectionKind.City,source.Destinations.Select(row=>row.CityId).ToArray());
+            source.DestinationSelection=()=>CreateCityOfficerMovementTargetSelection(source.Destinations,selectionMap);
+        }
+        return source;
     }
 
     CommandResult ICityOfficerMovementExecution.Move(GameState state, ForceState force,
@@ -98,15 +117,28 @@ internal sealed class CityOfficerMovementSource
     internal readonly OfficerMoveMode Mode;
     internal readonly IReadOnlyList<CityOfficerMovementCandidate> People;
     internal readonly IReadOnlyList<CityOfficerMovementCity> Destinations;
+    internal CityOfficerMovementMapQuery? DestinationMap { get; set; }
+    internal Func<DiplomacyTargetSelectionPage>? DestinationSelection { get; set; }
     private readonly BaseReference city;
     private readonly Dictionary<(int, int), PersonReturnPathResult> routes = [];
-    //6CD371/6CD3AE read the same immutable TC book byte1A49464=1,
-    //once after all actual-home groups. No per-group book debit is added.
-    internal static int ReadCost(GameState state) => state.NativeArmySimulation?.Parameters.Language is "TC" ? 1 : throw Missing("SC_command_cost");
+    //Both actual language callers debit their own current scalar once
+    //after all actual-home groups. Draft, menu, formal Move/Summon and the
+    //shared AI movement consumer all use this same saved current owner.
+    internal static int ReadCost(GameState state)
+    {
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw Missing("command_cost_owner");
+        const string key = PersonnelCommandParameters.MovementCommandBooks;
+        if (parameters.Float32Values.ContainsKey(key)) throw Missing("command_cost_type");
+        if (parameters.Int32Values.TryGetValue(key, out int saved)) return saved;
+        //Preserve the already-proved TC immutable rule for old TC archives.
+        //The independent SC initial value is not a query-time current default.
+        if (parameters.Language == "TC" && parameters.RuleVersion == SimulationRuleIdentity.ForLocale("TC")) return 1;
+        throw Missing("SC_command_cost");
+    }
     internal int Cost => ReadCost(State);
     internal int Books => State.Districts.GetValueOrDefault(DistrictId)?.OrdersRemaining ?? throw Missing("District14");
 
-    internal CityOfficerMovementSource(GameState state, SourceWorldContext current, int cityId, OfficerMoveMode mode)
+    internal CityOfficerMovementSource(GameState state, SourceWorldContext current, int cityId, OfficerMoveMode mode, Func<BaseReference, CityOfficerMovementCity>? readDestination = null)
     {
         State = state; Current = current; CityId = cityId; Mode = mode;
         if (!Enum.IsDefined(mode) || !state.Cities.ContainsKey(cityId)) throw Missing("executing_City");
@@ -144,9 +176,20 @@ internal sealed class CityOfficerMovementSource
                 var at = target ?? throw Missing("Base_pointer");
                 if (!K(current.ReadBaseNativeValidity(at), "Base_validity") || Force(at) != force) continue;
                 int location = K(current.ReadBaseObjectLink(at), "Base4E");
-                if (location != cityId) destinations.Add(new(location, Name(location)));
+                if (location != cityId) destinations.Add(readDestination?.Invoke(at) ?? new(location, Name(location)));
             }
         Destinations = destinations.AsReadOnly();
+    }
+    internal int SummonTravelDays(int officerId)
+    {
+        if (Mode != OfficerMoveMode.Summon) throw Missing("summon_days_mode");
+        var person = Person(officerId);
+        // The selector's temporary value follows the original symmetric
+        // helper, whose force context belongs to the lower-numbered base.
+        var key = (Math.Min(person.SourceCityId, CityId), Math.Max(person.SourceCityId, CityId));
+        if (!routes.TryGetValue(key, out var route))
+            routes[key] = route = PersonReturnPathSource.QueryReassignment(State, Current, key.Item1, key.Item2);
+        return route.Days ?? throw Missing(route.UnresolvedOwner ?? "summon_days");
     }
     internal CityOfficerMovementCandidate Person(int id) => People.FirstOrDefault(person => person.OfficerId == id) ?? throw Missing("selected_Person");
     internal bool CanOpen() => Books >= Cost && People.Count != 0 && (Mode == OfficerMoveMode.Summon || Destinations.Count != 0);
@@ -160,11 +203,18 @@ internal sealed class CityOfficerMovementSource
         {
             cost = Cost; books = Books;
             bool targetKnown = target is int actual && (Mode == OfficerMoveMode.Summon || Destinations.Any(city => city.CityId == actual));
+            if(targetKnown&&Mode==OfficerMoveMode.Dispatch)
+            {
+                var key=(Math.Min(CityId,target!.Value),Math.Max(CityId,target.Value));
+                if(!routes.TryGetValue(key,out var route))routes[key]=route=PersonReturnPathSource.QueryReassignment(State,Current,key.Item1,key.Item2);
+                lastArrival=route.Days??throw Missing(route.UnresolvedOwner??"travel_days");
+            }
             if (targetKnown)
                 for (int n = 0; n < rows.Length; n++)
                     if (selected.Contains(rows[n].OfficerId))
                     {
-                        var key = (rows[n].SourceCityId, target!.Value);
+                        var key = Mode==OfficerMoveMode.Dispatch?
+                            (Math.Min(rows[n].SourceCityId,target!.Value),Math.Max(rows[n].SourceCityId,target.Value)):(rows[n].SourceCityId,target!.Value);
                         if (!routes.TryGetValue(key, out var result)) routes[key] = result = PersonReturnPathSource.QueryReassignment(State, Current, key.Item1, key.Item2);
                         if (result.Days is not int days) throw Missing(result.UnresolvedOwner ?? "travel_days");
                         rows[n] = rows[n] with { TravelDays = days };
@@ -176,7 +226,8 @@ internal sealed class CityOfficerMovementSource
         }
         catch (InvalidDataException error) { missing = error.Message; }
         return new(CityId, Mode, State.Cities[CityId].Name, target, Destinations, Array.AsReadOnly(rows),
-            Array.AsReadOnly(selected.ToArray()), People.Count, cost, books, lastArrival, confirm, missing);
+            Array.AsReadOnly(selected.ToArray()), People.Count, cost, books, lastArrival, confirm, missing)
+            { DestinationMap = DestinationMap };
     }
     private ForceReference Force(BaseReference at)
     {

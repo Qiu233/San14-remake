@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../Models/ModelRenderer.h"
 #include "../../Passes/Shadows/ShadowRaster.h"
 
@@ -25,7 +26,7 @@ class GroundDetailShadowGpu {
     }
 public:
     void loadResources(ID3D11Device* device,const fs::path& root,const NativeModelInputs& models) {
-        std::ifstream rows(root/"shadow-draws.txt");
+        NativePreparedInputFile rows(root/"shadow-draws.txt");
         if(!rows)throw std::runtime_error("Ground caster resource directory absent");
         std::string identity,directory;unsigned ti,draw,tree,alpha,vsBytes,psBytes,local;
         while(rows>>identity>>ti>>draw>>tree>>alpha>>vsBytes>>psBytes>>local>>directory) {

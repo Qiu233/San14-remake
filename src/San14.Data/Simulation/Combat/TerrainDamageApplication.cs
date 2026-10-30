@@ -74,11 +74,13 @@ internal sealed class TerrainDamageApplication
                     }
                     int requested = unchecked(ready - reduction);
                     previousReturn = damage.Apply(army, requested, target => requests.Add(new(null, null)
-                    { TerrainDamagePresentation = new(TerrainDamagePresentationOperation.ArmyTargetViewRefresh, ArmyId(target), null) }));
+                    { TerrainDamagePresentation = new(TerrainDamagePresentationOperation.ArmyTargetViewRefresh, ArmyId(target), null)
+                        {SourceSnapshot=package.CaptureArmyDamagePresentationCurrent(state,current,target,false)} }));
                     //This is a per-item call, even after native true/Full,
                     //with zero/negative amounts or a repeated pending target.
                     requests.Add(new(null, null) { TerrainDamagePresentation =
-                        new(TerrainDamagePresentationOperation.ArmyGrossDamage, ArmyId(army), requested) });
+                        new(TerrainDamagePresentationOperation.ArmyGrossDamage, ArmyId(army), requested)
+                            {SourceSnapshot=package.CaptureArmyDamagePresentationCurrent(state,current,army,true)} });
                 }
                 node = current.ReadHexListNodeNext(node) ?? throw Missing("candidate_next");
             }

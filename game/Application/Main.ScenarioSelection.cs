@@ -12,6 +12,7 @@ public partial class Main
 
     private void OpenScenarioSelection()
     {
+        CancelNewGamePreparation(restoreParent: false);
         if (_failed || _shuttingDown || _scenarioSelection is not null || _repository is null ||
             _session?.PlayerForceId is not null) return;
         CloseNewGameSetup();
@@ -21,9 +22,10 @@ public partial class Main
         var documents = repository.ScenarioDocuments.Where(document => selections.ContainsKey(document.SourcePath))
             .ToDictionary(document => (int)(document.SelectionMetadata
                 ?? throw new InvalidDataException("Scenario selection metadata is missing.")).NativeId);
+        var profile = GetApplicationProfile().Current;
         var catalog = ScenarioSelectionCatalog.Create(repository, locale, documents,
-            _preferences.ScenarioUnlocks, _preferences.IsScenarioCompleted,
-            () => throw new InvalidDataException("Special scenario availability is not implemented."),
+            Enumerable.Range(0, 3).Select(profile.ReadEndingTrack).ToArray(), profile.ReadScenarioCompleted,
+            () => null,
             document => selections[document.SourcePath].Selection.Edition switch
             {
                 // Legacy badge fallback is provisional until cross-version UI
@@ -49,17 +51,14 @@ public partial class Main
                     // for the separately implemented qualified source resolver.
                     var route = names.PortraitNames(checked((ushort)person));
                     return sprites.LoadTexturePackSprite(route.ResourceName, route.SpriteName);
-                }, false, () => !_failed && !_shuttingDown && _scenarioSelection == view,
+                }, false, () => !_failed && !_shuttingDown && _scenarioSelection == view && _newGamePreparation is null,
                 id => RunUiAction(() =>
                 {
                     string source = catalog.Scenario(id).SourcePath;
                     int index = _shownScenarios.ToList().FindIndex(row =>
                         string.Equals(row.Selection.SourcePath, source, StringComparison.OrdinalIgnoreCase));
                     if (index < 0) throw new InvalidDataException("Selected scenario is no longer installed.");
-                    CloseScenarioSelection();
-                    _scenarioList.Select(index);
-                    ShowScenario(index);
-                    OpenNewGameSetup();
+                    BeginNewGameScenarioPreparation(index);
                 }), () => RunUiAction(()=>{CloseScenarioSelection();OpenTitleMenu();}), () => { },
                 error => { CloseScenarioSelection(); ShowFailure(error, startup: false); }, _sourceHeaders);
             _browserContent.Hide();

@@ -14,16 +14,22 @@ public sealed record PersonFreedomHomeResult(int? NativeReturn, BaseReference? C
 /// discard its operation-local context.</summary>
 public sealed class PersonFreedomHomeSource
 {
-    private readonly Dictionary<BaseReference, byte[]> links = [];
+    private readonly Dictionary<BaseReference, IReadOnlyList<byte>> links = [];
 
     public PersonFreedomHomeSource(LoadedScenario source)
     {
         if (source.Metadata.FormatMarker != 0x66 || source.Snapshot.Cities.Count != 52 || source.Snapshot.Gates.Count != 11)
             throw Missing("source.265250_CE_fixed_Base_links");
         foreach (var city in source.Snapshot.Cities)
-            links.Add(new(BaseKind.City, city.Slot), LinkWindow(city.LinkedLocationSlots));
+        {
+            var reference = new BaseReference(BaseKind.City, city.Slot);
+            links.Add(reference, BaseNeighborLinksSource.Read(source, reference));
+        }
         foreach (var gate in source.Snapshot.Gates)
-            links.Add(new(BaseKind.Gate, gate.Slot), LinkWindow(gate.LinkedLocationSlots));
+        {
+            var reference = new BaseReference(BaseKind.Gate, gate.Slot);
+            links.Add(reference, BaseNeighborLinksSource.Read(source, reference));
+        }
     }
 
     public PersonFreedomHomeResult Resolve(GameState state, SourceWorldContext current,
@@ -282,9 +288,7 @@ public sealed class PersonFreedomHomeSource
     {
         current.ReorderCurrentList(list, nodes.Select(row => row.Node).ToArray());
     }
-    private byte[] Links(BaseReference reference) => links.GetValueOrDefault(reference) ?? throw Missing("source.Base58_static_link_window");
-    private static byte[] LinkWindow(IReadOnlyList<byte> values)
-    { var result = new byte[10]; for (int i = 0; i < Math.Min(10, values.Count); i++) result[i] = values[i]; return result; }
+    private IReadOnlyList<byte> Links(BaseReference reference) => links.GetValueOrDefault(reference) ?? throw Missing("source.Base58_static_link_window");
     private static HexListHandle Temporary(SourceWorldContext current) =>
         current.CreateTemporaryHexList() ?? throw Missing("current.265250_temporary_allocation");
     private static void ClearRelease(SourceWorldContext current, HexListHandle list)

@@ -57,6 +57,11 @@ public:
     }
 
     void publishArmy(ID3D11Device* device,ID3D11DeviceContext* context,const std::optional<ArmyWorldPublication>& world) {
+        if(!sourceArmyVisuals)return;
+        if(!world) {
+            if(armyOwnerLive)throw std::runtime_error("Live Army population lost its publication owner");
+            return;
+        }
         if(sourceArmyVisuals)armyModelPool->snapshot(armyModels,armyWorldState);
         if(sourceArmyVisuals){
             if(!armyResourceContext->isCurrentGeneration(world->contextGeneration))
@@ -84,6 +89,7 @@ public:
             for(auto it=armyUnitSelections.begin();it!=armyUnitSelections.end();)
                 if(!world->unitCenters.contains(it->first))it=armyUnitSelections.erase(it);else ++it;
         }
+        armyOwnerLive=true;
     }
 
     void observeCityAccessories(const source_accessory_population::Profile& prior,const source_accessory_population::Profile& current) {
@@ -96,7 +102,7 @@ public:
 
     void synchronize(ID3D11Device* device,const ArmyWorldPublication& candidates) {
 
-        if(!sourceArmyVisuals)return;
+        if(!hasActiveArmyOwner())return;
         auto& pool=*armyModelPool;
         pool.releaseAbsent(candidates.unitCenters);
         const bool bindingsChanged=armyBindingRevision!=pool.bindingRevision;
@@ -150,7 +156,7 @@ public:
             for(unsigned i=0;i<viewDefinition.records.size();++i)
                 if(viewDefinition.records[i].groupMask==1)ordinaryPopulationCounts[i]+=accessoryOrdinaryCount;
         }
-        if(sourceArmyVisuals) {
+        if(hasActiveArmyOwner()) {
             armyPlan=selectNativeArmyPopulation(armyModels,staticCamera,armyReturnedPhases,
                 &armySuccessfulSamples,&armyActivePoses,&armyMainMembership
                 );
@@ -172,7 +178,7 @@ public:
         const source_animation_cadence::Profile& animationFps,unsigned fpsMode,
         NativeCityAccessoryGpu& cityAccessories,NativeCityAccessoryGpu& areaAccessories,AnimationState& state) {
         resetNativeArmyAnimationGroups(armyAnimationGroups); // one manager, including an empty Army
-        if(sourceArmyVisuals) {
+        if(hasActiveArmyOwner()) {
             std::map<int32_t,std::vector<const ArmyWorldActor*>> candidates;
             for(const auto& actor:world->actors)candidates[actor.key.unit].push_back(&actor);
             std::array<std::vector<NativeAccessoryPoseJoint>,7> sampledGroupLocals;
@@ -290,13 +296,13 @@ public:
                 input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
         }
         ++state.updates;state.fpsMode=fpsMode;
-        state.armyPlayers=sourceArmyVisuals?unsigned(armyWorldState.actorIndices.size()):0;
+        state.armyPlayers=hasActiveArmyOwner()?unsigned(armyWorldState.actorIndices.size()):0;
         state.cityGroups=sourceAccessoryVisuals?unsigned(armyModelPool->boundCount(GraphicsModelFamily::City)+
             armyModelPool->boundCount(GraphicsModelFamily::Gate)):0;
         state.areaGroups=sourceAccessoryVisuals?unsigned(armyModelPool->boundCount(GraphicsModelFamily::AreaCapital)):0;
         state.firstBodyPhase=state.firstFlagPhase=0;
         bool body=false,flag=false;
-        if(sourceArmyVisuals)for(const auto& actor:world->actors){
+        if(hasActiveArmyOwner())for(const auto& actor:world->actors){
             auto key=actor.key;
             if(key.descriptor==0x7A0||key.descriptor==0x818){auto member=armyModelPool->member(GraphicsModelFamily::Army,key.unit,key.descriptor,key.instance);
                 if(!member)continue;key=*member;}
@@ -314,7 +320,7 @@ public:
     void drawOpaque(ID3D11DeviceContext* context,ID3D11RenderTargetView* const* colors,
         ID3D11DepthStencilView* depth,const D3D11_VIEWPORT& viewport,
         NativeCityAccessoryGpu& cityAccessories,NativeCityAccessoryGpu& areaAccessories) {
-            if(sourceArmyVisuals) {
+            if(hasActiveArmyOwner()) {
                 armyQueues=updateSelectNativeArmyPopulation(context,armyModels,armyPlan);
                 drawNativeModels(context,armyQueues.ordinary49,colors,depth,viewport);
                 drawNativeModels(context,armyQueues.alpha50,colors,depth,viewport);
@@ -328,8 +334,15 @@ public:
             }
     }
 
+    bool hasActiveArmyOwner() const noexcept {return sourceArmyVisuals&&armyOwnerLive;}
+
+    const NativeArmyPopulation* completeReflectionPopulation() const {return hasActiveArmyOwner()?&armyModels:nullptr;}
+    const NativeArmyPlan* currentReflectionPlan() const {return hasActiveArmyOwner()?&armyPlan:nullptr;}
+    const ArmyWorldPopulationState* currentReflectionRoster() const {return hasActiveArmyOwner()?&armyWorldState:nullptr;}
+
 private:
     const bool sourceArmyVisuals,sourceAccessoryVisuals;
+    bool armyOwnerLive{};
     NativeArmyPopulation armyModels;NativeArmyPlan armyPlan;NativeArmyQueues armyQueues;
     std::vector<float> armyReturnedPhases;
     std::optional<ArmyWorldTemplateLibrary> armyWorldTemplates;

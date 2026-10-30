@@ -22,7 +22,7 @@ internal sealed record DeploymentTargetRouteGroup(IReadOnlyList<int> OfficerIds,
 /// <summary>Unsubmitted ordinary targets and their fresh active routes. Route
 /// groups are stably ordered by points and only adjacent compatible groups
 /// merge. The saved world and its live Army registry remain untouched.</summary>
-internal sealed class DeploymentTargetDraft
+internal sealed partial class DeploymentTargetDraft
 {
     private GameState world;
     private readonly ArmyCampaignRuleAdapter rules;
@@ -58,7 +58,7 @@ internal sealed class DeploymentTargetDraft
 
     internal DeploymentTargetDraft(GameState world,ArmyCampaignRuleAdapter rules,
         IReadOnlyList<DeploymentDraftRow> initial,IReadOnlyList<DeploymentTargetCard> cards,
-        IEnumerable<int>? editedPolicyOfficers=null)
+        IEnumerable<int>? editedPolicyOfficers=null, IReadOnlyDictionary<int,int>? initialGoals=null)
     {
         this.world=world;this.rules=rules;routeQuery=rules.CreateDeploymentDraftRouteQuery(world);
         rows=initial.ToDictionary(row=>row.Request.OfficerId);order=initial.Select(row=>row.Request.OfficerId).ToList();
@@ -68,7 +68,7 @@ internal sealed class DeploymentTargetDraft
         var positions=cards.ToDictionary(card=>card.OfficerId);
         if(positions.Count!=rows.Count||rows.Keys.Any(officer=>!positions.ContainsKey(officer)))
             throw new ArgumentException("Target positions must belong to the complete draft.",nameof(cards));
-        if(initial.Any(row=>row.Request.Actions.Count!=0||row.Request.WaypointHexIds.Count!=0))
+        if(initialGoals is null && initial.Any(row=>row.Request.Actions.Count!=0||row.Request.WaypointHexIds.Count!=0))
             throw new ArgumentException("This target owner accepts new Make rows only.",nameof(initial));
         starts=[];
         foreach(int officer in order)
@@ -80,6 +80,7 @@ internal sealed class DeploymentTargetDraft
         }
         groups=Normalize(order.Select(officer=>new DeploymentTargetRouteGroup([officer],[starts[officer]],null)));
         RebuildActive();
+        if (initialGoals is not null) InitializeGeneralTargets(initialGoals);
     }
 
     internal void SelectOfficers(IEnumerable<int> officers)
@@ -192,8 +193,16 @@ internal sealed class DeploymentTargetDraft
         return changed;
     }
 
-    /// <summary>Only the accepted save-defaults command can replace this read
-    /// context. It cannot alter troops, targets, paths or the edited-row set.</summary>
+    internal void AdoptSpeechWorld(GameState expected,GameState replacement)
+    {
+        if(!ReferenceEquals(world,expected))throw new InvalidOperationException("The target draft belongs to another world.");
+        // Detached route/placement inputs and cached paths remain valid: speech
+        // changes no gameplay inputs, rows, selection, policies or waypoints.
+        world=replacement;
+    }
+
+    /// <summary>An accepted save-defaults command also resets the unedited
+    /// policies. It cannot alter troops, targets, paths or the edited-row set.</summary>
     internal void AcceptPreferenceWorld(GameState expected,GameState replacement,
         IReadOnlyDictionary<int,DeploymentBehavior> resetBehaviors)
     {
@@ -222,12 +231,13 @@ internal sealed class DeploymentTargetDraft
             ?int.Parse(key.AsSpan("san14-object-definition:".Length)):null;
     }
 
-    internal void AssignConstruction(DeploymentFacilityPlacement placement)
+    internal void AssignConstruction(DeploymentFacilityPlacement placement,int? finalHexId=null)
     {
         if(placement is not {OriginalAllowed:true,CommandUnresolvedInput:null,Action:{ActionKey:"build"} action})
             throw new ArgumentException("Construction needs an accepted placement.",nameof(placement));
         var intent=new FacilityConstructionIntent(action.StructureKindId,
-            ArmyMarchDestination.AtHex(placement.ClickedHexId),ArmyMarchDestination.None);
+            ArmyMarchDestination.AtHex(placement.ClickedHexId),finalHexId is int end
+                ?ArmyMarchDestination.AtHex(end):ArmyMarchDestination.None);
         foreach(int officer in selected)
             rows[officer]=rows[officer] with{Request=rows[officer].Request with{ConstructionSelection=intent}};
         AssignAction(action,placement.ClickedHexId);

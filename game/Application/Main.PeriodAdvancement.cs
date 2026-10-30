@@ -11,49 +11,48 @@ public partial class Main
     private CampaignPeriodPlayback? _periodPlayback;
     private MapSceneView? _periodPlaybackMap;
     private int _periodPlaybackSpeed = 1;
-    private Label? _periodPlaybackCaption;
-    private ProgressBar? _periodPlaybackProgress;
-    private Button? _periodPlaybackPause;
-    private readonly List<Button> _periodPlaybackSpeeds = [];
+    private void ActivateForceHudAdvance()
+    {
+        if(_advancingPeriod)TryTogglePeriodPlayback();
+        else RunPlayAction(AdvancePlayable);
+    }
 
     private bool TryTogglePeriodPlayback()
     {
         if (!_advancingPeriod || _periodPlayback is not {} playback || _shuttingDown) return false;
         playback.TogglePause();
         if (GodotObject.IsInstanceValid(_periodPlaybackMap))
-            _periodPlaybackMap!.SetPeriodPlaybackPaused(playback, playback.IsPaused);
+            _periodPlaybackMap!.SetPeriodPlaybackPaused(playback, playback.IsPaused || playback.ManualCommandSelectionOpen);
         RefreshPeriodPlaybackControls(); return true;
     }
 
     private bool TrySetPeriodPlaybackSpeed(int speedIndex)
     {
-        if (!_advancingPeriod || _periodPlayback is not {} playback || _shuttingDown || (uint)speedIndex > 2) return false;
+        if (_shuttingDown || _failed || (uint)speedIndex > 2 ||
+            _session?.PlayerForceId is null || _residentMap is not {IsPlayableMapReady:true}) return false;
         _periodPlaybackSpeed = speedIndex;
-        playback.SetSpeed(speedIndex); RefreshPeriodPlaybackControls(); return true;
+        _periodPlayback?.SetSpeed(speedIndex); RefreshPeriodPlaybackControls(); return true;
     }
 
     private void RefreshPeriodPlaybackControls()
     {
-        if (_periodPlaybackPause is {} pause && _periodPlayback is {} playback)
-        {
-            pause.Text = playback.IsPaused ? "\u25B6" : "\u2161";
-            pause.TooltipText = _ui.Get(playback.IsPaused ? "play_period_resume" : "play_period_pause");
-            for (int i = 0; i < _periodPlaybackSpeeds.Count; i++)
-                _periodPlaybackSpeeds[i].ButtonPressed = i == playback.Speed;
-        }
+        if(_forceHud is{} hud&&GodotObject.IsInstanceValid(hud))
+            hud.ApplyExecution(_advancingPeriod&&_periodPlayback is not null,_periodPlayback?.IsPaused==true,
+                _periodPlayback?.Speed??_periodPlaybackSpeed,
+                _periodPlayback is{} period?period.Candidate?.NativeMapSeason?.ThirdDate:_world?.NativeMapSeason?.ThirdDate);
     }
 
     private void PublishPeriodPlayback(CampaignPeriodPlayback owner, MapSceneView? map, GameState candidate)
     {
         if (!ReferenceEquals(_periodPlayback, owner) || _shuttingDown || _failed || !IsInsideTree()) return;
         if (GodotObject.IsInstanceValid(map)) map!.PublishPeriodPlayback(owner, candidate);
-        if (_periodPlaybackProgress is {} progress && candidate.NativeClock is {} clock)
-            progress.Value = clock.UpdatesIntoPeriod;
-        if (_periodPlaybackCaption is {} caption && candidate.NativeMapSeason is {} season)
-        {
-            var date = season.ThirdDate;
-            caption.Text = _ui.Get("play_advancing") + $"  {date.Year}/{date.Month:D2}/{date.Day:D2} {date.Hour:D2}:00";
-        }
+        BeginPeriodOccupationPresentation(owner,map,candidate);
+        BeginPeriodDuelPresentation(owner,map,candidate);
+        BeginPeriodDuelCaptureAnnouncement(owner,map,candidate);
+        RefreshManualTacticCommands(candidate);
+        RefreshPeriodPlaybackControls();
+        RefreshCommanderCards(candidate);
+        FlushCommanderCardRequests(owner);
     }
 
     private async Task AdvancePlayableAsync(GameplaySession source, CampaignComposition composition,
@@ -65,25 +64,61 @@ public partial class Main
         CampaignPeriodPlayback? playback = null;
         Control? overlay = null;
         GameplaySession? adopted = null;
+        bool continuingStory = _storyPresentation is { } storyBinding &&
+            ReferenceEquals(storyBinding.Session,source) && IsStoryBetweenExecutionSlices(storyBinding) ||
+            source.PendingNormalPeriod?.Candidate.NativeNormalTurnContinuation?.StoryPlayback is { IsReturningCamera: false };
         Exception? applicationServiceFailure = null;
         try
         {
+            Action<GameState>? beginTutorial = null;
+            Func<GameState, (GameState State, bool Hold)>? updateTutorial = null;
+            Func<GameState, GameState>? endTutorial = null;
+            if (HasTutorialLesson)
+            {
+                var tutorialMap = playbackMap ?? throw new InvalidOperationException("tutorial.period.map_owner");
+                long observedUpdate = 0;
+                beginTutorial = candidate =>
+                {
+                    observedUpdate = tutorialMap.SourceAnimationUpdateSequence;
+                    BeginTutorialPeriodBorrow(candidate);
+                };
+                updateTutorial = candidate =>
+                {
+                    long currentUpdate = tutorialMap.SourceAnimationUpdateSequence;
+                    bool pulse = currentUpdate != observedUpdate;
+                    observedUpdate = currentUpdate;
+                    var update = TickTutorialPeriodBorrow(candidate, tutorialMap.SourceActiveMilliseconds,
+                        !playback!.IsPaused && pulse);
+                    if (GodotObject.IsInstanceValid(playbackMap))
+                        playbackMap!.SetPeriodPlaybackPaused(playback, playback.IsPaused || update.Hold);
+                    return update;
+                };
+                endTutorial = EndTutorialPeriodBorrow;
+            }
             playback = new(SynchronizationContext.Current ?? throw new InvalidOperationException(
                 "Period playback requires the host UI synchronization context."),
                 candidate => PublishPeriodPlayback(playback!, playbackMap, candidate),
                 () =>
                 {
+                    RetirePeriodDuelCaptureAnnouncement(playback!);
+                    RetirePeriodDuelPresentation(playback!);
+                    CloseManualTacticCommands();
+                    RetireCommanderCardRequests();
                     if (GodotObject.IsInstanceValid(playbackMap))
                         playbackMap!.ReleasePeriodPlaybackCandidate(playback!);
-                }, cancellation.Token);
+                    RefreshManualTacticCommands(null);
+                    RefreshPeriodPlaybackControls();
+                }, cancellation.Token, beginTutorial, updateTutorial, endTutorial);
             _periodPlayback = playback; _periodPlaybackMap = playbackMap;
             if (playbackMap is not null) RefreshOrdinaryTacticBinding(source, playbackMap);
             playback.SetSpeed(_periodPlaybackSpeed);
-            overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
+            if (!continuingStory) overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
             if (playbackMap?.SourceMainCameraTerrain is { } terrain)
                 composition.ConfigureBaseCapturePresentationTerrain(terrain);
             composition.ConfigureArmyTraitSpeechViews(playbackMap?.CaptureArmyTraitSpeechViews());
+            composition.ConfigureFacilityPeriodicArmyViews(playbackMap is null ? null : playbackMap.CaptureFacilityArmyView);
+            composition.ConfigureArmyFireViews(playbackMap is null ? null : playbackMap.CaptureArmyFireView);
             if (playbackMap is not null) composition.ConfigureTacticPresentationViews(playbackMap.TacticPresentationViews);
             var storyBindings = CaptureNormalTurnStoryBindings(source, composition, playbackMap, cancellation.Token);
             var result = campaignChoice switch
@@ -106,6 +141,7 @@ public partial class Main
                 !result.IsCurrent(_session)) return;
 
             _session = result.Session;
+            AdoptStoryPresentationSession(source,result.Session,result.Composition,playbackMap);
             AdoptOrdinaryTacticSession(source, result.Session, playbackMap);
             SynchronizeApplicationCrtRandom(result.Session.PendingNormalPeriod?.Candidate ?? result.Session.World);
             if ((result.Session.PendingNormalPeriod?.Candidate??result.Session.World).CampaignAppRandom32 is { } appRandom)
@@ -145,13 +181,23 @@ public partial class Main
             // This is the map that borrowed this operation, including during
             // shutdown or campaign replacement. A newer map owns itself.
             if (playback is not null && GodotObject.IsInstanceValid(playbackMap))
-                playbackMap!.EndPeriodPlayback(playback, resume && adopted is not null);
+            {
+                // A returned session can still own a private waiting period.
+                // Only its committed world, or its active story world, owns
+                // the map after this borrow; never briefly redraw the old one
+                // through presentation owners advanced by the candidate.
+                bool showingStory = resume && IsStoryPresentationCurrent;
+                var displayedWorld = resume ? showingStory ? _storyPresentation!.World : _world : null;
+                bool adoptPresentation = resume && adopted is not null &&
+                    (adopted.PendingNormalPeriod is null || showingStory);
+                playbackMap!.EndPeriodPlayback(playback, adoptPresentation, displayedWorld);
+            }
             cancellation.Dispose();
             if (GodotObject.IsInstanceValid(this) && IsInsideTree() && !_shuttingDown && !_failed)
             {
                 if (resume) RunUiAction(() =>
                 {
-                    ClosePeriodAdvanceProgress(overlay, playbackMap, resumeMap: true);
+                    ClosePeriodAdvanceProgress(overlay, playbackMap, resumeMap: !continuingStory);
                     RefreshCurrentPlayWorld();
                     if (adopted is not null && automaticSaveNotice is not null)
                         _playMessage.Text = automaticSaveNotice;
@@ -172,38 +218,10 @@ public partial class Main
 
     private Control ShowPeriodAdvanceProgress(MapSceneView? map, CampaignPeriodPlayback owner)
     {
-        var overlay = new Control { Name = "AdvancePeriodProgress", ZIndex = 100, MouseFilter = MouseFilterEnum.Ignore };
-        overlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        _periodAdvanceOverlay = overlay;
-        AddChild(overlay);
-        var panel = new PanelContainer { AnchorLeft = 0.5f, AnchorRight = 0.5f, AnchorTop = 1, AnchorBottom = 1,
-            OffsetLeft = -330, OffsetRight = 330, OffsetTop = -108, OffsetBottom = -16,
-            MouseFilter = MouseFilterEnum.Stop };
-        overlay.AddChild(panel);
-        var margin = new MarginContainer();
-        foreach (string side in new[] { "left", "right", "top", "bottom" }) margin.AddThemeConstantOverride("margin_" + side, 12);
-        panel.AddChild(margin);
-        var column = new VBoxContainer(); column.AddThemeConstantOverride("separation", 6); margin.AddChild(column);
-        _periodPlaybackCaption = new Label { Text = _ui.Get("play_advancing"), HorizontalAlignment = HorizontalAlignment.Center };
-        column.AddChild(_periodPlaybackCaption);
-        _periodPlaybackProgress = new ProgressBar { MaxValue = NativeSubdayStateValidation.UpdatesPerPeriod,
-            ShowPercentage = true, CustomMinimumSize = new(300, 12) };
-        column.AddChild(_periodPlaybackProgress);
-        var controls = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        column.AddChild(controls);
-        _periodPlaybackPause = new Button { Text = "\u2161", CustomMinimumSize = new(64, 28) };
-        _periodPlaybackPause.Pressed += () =>
-        { if (ReferenceEquals(_periodPlayback, owner)) TryTogglePeriodPlayback(); };
-        controls.AddChild(_periodPlaybackPause);
-        _periodPlaybackSpeeds.Clear();
-        foreach (var label in new[] { "0.5\u00D7", "1\u00D7", "2\u00D7" })
-        {
-            int index = _periodPlaybackSpeeds.Count;
-            var button = new Button { Text = label, ToggleMode = true, CustomMinimumSize = new(64, 28) };
-            button.Pressed += () =>
-            { if (ReferenceEquals(_periodPlayback, owner)) TrySetPeriodPlaybackSpeed(index); };
-            _periodPlaybackSpeeds.Add(button); controls.AddChild(button);
-        }
+        // This lease has no alternate progress artwork. The resident original
+        // header owns pause, speed and its ThirdDate-driven UV progress ring.
+        var overlay=new Control {Name="AdvancePeriodProgress",MouseFilter=MouseFilterEnum.Ignore};
+        _periodAdvanceOverlay=overlay;AddChild(overlay);
         RefreshPeriodPlaybackControls();
         if (GodotObject.IsInstanceValid(map)) map!.BeginPeriodPlayback(owner);
         SetMapFocus(true);
@@ -216,8 +234,7 @@ public partial class Main
         if (ownsOverlay)
         {
             _periodAdvanceOverlay = null;
-            _periodPlaybackCaption = null; _periodPlaybackProgress = null; _periodPlaybackPause = null;
-            _periodPlaybackSpeeds.Clear();
+            RefreshPeriodPlaybackControls();
         }
         if (overlay is not null && GodotObject.IsInstanceValid(overlay))
         {

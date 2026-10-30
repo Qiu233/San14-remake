@@ -25,6 +25,10 @@ internal static class ArmyTargetsSaveValidation
             {
                 ArmyTargetDestinationKind.City => destination.GateId is null && destination.CityId is >= 0 && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
                 ArmyTargetDestinationKind.ArmyReceiver => destination.GateId is null && destination.CityId is null && destination.HexId is null && destination.MapObjectReceiverId is null && destination.ReceiverId is { Value: > 0 } id && receivers.Contains(id),
+                ArmyTargetDestinationKind.UnavailableBase => target.Kind is ArmyTargetKind.City or ArmyTargetKind.Gate &&
+                    destination.GateId is null && destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
+                ArmyTargetDestinationKind.UnavailableObject => target.Kind == ArmyTargetKind.MapObjectReceiver &&
+                    destination.GateId is null && destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
                 ArmyTargetDestinationKind.Unresolved => destination.GateId is null && destination.CityId is null && destination.ReceiverId is null && destination.HexId is null && destination.MapObjectReceiverId is null,
                 ArmyTargetDestinationKind.Hex => destination.GateId is null && target.Kind == ArmyTargetKind.Hex && destination.CityId is null && destination.ReceiverId is null && destination.MapObjectReceiverId is null &&
                     destination.HexId is int hex && hex >= 0 && hex < (long)state.MapWidth * state.MapHeight,
@@ -40,8 +44,8 @@ internal static class ArmyTargetsSaveValidation
             if (destination.Kind == ArmyTargetDestinationKind.City && target.Kind == ArmyTargetKind.ArmyReceiver ||
                 destination.Kind == ArmyTargetDestinationKind.ArmyReceiver && target.Kind == ArmyTargetKind.City ||
                 target.Kind == ArmyTargetKind.Hex && destination.Kind is not (ArmyTargetDestinationKind.Hex or ArmyTargetDestinationKind.Unresolved) ||
-                target.Kind == ArmyTargetKind.MapObjectReceiver && destination.Kind is not (ArmyTargetDestinationKind.MapObjectReceiver or ArmyTargetDestinationKind.Unresolved) ||
-                target.Kind == ArmyTargetKind.Gate && destination.Kind is not (ArmyTargetDestinationKind.Gate or ArmyTargetDestinationKind.Unresolved))
+                target.Kind == ArmyTargetKind.MapObjectReceiver && destination.Kind is not (ArmyTargetDestinationKind.MapObjectReceiver or ArmyTargetDestinationKind.Unresolved or ArmyTargetDestinationKind.UnavailableObject) ||
+                target.Kind == ArmyTargetKind.Gate && destination.Kind is not (ArmyTargetDestinationKind.Gate or ArmyTargetDestinationKind.Unresolved or ArmyTargetDestinationKind.UnavailableBase))
                 throw new InvalidDataException("Saved army target category contradicts its destination.");
         }
     }

@@ -33,7 +33,7 @@ public sealed class D3D11CurrentSeasonLight
 public sealed class D3D11CurrentSeasonFrame
 {
     internal D3D11CurrentSeasonFrame(MainMapCameraModePacket mode,
-        NativeMapSeasonState worldSeason, SkySeasonMainCameraRgbFrame rgb,
+        MapSeasonCalendarFrame calendar, SkySeasonMainCameraRgbFrame rgb,
         MapSourceCreatedSeasonLightingFrame present,
         D3D11PreparedMainWord[] words, D3D11CurrentSeasonLight[] lights,
         D3D11CurrentAtmosphereFrame atmosphere,
@@ -41,9 +41,9 @@ public sealed class D3D11CurrentSeasonFrame
         OceanWaveSettings oceanWaves, OceanSurfaceSettings oceanSurface, OceanOpticsSettings oceanOptics,
         OceanTextureMaterialSettings oceanTextureMaterial, HeightFogSettings heightFog,
         CommonRenderPolicy commonPolicy, OceanBubbleMaterialSettings oceanBubbleMaterial, SkyStarSettings stars,
-        PatternCameraSettings patternSettings)
+        PatternCameraSettings patternSettings, RainDropCameraSettings rainSettings)
     {
-        Mode = mode; WorldSeason = worldSeason; Rgb = rgb; Present = present;
+        Mode = mode; Calendar = calendar; Rgb = rgb; Present = present;
         PreparedMain = present.PreparedCameraPrefix; PreparedWords = Array.AsReadOnly(words);
         Lights = Array.AsReadOnly(lights); Atmosphere = atmosphere; ExposureLight = exposureLight;
         Optics = optics; ViewSettings = viewSettings; OceanWaves = oceanWaves; OceanSurface = oceanSurface;
@@ -53,9 +53,12 @@ public sealed class D3D11CurrentSeasonFrame
         OceanBubbleMaterial = oceanBubbleMaterial;
         Stars = stars;
         PatternSettings = patternSettings;
+        RainSettings = rainSettings;
     }
     public MainMapCameraModePacket Mode { get; }
-    public NativeMapSeasonState WorldSeason { get; }
+    public MapSeasonCalendarFrame Calendar { get; }
+    public NativeMapSeasonState WorldSeason => Calendar is MapSeasonRuntimeFrame live ? live.State
+        : throw new InvalidOperationException("A scenario-preview frame has no owned strategy season state.");
     public SkySeasonMainCameraRgbFrame Rgb { get; }
     public MapSourceCreatedSeasonLightingFrame Present { get; }
     public ReadOnlyMemory<byte> PreparedMain { get; }
@@ -72,6 +75,9 @@ public sealed class D3D11CurrentSeasonFrame
     public OceanBubbleMaterialSettings OceanBubbleMaterial { get; }
     public SkyStarSettings Stars { get; }
     public PatternCameraSettings PatternSettings { get; }
+    public RainDropCameraSettings RainSettings { get; }
+    public RainDropProviderSource? RainProvider { get; private set; }
+    internal void BindRainProvider(RainDropProviderSource provider) => RainProvider = provider;
     public HeightFogSettings HeightFog { get; }
     public CommonRenderPolicy CommonPolicy { get; }
     public int MainMode => Mode.Mode288;
@@ -98,6 +104,8 @@ public sealed class D3D11CurrentSeasonPublisher
     private readonly SkySceneSky2Parameters _sky;
     private readonly LoadedSkyDirectionalSetterColorNativeSource _color;
     private AcceptedSkyLightingState? _previousLighting;
+    private D3D11CurrentSeasonFrame? _lastPreparedFrame;
+    private D3D11CurrentSeasonFrame? _lastAcceptedFrame;
     private readonly D3D11CurrentSeasonLibrary? _library;
 
     public D3D11CurrentSeasonPublisher(GameResourceRepository repository,
@@ -118,6 +126,12 @@ public sealed class D3D11CurrentSeasonPublisher
         _color = SkyDirectionalSetterColorNativeSource.Load(repository, locale);
     }
 
+    public void ApplyCgQuality(CgQuality quality)
+    {
+        if (!Enum.IsDefined(quality)) throw new ArgumentOutOfRangeException(nameof(quality));
+        _quality.SetOwnedCurrentQuality((int)quality,"application-current-CG-quality");
+    }
+
     public MapSeasonSelection LoadedSelection => _resources.Selection;
     public D3D11CurrentSeasonResources LoadedResources => _resources;
 
@@ -128,6 +142,39 @@ public sealed class D3D11CurrentSeasonPublisher
         if (resources.Source.Locale != _resources.Source.Locale)
             throw new InvalidDataException("A live Main season cannot switch executable locale.");
         _resources = resources;
+    }
+
+    /// <summary>Called only after successful Start and a drained native pump.
+    /// The last actual accepted frame proves this publisher's retained RGB;
+    /// only its controller-focus identity crosses the explicit role boundary.</summary>
+    public void AdoptStartedCampaignCalendar(NativeMapSeasonState actualNativeState,
+        MainMapCameraFrame actualMain,D3D11CurrentSeasonFrame lastAcceptedSeasonFrame)
+    {
+        ArgumentNullException.ThrowIfNull(actualMain);ArgumentNullException.ThrowIfNull(lastAcceptedSeasonFrame);
+        var calendar=MapSeasonRuntime.PrepareFrame(actualNativeState,actualMain.Camera.FrameNumber);
+        if(calendar.Selection!=_resources.Selection)
+            throw new NotSupportedException("Started calendar does not match the current loaded preview season.");
+        if(!ReferenceEquals(_lastAcceptedFrame,lastAcceptedSeasonFrame)||
+            !ReferenceEquals(_lastPreparedFrame,lastAcceptedSeasonFrame)||_previousLighting is not {} retained||
+            retained.FrameNumber!=lastAcceptedSeasonFrame.Calendar.FrameNumber||
+            !ReferenceEquals(retained.Lighting,lastAcceptedSeasonFrame.Rgb.SunMoonRgb.Lighting)||
+            !ReferenceEquals(lastAcceptedSeasonFrame.Rgb.Inputs.Source.Season.Resources,
+                _resources.Source.CameraSource.Season.Resources))
+            throw new InvalidDataException("Calendar adoption requires this publisher's last actual prepared and accepted season frame.");
+        if(retained.FrameNumber>=actualMain.Camera.FrameNumber||
+            lastAcceptedSeasonFrame.Rgb.Inputs.MainFrame.Camera.ExecutableLocale!=actualMain.Camera.ExecutableLocale||
+            actualMain.Camera.ExecutableLocale!=_resources.Source.Locale||
+            retained.CameraResourceUri!=actualMain.Camera.Source.Resource.Source.ResourceUri||
+            retained.CameraResourceSha256!=actualMain.Camera.Source.Resource.Source.DecodedSha256)
+            throw new InvalidDataException("Calendar adoption requires the same Camera resource and locale with a later actual Main frame.");
+        if(_library is not null)
+        {
+            if(!ReferenceEquals(_library.RequireLoaded(_resources.Selection.SeasonIndex).Resources,_resources))
+                throw new InvalidDataException("Publisher and library must share the exact preview CPU resource owner.");
+            Install(_library.AdoptStartedCampaignCalendar(actualNativeState,actualMain).Resources);
+        }
+        else _resources.AdoptStartedCampaignCalendar(actualNativeState,actualMain);
+        _previousLighting=retained with{InitialFocus=actualMain.InitialFocus};
     }
 
     public D3D11CurrentSeasonFrame PrepareCurrent(GameState world,
@@ -141,6 +188,21 @@ public sealed class D3D11CurrentSeasonPublisher
         var calendar = MapSeasonRuntime.PrepareFrame(season, currentMain.Camera.FrameNumber);
         if (calendar.Selection != _resources.Selection && _library is not null)
             Install(_library.Resolve(season, currentMain).Resources);
+        return PrepareCalendar(calendar, currentMain, elapsedSeconds);
+    }
+
+    public D3D11CurrentSeasonFrame PrepareScenarioPreview(MapSeasonScenarioPreviewFrame preview,
+        MainMapCameraFrame currentMain, float elapsedSeconds)
+    {
+        var calendar = MapSeasonRuntime.PrepareScenarioPreviewFrame(preview, currentMain.Camera.FrameNumber);
+        if (calendar.Selection != _resources.Selection && _library is not null)
+            Install(_library.ResolveScenarioPreview(calendar, currentMain).Resources);
+        return PrepareCalendar(calendar, currentMain, elapsedSeconds);
+    }
+
+    private D3D11CurrentSeasonFrame PrepareCalendar(MapSeasonCalendarFrame calendar,
+        MainMapCameraFrame currentMain, float elapsedSeconds)
+    {
         var selected = _resources.Source.CameraSource.WithCalendar(calendar);
         var mode = _mode.PrepareCurrent(currentMain);
         var post = _post.PrepareCurrent(selected, mode, _quality);
@@ -170,10 +232,18 @@ public sealed class D3D11CurrentSeasonPublisher
             selected.Transmittance.Tangent, _color,
             atmosphereLight.SunBaseline, atmosphereLight.MoonBaseline,
             _resources.ControllerGeometry40);
-        return new(mode, season, rgb, present,
+        var prepared = new D3D11CurrentSeasonFrame(mode, calendar, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
-            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars, _resources.PatternSettings);
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars, _resources.PatternSettings, _resources.RainSettings);
+        _lastPreparedFrame=prepared;
+        return prepared;
     }
 
-    public void AcceptCurrent(D3D11CurrentSeasonFrame frame) => _previousLighting = AcceptedSkyLightingState.Capture(frame.Rgb);
+    public void AcceptCurrent(D3D11CurrentSeasonFrame frame)
+    {
+        if(!ReferenceEquals(_lastPreparedFrame,frame))
+            throw new InvalidDataException("Only this publisher's actual prepared season frame can be accepted.");
+        _previousLighting=AcceptedSkyLightingState.Capture(frame.Rgb);
+        _lastAcceptedFrame=frame;
+    }
 }

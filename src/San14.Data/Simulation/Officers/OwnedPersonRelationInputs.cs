@@ -34,8 +34,8 @@ public sealed class OwnedPersonRelationInputs
         string path = string.IsNullOrWhiteSpace(source.ScenarioSource.PhysicalPath)
             ? Path.Combine(repository.SourceDirectory, source.ScenarioSource.SourcePath)
             : source.ScenarioSource.PhysicalPath;
-        byte[] bytes = File.ReadAllBytes(path);
-        return new(source, language, identity, ReadSourceRows(S14Reader.Read(bytes, true), language));
+        var document = source.InitialScenarioDocument ?? S14Reader.Read(File.ReadAllBytes(path), true);
+        return new(source, language, identity, ReadSourceRows(document, language));
     }
 
     public static PersonRelationFields[] ReadSourceRows(S14Document document, string language)
@@ -98,6 +98,8 @@ public sealed class OwnedPersonRelationInputs
         current.ConditionBloodlineReader = physical => EventWord(state, physical, 0xB2);
         current.ConditionDislikeReader = (first, second) => ReadEventDislike(state, current, first, second);
         current.ConditionFamilyReader = (first, second) => ReadEventFamily(state, current, first, second);
+        current.ConditionPersonRelationListReader = (person, index, like) => like
+            ? ReadCurrentLikeIdentity(state, person, index) : ReadCurrentDislikeIdentity(state, person, index);
     }
 
     /// <summary>Only the relation callbacks follow an operation's latest candidate.
@@ -109,6 +111,8 @@ public sealed class OwnedPersonRelationInputs
         current.ConditionBloodlineReader = physical => EventWord(readLatest(), physical, 0xB2);
         current.ConditionDislikeReader = (first, second) => ReadEventDislike(readLatest(), current, first, second);
         current.ConditionFamilyReader = (first, second) => ReadEventFamily(readLatest(), current, first, second);
+        current.ConditionPersonRelationListReader = (person, index, like) => like
+            ? ReadCurrentLikeIdentity(readLatest(), person, index) : ReadCurrentDislikeIdentity(readLatest(), person, index);
     }
 
     internal static GameState WriteCurrentRelationIdentity(GameState state, int physical, int field, ushort value)

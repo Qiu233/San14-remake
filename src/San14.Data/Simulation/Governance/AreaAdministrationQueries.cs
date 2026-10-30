@@ -71,4 +71,8 @@ public sealed record AreaAdministrationDevelopmentValues(
     AreaAdministrationQuery<int?> CommerceIncrease, AreaAdministrationQuery<int?> AgricultureIncrease,
     AreaAdministrationQuery<int?> BarracksIncrease, AreaAdministrationQuery<int?> SecurityIncrease);
 public sealed record AreaAdministrationDevelopmentPreview(int AreaId, long Revision,
-    AreaAdministrationDevelopmentValues Normal, AreaAdministrationDevelopmentValues FullEffort);
+    AreaAdministrationDevelopmentValues Normal, AreaAdministrationDevelopmentValues FullEffort)
+{
+    public AreaAdministrationQuery<int?> CandidateOccupation { get; init; } = new(null, "area-draft.candidate_occupation_not_requested");
+    public AreaAdministrationQuery<int?> CandidateFullEffortOccupation { get; init; } = new(null, "area-draft.candidate_occupation_not_requested");
+}

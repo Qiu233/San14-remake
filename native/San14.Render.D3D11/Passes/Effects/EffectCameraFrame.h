@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // Camera-only producer for the fixed observed CPU particle cohort. No emitter tick.
 #include "../../Camera/CameraState.h"
 #include "EffectCameraConstants.h"
@@ -17,7 +18,7 @@ struct Profile {unsigned buckets{},queueEntries{},rows{},dynamicUnits32{};float 
 struct Draw {unsigned ordinal{},candidate{},pass{},bucket{},byteOffset{},textureIndex{};float normalized{},depth{};};
 struct Frame {Prepared camera{};V4 writerEye{};std::vector<Draw> draws;std::vector<uint8_t> stream,rows,masks;unsigned sprites{},meshes{};};
 inline Profile loadProfile(const std::filesystem::path& path){
-    using source_camera::read;std::ifstream s(path,std::ios::binary);
+    using source_camera::read;NativePreparedInputFile s(path,std::ios::binary);
     if(!s||read<unsigned>(s)!=0x31434645u)throw std::runtime_error("Effect camera EFC1 profile absent");
     unsigned count=read<unsigned>(s);Profile p;p.buckets=read<unsigned>(s);p.queueEntries=read<unsigned>(s);
     p.rows=read<unsigned>(s);p.dynamicUnits32=read<unsigned>(s);p.tangent=read<float>(s);p.candidates.reserve(count);
@@ -122,7 +123,7 @@ static NativeEffectCameraContinuous prepareNativeEffectCameraContinuous(ID3D11De
     D3D11_BUFFER_DESC desc{};desc.ByteWidth=out.profile.dynamicUnits32*32;desc.Usage=D3D11_USAGE_DEFAULT;desc.BindFlags=D3D11_BIND_VERTEX_BUFFER;
     input.dynamic.Reset();check(device->CreateBuffer(&desc,nullptr,&input.dynamic),"Effect camera retained dynamic stream");
     for(auto& item:input.passes){unsigned index=item.first;auto& pass=item.second;const auto path=source/"cb"/"initial"/("pass-"+std::to_string(index));
-        std::ifstream rows(path/"cbuffers.txt");std::string stage,file;unsigned slot;
+        NativePreparedInputFile rows(path/"cbuffers.txt");std::string stage,file;unsigned slot;
         while(rows>>stage>>slot>>file){auto bytes=load(path/file);bool vertex=stage=="vs";
             auto cb=std::find_if(pass.constants.begin(),pass.constants.end(),[&](const auto& c){return c.vertex==vertex&&c.slot==slot;});
             if(cb==pass.constants.end())throw std::runtime_error("Effect camera original CB slot absent");

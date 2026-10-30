@@ -92,7 +92,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableGarrisonFoodShort
             { LocationId = shortage.LocationId, RuleId = "CE-current-garrison-food-shortage" });
         var pending = working.CampaignEffectRequests ?? throw GarrisonMissing("effect_owner");
         if (effects.Count != 0)
-            pending = pending.Append(CampaignEffectSource.ArmyProgressNotifications,
+            pending = pending.Append(CampaignEffectSource.MonthlyMaintenance,
                 working.NativeMapSeason?.AdvancedCalendarSteps ?? throw GarrisonMissing("calendar_revision"), effects);
         var pool = current.ReadOwnedCurrentListPool() ?? throw GarrisonMissing("current_pool");
         return working.WithArmyLifecycle(working.ReadArmyLifecycle()! with { Indexes = pool.ProjectOwnedRoles() }) with
@@ -113,24 +113,24 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableGarrisonFoodShort
                 GarrisonKnown(speaker.PhysicalSlot, "speaker_pointer")), "speaker_identity");
             ushort ruler = GarrisonKnown(current.ReadMoraleWaveRuler22EAC0(force), "report_ruler");
             ushort location = GarrisonKnown(current.ReadBaseObjectLink(target), "report_Base4E");
-            var primary = FormatGarrisonFoodShortageReport(working, current, 0x5E3D,
-                speakerId, ruler, location, value => working = value);
+            effects.Add(new(null, null) { MonthlyMaintenance =
+                new(MonthlyMaintenanceOperation.ControllerQueueEvent, 6, null, null) });
+            var primary = FormatNormalTurnReport(working, current, 0x5E3D,
+                new(Person0: speakerId, Person1: ruler, Base0: location), value => working = value);
             working = primary.State;
-            var supplemental = FormatGarrisonFoodShortageReport(working, current, 0x5E41,
-                0, 0, location, value => working = value);
+            var supplemental = FormatNormalTurnReport(working, current, 0x5E41,
+                new(Base0: location), value => working = value);
             working = supplemental.State;
             int recipient = GarrisonKnown(current.ReadBaseDistrictSlot(target), "report_virtual78");
             int hex = ReadReportBaseMarker(current, target, GarrisonMissing);
-            var season = working.NativeMapSeason ?? throw GarrisonMissing("report_calendar");
-            int day = unchecked((working.NativeArmySimulation?.World.SamplerEpoch
-                ?? throw GarrisonMissing("report_Day450")).Day450 + (int)season.AdvancedDays);
+            int day = (ReadArmyDestructionSampler(working, current)
+                ?? throw GarrisonMissing("report_World450_45C")).Day450;
             working = WriteHistory(working, current, new(5, recipient, hex, day,
                 supplemental.Text, primary.Text, speakerId, MarkBit0: 1, MarkBit4: 1), effects);
-            // Source-time text/history are real. The later controller event6
-            // and speaker playback remain explicit intentions, never an ACK.
-            reports.Add(new("food_shortage_report_unresolved", shortage.ForceId, shortage.FoodCityId, speakerId)
-            { LocationId = shortage.LocationId,
-                MissingRuleKeys = ["food_upkeep.garrison_shortage.application_event6_speaker_playback"] });
+            effects.Add(new(null, null) { MonthlyMaintenance =
+                new(MonthlyMaintenanceOperation.ConditionalSpeakerText, null,
+                    GarrisonKnown(current.ReadPersonIdentity(GarrisonKnown(speaker.PhysicalSlot,
+                        "speech_speaker_pointer")), "speech_speaker_identity"), primary.Text) });
         }
     }
 

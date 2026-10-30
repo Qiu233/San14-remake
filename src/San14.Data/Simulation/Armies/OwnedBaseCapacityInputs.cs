@@ -79,9 +79,11 @@ public sealed class OwnedBaseCapacityInputs
     public int? ReadPanelModifier(GameState state, int forceId, int effect)
     {
         if (!Bound(state) || effect is < 1 or > 79 ||
-            state.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1 ||
-            state.NativeArmySimulation.Forces.GetValueOrDefault(forceId) is null ||
-            state.Forces.GetValueOrDefault(forceId)?.PolicyEffects?.IsEnabled(effect) is not bool enabled) return null;
+            state.NativeArmySimulation!.Parameters.Int32Values.GetValueOrDefault(VersionKey) != 1) return null;
+        ForcePolicyEffects? effects = forceId == 0 ? state.UnassignedForcePolicyEffects
+            : state.NativeArmySimulation.Forces.ContainsKey(forceId)
+                ? state.Forces.GetValueOrDefault(forceId)?.PolicyEffects : null;
+        if (effects?.IsEnabled(effect) is not bool enabled) return null;
         if (!enabled) return 0;
         int? value = Parameter(state, PanelKey(effect));
         return value is >= short.MinValue and <= short.MaxValue ? value : null;

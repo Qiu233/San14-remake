@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -44,7 +45,7 @@ inline HeightFogSettings decodeHeightFogSettings(std::span<const uint8_t> bytes)
     return result;
 }
 inline HeightFogSettings readHeightFogSettings(const std::filesystem::path& path) {
-    std::ifstream input(path,std::ios::binary);std::array<uint8_t,HeightFogInputBytes> bytes{};
+    NativePreparedInputFile input(path,std::ios::binary);std::array<uint8_t,HeightFogInputBytes> bytes{};
     input.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!input||input.peek()!=std::char_traits<char>::eof())throw std::runtime_error("Initial Height Fog input length");
     return decodeHeightFogSettings(bytes);

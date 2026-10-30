@@ -22,8 +22,12 @@ public static partial class PersonReturnPathSource
         {
             var player = Known(OwnedCurrentPlayerForce.ReadCurrentReference(state, current), "trade player");
             if (Known(current.ReadForcePhysicalSlot(player), "trade player ordinal") != 0 &&
-                player == force && country == 4 && Known(app.SpecialModeServicePresent, "trade special-mode service"))
-                throw new MissingOwner("trade special-mode byte6 bit7");
+                player == force && country == 4)
+            {
+                //570840 and17A470 share the controller bitmap; its actual
+                //byte6.bit7 is projected by the attached tutorial session.
+                if (Known(app.TutorialAllowsForeignTrade, "trade special-mode byte6 bit7")) return true;
+            }
         }
         var list = Known(current.CreateTemporaryHexList(), "trade State temporary");
         try

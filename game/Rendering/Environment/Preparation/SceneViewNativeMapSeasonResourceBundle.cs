@@ -34,6 +34,34 @@ public sealed class SceneViewNativeMapSeasonResourceBundle
         return new(locale, camera, directional, metadata,camera.CloudTextures);
     }
 
+    /// <summary>Load the actual scenario third-date season for a pre-game page.
+    /// No owned strategy clock or final player World is constructed here.</summary>
+    public static SceneViewNativeMapSeasonResourceBundle LoadScenarioPreview(
+        GameResourceRepository repository, LoadedScenarioWorld scenario, string locale, long sourceFrameNumber)
+    {
+        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(scenario);
+        var camera = SkySeasonMainCameraProducer.ResolveScenarioPreviewSource(repository,
+            MapSeasonRuntime.ResolveScenarioPreviewSourceFrame(repository, scenario, sourceFrameNumber), locale);
+        var directional = MapSeasonDirectionalLightSources.Read(camera.Selection.Provider.Database);
+        var metadata = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(directional);
+        return new(locale, camera, directional, metadata,camera.CloudTextures);
+    }
+
+    /// <summary>Replace only calendar ownership over this exact loaded source.
+    /// Directional declarations, metadata and cloud images remain borrowed.</summary>
+    public SceneViewNativeMapSeasonResourceBundle WithAdoptedCamera(SkySeasonMainCameraSource adoptedCamera)
+    {
+        ArgumentNullException.ThrowIfNull(adoptedCamera);
+        if(CameraSource.Season.Calendar is not MapSeasonScenarioPreviewFrame||
+            adoptedCamera.Season.Calendar is not MapSeasonRuntimeFrame||
+            adoptedCamera.Transmittance.Atan.Locale!=Locale||
+            !ReferenceEquals(adoptedCamera.Season.Resources,CameraSource.Season.Resources)||
+            !ReferenceEquals(adoptedCamera.Selection,CameraSource.Selection)||
+            !ReferenceEquals(adoptedCamera.CloudTextures,CloudTextures))
+            throw new InvalidDataException("Adopted Camera must retain this exact preview source's parsed resource owners.");
+        return new(Locale,adoptedCamera,DirectionalDeclarations,LightMetadata,CloudTextures);
+    }
+
     internal void RequireCurrentLightSources(IReadOnlyList<MapSourceCreatedDirectionalLightingSource> sources)
     {
         if (!sources.Select(source => source.Construction.SourceObjectId).SequenceEqual(LightMetadata.Select(row => row.SourceObjectId)) ||

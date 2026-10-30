@@ -17,7 +17,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, int executorPhysical, int? targetPhysical,
         TalentOrderKind kind, Func<TacticSourceSamplerWorld> readSampler)
     {
-        if (Seed.Language != "TC") throw TalentCommandMissing("advisor_SC_owner");
+        if (Seed.Language is not ("TC" or "SC")) throw TalentCommandMissing("advisor_edition_owner");
         var force = current.ReadPersonForce(executorPhysical) ?? throw TalentCommandMissing("advisor_executor_Force");
         var advisor = Advisor(force);
         if (!Valid(advisor)) return new(state, -1);

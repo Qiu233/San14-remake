@@ -11,52 +11,85 @@ public partial class Main
     private MapSceneView? _personnelPresentationMap;
     private GameState? _personnelPresentationInspectedOwner;
     private bool _personnelPresentationOwnsVoice;
-    private bool HasPersonnelPresentation=>_personnelPresentation is not null||HasMonthlyFeedback||_resourceNotice is not null||_personDeathSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
+    private bool _personnelPresentationIntelligenceWait;
+    private bool HasPersonnelPresentation=>HasDuelCaptureAnnouncement||HasDuelPresentation||_personnelPresentation is not null||HasEncirclementPresentation||HasFirePresentation||HasDamagePresentation||HasFacilityEffectsPresentation||HasFacilityConstructionPresentation||HasFacilityRepairPresentation||HasMonthlyFeedback||_resourceNotice is not null||_personnelSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
-    private bool IsPersonnelPresentationCurrent=>_coalitionCameraCommand is not null?IsCoalitionCameraCurrent:_terminalMusic is not null?IsTerminalMusicCurrent:_personDeathSound is not null?IsPersonDeathSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
+    //A presentation receipt changes only its real outbox owner. Keep the
+    //same retained Story scene attached to that publication, including manual
+    //Events whose owner is World, without reopening its media or advancing it.
+    private GameState SynchronizePersonnelPresentationOwner(GameplaySession session)
+    {
+        var owner = PersonnelPresentationOwner(session);
+        if (_storyPresentation is { } scene && ReferenceEquals(scene.Session, session) &&
+            StoryPlayback(session)?.Story is { } story && scene.Sequence == story.Sequence &&
+            scene.Source == story.Source && scene.ContentRevision == story.ContentRevision)
+            scene.World = owner;
+        return owner;
+    }
+    private bool IsPersonnelPresentationCurrent=>HasDuelCaptureAnnouncement?IsDuelCaptureAnnouncementCurrent:HasDuelPresentation?IsDuelPresentationCurrent:HasEncirclementPresentation?IsEncirclementPresentationCurrent:HasFirePresentation?IsFirePresentationCurrent:HasDamagePresentation?IsDamagePresentationCurrent:HasFacilityEffectsPresentation?IsFacilityEffectsPresentationCurrent:HasFacilityRepairPresentation?IsFacilityRepairPresentationCurrent:HasFacilityConstructionPresentation?IsFacilityConstructionPresentationCurrent:_coalitionCameraCommand is not null?IsCoalitionCameraCurrent:_terminalMusic is not null?IsTerminalMusicCurrent:_personnelSound is not null?IsPersonnelSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
     private bool TryOpenPersonnelPresentation()
     {
+        if (_session is { } currentSession) SynchronizePersonnelPresentationOwner(currentSession);
+        if (_endingPresentation is { } ending)
+        {
+            if (IsEndingCurrent(ending)) return true;
+            CloseEndingPresentation();
+        }
         if (HasForcePresentation) return true;
         if(HasPersonnelPresentation)
         {
             if(IsPersonnelPresentationCurrent)return true;
             ClosePersonnelPresentation();
         }
-        if(_failed||_shuttingDown||_advancingPeriod||(IsReturningToTitle&&!HasTerminalReturn)||HasAdministrationPage||HasMilitaryOrderPage||
+        if(_failed||_shuttingDown||_advancingPeriod||(IsReturningToTitle&&!HasTerminalReturn)||(HasAdministrationPageExceptStory||(HasStoryPresentation&&!IsStoryPresentationCurrent))||HasMilitaryOrderPage||
             HasEnvironmentSettings||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||HasPersonnelConfirmation||_detailsView is not null||
             _diplomacyNegotiation is not null||_repository is null||_campaignComposition is not {} composition||
             _session is not {PlayerForceId:not null} session||
-            (session.HasPendingOperation&&session.PendingNormalPeriod is null)||
+            (session.HasPendingOperation&&session.PendingNormalPeriod is null&&session.PendingCampaignEventCommand is null&&!HasCreatedEventResults)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
-        var owner=PersonnelPresentationOwner(session);
+        var owner=SynchronizePersonnelPresentationOwner(session);
+        if(CampaignDuelPresentationPlaybackRules.Pending(owner) is not null&&TryOpenDuelPresentation(session,owner,map,composition))return true;
         if (owner.PendingMapMusicIntent is { } pendingMusic)
             return TryPresentMapMusic(null, pendingMusic, session, owner, map);
         RestoreCoalitionCamera(owner, map);
+        RefreshFacilityRepairScene(session,owner,map);
         RefreshDisasterScene(session,owner,map);
         RefreshMonthlyScene(session,owner,map);
         RestoreFoodWarnings(session,owner,map);
         RestoreCityMapAttention(owner,map);
         RefreshArmyMapSpeechBinding(session,owner,map);
-        if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
+        if(ReferenceEquals(_personnelPresentationInspectedOwner,owner))return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders() || TryOpenEndingPresentation(session, composition, map);
         GameState? armyViewRefreshSource = null;
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if (session.PendingEditedEventPlayback is { Phase: EditedEventPlaybackPhase.Results or EditedEventPlaybackPhase.PostResult or EditedEventPlaybackPhase.Summary } &&
+                _createdEventWorkspace is { } editedOwner && !EnsureCreatedEventMedia(editedOwner)) return true;
+            //A preceding FIFO request can complete synchronously. Check the
+            //actual head again on every iteration before opening this notice.
+            if (StoryPlayback(session) is { Phase: NormalTurnStoryResultPhase.PostResult,
+                    StateControl.AwaitingPresentationBatch: long awaited } && entry.BatchSequence == awaited &&
+                !EnsurePostResultSceneBeforePersonnel(session, composition, map, awaited)) return true;
+            //A departure or any other intervening intent can change the
+            //actual view publication. Only consecutive trait receipts share it.
+            if(entry.Request.ArmyTraitViewRefresh is null)armyViewRefreshSource=null;
+            if (entry.Source == CampaignEffectSource.ProposalCommands)
+                return TryPresentProposalEffects(session, composition, map);
             if (entry.Request.ForceCoalitionVisual is { } coalition)
             {
                 if (coalition.Operation is ForceCoalitionVisualOperation.CameraFocus or ForceCoalitionVisualOperation.CameraRestore)
                     return TryPresentCoalitionCamera(entry, coalition, session, owner, map);
                 if (!TryPresentCoalitionVisual(entry, coalition, session, owner, map)) return false;
-                owner = PersonnelPresentationOwner(session);
+                owner = SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.EmperorSceneEnter or
                 MonthlyMaintenanceOperation.EmperorSceneExit)
             {
                 if (!TryPresentEmperorScene(entry, session, owner, map)) return false;
-                owner = PersonnelPresentationOwner(session);
+                owner = SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.MapMusicIntent is { } music)
@@ -65,7 +98,19 @@ public partial class Main
             {
                 if (!TryPresentApplicationExit(entry, exit, session, owner)) return false;
                 if (_returnToTitleTask is { IsCompleted: false }) return true;
-                owner = PersonnelPresentationOwner(session);
+                owner = SynchronizePersonnelPresentationOwner(session);
+                continue;
+            }
+            if (entry.Request.ArmyDeparture is { } departure)
+            {
+                if (!map.TryPresentArmyDeparturePresentation(owner, departure, out var missing))
+                {
+                    GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner = owner;
+                    return false;
+                }
+                if (!session.TryCompleteArmyDeparturePresentation(owner, entry.BatchSequence, entry.RequestIndex)) return false;
+                owner = SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.ArmyTraitViewRefresh is { } refresh)
@@ -80,10 +125,81 @@ public partial class Main
                     return false;
                 }
                 if (!session.TryCompleteArmyTraitViewRefresh(owner, entry.Source, entry.BatchSequence, entry.RequestIndex)) return false;
-                owner = PersonnelPresentationOwner(session);
+                owner = SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
-            armyViewRefreshSource = null;
+            if (entry.Source == CampaignEffectSource.ArmyCommandMaintenance &&
+                entry.Request.Speech?.Event == CombatSpeechEvent.ArmyAreaOccupationCompleted)
+            {
+                // Older builds misclassified the chronology notification as
+                // speech. Its original labels and date were never retained.
+                // Preserve the packet instead of inventing a later history.
+                GD.PushWarning("legacy.army_area_occupation_chronicle.source_labels_and_date_missing");
+                _personnelPresentationInspectedOwner = owner;
+                return false;
+            }
+            if (entry.Request.Speech is { Event: CombatSpeechEvent.ArmyOrderFinished or CombatSpeechEvent.ArmyHoldingPosition or
+                CombatSpeechEvent.ArmyDestinationReachedHolding or CombatSpeechEvent.ArmyEnteredBase })
+            {
+                if (!session.TryPrepareArmyCommandSpeech(owner, entry.Source, entry.BatchSequence, entry.RequestIndex,
+                    composition.PrepareArmyQueries(owner), out var prepared, new(_presentationRandom.State)))
+                {
+                    if (prepared?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner = owner;
+                    return false;
+                }
+                owner = SynchronizePersonnelPresentationOwner(session);
+                if (session.PendingNormalPeriod is null && owner.CampaignAppRandom32 is { } random)
+                    _presentationRandom.InstallCommittedState(random.State);
+                RefreshArmyMapSpeechBinding(session, owner, map);
+                continue;
+            }
+            if (entry.Request.ArmyFireCast is not null)
+                return TryPresentFire(entry, session, owner, map);
+            if (entry.Request.ArmyFireAnnouncement is not null)
+            {
+                if (!session.TryPrepareFireAnnouncement(owner, entry.Source, entry.BatchSequence,
+                    entry.RequestIndex, entry.Request, composition.PrepareArmyQueries(owner),
+                    out var prepared, new(_presentationRandom.State)))
+                {
+                    if (prepared?.UnresolvedOwner is { } missing) GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner = owner;
+                    return false;
+                }
+                owner = SynchronizePersonnelPresentationOwner(session);
+                if (session.PendingNormalPeriod is null && owner.CampaignAppRandom32 is { } random)
+                    _presentationRandom.InstallCommittedState(random.State);
+                RefreshArmyMapSpeechBinding(session, owner, map);
+                continue;
+            }
+            if (entry.Request.FireDamagePresentation is not null || entry.Request.TerrainDamagePresentation is not null)
+                return TryPresentDamage(entry, session, owner, map);
+            if(entry.Request.FacilityAuraReset is not null || entry.Request.MilitaryMusicPulse is not null ||
+                entry.Request.FacilityProjectile is not null || entry.Request.FacilityStatisticPresentation is not null ||
+                entry.Request.FacilitySupportAura is not null || entry.Request.ArmyTrapPresentation is not null ||
+                entry.Request.FacilityTrapPresentation is not null || entry.Request.ArmyFacilityDamagePresentation is not null)
+                return TryPresentFacilityEffects(entry,session,owner,map);
+            if(entry.Request.FacilityConstructionPresentation is not null)
+                return TryPresentFacilityConstruction(entry,session,owner,map);
+            if(entry.Request.FacilityRepairPresentation is not null)
+                return TryPresentFacilityRepair(entry,session,owner,map);
+            if(entry.Request.Speech is { Event: CombatSpeechEvent.ArmyFacilityConstructionStarted or CombatSpeechEvent.ArmyFacilityCompleted or
+                CombatSpeechEvent.ArmyUnderFacilityAttack or CombatSpeechEvent.TrapPitfall or CombatSpeechEvent.TrapRockfall or
+                CombatSpeechEvent.TrapCountered or CombatSpeechEvent.ConfusionApplied or CombatSpeechEvent.ImmobilizationApplied })
+            {
+                if(!session.TryPrepareFacilityArmySpeech(owner,entry.Source,entry.BatchSequence,entry.RequestIndex,
+                    composition.PrepareArmyQueries(owner),out var prepared,new(_presentationRandom.State)))
+                {
+                    if(prepared?.UnresolvedOwner is {} missing)GD.PushWarning(missing);
+                    _personnelPresentationInspectedOwner=owner;
+                    return false;
+                }
+                owner=SynchronizePersonnelPresentationOwner(session);
+                if(session.PendingNormalPeriod is null&&owner.CampaignAppRandom32 is {} random)
+                    _presentationRandom.InstallCommittedState(random.State);
+                RefreshArmyMapSpeechBinding(session,owner,map);
+                continue;
+            }
             if (entry.Request.BaseAbnormalFeedback is not null)
             {
                 if (!session.TryPrepareBaseAbnormalFeedback(owner, entry.Source, entry.BatchSequence,
@@ -94,10 +210,12 @@ public partial class Main
                     _personnelPresentationInspectedOwner = owner;
                     return false;
                 }
-                owner = PersonnelPresentationOwner(session);
+                owner = SynchronizePersonnelPresentationOwner(session);
                 RefreshArmyMapSpeechBinding(session, owner, map);
                 continue;
             }
+            if (entry.Request.DuelCaptureAnnouncement is { } capture)
+                return TryPresentDuelCaptureAnnouncement(entry, capture, session, owner, map, composition);
             if (entry.Request.PersonDeathReport is { } death)
             {
                 var publication = composition.PrepareArmyQueries(owner).QueryPersonDeathPresentation(owner, death);
@@ -109,30 +227,30 @@ public partial class Main
                     if (presentation.Illustration is { } illustration) ShowMonthlyScene(session, map, illustration);
                     else CloseMonthlyScene();
                     if (!session.TryCompletePersonnelPresentation(owner, entry.BatchSequence, entry.RequestIndex)) return false;
-                    owner = PersonnelPresentationOwner(session);
+                    owner = SynchronizePersonnelPresentationOwner(session);
                     continue;
                 }
                 if (presentation.SoundId is int soundId)
-                    return TryPresentPersonDeathSound(entry, session, owner, map, soundId);
+                    return TryPresentPersonnelSound(entry, session, owner, map, soundId);
             }
             if (entry.Request.MonthlyMaintenance?.Operation == MonthlyMaintenanceOperation.ResetPersonnelGroupMoveDestinations)
             {
                 composition.ApplicationGameplay.PersonnelGroupMoveDestinations.Clear();
                 if (!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex)) return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.NormalTurnFoodWarningPresentation is not null)
             {
                 if (!TryPresentFoodWarnings(entry,session,owner,map)) return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.MonthlyMaintenance?.Operation is MonthlyMaintenanceOperation.FinalOrderSceneEnter or
                 MonthlyMaintenanceOperation.FinalOrderSceneExit)
             {
                 if (!TryPresentFinalOrderScene(entry,session,owner,map)) return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if (entry.Request.NormalTurnForceResourceNotice is not null)
@@ -141,12 +259,14 @@ public partial class Main
                 MonthlyMaintenanceOperation.DisasterSceneExit)
             {
                 if(!TryPresentDisasterScene(entry,session,owner,map))return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if(entry.Request.MonthlyMaintenance?.Operation==MonthlyMaintenanceOperation.TerritoryOccupation)
                 return TryPresentMonthlyTerritory(entry,session,owner,map);
             if(entry.Request.MapObjectPresentation?.BaseCapture is not null)
+                return TryPresentMonthlyTerritory(entry,session,owner,map);
+            if(MapObjectPresentationSources.Supports(entry.Source,entry.Request.MapObjectPresentation))
                 return TryPresentMonthlyTerritory(entry,session,owner,map);
             var payload=PersonnelPresentationQueue.Message(entry);
             var growth=entry.Request.OfficerGrowthFeedback;
@@ -156,8 +276,16 @@ public partial class Main
             {
                 _sceneAudioBinding?.PlayOfficerGrowthFeedbackSound();
                 if(!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex))return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
+            }
+            if (payload is { Operation: TalentCommandPresentationOperation.SoundCue, Voice: null } sourceSound)
+            {
+                // An ordinary SE index names a cue, not a sample or a dedicated
+                // personnel channel. Queue it through the shared normal manager
+                // and retain this request until actual admission completes.
+                return TryPresentPersonnelSound(entry, session, owner, map, sourceSound.SoundId ??
+                    throw new InvalidDataException("personnel.presentation.sound_index"));
             }
             if(entry.Request.DiplomacyArrivalAudio is not null||payload?.Operation==TalentCommandPresentationOperation.SoundCue)
             {
@@ -178,13 +306,15 @@ public partial class Main
                     else GD.PushWarning("Personnel presentation audio is unavailable in this scene.");
                 }
                 if(!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex))return false;
-                owner=PersonnelPresentationOwner(session);
+                owner=SynchronizePersonnelPresentationOwner(session);
                 continue;
             }
             if(payload is null&&growth?.Narration is null&&scenery?.DiscoveryTextAtSource is null)break;
             RetirePeriodReportView();CloseActionReport();
             var view=new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };_personnelPresentation=view;
             _personnelPresentationSession=session;_personnelPresentationWorld=owner;_personnelPresentationMap=map;
+            _personnelPresentationIntelligenceWait = entry.Source == CampaignEffectSource.IntelligenceCommands &&
+                IntelligenceNarrationContinuation(owner)?.NarrationBatchSequence == entry.BatchSequence;
             AddChild(view);
             try
             {
@@ -193,12 +323,11 @@ public partial class Main
                     var projected=composition.PrepareArmyQueries(owner).QuerySceneryDiscoveryPanel(owner,scenery);
                     var panel=projected.Available?projected.Value!:
                         throw new InvalidDataException(projected.UnresolvedInput??"Scenery discovery panel is unavailable.");
-                    LoadedSprite[] layers=[];
+                    IReadOnlyList<LoadedSprite> layers=[];
                     if(panel.Executor.StandingPortrait is {} portrait)
                     {
                         var sprites=new LocalizedUiSpriteSource(_repository);
-                        layers=new[]{portrait.SpriteB,portrait.SpriteA,portrait.SpriteC}
-                            .Select(name=>sprites.LoadTexturePackSprite(portrait.ResourceName,name)).ToArray();
+                        layers=portrait.LoadSprites(sprites.LoadTexturePackSprite);
                     }
                     else
                     {
@@ -234,11 +363,10 @@ public partial class Main
                             ()=>_preferences.AutomaticMessageAdvance,Admitted);
                         if(!actors.Available)GD.PushWarning(actors.UnresolvedInput);
 
-                        LoadedSprite[] StandingLayers(PersonnelPresentationSpeaker? actor)
+                        IReadOnlyList<LoadedSprite> StandingLayers(PersonnelPresentationSpeaker? actor)
                         {
                             if(actor?.StandingPortrait is {} standing)
-                                return new[]{standing.SpriteB,standing.SpriteA,standing.SpriteC}
-                                    .Select(name=>sprites.LoadTexturePackSprite(standing.ResourceName,name)).ToArray();
+                                return standing.LoadSprites(sprites.LoadTexturePackSprite);
                             string reason=actor?.PortraitUnresolvedInput??actors.UnresolvedInput??"Recruit conversation portrait is unavailable.";
                             GD.PushWarning(reason);view.SetMeta("portrait_unavailable",reason);
                             return [];
@@ -269,8 +397,7 @@ public partial class Main
                                 ()=>_preferences.AutomaticMessageAdvance,Admitted);
                         else if(speaker?.StandingPortrait is {} standing)
                         {
-                            var layers=new[]{standing.SpriteB,standing.SpriteA,standing.SpriteC}
-                                .Select(name=>sprites.LoadTexturePackSprite(standing.ResourceName,name)).ToArray();
+                            var layers=standing.LoadSprites(sprites.LoadTexturePackSprite);
                             view.Configure(_repository,_ui,speaker.Name,payload.TextAtSource!,layers,Completed,
                                 ()=>_preferences.AutomaticMessageAdvance,Admitted);
                         }
@@ -293,7 +420,8 @@ public partial class Main
                     _sceneAudioBinding?.PlayPersonnelNarrationVoice(voice);
                     _personnelPresentationOwnsVoice=true;
                 }
-                view.Name="PersonnelPresentation";view.ZIndex=95;
+                view.Name="PersonnelPresentation";
+                view.ZIndex=StoryPlayback(session)?.Phase==NormalTurnStoryResultPhase.PostResult || HasCreatedEventResults?97:95;
                 map.CloseCityCommandMenu();map.SetDetailsOpen(true,keepMapVisible:true);SetMapFocus(false);HideDeploymentHud();
                 return true;
             }
@@ -304,27 +432,47 @@ public partial class Main
             {
                 if(_personnelPresentation!=view)return;
                 if(!IsPersonnelPresentationCurrent){ClosePersonnelPresentation();return;}
+                //A real map-speech commit may have replaced this same view's
+                //owner. Capture its adopted owner before closing the view.
+                var receiptOwner = _personnelPresentationIntelligenceWait ? _personnelPresentationWorld! : owner;
                 ClosePersonnelPresentation();
-                if(!session.TryCompletePersonnelPresentation(owner,entry.BatchSequence,entry.RequestIndex))return;
+                bool intelligenceWait = entry.Source == CampaignEffectSource.IntelligenceCommands &&
+                    IntelligenceNarrationContinuation(receiptOwner) is
+                        { Phase: PersonnelIntelligenceNarrationPhase.AwaitingNarration } wait && wait.NarrationBatchSequence == entry.BatchSequence;
+                bool consumed = intelligenceWait
+                    ? session.TryCompleteIntelligenceNarration(receiptOwner, entry.BatchSequence, entry.RequestIndex, new(_presentationRandom.State))
+                    : session.TryCompletePersonnelPresentation(owner, entry.BatchSequence, entry.RequestIndex);
+                if(!consumed)return;
                 //Only the effect outbox changed. Keep the resident map resources;
                 //the next domain publication refreshes them normally.
                 if(!TryOpenPersonnelPresentation())
                 {RefreshPlayControls();RefreshDiplomaticNegotiation();}
             });
         }
+        if(owner.RegionOccupationFollowups?.EncirclementPresentations.Count>0)
+            return TryPresentEncirclement(session,owner,map,composition);
         _personnelPresentationInspectedOwner=owner;
-        return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders();
+        return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders() || TryOpenEndingPresentation(session, composition, map);
     }
 
     private void ClosePersonnelPresentation()
     {
+        CloseDuelCaptureAnnouncement();
+        CloseDuelPresentation();
+        CloseFirePresentation();
+        CloseDamagePresentation();
+        CloseFacilityEffectsPresentation();
+        CloseFacilityRepairPresentation();
+        CloseFacilityConstructionPresentation();
         CloseTerminalMusic();
         CloseCoalitionCameraCommand();
-        ClosePersonDeathSound();
+        ClosePersonnelSound();
         CloseResourceNotice();
         CloseMonthlyFeedback();
+        CloseEncirclementPresentation();
         if(_personnelPresentationOwnsVoice)_sceneAudioBinding?.StopNarrationVoice();
         _personnelPresentationOwnsVoice=false;
+        _personnelPresentationIntelligenceWait=false;
         var view=_personnelPresentation;var map=_personnelPresentationMap;
         _personnelPresentation=null;_personnelPresentationSession=null;_personnelPresentationWorld=null;_personnelPresentationMap=null;
         if(view is not null){view.Abandon();view.GetParent()?.RemoveChild(view);view.QueueFree();}

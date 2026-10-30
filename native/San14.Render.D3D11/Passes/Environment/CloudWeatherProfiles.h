@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "CloudWeatherInputs.h"
 #include "WeatherFogFrame.h"
 #include <fstream>
@@ -23,7 +24,7 @@ struct Profile {
 };
 struct Profiles {std::vector<Profile> seasons;};
 inline Profiles readProfiles(const std::filesystem::path& path){
-    std::ifstream in(path,std::ios::binary);Profiles result;
+    NativePreparedInputFile in(path,std::ios::binary);Profiles result;
     auto word=[&](){uint32_t u{};in.read(reinterpret_cast<char*>(&u),4);
         if(!in)throw std::runtime_error("Cloud weather source truncated");return u;};
     result.seasons.resize(word());

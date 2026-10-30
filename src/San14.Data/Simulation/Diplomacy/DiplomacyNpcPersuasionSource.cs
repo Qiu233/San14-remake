@@ -45,37 +45,45 @@ public sealed partial class ArmyCampaignRuleAdapter
         ["diplomacy:npc-attack-rate-divisor"] = 40,
         ["diplomacy:npc-politics-scale-divisor"] = 100,
         ["diplomacy:npc-probability-round-scale"] = 10000,
-        //These three TC scalars are loader-zero initialized and have only
+        //These independently qualified TC/SC scalars are loader-zero initialized with only
         //read references in the original program, with no address escape.
         //They are not values sampled from a running game. Saved overrides
         //still take precedence in NpcParameter.
         ["diplomacy:npc-goodwill-rate-floor"] = 0,
         ["diplomacy:npc-alliance-rate-floor"] = 0,
         ["diplomacy:npc-attack-rate-floor"] = 0,
+        ["diplomacy:npc-return-captives-high-probability-threshold"]=90,
+        ["diplomacy:npc-return-captives-budget-percent"]=35,
+        ["diplomacy:npc-return-captives-cost-scale"]=100,
+        ["diplomacy:npc-return-captives-effect-scale"]=10,
+        ["diplomacy:npc-return-captives-rate-offset"]=3,
+        ["diplomacy:npc-return-captives-rate-divisor"]=40,
+        ["diplomacy:npc-return-captives-rate-floor"]=0,
         //The negotiation window constructors consume the same proved
         //loader-initialized, read-only scalar block for their minimum.
         ["diplomacy:negotiation-intelligence-minimum"] = 0,
     };
 
     //The saved bank has precedence, including explicit overrides. Only
-    //proved TC immutable defaults may cover an absent key in an older save.
+    //independently proved TC/SC defaults may cover an absent key in an older save.
     private static int ReadDiplomacyStaticRuleCurrent(GameState state, string name)
     {
         string key = "diplomacy:" + name;
         var bank = state.NativeArmySimulation?.Parameters;
-        if (bank is null || bank.Language != "TC" || bank.RuleVersion != SimulationRuleIdentity.ForLocale("TC"))
+        if (bank is null || bank.Language is not ("TC" or "SC") || bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language))
             throw DiplomacyNumericMissing("NPC_parameter_bank");
         if (bank.Float32Values.ContainsKey(key) || bank.Int32Values.ContainsKey(key)) return DParameter(state, name);
         return DiplomacyNpcStaticParameters.TryGetValue(key, out int value) ? value : DParameter(state, name);
     }
 
-    //Immutable TC rules from file-backed constants and proved loader-zero
+    //Independently sourced TC/SC rules from file-backed constants and qualified loader-zero
     //scalars. No current process or original executable is read at runtime.
     internal GameState InstallFreshDiplomacyNpcParameters(GameState state)
     {
-        if (Seed.Language != "TC") return state;
+        if (Seed.Language is not ("TC" or "SC")) return state;
         if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0 ||
-            state.NativeArmySimulation is not { } native)
+            state.NativeArmySimulation is not { } native || native.Parameters.Language != Seed.Language ||
+            native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
             throw DiplomacyNumericMissing("NPC_fresh_parameter_lifecycle");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var (key, value) in DiplomacyNpcStaticParameters)
@@ -155,7 +163,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private sealed partial class DiplomacyQuery
     {
-        private string NpcKind => NativeKind switch { 4 => "goodwill", 5 => "alliance", 9 => "attack",
+        private string NpcKind => NativeKind switch { 4 => "goodwill", 5 => "alliance", 9 => "attack",8=>"return-captives",
             _ => throw DiplomacyNumericMissing("NPC_persuasion_kind") };
         private int NpcParameter(string suffix) => ReadDiplomacyStaticRuleCurrent(State, "npc-" + suffix);
 

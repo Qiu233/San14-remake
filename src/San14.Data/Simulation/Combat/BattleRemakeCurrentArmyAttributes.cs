@@ -7,7 +7,7 @@ namespace San14.Data;
 /// RegionFactor uses Army.word152; terrain uses Army.word2A. Neither is inferred
 /// from an unproved Core position/morale projection.</summary>
 public sealed record BattleRemakeCurrentCommonQueries(byte FinalDescriptorDivisor14,
-    int CappedNativeMorale, bool AlternateMoraleGlobals, float RegionFactor,
+    int CappedNativeMorale, BattleUnitMoraleCoefficients MoraleCoefficients, float RegionFactor,
     byte NativeTerrainCode, float NeighborFactor, string Revision);
 public sealed record BattleRemakeCurrentFormationCoefficient(long NativeContainerByteCount,
     byte StaticField, byte? EncodedQueryResult);
@@ -97,13 +97,12 @@ public sealed partial class BattleRemakeCurrentArmyAttributes
             !float.IsFinite(reached.NeighborFactor))
             throw new InvalidDataException("Current common factor query has unsupported native scalar fields.");
         BattleUnitCommonParameters? commonParameters = CommonParameters(state);
-        int? moraleOffset = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleOffset : SimulationParameterKeys.BattleAttributes.MoraleOffset);
-        int? moraleDivisor = Parameter(state, reached.AlternateMoraleGlobals ? SimulationParameterKeys.BattleAttributes.AlternateMoraleDivisor : SimulationParameterKeys.BattleAttributes.MoraleDivisor);
+        var morale = reached.MoraleCoefficients;
         float? terrainFactor = TerrainFactor(state, formation, reached.NativeTerrainCode);
-        if (commonParameters is null || moraleOffset is null || moraleDivisor is not > 0 || terrainFactor is null) return null;
+        if (commonParameters is null || morale.Divisor <= 0 || terrainFactor is null) return null;
         float common = BattleUnitSourceMath.CommonFactor(new(full.Leadership, army.Troops,
             reached.FinalDescriptorDivisor14, reached.CappedNativeMorale, true, native.Abnormal23 != 0,
-            moraleOffset.Value, moraleDivisor.Value, reached.RegionFactor, terrainFactor.Value, reached.NeighborFactor), commonParameters);
+            morale.Offset, morale.Divisor, reached.RegionFactor, terrainFactor.Value, reached.NeighborFactor), commonParameters);
         BattleRemakeCurrentFormationCoefficient? attackCoefficient = queries.ReadFormationCoefficient(state, army, formation,
             BattleUnitArmyStatKind.FieldAttack);
         BattleRemakeCurrentFormationCoefficient? defenseCoefficient = queries.ReadFormationCoefficient(state, army, formation,

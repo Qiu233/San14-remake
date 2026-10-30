@@ -58,7 +58,11 @@ internal partial class D3D11MapMarkers
     private void ConfigureCityAttention(GameResourceRepository repository)
     {
         cityAttentionLayout = new(MapMarkerLayout.LoadNamed(repository, "00_02_00_mein_offset_24"));
-        cityAttentionMount = new UiSourceLayout(new LoadedLayout(_citySources!.Full.Layout,
+        // 1A1BE0 mounts the attention children at Full84 inside Simple.
+        // Both children then inherit 1AAF30's projected main-control origin:
+        // the 40px flag's centre at X20 and the source screen offset Y-40.
+        Vector2 markerRoot = new(-20, -40);
+        cityAttentionMount = markerRoot + new UiSourceLayout(new LoadedLayout(_citySources!.Full.Layout,
             _citySources.Full.Source)).Rectangle(84).Position;
         cityAttentionShader = UiSourceSprite.CreateShader();
         SynchronizeCityAttention();
@@ -152,7 +156,7 @@ internal partial class D3D11MapMarkers
                 (_baseInformationVisible || campaignMarkerHexes is not null) && CampaignMarkerVisible(marker);
             view.Root.Scale = Size / CanonicalSize;
             view.Root.Position = (marker.Screen + cityAttentionMount) * view.Root.Scale;
-            view.Root.Modulate = new Color(1, 1, 1, marker.CityPresentation.PanelAlpha);
+            view.Root.Modulate = new Color(1, 1, 1, marker.CityPresentation.PanelAlpha / 255f);
         }
     }
 }

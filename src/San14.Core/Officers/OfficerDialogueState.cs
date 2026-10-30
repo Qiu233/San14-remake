@@ -6,6 +6,7 @@ public sealed partial record OfficerState
     public byte? DialogueStyle { get; init; }
     /// <summary>Current stock voice type. Null is an unknown historical value.</summary>
     public byte? VoiceType { get; init; }
+    public byte? SpecialVoiceType { get; init; }
     public ushort? BirthYear { get; init; }
     /// <summary>Current generation within the person's bloodline.</summary>
     public byte? FamilyGeneration { get; init; }

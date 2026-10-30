@@ -22,7 +22,7 @@ public sealed partial class D3D11RenderSession
     private G1EffectGpuResourceUpload? _sentEffectResources;
 
     private int NextWithEffects(ulong output,D3D11MapInput input,in NativeInput native,
-        G1EffectGpuPublication effects,ref WorldPins worldPins,out NativeReceipt receipt)
+        G1EffectGpuPublication effects,ref WorldPins worldPins,uint outputUse,out NativeReceipt receipt)
     {
         _effectsNext??=Export<EffectsNextCall>("san14_render_next_map_effects_v1");
         GCHandle resourcePin=default,framePin=default,commandPin=default;
@@ -60,7 +60,7 @@ public sealed partial class D3D11RenderSession
                 routePointer=Marshal.AllocHGlobal(Marshal.SizeOf<NativeRouteInputV1>());
                 Marshal.StructureToPtr(value,routePointer,false);
             }
-            return _effectsNext(_owner,output,in native,commandPointer,routePointer,in extension,1u,out receipt);
+            return _effectsNext(_owner,output,in native,commandPointer,routePointer,in extension,outputUse,out receipt);
         }
         finally
         {

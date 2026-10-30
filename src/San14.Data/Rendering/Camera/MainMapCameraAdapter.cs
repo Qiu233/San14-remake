@@ -57,16 +57,13 @@ public sealed class MainMapCameraAdapter
 
     private MainMapCameraAdapter(LoadedMapCameraConstructionSource source,
         MainMapCameraControllerParameters parameters, MainMapCameraFocus focus,
-        bool currentMaximumYOverride)
+        MainMapCameraControllerState state, bool currentMaximumYOverride)
     {
         Source = source;
         Parameters = parameters;
         InitialFocus = focus;
         retainedFov12E8 = source.Declaration.Perspective.Lens.VerticalFovRadians;
         retainedFar14 = source.Declaration.Perspective.Lens.Far;
-        var state = MapCameraController.InitialFocus(parameters,
-            new(focus.RequestedWorldFocus.X, focus.RequestedWorldFocus.Y, focus.RequestedWorldFocus.Z),
-            currentMaximumYOverride);
         runtime = MapCameraController.CreateRuntime(parameters, state, currentMaximumYOverride);
     }
 
@@ -78,6 +75,24 @@ public sealed class MainMapCameraAdapter
     public float CurrentFov12E8 => retainedFov12E8;
     public float CurrentFar14 => retainedFar14;
     public MainMapCameraZoomSelection CurrentZoom => runtime.Selection;
+
+    /// <summary>A newly owned controller uses C880's actual constructor state.
+    /// Event Collection does not execute the ordinary title's ruler focus.</summary>
+    public static MainMapCameraAdapter FromFreshController(GameResourceRepository repository,
+        string locale, string ownedWorldProvenance, bool currentMaximumYOverride)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownedWorldProvenance);
+        var declaration = DefaultView0Source.LoadDeclarationDefaults(repository);
+        var camera = MapCameraConstructionSource.ReadPerspective(
+            declaration.CameraDefinitions, declaration.MainCameraObjectId);
+        var parameters = MainMapCameraControllerParameters.LoadSourceDefaults(repository, locale);
+        var state = MapCameraController.ConstructSourceDefaultState(parameters);
+        var focus = new MainMapCameraFocus(null, null, null, null,
+            new((float)state.FocusX, (float)state.FocusY, (float)state.FocusZ, (float)state.FocusW),
+            ownedWorldProvenance) { Origin = MainMapCameraFocusOrigin.ControllerDefault };
+        return new(camera, parameters, focus, state, currentMaximumYOverride);
+    }
 
     public static MainMapCameraAdapter FromOwnedCampaign(GameResourceRepository repository,
         string locale, GameState currentOwnedWorld, int currentNativePlayerForceSlot,
@@ -102,7 +117,10 @@ public sealed class MainMapCameraAdapter
             throw new InvalidDataException("The Main map camera owner requires exact source38D04576.");
         MainMapCameraFocus focus = MainMapCameraFocusSource.ResolveCurrentRuler(
             currentOwnedWorld, currentNativePlayerForceSlot, ownedWorldProvenance);
-        return new(source, parameters, focus, currentMaximumYOverride);
+        var state = MapCameraController.InitialFocus(parameters,
+            new(focus.RequestedWorldFocus.X, focus.RequestedWorldFocus.Y, focus.RequestedWorldFocus.Z),
+            currentMaximumYOverride);
+        return new(source, parameters, focus, state, currentMaximumYOverride);
     }
 
     /// <summary>Apply the source Title exit setter once at the owned map entry
@@ -179,6 +197,12 @@ public sealed class MainMapCameraAdapter
         runtime = MapCameraController.QueuePreparedTimedRequest(runtime, request, sourceClock);
         return true;
     }
+
+    /// <summary>Stop the owned timed request at its current pose. Direction
+    /// skip clears the request and its mode, without committing its target.</summary>
+    public void StopTimedMotion() => runtime = runtime with { Transition = null, RequestMode188 = 0 };
+
+    public bool TimedMotionActive => runtime.Transition is { } transition && transition.Elapsed < transition.Duration;
 
     /// <summary>Consume EFB0/E790 results from the same owned Main camera
     /// frame. Cursor coordinates retain the source's canonical 1920 x 1080 domain.</summary>
@@ -274,7 +298,7 @@ public sealed class MainMapCameraAdapter
         MapCameraCurrentPose pose = MapCameraController.Publish(runtime.Pose, input.CurrentScale90);
         string provenance = $"{ContractId};{Source.ConstructorOrigin};" +
             $"controller={Parameters.Locale}@{Parameters.RuleVersion};" +
-            $"ruler-focus={InitialFocus.PlayerForcePhysicalSlot}/{InitialFocus.RulerPersonSourceId}/" +
+            $"focus-origin={InitialFocus.Origin};focus-owner={InitialFocus.PlayerForcePhysicalSlot}/{InitialFocus.RulerPersonSourceId}/" +
             $"{InitialFocus.AffiliationLocationId}/{InitialFocus.PhysicalHexId};" +
             $"owned-world={InitialFocus.OwnedWorldProvenance};frame={input.FrameProvenance}"+
             (farWriter is null?"":";map-entry-far="+farWriter);

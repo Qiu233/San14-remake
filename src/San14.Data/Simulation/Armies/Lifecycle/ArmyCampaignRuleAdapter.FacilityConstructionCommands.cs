@@ -3,7 +3,7 @@ using static San14.Data.FacilityConstructionDefinitions;
 
 namespace San14.Data;
 
-public sealed record FacilityConstructionChoice(string DefinitionKey, string Name);
+public sealed record FacilityConstructionChoice(string DefinitionKey, string Name, byte? Category = null);
 
 public sealed record FacilityConstructionQuote(bool? Allowed, int? GoldCost, int? PayerLocationId,
     int? CurrentGold, string? Reason, string? UnresolvedInput)
@@ -11,12 +11,12 @@ public sealed record FacilityConstructionQuote(bool? Allowed, int? GoldCost, int
     public bool Available => UnresolvedInput is null;
 }
 
-public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionCommandRules
+public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionCommandRules, IPlayableArmyContinuousConstructionCommandRules
 {
     public IReadOnlyList<FacilityConstructionChoice> QueryFacilityConstructionChoices()
     {
         var definitions = _repository.LoadObjectDefinitions(_scenario.FixedDataSource.SourcePath).Catalog.Definitions;
-        return Array.AsReadOnly(new[] { 5, 7, 11, 14 }.Select(slot => new FacilityConstructionChoice(
+        return Array.AsReadOnly(SupportedKinds.Select(slot => new FacilityConstructionChoice(
             MapObjectSourceDirectory.DefinitionKey(slot), definitions[slot].Name)).ToArray());
     }
 
@@ -76,10 +76,21 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
 
     public CommandResult IssueFacilityConstruction(GameState state, UnitState army, int hexId,
         string definitionKey, IReadOnlyList<int> waypointHexIds)
+        => IssueFacilityConstructionCore(state, army, hexId, definitionKey, waypointHexIds, null);
+
+    /// <summary>The two actual placement endpoints of a continuous obstacle.
+    /// Arrival pays for and constructs each reached site separately.</summary>
+    public CommandResult IssueContinuousFacilityConstruction(GameState state, UnitState army,
+        int initialHexId, int finalHexId, string definitionKey, IReadOnlyList<int> waypointHexIds)
+        => IssueFacilityConstructionCore(state, army, initialHexId, definitionKey, waypointHexIds, finalHexId);
+
+    private CommandResult IssueFacilityConstructionCore(GameState state, UnitState army, int hexId,
+        string definitionKey, IReadOnlyList<int> waypointHexIds, int? finalHexId)
     {
         if (!state.Units.TryGetValue(army.Id, out var actual) || actual != army ||
             !FacilityConstructionIntent.IsDefinitionKey(definitionKey) || hexId is < 0 or >= 48400 ||
-            waypointHexIds is null || waypointHexIds.Count > 5 || waypointHexIds.Any(hex => hex is < 0 or >= 48400))
+            waypointHexIds is null || waypointHexIds.Count > 5 || waypointHexIds.Any(hex => hex is < 0 or >= 48400) ||
+            finalHexId is < 0 or >= 48400)
             return CommandResult.Reject("The current army, facility definition or site is invalid.", "structure.target");
         try
         {
@@ -97,13 +108,20 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
             if (!K(current.ReadObjectDefinitionValidity(reference), "command_definition_validity"))
                 return CommandResult.Reject("The selected facility definition is unavailable.", "structure.definition");
             if (!IsSupported(reference.PhysicalSlot)) throw Missing("command_definition_consumer_outside_supported_facilities");
+            var definition = Read(current, reference);
+            if (finalHexId.HasValue && definition.Category != 3)
+                return CommandResult.Reject("Only a continuous obstacle accepts two construction endpoints.", "structure.target");
             var target = current.ReadHexTableReference(hexId) ?? throw Missing("command_site_pointer");
             int person = current.ResolveOfficerSource(army.OfficerId) ?? throw Missing("command_commander_pointer");
             if (!FacilityConstructionLegality.CheckCommander(state, current, person, target, reference))
                 return CommandResult.Reject("The selected army cannot construct this facility at this site.", "structure.target");
+            if(finalHexId is int end && !ContinuousConstructionAllows(state,current,hexId,end,reference,
+                site=>FacilityConstructionLegality.CheckCommander(state,current,person,site,reference)))
+                return CommandResult.Reject("The continuous construction route contains an unavailable site.","structure.target");
 
             return SubmitCurrentConstructionCommand(state, current, army, receiver, 8, hexId,
-                waypointHexIds, new(definitionKey, ArmyMarchDestination.AtHex(hexId), ArmyMarchDestination.None),
+                waypointHexIds, new(definitionKey, ArmyMarchDestination.AtHex(hexId),
+                    definition.Category == 3 ? ArmyMarchDestination.AtHex(finalHexId ?? hexId) : ArmyMarchDestination.None),
                 new(UnitMissionKind.BuildStructure, StructureKindId: definitionKey),
                 new("build", new(DeploymentTargetKind.Hex, hexId), definitionKey));
         }
@@ -142,7 +160,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
     private static CommandResult SubmitCurrentConstructionCommand(GameState state, SourceWorldContext current,
         UnitState army, ArmyReceiverState receiver, byte action, int hexId, IReadOnlyList<int> waypointHexIds,
         FacilityConstructionIntent? intent, UnitMission mission, DeploymentAction? projection,
-        (byte Kind, ushort Identity)? selectedTarget = null)
+        (byte Kind, ushort Identity)? selectedTarget = null, bool borrowCurrentPool = false)
     {
         byte formerAction = K(ArmyConfigurationSourceAdapter.ReadAction(state, army), "command_previous_action");
         var runtime = army.NativeTacticRuntime ?? throw Missing("command_Army_runtime");
@@ -169,7 +187,9 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
             .WithArmyLifecycle(lifecycle with { Receivers = lifecycle.Receivers.With(receiver),
                 Indexes = current.ReadOwnedCurrentListPool()!.ExportOwnedState() });
         working = ArmyOverrideTargetSourceAdapter.ReconcileOwner(working, changed);
-        var appended = ArmyChangedListsSource.Append(working, army.NativeArmyOrigin!.NativeSlotIndex!.Value, current);
+        var appended = borrowCurrentPool
+            ? ArmyChangedListsSource.AppendCurrent(working, army.NativeArmyOrigin!.NativeSlotIndex!.Value, current)
+            : ArmyChangedListsSource.Append(working, army.NativeArmyOrigin!.NativeSlotIndex!.Value, current);
         if (appended.State is not { } result) throw Missing(appended.UnresolvedOwner ?? "command_changed_list");
         return CommandResult.Accept(result);
     }
@@ -183,6 +203,7 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
 
     private void BindFacilityConstructionInputs(GameState state, SourceWorldContext current)
     {
+        current.ConstructionTutorialQualification = () => ReadConstructionTutorialQualification(state);
         OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
         current.MaterializeFixedScenery(_landmarkDefinitions);
         //44 placement is fixed;47 flags are current saved knowledge. A missing
@@ -192,6 +213,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
         current.BindFixedConstructionSceneryLinks();
         _baseCapacityInputs.BindCurrent(state, current);
     }
+
+    private bool? ReadConstructionTutorialQualification(GameState state) => ReadApplicationTutorialActive() switch
+    {
+        false => false,
+        true => TacticRemakeCurrentBattleControl.Read(ReadTutorialControlState(state), 51),
+        _ => null
+    };
 }
 
 public sealed partial class SourceWorldContext

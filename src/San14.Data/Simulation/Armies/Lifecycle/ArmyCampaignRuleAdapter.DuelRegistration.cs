@@ -29,8 +29,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         var prepared = new CampaignDuelResult((CampaignDuelOutcome)result.PlayerOutcome, result.InstantDefeat,
             (CampaignDuelAftermath)result.Aftermath, result.FirstStrikerPersonId, result.WinnerPersonId,
             result.LoserPersonId, Side(result.Actor), Side(result.Opponent));
-        return CampaignDuelRegistration.Register(state, pair, prepared, moment.PreWriterThirdDate,
+        var registered=CampaignDuelRegistration.Register(state,pair,prepared,moment.PreWriterThirdDate,
             moment.CalendarCycleOrdinal);
+        var service=registered.CampaignDuelService!;
+        return registered with{CampaignDuelService=service with
+        {Registered=service.Registered! with{PresentationSnapshot=CaptureDuelPresentationSnapshotCurrent(registered,current,pair)}}};
 
         static CampaignDuelParticipant Side(ArmyDuelSideNumericResult side) => new(side.PersonId,
             (CampaignDuelOutcome)side.Outcome, side.ReadinessBefore, side.ReadinessAfter, side.WriteReadiness,

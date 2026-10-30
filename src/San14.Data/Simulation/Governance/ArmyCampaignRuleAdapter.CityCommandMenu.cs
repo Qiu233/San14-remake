@@ -75,7 +75,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var summon = ReadEnabled(() => Movement(OfficerMoveMode.Summon));
             var transport = ReadEnabled(() => Transport() && Zoom());
             var merchant = ReadEnabled(Merchant);
-            var investment = common.Available ? Unknown("investment_external_mode") : common;
+            var investment = ReadEnabled(() => _adapter.CanCityInvestSceneryCurrent(_state, _current, _cityId) && Zoom());
             // These are separate source slices. An unavailable command does
             // not turn the whole structural projection into known absence.
             var area = ReadEnabled(() =>

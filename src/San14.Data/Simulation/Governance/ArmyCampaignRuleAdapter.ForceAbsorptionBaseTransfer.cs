@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -10,9 +11,12 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState ApplyForceAbsorptionBaseTransferCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, BaseReference target,
         DistrictReference destination, TransferPersonReference ruler,
-        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects)
+        NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
+        AutomaticEmperorCaptureInputs? emperorInputs = null, bool eventPlaybackPresent = false)
         => ApplyForceBaseTransferCurrent(state, current, pool, target, destination, ruler,
-            operationDate, effects, preserveResources: true, suppressMaintenance: true);
+            operationDate, effects, preserveResources: true, suppressMaintenance: true,
+            automaticEmperorInputs: emperorInputs, allowAutomaticEmperorPause: true,
+            eventPlaybackPresent: eventPlaybackPresent);
 
     /// <summary>NormalTurn13's 26DA10(Base,District,executor,0,0,0,1,0,1,0).
     /// The caller supplies its actual resident-transfer District writer.</summary>
@@ -20,18 +24,31 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, WorldIndexContext pool, BaseReference target,
         DistrictReference destination, TransferPersonReference ruler,
         NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
-        Action<ArmyReturnDistrictOperationQueries> transferDistrict)
+        Action<ArmyReturnDistrictOperationQueries> transferDistrict,
+        AutomaticEmperorCaptureInputs? emperorInputs = null)
         => ApplyForceBaseTransferCurrent(state, current, pool, target, destination, ruler,
             operationDate, effects, preserveResources: false, suppressMaintenance: false,
-            fullCentralRadius: false, transferDistrict: transferDistrict);
+            fullCentralRadius: false, transferDistrict: transferDistrict,
+            automaticEmperorInputs: emperorInputs, allowAutomaticEmperorPause: true);
 
     private GameState ApplyForceBaseTransferCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, BaseReference target,
         DistrictReference destination, TransferPersonReference ruler,
         NativeMapSeasonDate operationDate, List<CampaignEffectRequest> effects,
         bool preserveResources, bool suppressMaintenance, bool fullCentralRadius = true,
-        Action<ArmyReturnDistrictOperationQueries>? transferDistrict = null)
+        Action<ArmyReturnDistrictOperationQueries>? transferDistrict = null, bool unregisterFormerForce = false,
+        int forcedEmperorMode = 0, StoryForcedEmperorCaptureInputs? forcedEmperorInputs = null,
+        AutomaticEmperorCaptureInputs? automaticEmperorInputs = null, bool allowAutomaticEmperorPause = false,
+        bool eventPlaybackPresent = false)
     {
+        if (state.ForceTransferEmperorTail is { } pending)
+        {
+            if (target.Kind != BaseKind.City || pending.CityPhysicalSlot != target.PhysicalSlot ||
+                pending.DestinationDistrictPhysicalSlot != destination.PhysicalSlot)
+                throw AbsorptionBaseMissing("Emperor_resume_transfer_identity");
+            return ResumeForceTransferEmperorCurrent(state, current, pool, automaticEmperorInputs,
+                suppressPrimary: suppressMaintenance, eventPlaybackPresent: eventPlaybackPresent);
+        }
         if (!AbsorptionBaseNeed(current.ReadBaseNativeValidity(target), "Base_validity")) return state;
         int location = AbsorptionBaseNeed(current.ReadBaseObjectLink(target), "Base4E");
         var obj = current.ReadObjectTableReference(location <= 3000 ? location : 0)
@@ -45,7 +62,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         var force = current.ReadForceTableReference(newForce) ?? throw AbsorptionBaseMissing("new_Force_pointer");
         var working = state;
         var operation = CreateCaptureDistrictOperationQueries(current, () => working,
-            value => working = value, operationDate, effects);
+            value => working = value, operationDate, effects,
+            capturingForceId: unregisterFormerForce ? newForce : null);
         CityCaptureAreaScope? areas = target.Kind == BaseKind.City
             ? CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce) : null;
         var gateAreas = target.Kind == BaseKind.Gate ? current.CreateNearbyTemporary() : null;
@@ -107,7 +125,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 CityCaptureTerritorySource.ApplyAbsorptionTerritoryCurrent(working, current, areas,
                     AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), CreateArmyDestructionAbilities(current), operation,
                     fullCentralRadius);
-                CityCaptureTerritorySource.RequireNoReachedAreaObjectService(current, areas);
+                CityCaptureTerritorySource.RequireNoReachedAreaObjectService(current, areas, pending2336B0: at =>
+                {
+                    var directory = current.CurrentMapObjectDirectory ?? throw AbsorptionBaseMissing("Object_directory");
+                    var receiver = directory.ReceiverAtPhysical(AbsorptionBaseNeed(at.PhysicalSlot, "Object_identity"));
+                    return (working.ReadArmyLifecycle()?.Indexes.PendingObjectRetirements
+                        ?? throw AbsorptionBaseMissing("Object_F0_pending")).Contains(receiver);
+                }, remove: at => working = RemoveMapObjectWithoutActor(working, current, at, effects));
             }
             else GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
                 0, AbsorptionBaseNeed(destination.PhysicalSlot, "destination"), eagerAdvice: false,
@@ -119,14 +143,51 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.SetCaptureBaseThreatFields(target, threat with
             { Byte49 = unchecked((byte)Math.Min(bound, 0)), Byte4B = unchecked((byte)Math.Min(bound, 0)), Byte62 = 255, Word64 = 0 });
             if (areas is not null)
-                CityCaptureTerritorySource.RequireEmperorCaptureNotReached(working, current, areas);
+            {
+                if (forcedEmperorMode == 0 && areas.OldForcePhysical != areas.NewForcePhysical &&
+                    AbsorptionBaseNeed(current.ReadForceNativeValidity(force), "Emperor_new_Force_validity"))
+                {
+                    //Actual26DA10 param5 supplies the old Force only when
+                    //resources are preserved.149/212/2851B0 pass literal null.
+                    var excluded = preserveResources ? current.ReadForceTableReference(oldForce)
+                        ?? throw AbsorptionBaseMissing("Emperor_excluded_old_Force") : null;
+                    var prepared = PrepareAutomaticEmperorCaptureCurrent(working, current,
+                        target, excluded, force, automaticEmperorInputs);
+                    working = prepared.State;
+                    if (prepared.Progress is { } progress)
+                    {
+                        //Only callers with a real saved parent-tail contract
+                        //may publish this suspension. Other reached callers
+                        //retain their previous explicit unsupported boundary.
+                        if (!allowAutomaticEmperorPause) throw AbsorptionBaseMissing("automatic_Emperor_parent_continuation");
+                        working = working with { AutomaticEmperorCapture = progress,
+                            ForceTransferEmperorTail = new(AbsorptionBaseNeed(target.PhysicalSlot, "Emperor_City_identity"),
+                                oldForce, newForce, AbsorptionBaseNeed(destination.PhysicalSlot, "Emperor_destination_District"),
+                                AbsorptionBaseNeed(areas.CapturedOldDistrict.PhysicalSlot, "Emperor_old_District"), operationDate,
+                                ReadForceTransferAreaPayloads(current, areas.Areas)) };
+                        //Commit every completed pre-Emperor field once. The
+                        //caller owns its Base/Force lists; never export them.
+                        working = PersonReturnDistrictReorganizationSource.PublishCurrent(working, current, operation);
+                        working = PersonReturnDistrictTransferSource.PublishAreaAssignments(working, current,
+                            operation.ChangedAreas, operation.ChangedGates);
+                        working = AppendForceTransferEmperorEffects(working, effects);
+                        return BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+                    }
+                }
+                else if (forcedEmperorMode != 0 && areas.OldForcePhysical != areas.NewForcePhysical)
+                    //382 passes26DA10 param5=0, so its source2F6890 old
+                    //Force argument is literal null, not the former owner.
+                    working = ApplyStoryForcedEmperorCaptureCurrent(working, current, pool, target,
+                        null, new(newForce), forcedEmperorMode, effects, forcedEmperorInputs);
+            }
             if (areas is not null) CityCaptureTerritorySource.ClearTargetRouting(current, target);
             else GateCaptureRoutingSource.ClearTargetRouting(current, target);
             if (areas is not null)
             {
-                CityCaptureTerritorySource.RequireNoSpecialStateAdvantageTransition(working, current, areas);
+                working = ApplyCityCaptureStateAdvantageCurrent(working, current, areas, operationDate, effects,
+                    suppressPrimary: suppressMaintenance, eventPlaybackPresent: eventPlaybackPresent);
                 CityCaptureTerritorySource.ApplyCityFoodWarning(working, current, target,
-                    () => Quote(CityCaptureFoodWarningSource.TryReadFoodExpense(working, current, target)),
+                    () => Quote(ReadCityCaptureFoodQuoteCurrent(working, current, target)),
                     () => Quote(CityCaptureFoodWarningSource.TryReadPredictedFoodIncome(working, current, target,
                         operationDate, CreateArmyDestructionAbilities(current), FoodIncomeSceneries)));
             }
@@ -144,8 +205,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         //the pool here would retire or reject those legitimate live lists.
         return BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
 
-        static int Quote(CityCaptureFoodQuote quote) => quote.Value
-            ?? throw AbsorptionBaseMissing(quote.UnresolvedOwner ?? "City_food_quote");
+        int Quote(CityCaptureFoodQuote quote)
+        {
+            int value = quote.Value ?? throw AbsorptionBaseMissing(quote.UnresolvedOwner ?? "City_food_quote");
+            //Borrow the live absorption current and its outer temporaries;
+            //the complete quote may retire pending Armies before the next
+            //income query and final Base/District publication.
+            working = quote.State ?? working;
+            return value;
+        }
         void Primary(DistrictReference at)
         {
             var result = PersonAssignmentPrecallSource.Apply2E9140PrimaryForCapture(current, at, operation);

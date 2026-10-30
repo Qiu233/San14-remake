@@ -45,7 +45,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (IsPlayerRulerLedDistrict(working, current, army))
         {
             //C35B binds Army0, Area0 and the actual41 choice string before
-            //history. Its speech25 carries the Area and raw choice separately.
+            //history. The following kind25 is a chronology record, not speech.
             byte choice = MaintenanceKnown(army.NativeCommandChoice41, "occupation_completion_choice41");
             var formatted = FormatHistoryReport(working, current, 0xC35B,
                 new(Army0: new(physical), Area0: areaPhysical, String0: ReadHistoryChoiceName(working, choice)));
@@ -57,9 +57,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var requests = new List<CampaignEffectRequest>();
             working = WriteHistory(working, current, new ReportCommand(5, district, hex, day,
                 formatted.Text, CampaignHistoryWriter.Supplemental(working), commander, MarkBit4: 1), requests);
-            requests.Add(new(new CombatSpeechRequest(CombatParticipantKind.Army, army.Id, commander,
-                CombatSpeechEvent.ArmyAreaOccupationCompleted, hex, CombatParticipantKind.Area,
-                areaPhysical, null, null, null) { AfterActionChoice = choice }, null));
+            working = AppendAreaOccupationCompletionChronicleCurrent(working,current,new(physical),
+                areaPhysical,choice,day,hex);
             working = working with { CampaignEffectRequests = (working.CampaignEffectRequests
                 ?? throw MaintenanceMissing("occupation_completion_effect_owner"))
                 .Append(CampaignEffectSource.ArmyCommandMaintenance, operation.Revision, requests) };
@@ -191,7 +190,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return (bestGoal, []);
     }
 
-    private static bool OccupationCenterEligible(GameState state, SourceWorldContext current, UnitState army, HexReference hex, int force)
+    private static bool OccupationCenterEligible(GameState state, SourceWorldContext current, UnitState army, HexReference hex, int force, bool requireNoArmy = false)
     {
         //2C6A10 receives22DEF0(candidate), then performs its own table lookup.
         var selected = OccupationHex(current, MaintenanceKnown(hex.PhysicalSlot, "occupation_center_identity"));
@@ -202,7 +201,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (terrain.PhysicalSlot is null) return false;
         if (terrain.PhysicalSlot == 24 && MaintenanceKnown(ArmyConfigurationSourceAdapter.ReadNaval(state, army), "occupation_center_naval") is not (12 or 13 or 17 or 18))
             return false;
-        return GateCaptureTerritorySource.Eligible(state, current, hex, force, requireNoArmy: false);
+        return GateCaptureTerritorySource.Eligible(state, current, hex, force, requireNoArmy: requireNoArmy);
     }
 
     private static int OccupationAdjacentCost(GameState state, SourceWorldContext current, HexReference hex, bool wallPermission)

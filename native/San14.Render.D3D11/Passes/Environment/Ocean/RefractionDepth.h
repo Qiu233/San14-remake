@@ -1,6 +1,7 @@
 // Original node97: then-current Main D1 -> the distinct readable D32 target.
 // Include after ComPtr/fs/load/buffer/check and NativeSourceDepthState.
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include <map>
 #include "../../../Device/DepthState.h"
 #include "Interop/RefractionTargetInputs.h"
@@ -61,7 +62,7 @@ static NativeRefractionPrograms prepareRefractionPrograms(ID3D11Device* device,c
     check(device->CreateVertexShader(out.vertexCode.data(),out.vertexCode.size(),nullptr,&out.vs),"original refraction VS");
     check(device->CreatePixelShader(pixelCode.data(),pixelCode.size(),nullptr,&out.ps),"original refraction PS");
     {
-        std::ifstream cb(source/"cbuffers.txt"),sm(source/"samplers.txt");std::string stage,file;UINT slot;
+        NativePreparedInputFile cb(source/"cbuffers.txt"),sm(source/"samplers.txt");std::string stage,file;UINT slot;
         if(!cb||!sm)throw std::runtime_error("Original refraction CB/sampler list absent");
         while(cb>>stage>>slot>>file) {
             if(slot!=0||(stage!="VS"&&stage!="PS"))throw std::runtime_error("Unexpected refraction CB register");
@@ -80,7 +81,7 @@ static NativeRefractionPrograms prepareRefractionPrograms(ID3D11Device* device,c
     return out;
 }
 static D3D11_VIEWPORT readRefractionViewport(const fs::path& source) {
-    D3D11_VIEWPORT v{};std::ifstream rows(source/"viewport.txt");rows>>v.TopLeftX>>v.TopLeftY>>v.Width>>v.Height>>v.MinDepth>>v.MaxDepth;
+    D3D11_VIEWPORT v{};NativePreparedInputFile rows(source/"viewport.txt");rows>>v.TopLeftX>>v.TopLeftY>>v.Width>>v.Height>>v.MinDepth>>v.MaxDepth;
     if(!rows)throw std::runtime_error("Original refraction viewport absent");return v;
 }
 struct NativeRefractionGeometry {
@@ -100,11 +101,11 @@ static NativeRefractionGeometry prepareRefractionGeometry(ID3D11Device* device,c
     const std::vector<char>& vertexCode) {
     NativeRefractionGeometry out;out.vertex=buffer(device,load(source/"vertices.bin"),D3D11_BIND_VERTEX_BUFFER);
     out.index=buffer(device,load(source/"indices.bin"),D3D11_BIND_INDEX_BUFFER);
-    UINT bits,topology;std::ifstream geometry(source/"geometry.txt");geometry>>out.stride>>out.indexCount>>bits>>topology;
+    UINT bits,topology;NativePreparedInputFile geometry(source/"geometry.txt");geometry>>out.stride>>out.indexCount>>bits>>topology;
     if(!geometry||(bits!=16&&bits!=32))throw std::runtime_error("Original refraction geometry absent");
     out.indexFormat=bits==16?DXGI_FORMAT_R16_UINT:DXGI_FORMAT_R32_UINT;out.topology=D3D11_PRIMITIVE_TOPOLOGY(topology);
     struct Element {std::string name;UINT index,format,slot,offset;};Element row;std::vector<Element> elements;
-    std::ifstream file(source/"layout.txt");while(file>>row.name>>row.index>>row.format>>row.slot>>row.offset)elements.push_back(row);
+    NativePreparedInputFile file(source/"layout.txt");while(file>>row.name>>row.index>>row.format>>row.slot>>row.offset)elements.push_back(row);
     if(!file.eof()||elements.empty())throw std::runtime_error("Original refraction input layout absent");
     std::vector<D3D11_INPUT_ELEMENT_DESC> descriptors;
     for(const auto& e:elements)descriptors.push_back({e.name.c_str(),e.index,DXGI_FORMAT(e.format),e.slot,e.offset,D3D11_INPUT_PER_VERTEX_DATA,0});
@@ -153,7 +154,7 @@ struct NativeRefractionStateOverrides {
 };
 static NativeRefractionStateOverrides prepareRefractionStateOverrides(ID3D11Device* device,const fs::path& source,bool colorDefaults) {
     NativeRefractionStateOverrides out;out.device=device;out.colorDefaults=colorDefaults;
-    std::ifstream raster(source/"raster-cull.txt"),blend(source/"blend-enabled.txt");raster>>out.cull;blend>>out.blendEnabled;
+    NativePreparedInputFile raster(source/"raster-cull.txt"),blend(source/"blend-enabled.txt");raster>>out.cull;blend>>out.blendEnabled;
     if(!raster||!blend)throw std::runtime_error("Original refraction raster/blend absent");return out;
 }
 
@@ -195,7 +196,7 @@ static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* 
     const fs::path& source,ID3D11ShaderResourceView* input,std::uint32_t sourceObjectId,
     const NativeRefractionTargetDeclaration& declared) {
     requireRefractionCopySourceOwner(source,input,sourceObjectId);
-    UINT resource,shader,target,width,height;std::ifstream file(source/"target.txt");
+    UINT resource,shader,target,width,height;NativePreparedInputFile file(source/"target.txt");
     file>>resource>>shader>>target>>width>>height;
     if(!file)throw std::runtime_error("Refraction depth copy target declaration is absent");
     requireNativeRefractionMedia(declared,resource,shader,target,width,height,1);
@@ -210,7 +211,7 @@ static NativePreparedRefractionDepth prepareNativeRefractionDepth(ID3D11Device* 
     NativeRefractionConstantFiles constants;out.programs=prepareRefractionPrograms(device,source,constants);
     out.geometry=prepareRefractionGeometry(device,source,out.programs.vertexCode);
     requireRefractionCopyViewport(out.geometry.viewport,declared);
-    UINT compare;std::ifstream depth(source/"depth.txt");depth>>out.depthTest>>out.depthWrite>>compare;
+    UINT compare;NativePreparedInputFile depth(source/"depth.txt");depth>>out.depthTest>>out.depthWrite>>compare;
     if(!depth)throw std::runtime_error("node97 source depth absent");out.depthCompare=D3D11_COMPARISON_FUNC(compare);
     out.states=prepareRefractionStateOverrides(device,source,false);return out;
 }

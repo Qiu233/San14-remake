@@ -40,7 +40,12 @@ public sealed partial class GameSimulation
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(rules);
         var working = owner with { ArmyMapSpeech = snapshot };
-        if (pending is null && appRandomSnapshot is not null)
+        //The Intelligence narration host and map bubbles share the App stream
+        //during this reached wait. Other suspended transactions keep their
+        //existing candidate-owned stream contract.
+        bool sharesPresentationApp = pending is null || pending.PendingIntelligenceNarrationTaskId is not null ||
+            pending.RequiresAutomaticIntelligenceContinuation;
+        if (sharesPresentationApp && appRandomSnapshot is not null)
             working = working with { CampaignAppRandom32 = appRandomSnapshot };
         result = rules.Start(working, sequence, armyLayoutAvailable);
         if (result.UnresolvedOwner is not null) return false;

@@ -174,10 +174,10 @@ public sealed class CampaignEventCatalog
 
         // Always validate the complete structure, including groups whose leaves
         // are currently unknown. This prevents a prefix from becoming a program.
-        try { _ = S14EventConditionProgram.Read(stream); }
+        try { _ = execution ? S14EventConditionProgram.ReadExecution(stream) : S14EventConditionProgram.Read(stream); }
         catch (InvalidDataException error)
         {
-            CampaignEventOperation? rejected = FindStructuralFailure(operations);
+            CampaignEventOperation? rejected = FindStructuralFailure(operations, execution);
             if (rejected is null) throw;
             if (!rejections.Any(rejection => rejection.OperationIndex == rejected.Index))
                 rejections.Add(new(rejected.Index, rejected.Offset, rejected.Code, error.Message));
@@ -192,12 +192,13 @@ public sealed class CampaignEventCatalog
     }
 
     private static CampaignEventOperation? FindStructuralFailure(
-        IReadOnlyList<CampaignEventOperation> operations)
+        IReadOnlyList<CampaignEventOperation> operations, bool execution)
     {
         int failure = -1;
         try
         {
-            _ = S14EventConditionProgram.ReadGroupEnds(operations.Select(operation => operation.Code).ToArray(), out failure);
+            _ = S14EventConditionProgram.ReadGroupEnds(operations.Select(operation => operation.Code).ToArray(), out failure,
+                personListConditionBlocks: !execution);
         }
         catch (InvalidDataException) { return failure >= 0 ? operations[failure] : null; }
         return null;

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "../../CommonRenderPolicy.h"
 #include <array>
 #include <cstdint>
@@ -21,7 +22,7 @@ inline CommonRenderPolicy decodeCommonRenderPolicy(std::span<const std::uint8_t>
 }
 inline CommonRenderPolicy readCommonRenderPolicy(const std::filesystem::path& path) {
     std::array<std::uint8_t,CommonRenderPolicyInputBytes> bytes{};
-    std::ifstream input(path,std::ios::binary);
+    NativePreparedInputFile input(path,std::ios::binary);
     input.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
     if(!input || input.peek()!=std::char_traits<char>::eof())
         throw std::runtime_error("Initial Common render policy is absent or malformed");

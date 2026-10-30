@@ -115,6 +115,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private GameState CompleteRecruitAssociatedCommandCurrent(GameState state, SourceWorldContext current,
         PersonLinkedEntityReference linked, NativeMapSeasonDate date, List<CampaignEffectRequest> sink)
-        => PersonReturnCommands.CancelAssociatedCommandCurrent(state, current,
-            TalentNeed(linked.Identity, "join_associated_command_identity"), date);
+    {
+        int commandId = TalentNeed(linked.Identity, "join_associated_command_identity");
+        var cancelled = PersonReturnCommands.CancelAssociatedCommandCurrent(state, current, commandId, date, this);
+        //The caller's existing271C20 gates precede335CD0's immediate tail.
+        return PersonReturnCommands.RetireAssociatedCommandImmediatelyCurrent(cancelled, current, commandId);
+    }
 }

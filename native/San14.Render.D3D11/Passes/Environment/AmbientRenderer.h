@@ -2,6 +2,7 @@
 // Current matrices and weather are updated independently of device creation;
 // optional Star and Cloud animation consume the shared Main clock update.
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "AmbientStarFrame.h"
 #include "AmbientResourceInputs.h"
 #include "SkyMaterialInputs.h"
@@ -64,7 +65,7 @@ struct AmbientNativeTextureBinding {
 static std::vector<AmbientNativeTextureBinding> ambientTextures(ID3D11Device* device,const fs::path& source,
     const char* tableName,std::optional<UINT> expectedCount,bool allowEmpty=false,
     const std::vector<AmbientNativeTextureBinding>* existing=nullptr) {
-    std::ifstream rows(source/tableName);
+    NativePreparedInputFile rows(source/tableName);
     if(!rows)throw std::runtime_error(std::string(tableName)+" missing");
     std::vector<AmbientNativeTextureBinding> result;
     std::string line;
@@ -341,7 +342,7 @@ static void ensureNativeAmbientFaces(ID3D11DeviceContext* context,NativeAmbient&
     ComPtr<ID3D11Device> device;context->GetDevice(&device);
     NativeAmbientFaceMedia owner;const auto& source=ambient.source;
     owner.starCameras=readNativeAmbientStarCameras(source/"star-cameras.bin");
-    std::ifstream faceDepth(source/"work-face-depth.txt");UINT faceIndex,faceFlags;float clearDepth;
+    NativePreparedInputFile faceDepth(source/"work-face-depth.txt");UINT faceIndex,faceFlags;float clearDepth;
     for(UINT face=0;face<6;++face) {
         faceDepth>>faceIndex>>faceFlags>>clearDepth;
         if(!faceDepth||faceIndex!=face)throw std::runtime_error("WORK face depth inputs absent");

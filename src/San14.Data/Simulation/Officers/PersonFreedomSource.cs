@@ -147,8 +147,9 @@ public sealed partial class PersonFreedomSource(ArmyCampaignRuleAdapter package,
             PersonDistrictTransfer.Apply(physical, 0, new Transfer(current));
             current.WritePersonFirstLocation(physical, 0);
             effects.Add("26548D.165_zero→241D30.status5→240DB0.District0→240A30.Home0");
-            var selected = homeSource.Resolve(input, current, physical, oldHome,
-                package.ReadArmyDestructionSampler(input, current) ?? throw Missing("current.freedom_sampler_world"));
+            var sourceSampler = package.ReadArmyDestructionSampler(input, current)
+                ?? throw Missing("current.freedom_sampler_world");
+            var selected = homeSource.Resolve(input, current, physical, oldHome, sourceSampler);
             if (selected.NativeReturn != 1 || selected.Area?.PhysicalSlot is not int areaPhysical)
                 throw Missing(selected.UnresolvedOwner ?? "branch.265250_no_City_or_Area_candidate");
             effects.Add("2655xx.22F430_shuffle254F70_then_AreaB0_shuffle");
@@ -157,7 +158,8 @@ public sealed partial class PersonFreedomSource(ArmyCampaignRuleAdapter package,
             ArmyCause4Receipt? armyCleanup = null;
             if (deployedArmy)
             {
-                var destroyed = new OwnedArmyDestructionStage(package).ApplyFreeCommanderCause4Current(input, current, world.Pool, second.Index);
+                var destroyed = new OwnedArmyDestructionStage(package).ApplyFreeCommanderCause4Current(input, current, world.Pool,
+                    second.Index, input.NativeMapSeason?.ThirdDate, sourceSampler);
                 input = destroyed.State ?? throw Missing(destroyed.UnresolvedOwner ?? "current.freedom_direct_cause4");
                 armyCleanup = destroyed.Receipt;
                 effects.Add("265C14.direct259360_mode0_cause4_actual_free_Commander");

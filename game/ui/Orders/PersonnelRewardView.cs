@@ -28,6 +28,7 @@ internal partial class PersonnelRewardView : Control
         this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         Name = "PersonnelReward"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, 0x0245, RequestBack, RequestApply);
         var source = new UiSourceLayout(repository, 0x97FA0FCA);

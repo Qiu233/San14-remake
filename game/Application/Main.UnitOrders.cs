@@ -6,12 +6,23 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private UnitOrderTargetView? _unitOrderTarget;
+    private Action<GameState>? _unitOrderAdoptDetailWorld;
     private DeploymentTargetConfirmation? _unitOrderConfirmation;
     private GameplaySession? _unitOrderSession;
     private GameState? _unitOrderWorld;
     private MapSceneView? _unitOrderMap;
     private UnitTargetMenuPresenter? _unitTargetMenus;
     private UnitFacilitySelectionPresenter? _unitFacilitySelection;
+
+    private void AdoptUnitOrderSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // A real speech start, voice receipt or completion changes only its
+        // presentation state and random stream. Keep the retained command's
+        // owner current without admitting a different gameplay transaction.
+        if (_unitOrderSession != session ||
+            _unitOrderTarget is null || _unitOrderMap != _residentMap || !ReferenceEquals(_unitOrderWorld, previous)) return;
+        _unitOrderAdoptDetailWorld?.Invoke(replacement);
+    }
 
     private bool CanOpenUnitFacilities() => _world is { Phase: TurnPhase.Strategy } world &&
         _session is { PlayerForceId: int player } && _residentMap is { IsPlayableMapReady: true } &&
@@ -60,6 +71,17 @@ public partial class Main
         string? quotedDefinition = null;
         FacilityConstructionQuote? quote = null;
         var facilityCapacities = new Dictionary<int, int?>();
+        // Immediate settings in nested information pages replace the same
+        // campaign world without abandoning this retained order draft.
+        _unitOrderAdoptDetailWorld = next =>
+        {
+            if (_unitOrderTarget != view || !ReferenceEquals(_session, session)) return;
+            var previous = world;
+            world = next; unit = world.Units[unitId]; _unitOrderWorld = world;
+            armyRules = composition.PrepareArmyQueries(world);
+            _unitTargetMenus?.AcceptPolicyWorld(previous, world);
+            facilityCapacities.Clear();
+        };
         AddChild(view);
         try
         {
@@ -139,7 +161,8 @@ public partial class Main
             policies = armyRules.QueryDeploymentPolicyOptions(world, ids.Select(id => world.Units[id].OfficerId).ToArray());
             view.ConfigureSourceSelectionPolicies(policies, ids.Select(id => world.Units[id].Behavior).ToArray(), RequestPolicySetting);
             bool canWithdraw = ids.Any(id => world.Units[id].NativeTacticRuntime is { Abnormal23: 0, Abnormal24: 0, Abnormal25: 0 });
-            view.ApplySourceSelection(ids.Count == 1, canWithdraw, ids.Count == 1, detailsAvailable: ids.Count > 0);
+            view.ApplySourceSelection(ids.Count == 1, canWithdraw,
+                ids.Count > 0 && menus.SelectedPartition == UnitSelectionPartition.Ordinary, detailsAvailable: ids.Count > 0);
             view.ApplySourceWithdrawalEligibility(ids.Any(id => world.Units[id].NativeTacticRuntime is { } runtime &&
                 (runtime.Abnormal23 != 0 || runtime.Abnormal24 != 0 || runtime.Abnormal25 != 0)));
         }
@@ -210,28 +233,36 @@ public partial class Main
         }
         void OpenFacilitySelection(int? capturedTarget = null, IReadOnlyList<int>? capturedPoints = null)
         {
-            if (!Current() || _unitFacilitySelection is not null || _unitOrderConfirmation is not null || _unitTargetMenus is { SelectedUnitIds.Count: not 1 }) return;
+            if (!Current() || _unitFacilitySelection is not null || _unitOrderConfirmation is not null) return;
+            if (_unitTargetMenus is { } selectedMenus &&
+                (selectedMenus.SelectedPartition != UnitSelectionPartition.Ordinary || selectedMenus.SelectedUnitIds.Count == 0)) return;
+            var constructionRows = _unitTargetMenus?.CaptureConstructionSelection()
+                ?? new ArmyFacilityConstructionSelection[] { new(unitId, (capturedPoints ?? view.Waypoints).ToArray()) };
             _unitTargetMenus?.CloseOverlay();
             selected = null; quote = null; quotedHex = null; quotedDefinition = null;
-            var directory = armyRules.QueryUnitFacilityDirectory(world, unitId, capturedTarget,
-                _campaignApplication?.TutorialRestrictsFacilities);
+            var selectionQuery = armyRules.CreateUnitFacilitySelectionQuery(world,
+                constructionRows.Select(row => row.UnitId).ToArray(), _campaignApplication?.TutorialRestrictsFacilities,
+                _unitTargetMenus?.RetainedConstructionUnitIds ?? constructionRows.Select(row => row.UnitId).ToArray());
+            var directory = selectionQuery.Directory;
             var entries = directory.Rows.Where(choice => choice.OriginalIncluded != false)
                 .Select(choice => new UnitFacilitySelectionEntry(
-                    new(choice.DefinitionKey, choice.Name ?? _ui.Get("play_facility_name_unavailable")),
+                    new(choice.DefinitionKey, choice.Name ?? _ui.Get("play_facility_name_unavailable"),choice.Category),
                     choice.OriginalIncluded == true ? choice.OriginalAllowed : null,
                     choice.OriginalReason, choice.CommandSupported && choice.Name is not null)).ToArray();
             UnitFacilitySelectionPresenter? flow = null;
-            flow = new(view, _repository!, _ui, world, armyRules, unitId, entries,
+            flow = new(view, _repository!, _ui, world, armyRules,
+                constructionRows.Select(row => row.UnitId).ToArray(), selectionQuery, entries,
                 capturedPoints ?? _unitTargetMenus?.Waypoints ?? view.Waypoints, Current,
                 modal => { if (_residentMap == map && GodotObject.IsInstanceValid(map)) map.SetDetailsOpen(modal, keepMapVisible: true); },
-                (choice, hex, points) => Current() && ApplyPlayableOrder(new SetUnitActionOrder(player, unitId,
-                    new("build", new(DeploymentTargetKind.Hex, hex), choice.DefinitionKey), points.ToArray()), CloseUnitRetarget),
+                (choice, hex, end, points) => Current() && ApplyPlayableOrder(
+                    new IssueArmiesFacilityConstructionOrder(player, constructionRows,
+                        hex, end, choice.DefinitionKey), CloseUnitRetarget),
                 () =>
                 {
                     if (_unitFacilitySelection != flow) return;
                     _unitFacilitySelection = null;
                     if (Current()) map.ReplayCommandTargetHover();
-                }, capturedTarget);
+                },CurrentListScrollSpeed,capturedTarget);
             _unitFacilitySelection = flow;
             try { flow.Open(); }
             catch { flow.Dispose(); throw; }
@@ -268,6 +299,7 @@ public partial class Main
             item.Durability, item.MaxDurability is > 0 ? item.MaxDurability.ToString() : _ui.Get("detail_unknown"));
         string TargetName(int hex)
         {
+            if (hex == UnitState.NoDestinationHex) return _ui.Get("play_unit_destination_none");
             string name = world.Cities.Values.FirstOrDefault(city => city.HexId == hex)?.Name ??
                 world.Gates.Values.FirstOrDefault(gate => gate.HexId == hex)?.Name ??
                 (world.Territory.GetValueOrDefault(hex)?.AreaId is int area ? world.Areas.GetValueOrDefault(area)?.Name : null) ??
@@ -455,6 +487,7 @@ public partial class Main
         if(map is not null&&GodotObject.IsInstanceValid(map)&&_residentMap==map)map.SetDeploymentRoutePreviews([]);
         _unitTargetMenus?.Dispose(); _unitTargetMenus = null;
         CloseUnitOrderConfirmation();
+        _unitOrderAdoptDetailWorld = null;
         _unitOrderTarget = null; _unitOrderSession = null; _unitOrderWorld = null; _unitOrderMap = null;
         if (view is not null) { view.Abandon(); view.QueueFree(); }
         if (map is not null && _residentMap == map && GodotObject.IsInstanceValid(map))

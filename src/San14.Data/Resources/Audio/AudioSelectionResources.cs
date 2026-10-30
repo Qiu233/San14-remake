@@ -8,7 +8,10 @@ public sealed record AudioSelectionSection(uint TypeId, int Offset, int Bytes);
 public sealed record AudioNamedCue(uint CueId, string? Name, uint Flags, int SectionOffset, int SectionBytes);
 public sealed record AudioSampleHeader(uint TypeId, int HeaderOffset, int HeaderBytes,
     int Channels, int SampleRate, int DeclaredSamples, int LoopStartSample,
-    bool IsExternal, IReadOnlyList<long> DataOffsets, IReadOnlyList<int> DataSizes);
+    bool IsExternal, IReadOnlyList<long> DataOffsets, IReadOnlyList<int> DataSizes)
+{
+    public uint NativeChannelMask { get; init; }
+}
 public sealed record AudioNamedSample(uint SampleId, string? Name, uint Flags,
     int SectionOffset, int SectionBytes, IReadOnlyList<AudioSampleHeader> Headers);
 public sealed record AudioExternalSampleReference(string Name, uint SampleId,
@@ -103,7 +106,7 @@ public static class AudioSelectionResources
                     int headerSize = Size(U32(b, h + 4));
                     if (headerSize < 8 || headerSize > p + size - h)
                         throw new InvalidDataException("Audio sample subheader length is invalid.");
-                    if (subtype == InternalHeader)
+                    if (subtype is InternalHeader or 0x2EB6CA6F)
                     {
                         RequireSize(headerSize, 56);
                         int channels = Size(U32(b, h + 12)), rate = I32(b, h + 20), sampleCount = I32(b, h + 24);
@@ -121,7 +124,8 @@ public static class AudioSelectionResources
                                 throw new InvalidDataException("Internal audio channel data extends outside its subheader.");
                             offsets[ch] = offset; lengths[ch] = length;
                         }
-                        headers.Add(new(subtype, h, headerSize, channels, rate, sampleCount, I32(b, h + 32), false, offsets, lengths));
+                        headers.Add(new(subtype, h, headerSize, channels, rate, sampleCount, I32(b, h + 32), false, offsets, lengths)
+                            { NativeChannelMask = U32(b, h + 36) });
                     }
                     else if (subtype == ExternalHeader)
                     {
@@ -129,7 +133,8 @@ public static class AudioSelectionResources
                         int channels = Size(U32(b, h + 12)), rate = I32(b, h + 24), sampleCount = I32(b, h + 28);
                         ValidateSamples(channels, rate, sampleCount);
                         headers.Add(new(subtype, h, headerSize, channels, rate, sampleCount, I32(b, h + 36), true,
-                            new long[] { U32(b, h + 52) }, new[] { Size(U32(b, h + 56)) }));
+                            new long[] { U32(b, h + 52) }, new[] { Size(U32(b, h + 56)) })
+                            { NativeChannelMask = U32(b, h + 40) });
                     }
                     else
                     {
@@ -161,7 +166,7 @@ public static class AudioSelectionResources
         if (selected.Headers.Count != 1) throw new NotSupportedException("A composite audio sample requires an explicit playback graph.");
         AudioSampleHeader h = selected.Headers[0];
         byte[] b = bank.Source.Bytes;
-        if (h.TypeId != InternalHeader || h.IsExternal || bank.Platform != 1 || b[h.HeaderOffset + 16] != 0)
+        if (h.TypeId is not (InternalHeader or 0x2EB6CA6F) || h.IsExternal || bank.Platform != 1 || b[h.HeaderOffset + 16] != 0)
             throw new NotSupportedException("This selected sound is outside the verified SRSA/MSADPCM decoder contract.");
         if (h.LoopStartSample >= h.DeclaredSamples)
             throw new InvalidDataException("Internal audio loop start is outside playable samples.");

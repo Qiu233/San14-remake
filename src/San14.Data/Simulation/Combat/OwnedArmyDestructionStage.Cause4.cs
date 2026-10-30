@@ -22,16 +22,19 @@ public sealed partial class OwnedArmyDestructionStage
     ///to make soldiers zero. The enclosing freedom operation owns final Person
     ///placement and28E cleanup; this is an operation-local state draft.</summary>
     public ArmyCause4Result ApplyFreeCommanderCause4Current(GameState state,
-        SourceWorldContext current, WorldIndexContext pool, int physical)
-        => ApplyCause4Current(state, current, pool, physical, new(null), null, true);
+        SourceWorldContext current, WorldIndexContext pool, int physical,
+        NativeMapSeasonDate? sourceDate = null, TacticSourceSamplerWorld? sourceSampler = null)
+        => ApplyCause4Current(state, current, pool, physical, new(null), sourceDate, true,
+            sourceSampler: sourceSampler);
 
     /// <summary>The same real free5/Home0/District0 call while its enclosing
     /// capture/freedom operation retains live shared-pool temporaries.</summary>
     internal ArmyCause4Result ApplyFreeCommanderCause4WithinOperationCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
-        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback)
+        NativeMapSeasonDate? sourceDate, List<CampaignEffectRequest> feedback,
+        TacticSourceSamplerWorld? sourceSampler = null)
         => ApplyCause4Current(state, current, pool, physical, new(null), sourceDate, true,
-            withinOperation: true, feedback: feedback);
+            withinOperation: true, feedback: feedback, sourceSampler: sourceSampler);
 
     /// <summary>2851B0's real2C96E0 HomeArmy branch. The Base still has its
     /// old Force/District: employed Commander, valid friendly Home, current
@@ -39,8 +42,19 @@ public sealed partial class OwnedArmyDestructionStage
     /// in pending70 for the later26 window; does not change employment/Home.</summary>
     public ArmyCause4Result ApplyEmployedHomeCommanderCause4Current(GameState state,
         SourceWorldContext current, WorldIndexContext pool, int physical,
-        ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null)
-        => ApplyCause4Current(state, current, pool, physical, winnerArmy, operationThirdDate, false);
+        ArmyUnitReference winnerArmy, NativeMapSeasonDate? operationThirdDate = null,
+        TacticSourceSamplerWorld? sourceSampler = null)
+        => ApplyCause4Current(state, current, pool, physical, winnerArmy, operationThirdDate, false,
+            sourceSampler: sourceSampler);
+
+    /// <summary>The same HomeArmy call inside occupation's live list scope.
+    /// Return-command and captive-release writes stay in that shared operation.</summary>
+    internal ArmyCause4Result ApplyEmployedHomeCommanderCause4WithinOperationCurrent(GameState state,
+        SourceWorldContext current, WorldIndexContext pool, int physical,
+        ArmyUnitReference winnerArmy, NativeMapSeasonDate? sourceDate,
+        TacticSourceSamplerWorld? sourceSampler, List<CampaignEffectRequest> feedback)
+        => ApplyCause4Current(state, current, pool, physical, winnerArmy, sourceDate, false,
+            withinOperation: true, feedback: feedback, sourceSampler: sourceSampler);
 
     /// <summary>295EE0 argument4: a still-employed commander, null winner,
     /// mode0/cause4, before the enclosing death resets the Person.</summary>
@@ -54,7 +68,7 @@ public sealed partial class OwnedArmyDestructionStage
         SourceWorldContext current, WorldIndexContext pool, int physical,
         ArmyUnitReference winner, NativeMapSeasonDate? sourceDate, bool freeCommander,
         bool withinOperation = false, List<CampaignEffectRequest>? feedback = null,
-        bool deathCommander = false)
+        bool deathCommander = false, TacticSourceSamplerWorld? sourceSampler = null)
     {
         try
         {
@@ -130,7 +144,7 @@ public sealed partial class OwnedArmyDestructionStage
             {
                 state = ReturnAbsorptionCommander(state, current, pool, commander,
                     sourceDate ?? throw Missing("current.death_cause4_Return_date"),
-                    feedback ?? throw Missing("current.death_cause4_feedback"));
+                    feedback ?? throw Missing("current.death_cause4_feedback"), sourceSampler);
                 effects.Add("25B7CE.232460_then2EA9A0_death_current_Return");
             }
             else if (!freeCommander)
@@ -146,20 +160,24 @@ public sealed partial class OwnedArmyDestructionStage
                 current.WritePersonSecondLocation(commander, Math.Min(Known(current.ReadBaseObjectLink(home), "cause4_return_Base4E"), (ushort)1061));
                 effects.Add("25B7CE.232460_then2EA9A0_same_Home_E4");
             }
-            if (withinOperation)
+            //Cause4 reaches the same230C70/2E7890 iterator as ordinary
+            //destruction, while its Army is still the real captive holder.
+            //A borrowed caller owns the sink; a standalone wrapper publishes
+            //the actual release requests before tracking and pending70.
+            var captiveFeedback = feedback ?? new List<CampaignEffectRequest>();
+            state = ReleaseCaptives(state, current, physical, sourceDate, sourceSampler, captiveFeedback);
+            if (feedback is null && captiveFeedback.Count != 0)
             {
-                state = ReleaseCaptives(state, current, physical, sourceDate, null,
-                    feedback ?? throw Missing("current.cause4_operation_feedback"));
-                effects.Add("25B89x.230C70_actual_captive_iterator_and2E7890");
+                state = state with { CampaignEffectRequests = (state.CampaignEffectRequests
+                    ?? throw Missing("current.cause4_captive_effect_owner"))
+                    .Append(CampaignEffectSource.ArmyBattleDefeat,
+                        state.NativeClock?.UpdateOrdinal ?? throw Missing("current.cause4_captive_effect_revision"),
+                        captiveFeedback) };
             }
-            else
-            {
-                RequireEmptyCause4Captives(current, physical);
-                effects.Add("25B89x.230C70_actual_empty_captive_temporary");
-            }
+            effects.Add("25B89x.230C70_actual_captive_iterator_and2E7890");
             var tracking = ArmyDestructionTrackingTail.ApplyCurrent(state, current, physical);
             state = tracking.State;
-            NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce);
+            state = NearbyPersonalityTail(state, current, victim, force, captured.WinnerForce, sourceDate, feedback, sourceSampler);
             effects.Add("25B9xx.manager60_tracking_and_current_Force_nearby_tail");
             int hex = Known(current.ReadArmyUnitRawHex2A(victim), "cause4_Army2A");
             var originalHex = current.ReadHexTableReference(hex < 48400 ? hex : 0) ?? throw Missing("current.cause4_Hex_pointer");
@@ -176,7 +194,7 @@ public sealed partial class OwnedArmyDestructionStage
                 state = PublishCurrent(state, current, pool, [physical], current.OwnedDestructionQueue
                     ?? throw Missing("current.cause4_manager140_owner"));
                 int winnerCommanderId = Known(current.ReadArmyUnitCommanderId(winner), "cause4_winner_Commander12");
-                var reward = package.TryApplyNativeNormalPersonRewardDuringArmyOperation(state, winnerCommanderId, 2, 0);
+                var reward = package.TryApplyNativeNormalPersonRewardDuringArmyOperation(state, current, winnerCommanderId, 2, 0);
                 if (reward.Outcome == PersonNormalArmyRewardOutcome.CurrentInputsUnresolved)
                     throw Missing("current.cause4_winner_2B9290:" + reward.MissingPhase);
                 state = reward.State; winnerReward = reward.Receipt;
@@ -228,19 +246,4 @@ public sealed partial class OwnedArmyDestructionStage
         catch (InvalidDataException unknown) { return new(null, null, unknown.Message); }
     }
 
-    //The existing cause4 wrappers do not yet own the nonempty2E7890 report
-    //and remote-return context. Preserve their original real230C70 slice:
-    //allocation suppression and an actually empty chain can continue;
-    //a reached nonempty chain still requires the genuine release consumer.
-    private static void RequireEmptyCause4Captives(SourceWorldContext current, int army)
-    {
-        var temporary = current.CreateNearbyTemporary();
-        try
-        {
-            CollectCaptivesCurrent(current, army, temporary);
-            if (Known(current.ReadTemporaryHexListCount(temporary), "230C70_count") != 0)
-                throw Missing("branch.cause4_captive_release2E7890");
-        }
-        finally { current.ClearNearbyTemporary(temporary, true); }
-    }
 }

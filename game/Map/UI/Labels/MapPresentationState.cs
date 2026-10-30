@@ -8,6 +8,40 @@ internal sealed class MapPresentationState
     private SceneryMapPolicy policy=new(0,6,6,null);
     internal event Action? Changed;
     internal SceneryMapPolicy Policy=>policy;
+    internal void SetGeographicAdvantagesVisible(bool visible)
+    {
+        int mode=visible?1:0;
+        if(policy.Mode==mode)return;
+        policy=policy with {Mode=mode};
+        Changed?.Invoke();
+    }
+    // The original persistent map manager starts with a loader-zero tag
+    // mode. Leaving MapSelect restores presentation without resetting it.
+    private bool intelligenceSpyTags;
+    internal bool IntelligenceForceRelationTags=>!intelligenceSpyTags;
+    internal void SetIntelligenceForceRelationTags(bool relationshipMode)
+    {intelligenceSpyTags=!relationshipMode;}
+    internal SceneryMapPolicy BeginDiplomacyTargetMode(bool force,MapTargetPresentation presentation=MapTargetPresentation.Standard)
+    {
+        var previous=policy;
+        // MapSelect keeps only category5 for Force, or City/Gate for type2.
+        policy=policy with{Mode=presentation==MapTargetPresentation.IntelligenceAwayForce?11:force?7:9,Flags15=force?(byte)4:(byte)0,Category16=0};
+        Changed?.Invoke();return previous;
+    }
+    internal SceneryMapPolicy BeginStrategicTargetMode(StrategicTargetMapQuery query)
+    {
+        var previous=policy;
+        // Only Force uses category5. Area and City retain their own marker
+        // groups; sabotage additionally enables facility category3 in its
+        // dedicated marker owner, independently of Scenery category4.
+        policy=policy with{Mode=query.MarkerMode,
+            Flags15=query.Kind==San14.Core.StrategicCommandTargetKind.Force?(byte)4:(byte)0,Category16=0};
+        Changed?.Invoke();return previous;
+    }
+    internal void RestoreStrategicTargetMode(SceneryMapPolicy previous)
+    { policy=previous;Changed?.Invoke(); }
+    internal void RestoreDiplomacyTargetMode(SceneryMapPolicy previous)
+    { policy=previous;Changed?.Invoke(); }
     internal MapSceneSelectionPolicy SelectionPolicy {get;private set;}=new(false,true,null);
     // The actually constructed manager clears both source fields. No runtime
     // foreign owner is queried or inferred from a rendering receipt.
@@ -43,6 +77,9 @@ internal sealed class MapPresentationState
     /// validating the session/view. It is not all original intro/tutorial paths.</summary>
     internal void EnterOrdinaryMap()
     {
+        // Title finishes AddAllMapLayout before UserStrategy entry: its exit
+        // clears configured category5. The later entry only clears overrides.
+        policy=policy with {Flags15=(byte)(policy.Flags15&~4)};
         policy=new(0,(byte)(policy.Flags15&~2),(byte)(policy.Category16&~2),false);
         SelectionPolicy=new(true,true,null);
         Changed?.Invoke();

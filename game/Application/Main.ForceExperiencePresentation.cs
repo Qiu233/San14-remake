@@ -12,6 +12,18 @@ public partial class Main
     private DeploymentNarrationView? _forcePolicyAnnouncement;
     private DeploymentTargetConfirmation? _forcePolicyDecision;
     private PolicyRosterEditorContext? _policyRosterEditor;
+    private Action<GameState>? _forcePresentationAdoptSpeechWorld;
+
+    private void AdoptForceExperienceSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        // The shared caller excludes PendingNormalPeriod candidates. Normal
+        // command outboxes retain this exact policy scene and its source page.
+        if (!HasForcePresentation || _forcePresentationSession != session || _forcePresentationMap != _residentMap ||
+            !ReferenceEquals(_forcePresentationOwner, previous)) return;
+        _forcePresentationOwner = replacement;
+        _forcePresentationAdoptSpeechWorld?.Invoke(replacement);
+    }
+
     private bool _forceHeaderTransition;
     private bool HasForceExperienceTransition => _forceHeaderTransition;
     private bool HasForcePolicyPresentation => _forcePolicyAnnouncement is not null || _forcePolicyDecision is not null;
@@ -41,17 +53,18 @@ public partial class Main
             if (_policyRosterEditor is not null || IsForcePresentationCurrent) return true;
             CloseForcePresentation();
         }
-        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasAdministrationPage ||
+        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || (HasAdministrationPageExceptStory || (HasStoryPresentation && !IsStoryPresentationCurrent)) ||
             HasMilitaryOrderPage || HasEnvironmentSettings || HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace ||
             HasPersonnelConfirmation || _detailsView is not null || _diplomacyNegotiation is not null ||
             _repository is null || _campaignComposition is not { } composition ||
             _session is not { PlayerForceId: int player } session ||
-            (session.HasPendingOperation && session.PendingNormalPeriod is null) ||
+            (session.HasPendingOperation && session.PendingNormalPeriod is null && session.PendingCampaignEventCommand is null) ||
             _residentMap is not { IsPlayableMapReady: true } map || _forceHud is not { } hud) return false;
-        var owner = PersonnelPresentationOwner(session);
+        var owner = SynchronizePersonnelPresentationOwner(session);
         var reached = FindForcePresentation(owner, player);
         if (reached is not { } entry) return false;
         _forcePresentationSession = session; _forcePresentationOwner = owner; _forcePresentationMap = map;
+        _forcePresentationAdoptSpeechWorld = next => owner = next;
         var rules = composition.PrepareArmyQueries(owner);
         if (entry.Request.TalentForceExperiencePresentation is not null)
         {
@@ -164,7 +177,7 @@ public partial class Main
     {
         if (_session is not { PlayerForceId: int player } session || _campaignComposition is not { } composition ||
             _policyRosterEditor != context) return;
-        var owner = PersonnelPresentationOwner(session);
+        var owner = SynchronizePersonnelPresentationOwner(session);
         if (FindPolicyEditorEntry(owner, context.Sequence, player) is not int index) { CloseForcePresentation(); return; }
         if (!session.TryAdvanceForcePolicyLevelUp(owner, context.Sequence, index,
             new(ForcePolicyLevelUpInputKind.PolicyEditorReturned), composition.PrepareArmyQueries(owner))) return;
@@ -175,8 +188,9 @@ public partial class Main
     {
         if (_session is not { PlayerForceId: int player } session || _repository is null ||
             _campaignComposition is not { } composition || _residentMap is not { } map || _policyRosterEditor != context) return;
-        var owner = PersonnelPresentationOwner(session);
+        var owner = SynchronizePersonnelPresentationOwner(session);
         _forcePresentationOwner = owner;
+        _forcePresentationAdoptSpeechWorld = next => owner = next;
         var batch = FindPolicyGovernanceNarration(owner, player);
         if (batch is null) { CompletePolicyRosterEditor(context); return; }
         int page = 0;
@@ -194,12 +208,11 @@ public partial class Main
             }
             var response = batch.Requests[page].GovernanceNarration!;
             var query = composition.PrepareArmyQueries(owner).QueryGovernanceNarrationPortrait(owner, response.SpeakerId);
-            LoadedSprite[] layers = [];
+            IReadOnlyList<LoadedSprite> layers = [];
             if (query.Value is { } route)
             {
                 var sprites = new LocalizedUiSpriteSource(_repository);
-                layers = new[] { route.SpriteB, route.SpriteA, route.SpriteC }
-                    .Select(name => sprites.LoadTexturePackSprite(route.ResourceName, name)).ToArray();
+                layers = route.LoadSprites(sprites.LoadTexturePackSprite);
             }
             else GD.PushWarning(query.UnresolvedInput ?? "Policy response portrait is unavailable.");
             var view = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _forcePolicyAnnouncement = view; AddChild(view);
@@ -223,7 +236,7 @@ public partial class Main
     private void SynchronizeForcePresentationOwner()
     {
         if (_session is not { } session) return;
-        if (PersonnelPresentationOwner(session).CampaignAppRandom32 is { } app) _presentationRandom.InstallCommittedState(app.State);
+        if (SynchronizePersonnelPresentationOwner(session).CampaignAppRandom32 is { } app) _presentationRandom.InstallCommittedState(app.State);
     }
 
     private void ContinueForcePresentations()
@@ -248,6 +261,7 @@ public partial class Main
         var decision = _forcePolicyDecision; _forcePolicyDecision = null;
         if (decision is not null) { decision.Abandon(); decision.GetParent()?.RemoveChild(decision); decision.QueueFree(); }
         _policyRosterEditor = null;
+        _forcePresentationAdoptSpeechWorld = null;
         _forcePresentationSession = null; _forcePresentationOwner = null; _forcePresentationMap = null;
         if (map is not null && _residentMap == map && GodotObject.IsInstanceValid(map))
         { map.SetDetailsOpen(false); if (!_failed && !_shuttingDown) SetMapFocus(true); }

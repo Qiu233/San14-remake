@@ -132,7 +132,8 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         return source.RawField46 is >= 0 and <= 65535 ? (ushort)source.RawField46 : throw Missing("food_basis_domain");
     }
 
-    internal AreaAdministrationQuery<int?> Soldiers(int area, ushort? recruiterOverride = null, int mode = 2) => Read(() =>
+    internal AreaAdministrationQuery<int?> Soldiers(int area, ushort? recruiterOverride = null, int mode = 2,
+        Func<ForceReference, int>? recruitmentPolicy = null) => Read(() =>
     {
         //7826E0 reads CURRENT CityCA before entering the scalar, including before.
         byte citySlot = K(current.ReadAreaCitySlot(new(area)), "troops_area_city");
@@ -180,7 +181,9 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         int day = state.NativeMapSeason?.ThirdDate?.Day ?? throw Missing("troops_world_third_day");
         //The original re-reads CF for day>10. This projection has no CF writer.
         int cycles = mode == 1 ? 1 : mode == 2 ? day <= 10 ? 3 : day <= 20 ? cf + 2 : cf + 1 : cf;
-        int policy = Policy(city, 0x1C);
+        // Normal income/hire callers own a published credit snapshot. Keep their
+        // explicit reader lazy at this source point, after every earlier gate.
+        int policy = recruitmentPolicy is null ? Policy(city, 0x1C) : recruitmentPolicy(force);
         int recruitTrait = K(TacticRemakeCurrentTraits.PersonContribution(current, recruiter, 0x11), "troops_recruiter_trait11");
         int areaTrait = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x26), "troops_area_trait26");
         bool forceValid = K(current.ReadForceNativeValidity(force), "troops_force_validity");
@@ -232,17 +235,17 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         return false;
     }
 
-    internal AreaAdministrationQuery<int?> Occupation(int area, int person, Func<int, int> count) =>
-        Read(() => OccupationCore(area, person, count));
+    internal AreaAdministrationQuery<int?> Occupation(int area, int person, Func<int, int> count, bool fullEffort = false) =>
+        Read(() => OccupationCore(area, person, count, fullEffort));
 
-    internal AreaAdministrationQuery<int?> AutoOccupation(int person, Func<int, int> count)
+    internal AreaAdministrationQuery<int?> AutoOccupation(int person, Func<int, int> count, bool fullEffort = false)
     {
         var checkpoint = current.CaptureAreaPreview([], [], captureCityDistricts: true);
-        try { return Read(() => OccupationCore(null, person, count)); }
+        try { return Read(() => OccupationCore(null, person, count, fullEffort)); }
         finally { current.RestoreAreaPreview(checkpoint); }
     }
 
-    private int OccupationCore(int? area, int person, Func<int, int> count)
+    private int OccupationCore(int? area, int person, Func<int, int> count, bool fullEffort = false)
     {
         int value = 0;
         if (K(current.ReadPersonNativeValidity(person), "occupation_person_validity"))
@@ -250,7 +253,7 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
             int trait = K(TacticRemakeCurrentTraits.CommanderEffectMaximum(current, person, 0x0F), "occupation_trait0F");
             int charm = Ability(person, 4);
             if (charm is < 0 or > 255) throw Missing("occupation_charm_source_byte_domain");
-            int task = K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "occupation_trait7E") > 0
+            int task = fullEffort || K(TacticRemakeCurrentTraits.PersonContribution(current, person, 0x7E), "occupation_trait7E") > 0
                 ? 100 : count(person) switch { 0 or 1 => 100, 2 => 85, 3 => 60, _ => throw Missing("occupation_task_current_fallback3710") };
             var force = current.ReadPersonForce(person) ?? throw Missing("occupation_person_force");
             int advantage = ForceAdvantage(force);
@@ -340,7 +343,8 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
     }
 
     internal AreaAdministrationQuery<int?> AutoDevelopment(int area, int person, int focus, Func<int, int> count,
-        int? residentTrait = null, int? forcePolicy = null, bool candidateCity = true, bool? awayAtSource = null) => Read(() =>
+        int? residentTrait = null, int? forcePolicy = null, bool candidateCity = true, bool? awayAtSource = null,
+        bool fullEffort = false) => Read(() =>
     {
         //3424A0 resolves the candidate's City before its native-validity gate.
         var city = City(area, person, candidateCity);
@@ -353,22 +357,22 @@ internal sealed class AreaAdministrationPreviewSource(GameState state, SourceWor
         {
             if (!K(current.ReadPersonNativeValidity(person), "person_validity"))
                 throw Missing("task_current_fallback");
-            int task = TaskPercent(person, false, count);
+            int task = TaskPercent(person, fullEffort, count);
             int effective = Ability(person, focus switch { 1 => 2, 2 => 3, _ => 1 });
             int id = K(current.ReadPersonIdentity(person), "person_identity");
             var officer = state.Officers.GetValueOrDefault(id) ?? throw Missing("person_owner");
             int doctrine = K(OfficerDoctrineRules.ReadDoctrineId(officer.DoctrineId, officer.AbilityState), "person_doctrine");
             if ((uint)doctrine > 6) throw Missing("person_doctrine_domain");
-            var row = state.Areas.GetValueOrDefault(area) ?? throw Missing("area_current");
-            int? raw = focus switch { 1 => row.Development?.Commerce, 2 => row.Development?.Agriculture, _ => row.Development?.Barracks };
-            if (raw is not (>= 0 and <= 65535)) throw Missing("progress_current." + focus);
-            ushort progress = (ushort)raw.Value;
+            var field = focus == 1 ? CeAreaDevelopmentField.Commerce : focus == 2
+                ? CeAreaDevelopmentField.Agriculture : CeAreaDevelopmentField.Barracks;
+            ushort progress = PlaceholderWorldCurrentSource.ReadProgress(state, area, field)
+                ?? throw Missing(area == 0 ? "placeholder_progress_current." + focus : "progress_current." + focus);
             int level = CeAreaIncomeMath.Level(progress);
             var relations = Relations(area, person, excludeSelf: true);
             if (level == 5) throw Missing("completed_level_current_bonus");
             var force = AreaForce(area);
             int forceId = K(force.PhysicalSlot, "area_force_identity");
-            byte flags = state.NativeArmySimulation?.Forces.GetValueOrDefault(forceId)?.Flags193
+            byte flags = PlaceholderWorldCurrentSource.ReadForceAdministrationFlags(state, forceId)
                 ?? throw Missing("area_force_flags193");
             basis = AreaAdministrationPreviewMath.DevelopmentBasis(effective, task, away, doctrine,
                 focus, progress, level, 0, relations.Close, relations.Other, (flags & 1) != 0);

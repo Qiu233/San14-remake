@@ -301,11 +301,18 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = latest.NativeArmySimulation?.Parameters ?? throw FreePersonMissing("parameter_owner");
             if (bank.Float32Values.ContainsKey(key)) throw FreePersonMissing("parameter_type_" + name);
             if (bank.Int32Values.TryGetValue(key, out int saved)) return saved;
-            //Matched TC file-backed .data i32s, extracted offline: movement
-            //start18, recommendation start18, people/city threshold6. This is
-            //remake rule data, not a runtime original executable dependency.
-            if (bank.Language != "TC") throw FreePersonMissing("parameter_locale_" + name);
-            return original;
+            // Both editions have independently qualified file-backed signed
+            // rules. Preserve TC's existing caller value and saved overrides;
+            // neither this query nor load mutates a parameter owner.
+            if (bank.Language == "TC") return original;
+            if (bank.Language == "SC") return name switch
+            {
+                "movement-start-period" => 18,
+                "recommendation-start-period" => 18,
+                "people-per-city-threshold" => 6,
+                _ => throw FreePersonMissing("parameter_locale_" + name)
+            };
+            throw FreePersonMissing("parameter_locale_" + name);
         }
         private IEnumerable<int> Registry(RegistryKind kind)
         {

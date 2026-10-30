@@ -8,14 +8,14 @@ internal sealed class OwnedAreaDevelopmentContext(GameState state, SourceWorldCo
 {
     public GameState State { get; private set; } = state;
     public ushort? ReadAreaProgress(AreaReference area, CeAreaDevelopmentField field)
-    {
-        var values = State.Areas.GetValueOrDefault(area.PhysicalSlot!.Value)?.Development;
-        int? value = field switch { CeAreaDevelopmentField.Commerce => values?.Commerce,
-            CeAreaDevelopmentField.Agriculture => values?.Agriculture, _ => values?.Barracks };
-        return value is >= 0 and <= 65535 ? (ushort)value : null;
-    }
+        => PlaceholderWorldCurrentSource.ReadProgress(State, area.PhysicalSlot!.Value, field);
     public void WriteAreaProgress(AreaReference area, CeAreaDevelopmentField field, ushort value)
     {
+        if (area.PhysicalSlot == 0)
+        {
+            State = PlaceholderWorldCurrentSource.WritePlaceholderProgress(State, field, value);
+            return;
+        }
         var old = State.Areas[area.PhysicalSlot!.Value]; var development = old.Development!;
         var after = field switch { CeAreaDevelopmentField.Commerce => development with { Commerce = value },
             CeAreaDevelopmentField.Agriculture => development with { Agriculture = value }, _ => development with { Barracks = value } };

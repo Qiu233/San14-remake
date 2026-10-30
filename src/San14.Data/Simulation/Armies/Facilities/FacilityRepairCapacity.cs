@@ -16,7 +16,23 @@ public static class FacilityRepairCapacity
         if (current.ReadObjectDefinitionBaseDurability(definition) is not ushort basis ||
             current.ReadObjectForceSlot13(obj) is not byte raw) return null;
         var force = current.ReadForceTableReference(raw <= 51 ? raw : 0);
-        if (force is null || current.ReadForceNativeValidity(force) is not bool forceValid) return null;
+        return force is null ? null : Capacity(state,current,definition,force,basis,panels);
+    }
+
+    /// <summary>The definition/Force form used by ordinary selection columns.
+    /// No temporary Object is constructed to obtain a derived definition cap.</summary>
+    public static int? ReadCapacity(GameState state, SourceWorldContext current,
+        ObjectDefinitionReference definition, ForceReference force, OwnedBaseCapacityInputs panels)
+    {
+        if(current.ReadObjectDefinitionValidity(definition) is not bool valid)return null;
+        if(!valid)return 0;
+        if(current.ReadObjectDefinitionBaseDurability(definition) is not ushort basis)return null;
+        return Capacity(state,current,definition,force,basis,panels);
+    }
+    private static int? Capacity(GameState state,SourceWorldContext current,
+        ObjectDefinitionReference definition,ForceReference force,ushort basis,OwnedBaseCapacityInputs panels)
+    {
+        if (current.ReadForceNativeValidity(force) is not bool forceValid) return null;
         if (!forceValid) return basis;
         if (current.ReadObjectDefinitionRaw2C(definition) is not byte category) return null;
         if (category != 2) return basis;

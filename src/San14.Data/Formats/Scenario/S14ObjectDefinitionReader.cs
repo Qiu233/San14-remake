@@ -7,6 +7,7 @@ namespace San14.Data.Formats;
 public sealed record S14FacilityEffectChannel(byte Effect, byte Amount, byte Secondary);
 public sealed record S14ObjectDefinition(int Slot, string Name, byte RawField2C, byte[] RawBytes)
 {
+    public string? NameSortKey { get; init; }
     public ushort BaseDurability => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(29, 2));
     public ushort BaseGoldCost => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(31, 2));
     public ushort RequiredTrait => BinaryPrimitives.ReadUInt16LittleEndian(RawBytes.AsSpan(33, 2));
@@ -51,8 +52,15 @@ public static class S14ObjectDefinitionReader
             { throw new InvalidDataException($"Object definition {slot} has invalid UTF16 text.", error); }
             int end = name.IndexOf('\0');
             if (end >= 0) name = name[..end];
+            string sortKey;
+            try { sortKey = StrictUtf16.GetString(row.Slice(10,18)); }
+            catch (DecoderFallbackException error)
+            { throw new InvalidDataException($"Object definition {slot} has invalid UTF16 name sort key.",error); }
+            int sortEnd=sortKey.IndexOf('\0');
+            if(sortEnd>=0)sortKey=sortKey[..sortEnd];
             definitions[slot] = new(slot, name, row[28], row.ToArray())
             {
+                NameSortKey = sortKey,
                 FirstChannel = new(row[37], row[38], row[39]),
                 SecondChannel = new(row[40], row[41], row[42]),
                 MinimumRange = row[43], MaximumRange = row[44]

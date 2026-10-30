@@ -7,21 +7,6 @@ internal sealed record TalentSearchCompletionResult(GameState? State, int SavedS
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    private static void RequireNoTalentSpecialOutcome(GameState state, SourceWorldContext current,
-        NativeMapSeasonDate actualDate, int personId, byte mask)
-    {
-        var person = current.ReadPersonLookupReference(personId) ?? throw SearchOutcomeMissing("special_Person_pointer");
-        ushort id = SearchNeed(current.ReadPersonIdentity(SearchNeed(person.PhysicalSlot, "special_Person_physical")), "special_Person10");
-        if (unchecked((ushort)(id + 0xEC77)) >= 100) return;
-        var world = state.CampaignEventWorld ?? throw SearchOutcomeMissing("special_World");
-        if ((SearchNeed(world.SpecialPersonEncounterFlags, "special_World1699") & mask) != 0) return;
-        var season = state.NativeMapSeason ?? throw SearchOutcomeMissing("special_calendar");
-        static int Period(NativeMapSeasonDate d) => unchecked(d.Year * 36 + (d.Month - 1) * 3 + (d.Day - 1) / 10);
-        int past = unchecked(world.ElapsedPeriodOffset + (int)season.AdvancedPeriods + Period(actualDate) - Period(season.ThirdDate));
-        if (past <= 35) return;
-        throw SearchOutcomeMissing("special_" + personId + "_post35_year_Area_event_probability");
-    }
-
     //These are queries only. Advisor construction must not discover or recruit a person.
     internal TalentSearchPersonResult TrySearchCurrent(GameState state, SourceWorldContext current,
         int executorPhysical, AreaReference area, int savedSample, Func<TacticSourceSamplerWorld> readSampler)
@@ -61,11 +46,11 @@ public sealed partial class ArmyCampaignRuleAdapter
     private TacticRemakeCurrentAbilities SearchAbilities(SourceWorldContext current)
         => new(current, _scenario, Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
 
-    private static TalentSearchFallbackInputs SearchFallbackInputs(GameState state, SourceWorldContext current)
+    private TalentSearchFallbackInputs SearchFallbackInputs(GameState state, SourceWorldContext current)
         => new(area => current.ReadAssignmentArea36(SearchNeed(area.PhysicalSlot, "Area_pointer")),
             (gem, index) => TalentGemDiscoveryInputs.Read(state.TalentGemDiscoveries, gem, index) is { } site
                 ? new(site.Area, site.Remaining) : null,
-            () => ReadTalentSceneryControlCurrent(current),
+            () => ReadTalentSceneryControlCurrent(state, current),
             () => state.NativeMapSeason?.SecondDate ?? throw SearchOutcomeMissing("calendar_date"));
 
     //1DC420. The enclosing personnel stage owns capture, retirement and publication.
@@ -202,8 +187,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                         outcome = 3;
                         break;
                     default:
-                        RequireNoTalentSpecialOutcome(state, current, date, 5006, 0x01);
-                        RequireNoTalentSpecialOutcome(state, current, date, 5008, 0x02);
+                        int specialPerson = TrySpecialSearchCurrent(state, current, date, task, executor, area, 5006, Sampler)
+                            ? 5006 : TrySpecialSearchCurrent(state, current, date, task, executor, area, 5008, Sampler) ? 5008 : 0;
+                        if (specialPerson != 0)
+                        {
+                            state = ApplySpecialSearchEncounterCurrent(state, current, executor, area, specialPerson, effects);
+                            merit = unchecked(TalentRecruitParameters.Read(state, "search-common-merit") * 10);
+                            outcome = 1;
+                            break;
+                        }
                         merit = unchecked(TalentRecruitParameters.Read(state, "search-no-find-merit") * 10);
                         if (SearchNeed(current.ReadDistrictNativeValidity(district), "no_find_District") &&
                             BaseCaptureRewardSource.ReadPlayerRulerDistrict(current, district, SearchOutcomeMissing))

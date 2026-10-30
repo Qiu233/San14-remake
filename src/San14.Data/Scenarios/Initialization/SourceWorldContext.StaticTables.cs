@@ -1,7 +1,13 @@
+using System.Collections.Frozen;
+
 namespace San14.Data;
 
 public sealed partial class SourceWorldContext : IStaticTablePostLoadState
 {
+    // The CE table profile is immutable. Resolve its bounds once rather than
+    // scanning all tables and allocating a predicate on each pointer access.
+    private static readonly FrozenDictionary<int,int> StaticTableCounts = StaticTablePostLoad.Ranges
+        .ToFrozenDictionary(range => range.TableOffset, range => range.Count);
     private readonly Dictionary<(int Table,int Slot),int?> _staticTablePointers = [];
     private readonly Dictionary<(int Table,int Physical),PostLoadCallback?> _staticPostLoadCallbacks = [];
     private static readonly IReadOnlyDictionary<int,RegistryKind> StaticRegistryKinds = new Dictionary<int,RegistryKind>
@@ -92,6 +98,6 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
     }
 
     public void ApplyStaticTablePostLoad() => StaticTablePostLoad.Apply(this);
-    private static int StaticTableCount(int tableOffset) => StaticTablePostLoad.Ranges.SingleOrDefault(range=>range.TableOffset==tableOffset)?.Count
-        ?? throw new InvalidDataException($"Static table{tableOffset:X} is outside the supported CE profile.");
+    private static int StaticTableCount(int tableOffset) => StaticTableCounts.TryGetValue(tableOffset, out int count)
+        ? count : throw new InvalidDataException($"Static table{tableOffset:X} is outside the supported CE profile.");
 }

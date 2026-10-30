@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "EffectCameraFrame.h"
 #include "../../Scene/Models/FieldDisplayFrame.h"
 #include <map>
@@ -8,7 +9,7 @@ struct World {uint32_t sourceIndex{},objectId{},group{},type{},priorD8{},flags68
 struct CandidateIdentity {uint32_t ordinal{},sourceIndex{},objectId{},leaf{},particle{};};
 struct Profile {std::vector<World> worlds;std::vector<CandidateIdentity> candidates;};
 inline Profile loadProfile(const std::filesystem::path& path){
-    std::ifstream input(path,std::ios::binary);using source_camera::read;
+    NativePreparedInputFile input(path,std::ios::binary);using source_camera::read;
     if(!input||read<std::array<char,8>>(input)!=std::array<char,8>{'F','X','R','E','G','0','0','1'})
         throw std::runtime_error("Field Effect identity binding source");
     unsigned worlds=read<unsigned>(input),candidates=read<unsigned>(input);Profile p;p.worlds.resize(worlds);p.candidates.resize(candidates);

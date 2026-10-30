@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../Runtime/PreparedFileInput.h"
 #include "AccessoryMaterialInputs.h"
 #include "AccessoryGlyphRenderer.h"
 #include <map>
@@ -49,12 +50,12 @@ private:
 };
 inline NativeAccessoryMaterial prepareNativeAccessoryStaticMaterial(ID3D11Device* device,const fs::path& directory) {
     NativeAccessoryMaterial material;unsigned slot,resource,view;std::string file;
-    std::ifstream textures(directory/"texture-formats.txt");
+    NativePreparedInputFile textures(directory/"texture-formats.txt");
     if(!textures)throw std::runtime_error("Accessory static texture declarations absent");
     while(textures>>slot>>resource>>view>>file)
         material.textures.at(slot)=loadNativeModelTexture(device,directory/file,DXGI_FORMAT(resource),DXGI_FORMAT(view));
     if(!textures.eof())throw std::runtime_error("Accessory static texture declaration malformed");
-    std::ifstream samplers(directory/"samplers-native.txt");
+    NativePreparedInputFile samplers(directory/"samplers-native.txt");
     if(!samplers)throw std::runtime_error("Accessory static sampler declarations absent");
     while(samplers>>slot>>file)material.samplers.at(slot)=accessory_glyph::sampler(device,directory/file);
     if(!samplers.eof())throw std::runtime_error("Accessory sampler declaration malformed");

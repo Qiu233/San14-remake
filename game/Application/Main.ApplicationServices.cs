@@ -6,17 +6,26 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private TransferServiceProfileStore? _applicationProfile;
-    private readonly PersonnelGroupMoveDestinations _personnelGroupMoveDestinations = new();
+    private PersonnelGroupMoveDestinations _personnelGroupMoveDestinations = new();
 
-    private void AttachApplicationProfile(CampaignComposition composition, GameState adopted)
+    private TransferServiceProfileStore GetApplicationProfile()
     {
         if (_applicationProfile is null)
         {
             string path = ProjectSettings.GlobalizePath("user://application-progress.s14p");
-            _applicationProfile = File.Exists(path) ? TransferServiceProfileStore.OpenExisting(path)
+            var profile = File.Exists(path) ? TransferServiceProfileStore.OpenExisting(path)
                 : TransferServiceProfileStore.CreateNew(path);
+            if (!profile.LegacyPreferencesImported)
+                profile.MergeLegacyProgress(_preferences.ScenarioUnlocks, _preferences.LegacyCompletedScenarios);
+            _applicationProfile = profile;
         }
-        composition.ConfigureApplicationProfile(_applicationProfile);
+        return _applicationProfile;
+    }
+
+    private void AttachApplicationProfile(CampaignComposition composition, GameState adopted)
+    {
+        composition.ConfigureApplicationProfile(GetApplicationProfile());
+        composition.ConfigureApplicationPresentationOptions(_preferences.Presentation);
         composition.PublishApplicationServices(adopted);
     }
 
@@ -59,6 +68,10 @@ public partial class Main
         var audio = new CampaignNormalEventAudioInputs(_ui.SourceLocale,
             readApplicationField1AC: () => 0,
             readApplicationPointerPresent: () => true);
-        return composition.PrepareArmyQueries(PersonnelPresentationOwner(session)).CreateNormalTurnStoryBindings(audio, Capture);
+        var bindings = composition.PrepareArmyQueries(PersonnelPresentationOwner(session)).CreateNormalTurnStoryBindings(audio, Capture, modalParentPresent: true);
+        // This fresh application owns a parent map and has no modal/skip
+        // suppression at entry. Later input is isolated by the Ending host.
+        composition.ConfigureCampaignEndingBindings(new(bindings, true, CurrentMoviePlaybackEnabled(), true));
+        return bindings;
     }
 }

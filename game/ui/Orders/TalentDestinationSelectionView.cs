@@ -10,6 +10,12 @@ internal partial class TalentDestinationSelectionView : Control
     private Action<int?>? closed;
     private int? selected;
     private bool abandoned;
+    private Func<int, bool>? selectionAdmission;
+    private bool returnAllowed = true;
+    internal int? SelectedCityId => selected;
+    internal void ApplySelectionAdmission(Func<int, bool>? allowed, bool canReturn)
+    { selectionAdmission = allowed; returnAllowed = canReturn; Refresh(); }
+    private bool CityAllowed(int city) => selectionAdmission?.Invoke(city) ?? true;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<TalentSearchDestination> destinations, int? current, Func<bool> admitted,
@@ -19,9 +25,10 @@ internal partial class TalentDestinationSelectionView : Control
         selected = destinations.Any(value => value.CityId == current) ? current : null;
         Name = "TalentDestinationSelection"; ZIndex = 5; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, 0x0591, RequestCancel,
-            () => { if (ReadAdmission() && selected is int city) Finish(city); }, showFooterHint: false);
+            () => { if (ReadAdmission() && selected is int city && CityAllowed(city)) Finish(city); }, showFooterHint: false);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
         shell.Blur(chrome.Canvas, 2, shell.Rectangle(2, new(191, 147)));
         shell.Art(chrome.Canvas, 3, shell.Rectangle(3, new(191, 147)), chrome.Assets, chrome.SpriteShader);
@@ -39,7 +46,7 @@ internal partial class TalentDestinationSelectionView : Control
             clip.AddChild(button); rows.Add((city, button));
             button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,
                 text.Format("talent_destination_count", destination.Name, destination.AreaHexes.Count), () =>
-                { if (ReadAdmission()) { selected = city; Refresh(); } });
+                { if (ReadAdmission() && CityAllowed(city)) { selected = city; Refresh(); } });
             button.GuiInput += input => { if (ReadAdmission()) scroll.HandleWheel(input); };
         }
         SetMeta("original_talent_city_columns_recovered", false);
@@ -48,8 +55,9 @@ internal partial class TalentDestinationSelectionView : Control
     private bool ReadAdmission() => !abandoned && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     private void Refresh()
     {
-        foreach (var (city, button) in rows) button.Selected = city == selected;
-        chrome.ApplyDecision(selected is not null, true);
+        foreach (var (city, button) in rows) { button.Selected = city == selected; button.Disabled = !CityAllowed(city); }
+        chrome.ApplyDecision(selected is int confirmedCity && CityAllowed(confirmedCity), true);
+        chrome.ApplyReturn(returnAllowed);
     }
     private void PositionRows()
     {
@@ -59,7 +67,7 @@ internal partial class TalentDestinationSelectionView : Control
             button.Visible = button.Position.Y > -48 && button.Position.Y < 648;
         }
     }
-    internal void RequestCancel() { if (ReadAdmission()) Finish(null); }
+    internal void RequestCancel() { if (ReadAdmission() && returnAllowed) Finish(null); }
     private void Finish(int? city) { if (!abandoned) closed?.Invoke(city); }
     internal void Abandon()
     {

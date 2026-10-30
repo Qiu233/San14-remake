@@ -74,36 +74,43 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     //2E98E0(param3=2): only the report tail. The caller retains15F/160
     //through this call and owns the later relationship mutation and clear.
+    //Kinds1..4 preserve their own intro and completion roots; the capture
+    //recipient is an additional Force operand only in kind4.
     internal GameState WriteDiplomacyAttackRequestEndCurrent(GameState state, SourceWorldContext current,
-        int receiverForceId, int requesterForceId, int targetLocationId, List<CampaignEffectRequest> effects)
+        int receiverForceId, int requesterForceId, int targetLocationId, List<CampaignEffectRequest> effects,
+        int terminationKind = 2, int? capturingForceId = null)
     {
+        if (terminationKind is < 1 or > 4) throw DiplomacyReportMissing("request_end_kind");
         var receiver = DiplomacyForce(current, receiverForceId);
         var requester = DiplomacyForce(current, requesterForceId);
         bool receiverValid = DiplomacyNeed(current.ReadForceNativeValidity(receiver), "request_end_receiver_validity");
         bool receiverPlayer = receiverValid && TalentForceIsPlayerCurrent(state, current, receiver);
         bool requesterPlayer = false;
         string? intro = null;
+        HistoryTextResult? introResult = null;
+        int? otherCaptor = terminationKind == 4
+            ? capturingForceId ?? throw DiplomacyReportMissing("request_end_captor_Force") : null;
         //The signed byte is promoted into the real Base operand setter;
         //32C7D0 later consumes its low16 bits, not a guessed City index.
         ushort location = unchecked((ushort)(sbyte)targetLocationId);
         if (receiverPlayer)
         {
-            var text = FormatDiplomacyReportCurrent(state, current, 0x320A,
+            var text = FormatDiplomacyReportCurrent(state, current, 0x3208 + terminationKind,
                 new(Person0: 5012, Person1: DiplomacyNeed(current.ReadMoraleWaveRuler22EAC0(receiver), "request_end_receiver_ruler"),
-                    Force0: requesterForceId, Base0: location));
-            state = text.State; intro = text.Text;
+                    Force0: requesterForceId, Force1: otherCaptor, Base0: location));
+            state = text.State; intro = text.Text; introResult = text;
         }
         else if (receiverValid && DiplomacyNeed(current.ReadForceNativeValidity(requester), "request_end_requester_validity") &&
             TalentForceIsPlayerCurrent(state, current, requester))
         {
             requesterPlayer = true;
-            var text = FormatDiplomacyReportCurrent(state, current, 0x320E,
+            var text = FormatDiplomacyReportCurrent(state, current, 0x320C + terminationKind,
                 new(Person0: 5012, Person1: DiplomacyNeed(current.ReadMoraleWaveRuler22EAC0(requester), "request_end_requester_ruler"),
-                    Force0: DiplomacyNeed(receiver.PhysicalSlot, "request_end_receiver_ordinal"), Base0: location));
-            state = text.State; intro = text.Text;
+                    Force0: DiplomacyNeed(receiver.PhysicalSlot, "request_end_receiver_ordinal"), Force1: otherCaptor, Base0: location));
+            state = text.State; intro = text.Text; introResult = text;
         }
         //The main formatter runs even when neither participant has an intro.
-        var main = FormatDiplomacyReportCurrent(state, current, 0x3212,
+        var main = FormatDiplomacyReportCurrent(state, current, terminationKind == 1 ? 0x3211 : 0x3212,
             new(Person0: DiplomacyNeed(current.ReadMoraleWaveRuler22EAC0(receiver), "request_end_receiver_ruler"),
                 Force0: requesterForceId));
         state = main.State;
@@ -127,7 +134,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //A bad target skips only history; an existing intro still appears.
         if (!string.IsNullOrEmpty(intro))
-            DiplomacyPresent(effects, TalentCommandPresentationOperation.OfficerText, intro, officer: 5012);
+            effects.Add(CreateSingleOfficerPresentation(current, state, 5012, introResult!,
+                TalentCommandPresentationOperation.ConditionalOfficerText, "diplomacy.attack_request_end"));
         return state;
     }
 
@@ -164,7 +172,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool success = accepted.Value;
         bool renewal = task.NativeKind == 5 ? hadAllianceBeforeResolution
             ?? throw DiplomacyReportMissing("history_prior_alliance_months") : false;
-        int sound;
+        int sound,mark0=1;
         switch (task.NativeKind)
         {
             case 4:
@@ -196,6 +204,19 @@ public sealed partial class ArmyCampaignRuleAdapter
                 detailRoot = success ? renewal ? 0x3199 : 0x3190 : renewal ? 0x31AF : 0x31A6;
                 sound = success ? ownPlayer || targetPlayer ? 4 : 8 : 6;
                 break;
+            case 8:
+                if(!ownPlayer&&!targetPlayer)return state;
+                int captive=task.RequestedCaptiveOfficerIds.IsEmpty?throw DiplomacyReportMissing("history_requested_captive"):task.RequestedCaptiveOfficerIds[0];
+                pair=pair with {Person2=captive};
+                bool single=task.RequestedCaptiveOfficerIds.Length==1;
+                announceRoot=success?(single?0x31CE:0x31CF):(single?0x31DA:0x31DB);
+                mainRoot=success?0x31D0:0x31DC;detailRoot=success?0x31D1:0x31DD;sound=success?4:6;
+                break;
+            case 19:
+                if(!ownPlayer&&!targetPlayer)return state;
+                announceRoot=success?0x3318:0x331F;mainRoot=success?0x3319:0x3320;detailRoot=success?0x331A:0x3321;
+                sound=success?4:6;if(!success&&!ownPlayer&&targetPlayer)mark0=0;
+                break;
             default: throw DiplomacyReportMissing("history_native_kind");
         }
         var announcement = FormatDiplomacyReportCurrent(state, current, announceRoot, pair);
@@ -203,7 +224,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         DiplomacyPresent(effects, TalentCommandPresentationOperation.SoundCue, null, sound: sound);
         DiplomacyPresent(effects, TalentCommandPresentationOperation.Announcement, announcement.Text);
         var mainOperands = pair;
-        if (task.NativeKind == 6 || task.NativeKind == 5 && !success)
+        if (task.NativeKind is 6 or 8 || task.NativeKind == 5 && !success)
             mainOperands = new(Person0: actorId, Person1: targetRuler);
         var main = FormatDiplomacyReportCurrent(state, current, mainRoot, mainOperands);
         state = main.State;
@@ -260,7 +281,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         int hex = ReadGrowthReportHex(current, home);
         int day = (ReadArmyDestructionSampler(state, current) ?? throw DiplomacyReportMissing("history_day450")).Day450;
         return WriteHistory(state, current, new(category, DiplomacyNeed(district.PhysicalSlot, "history_District60"), hex,
-            day, main.Text, supplemental, payload, MarkBit0: 1, MarkBit3: mark3, MarkBit4: 1), effects);
+            day, main.Text, supplemental, payload, MarkBit0: mark0, MarkBit3: mark3, MarkBit4: 1), effects);
     }
 
     private GameState WriteDiplomacyCancellationCurrent(GameState state, SourceWorldContext current,
@@ -275,9 +296,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         var target = DiplomacyForce(current, task.TargetForceId);
         int actorId = DiplomacyNeed(current.ReadPersonIdentity(actor), "cancel_executor10");
         int ownRuler = DiplomacyRulerId(current, own), targetRuler = DiplomacyRulerId(current, target);
-        int detailedRoot = task.NativeKind switch { 4 => 0x305E, 5 => 0x3067, 6 => 0x3070, 9 => 0x308B,
+        int detailedRoot = task.NativeKind switch { 4 => 0x305E, 5 => 0x3067, 6 => 0x3070, 7=>0x3079, 8=>0x3082, 9 => 0x308B,19=>0x3094,
             _ => throw DiplomacyReportMissing("cancel_kind") };
-        int shortRoot = task.NativeKind switch { 4 => 0x309D, 5 => 0x309E, 6 => 0x309F, 9 => 0x30A2,
+        int shortRoot = task.NativeKind switch { 4 => 0x309D, 5 => 0x309E, 6 => 0x309F, 7=>0x30A0, 8=>0x30A1, 9 => 0x30A2,19=>0x30A3,
             _ => throw DiplomacyReportMissing("cancel_kind") };
         var detailed = FormatDiplomacyReportCurrent(state, current, detailedRoot,
             new(Person0: actorId, Person1: ownRuler, Person2: targetRuler,

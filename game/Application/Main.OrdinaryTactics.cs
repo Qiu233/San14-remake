@@ -38,6 +38,7 @@ public partial class Main
         if (ordinaryTacticSession == session && ordinaryTacticMap == map) return;
         CloseOrdinaryTactics();
         ordinaryTacticSession = session; ordinaryTacticMap = map;
+        map.SetUniqueDirectionDriver(AdvanceUniqueDirection, FailUniqueDirection);
         // This is an engine presentation update, including an exclusively
         // borrowed period candidate. The command-input gate blocks that period.
         map.SetOrdinaryTacticDriver(() =>
@@ -187,6 +188,8 @@ public partial class Main
 
     private void CloseOrdinaryTactics()
     {
+        CloseUniqueDirection(); uniqueDirectionFailures.Clear();
+        if (ordinaryTacticMap is { } directionMap && GodotObject.IsInstanceValid(directionMap)) directionMap.SetUniqueDirectionDriver(null);
         if (ordinaryTacticMap is { } map && GodotObject.IsInstanceValid(map)) map.SetOrdinaryTacticDriver(null);
         foreach (var entry in ordinaryTacticNodes.Values) entry.Node.Dispose();
         ordinaryTacticNodes.Clear(); ordinaryTacticEffects = null;

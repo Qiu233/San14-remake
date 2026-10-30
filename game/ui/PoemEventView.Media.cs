@@ -190,7 +190,7 @@ internal partial class PoemEventView
             if (!back) hint = label;
             return root;
         }
-        normalFooter = Make("PoemInformation", false, 0x2987); infoFooter = Make("PoemReturn", true, 0x2986);
+        normalFooter = Make("PoemInformation", false, 0x2987); infoFooter = Make("PoemReturn", true, publication.InformationFooterHintMessageId);
     }
 
     private void BuildInformation()

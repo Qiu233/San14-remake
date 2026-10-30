@@ -12,9 +12,12 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         var entity = ArmyDestructionQueue.ResolveBase(current, target)
             ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_target_identity");
-        int districtId = district.PhysicalSlot
-            ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_District_identity");
-        var request = new BaseCaptureRequest(entity, null) { WinnerDistrictId = districtId };
+        bool recipientValid = current.ReadDistrictNativeValidity(district)
+            ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_District_validity");
+        var request = recipientValid
+            ? new BaseCaptureRequest(entity, null) { WinnerDistrictId = district.PhysicalSlot
+                ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_District_identity") }
+            : new BaseCaptureRequest(entity, null) { HasNoWinner = true };
         var queue = current.OwnedDestructionQueue ?? state.PendingCombatSettlements
             ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_manager140");
         var admitted = CombatSettlementRules.Admit(queue, request, ArmyDestructionQueue.BindCurrent(state, current));
@@ -23,11 +26,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         current.BindOwnedDestructionQueue(admitted.Queue, state);
         state = state with { PendingCombatSettlements = admitted.Queue };
         if (kind != CombatSettlementAdmissionKind.Full) return state;
-        state = FlushNormalCombatEffects(state, revision, effects);
-        var captureEffects = new List<CampaignEffectRequest>();
-        state = ApplyBaseWinnerCaptureCurrent(state, current, request, date,
-            sampler.Read(state) ?? throw TacticRemakeCurrentContext.OriginAutomaticMissing("capture_sampler"), captureEffects,
-            CreateCaptureMapGroupingOwner());
-        return AppendImmediateCombatEffects(state, revision, captureEffects);
+        //Only this new request settles immediately. The existing full queue
+        //remains untouched, and the common capture owner flushes preceding
+        //effects and publishes the real capture/terminal result exactly once.
+        var captured = ApplyImmediateBaseCaptureCurrent(state, current, request, date,
+            sampler.Read(state), revision, effects, CreateCaptureMapGroupingOwner());
+        return captured.State;
     }
 }

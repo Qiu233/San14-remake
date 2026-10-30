@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 // CPU metadata and generated instance banks for one prepared GroundDetails
 // resource owner. Geometry, shaders and textures belong to its model media.
 #include <array>
@@ -38,7 +39,7 @@ struct Packet {
     std::vector<Block> blocks; // derived once at import; no grouping allocation per camera
 };
 class Reader {
-    std::ifstream file;
+    NativePreparedInputFile file;
 public:
     explicit Reader(const std::wstring& path):file(path,std::ios::binary) {
         if(!file)throw std::runtime_error("Procedural source packet cannot be opened.");

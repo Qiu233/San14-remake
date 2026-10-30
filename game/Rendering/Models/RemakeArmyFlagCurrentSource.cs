@@ -82,37 +82,53 @@ public sealed class RemakeArmyFlagCurrentSource
         return new(repository,source,map);
     }
 
-    public RemakeArmyFlagCurrentFrame Prepare(GameState world,IEnumerable<int> explicitOwnedFlagUnitIds)
+    public RemakeArmyFlagCurrentFrame Prepare(GameState world,IEnumerable<int> explicitOwnedFlagUnitIds,
+        int? sourceUnitId=null,ArmyDepartureFlagInputs? sourceInputs=null)
     {
         ArgumentNullException.ThrowIfNull(world);ArgumentNullException.ThrowIfNull(explicitOwnedFlagUnitIds);
-        var native=_definitions.Capture(world)??throw new InvalidDataException("Source flag current definitions do not match the complete owned campaign source.");
-        // The generic campaign capture keeps nullable ruler metadata unknown.
-        // This fresh flag prefix explicitly retains Force51's source zero
-        // header while that force remains inactive with no owned ruler. It
-        // never converts an unknown active ruler or a nonzero source header.
-        var lastSource=_source.Snapshot.Forces.Single(row=>row.Slot==51);
-        if(lastSource.RulerSlot==0&&world.Forces.TryGetValue(51,out var currentLast)&&
-            !currentLast.IsActive&&currentLast.RulerId is null)
-            native.SetForceRecord(new(51,0));
+        if(sourceInputs is not null&&sourceUnitId is null)
+            throw new ArgumentException("Departure flag inputs require their actual unit identity.",nameof(sourceUnitId));
+        int[] ids=explicitOwnedFlagUnitIds.Distinct().Order().ToArray();
+        SourceWorldContext? native=null;
         ArmyFlagPaneNameSelection? carried=null;string? carriedUnavailable=null;
-        try{carried=_names.ResolveCarriedKind2(native);}
-        catch(InvalidDataException error){carriedUnavailable=error.Message;}
+        if(ids.Any(id=>sourceInputs is null||id!=sourceUnitId))
+        {
+            native=_definitions.Capture(world)??throw new InvalidDataException("Source flag current definitions do not match the complete owned campaign source.");
+            // The generic campaign capture keeps nullable ruler metadata unknown.
+            // This fresh flag prefix explicitly retains Force51's source zero
+            // header while that force remains inactive with no owned ruler. It
+            // never converts an unknown active ruler or a nonzero source header.
+            var lastSource=_source.Snapshot.Forces.Single(row=>row.Slot==51);
+            if(lastSource.RulerSlot==0&&world.Forces.TryGetValue(51,out var currentLast)&&
+                !currentLast.IsActive&&currentLast.RulerId is null)
+                native.SetForceRecord(new(51,0));
+            try{carried=_names.ResolveCarriedKind2(native);}
+            catch(InvalidDataException error){carriedUnavailable=error.Message;}
+        }
         var bindings=new Dictionary<int,RemakeArmyFlagCurrentBinding>();var unavailable=new Dictionary<int,string>();
-        foreach(int id in explicitOwnedFlagUnitIds.Distinct().Order())
+        foreach(int id in ids)
         {
             try
             {
                 if(!world.Units.TryGetValue(id,out var unit)||(uint)unit.OfficerId>6000)
                     throw new InvalidDataException("Owned source flag unit has no complete source commander ID.");
+                if(id==sourceUnitId&&sourceInputs is { } captured)
+                {
+                    bindings.Add(id,new(id,unit.OfficerId,captured.ForcePhysical,captured.Color49,
+                        captured.BannerName,captured.CarriedKind2Name,captured.CarriedKind2Unavailable,
+                        "reached Army departure source flag inputs"));
+                    continue;
+                }
                 // An isolated owned query receiver supplies exactly the word
                 // consumed by22C0A0. Its physical key1 is not Unit.Id and does
                 // not assert a complete or current original ArmyUnit object.
-                native.SetArmyUnitCommanderId(1,(ushort)unit.OfficerId);
-                var force=native.ReadArmyUnitForceReference(new(1));
-                int physical=native.ReadForcePhysicalSlot(force)??throw new InvalidDataException("Source selected force physical getter is unknown.");
-                bool valid=native.ReadForceNativeValidity(force)??throw new InvalidDataException("Source selected force validity is unknown.");
-                byte? color=valid?native.ReadForceReportColor(force)??throw new InvalidDataException("Retained source Force+49 is unknown."):null;
-                var name=_names.Resolve(native,force);
+                var current=native??throw new InvalidDataException("Source flag current inputs are unavailable.");
+                current.SetArmyUnitCommanderId(1,(ushort)unit.OfficerId);
+                var force=current.ReadArmyUnitForceReference(new(1));
+                int physical=current.ReadForcePhysicalSlot(force)??throw new InvalidDataException("Source selected force physical getter is unknown.");
+                bool valid=current.ReadForceNativeValidity(force)??throw new InvalidDataException("Source selected force validity is unknown.");
+                byte? color=valid?current.ReadForceReportColor(force)??throw new InvalidDataException("Retained source Force+49 is unknown."):null;
+                var name=_names.Resolve(current,force);
                 string provenance=_source.ScenarioSource.ResourceUri+"#"+_source.ScenarioSource.Sha256+
                     $"; owned Unit{id} commander12={unit.OfficerId}; 22C0A0/22BCB0 current Person118/District10/Forcepointer/physical={physical}; retained source Force49; fresh source-zero Force51 header retained only while inactive/no-ruler";
                 bindings.Add(id,new(id,unit.OfficerId,physical,color,name,carried,carriedUnavailable,provenance));

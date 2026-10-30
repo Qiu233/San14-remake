@@ -11,6 +11,15 @@ public sealed partial class ForceUnregisterSource
         NativeMapSeasonDate date, List<CampaignEffectRequest> effects)
     {
         if (!ReferenceEquals(pool.ArmyReturnOwner, current)) throw Missing("death_terminal_current_pool");
+        var result = ApplyTerminalCurrent(state, current, victim, effects);
+        return (result.State, result.NativeReturn);
+    }
+
+    //Shared27A6B0: the fixed Force table is this business rule's iterator.
+    //It creates no registry temporary and needs no separate mutable owner.
+    internal ForceUnregisterTerminalResult ApplyTerminalCurrent(GameState state,
+        SourceWorldContext current, int victim, List<CampaignEffectRequest> effects)
+    {
         var victimForce = new ForceReference(victim);
         int victimOrdinal = Need(current.ReadForcePhysicalSlot(victimForce), "death_terminal_victim60");
         int remaining = 0, remainingPlayers = 0;
@@ -30,18 +39,18 @@ public sealed partial class ForceUnregisterSource
         //_guard_check_icall body. It returns0 without a task-result writer.
         bool selectedUserActive = package.ReadApplicationInformationRestriction(state)
             ?? throw Missing("death_terminal_selected_user_service");
-        if (selectedUserActive && remainingPlayers == 0) return (state, 0);
+        if (selectedUserActive && remainingPlayers == 0) return new(state, 0, remaining, remainingPlayers);
 
         var tutorial = current.ReadTransferModeState() ?? throw Missing("death_terminal_tutorial_service");
         if (tutorial.Present && Need(tutorial.Value, "death_terminal_tutorial_active") != 0 && remainingPlayers == 0)
-            return (package.ApplyTutorialForceDefeatCurrent(state, current, effects), 1);
+            return new(package.ApplyTutorialForceDefeatCurrent(state, current, effects), 1, remaining, remainingPlayers);
         if (remaining == 0)
         {
             Music();
             Announcement(0x2B39);
             //No surviving ordinary Force is a stop, not an award of the
             //separate288800 unification result to a guessed player.
-            return (state with { CampaignTurnStop = new(CampaignTurnStopReason.OrdinaryForcesResolved, null, null) }, 1);
+            return new(state with { CampaignTurnStop = new(CampaignTurnStopReason.OrdinaryForcesResolved, null, null) }, 1, remaining, remainingPlayers);
         }
         if (package.TalentForceIsPlayerCurrent(state, current, victimForce) && remainingPlayers < 1)
         {
@@ -55,10 +64,10 @@ public sealed partial class ForceUnregisterSource
             Announcement(0x2B3A);
             effects.Add(new(null, null) { MonthlyMaintenance =
                 new(MonthlyMaintenanceOperation.EmperorSceneExit, null, null, null) });
-            return (state with { NativePlayableTerminal = new(NativePlayableTerminalKind.PlayerDefeated,
-                victimOrdinal, victimOrdinal, PlayableTerminalSource.PlayerDefeatRuleId) }, 1);
+            return new(state with { NativePlayableTerminal = new(NativePlayableTerminalKind.PlayerDefeated,
+                victimOrdinal, victimOrdinal, PlayableTerminalSource.PlayerDefeatRuleId) }, 1, remaining, remainingPlayers);
         }
-        return (state, 0);
+        return new(state, 0, remaining, remainingPlayers);
 
         void Announcement(int root)
         {

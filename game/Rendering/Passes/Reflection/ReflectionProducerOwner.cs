@@ -26,6 +26,10 @@ public sealed class ReflectionProducerOwner : IAsyncDisposable
         IReadOnlyList<DeferredDeviceBinding> explicitInputs,DeferredRasterState explicitRaster)
         =>ReflectionFinalDraw.BuildAsync(source,compiler,explicitAttachments,explicitConstants,explicitInputs,explicitRaster);
 
+    public Task<DeferredReflectionDecision> ApplyAsync(DeferredReflectionState source,
+        MapCommonRenderState? actualCommon) => ApplyAsync(
+            DeferredExtraLayerPlan.BindCurrentReflectionCommon(source, actualCommon));
+
     public Task<DeferredReflectionDecision> ApplyAsync(DeferredReflectionState explicitSourceState)
     {
         ObjectDisposedException.ThrowIf(_disposed,this);

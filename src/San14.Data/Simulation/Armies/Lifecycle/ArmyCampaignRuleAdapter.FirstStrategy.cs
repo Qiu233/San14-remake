@@ -29,6 +29,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             bool applicationPresent = OccupationKnown(entry.ApplicationPresent, "first_strategy_application_pointer");
             int user = applicationPresent
                 ? OccupationKnown(entry.SelectedApplicationUserIndex, "first_strategy_selected_application_user_index") : -1;
+            state = AppendInitialStrategyChronicleCurrent(state);
             var scan = ScanCampaignEventConditions(state, user, applicationPresent: applicationPresent);
             var history = scan.State.CampaignEvents ?? throw OccupationMissing("first_strategy_history");
             var occurred = history.Occurred.ToArray(); var dates = history.OccurrenceDates.ToArray();

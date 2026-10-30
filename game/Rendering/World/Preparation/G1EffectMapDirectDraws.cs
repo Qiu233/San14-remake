@@ -27,6 +27,20 @@ public sealed class G1EffectMapDirectDraws
     public IG1EffectDirectParticleStorage? CreateStorage(G1EffectGenericRuntime generic) =>
         factory.CreateStorage(generic);
 
+    private G1EffectDirectLightingClusterPrepared? installedCluster;
+
+    public string? PrepareCurrentLighting(G1EffectMapInputFrame frame)
+    {
+        if (lightingDevice is null || frame.LightingCluster is not { IsReady: true } cluster)
+            return "Current Effect material requires its actual normal node71 owner.";
+        if (!ReferenceEquals(installedCluster, cluster))
+        {
+            lightingDevice.SetLightingCluster(cluster, frame.LightingIndexFormat);
+            installedCluster = cluster;
+        }
+        return null;
+    }
+
     /// <summary>Call in actual instance/system/generic traversal order after
     /// advancing the instance, before the same native Main frame. Ordinal is
     /// shared across the map's instances, independent of CPU depth buckets.</summary>
@@ -64,7 +78,12 @@ public sealed class G1EffectMapDirectDraws
                 }
                 else
                 {
-                    lightingDevice.SetLightingCluster(cluster,frame.LightingIndexFormat);
+                    string? linkedLightingMissing = PrepareCurrentLighting(frame);
+                    if (linkedLightingMissing is not null)
+                    {
+                        missing.Add(new(generic.Record.FileOffset, "DirectLinkedLighting", linkedLightingMissing));
+                        continue;
+                    }
                     lightAllocation.SetLighting(G1EffectDirectLightingSource.Read(main,generic,mainStorage.Value,
                         instance.AutoHdrScaleExposure),lightOrdinal);
                 }
@@ -96,6 +115,12 @@ public sealed class G1EffectMapDirectDraws
             var batch = new G1EffectDrawBatch(frame.CpuCamera, ReadOnlyMemory<byte>.Empty,
                 [packet], Array.Empty<G1EffectDrawMissing>(), 0, 0);
             var built = publisher.BuildDirect(sequence, new(gpuResources, batch, frame.PacketInputs));
+            if (built.IsComplete && built.RequiresClusteredLighting && PrepareCurrentLighting(frame) is { } lightingMissing)
+            {
+                allocation.SetDraw(null, ordinal);
+                missing.Add(new(generic.Record.FileOffset, "DirectLighting", lightingMissing));
+                continue;
+            }
             if (!built.IsComplete)
             {
                 allocation.SetDraw(null, ordinal);

@@ -17,6 +17,7 @@ internal partial class TransportTargetOptionsView : Control
     private Action? save;
     private bool configured, abandoned, hasSelected, canSave;
     internal Func<bool>? InputAdmission { get; set; }
+    internal Action<string?>? HintChanged { get; set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         Action<TransportTargetOption, int> choose, Action save)
@@ -48,6 +49,7 @@ internal partial class TransportTargetOptionsView : Control
             source.Art(this, artNode, source.Rectangle(artNode), assets, shader);
             source.Text(this, textNode, default, Message(message), font, presets[13]);
         }
+        var hints=HintChanged is null?null:new AdministrationMessages(repository,text.SourceLocale);
         int[][] captions = [[0x25A, 0x282], [0x265, 0x285]];
         for (int group = 0; group < 2; group++)
         {
@@ -56,6 +58,11 @@ internal partial class TransportTargetOptionsView : Control
                 Message(captions[group][0]), () => Choose(pairIndex, true));
             var second = Button($"TransportOption{group}Second", 12 + group * 9, 0x01649C44,
                 Message(captions[group][1]), () => Choose(pairIndex, false));
+            string firstHint=hints?.Format(0x56B8+group*2)??"",secondHint=hints?.Format(0x56B9+group*2)??"";
+            first.MouseEntered+=()=>{if(Admitted())HintChanged?.Invoke(firstHint);};
+            second.MouseEntered+=()=>{if(Admitted())HintChanged?.Invoke(secondHint);};
+            first.MouseExited+=()=>{if(Admitted())HintChanged?.Invoke(null);};
+            second.MouseExited+=()=>{if(Admitted())HintChanged?.Invoke(null);};
             pairs.Add((first, second));
         }
         saveDefaults = Button("SaveTransportDefaults", 5, 0x60C991A4, Message(0x367),
@@ -123,7 +130,7 @@ internal partial class TransportTargetOptionsView : Control
     internal void Abandon()
     {
         if (abandoned) return;
-        abandoned = true; hasSelected = canSave = false; choose = null; save = null; InputAdmission = null;
+        abandoned = true; hasSelected = canSave = false; choose = null; save = null; InputAdmission = null; HintChanged = null;
         foreach (var pair in pairs) pair.First.Disabled = pair.Second.Disabled = true;
         if (saveDefaults is not null) saveDefaults.Disabled = true;
         Hide();

@@ -6,6 +6,8 @@ internal sealed partial class NarrationResourceMessages
     //the installed message parser. No resource bytes or cached results run here.
     private static readonly HashSet<int> NormalTurnReportRoots =
     [
+        0x9C62,
+        0x2C6B, 0x3233, 0x3234, 0x3235, 0x3236, 0x323C, 0x9C5B, 0x9C5C, 0x34EC, 0x9CD7, 0x9C5E,
         0x2C51, 0x2C63, 0x5303,
         0x2A3C, 0x2A3D, 0x2C50, 0x3248,
         0x9C55, 0x9C56,
@@ -35,6 +37,10 @@ internal sealed partial class NarrationResourceMessages
     ];
     private static readonly HashSet<int> NormalTurnReportMessages =
     [
+        0x9C62,
+        0x2C6B, 0x2C6C, 0x2C6D, 0x2C6E, 0x2C6F, 0x2C70, 0x2C71, 0x2C72,
+        0x2C73, 0x2C74, 0x2C75, 0x2C76, 0x2C77, 0x2C78, 0x2C79, 0x2C7A, 0x2C7B,
+        0x3233, 0x3234, 0x3235, 0x3236, 0x323C, 0x9C5B, 0x9C5C, 0x34EC, 0x9CD7, 0x9C5E,
         0x2C51, 0x2C52, 0x2C53, 0x2C54, 0x2C55, 0x2C56, 0x2C57, 0x2C58, 0x2C59, 0x2C5A, 0x2C5B, 0x2C5C, 0x2C5D, 0x2C5E, 0x2C5F, 0x2C60, 0x2C61, 0x2C62, 0x2C63, 0x5303, 0x5304, 0x5305, 0x5306, 0x5307, 0x5308, 0x5309, 0x530A, 0x530B, 0x530C, 0x530D, 0x530E, 0x530F,
         0x2A3C, 0x2A3D, 0x2C50, 0x3248,
         0x9C55, 0x9C56,
@@ -136,13 +142,18 @@ internal sealed partial class NarrationResourceMessages
     ];
     internal string ResolveNormalTurnReport(INarrationCurrentContext context, Func<int, int> draw, int root)
     {
-        if (!NormalTurnReportRoots.Contains(root)) throw Failure("normal_turn_report_root");
+        if (!NormalTurnReportRoots.Contains(root) && !EmperorCaptureReportRoots.Contains(root) &&
+            !StoryRankReportMessages.Contains(root) && !SalaryReportRoots.Contains(root) &&
+            !FoodShortageReportRoots.Contains(root))
+            throw Failure("normal_turn_report_root");
         _prefix = "normal.turn.text";
         bool previous = _report; _report = true;
         try
         {
             string text = ExecuteMessage(context, draw, root, Get(root), _ => false, true, null,
-                NormalTurnReportMessages.Contains, escapeText: (group, code) => (group, code) switch
+                id => NormalTurnReportMessages.Contains(id) || EmperorCaptureReportMessages.Contains(id) ||
+                    StoryRankReportMessages.Contains(id) || SalaryReportMessages.Contains(id) ||
+                    FoodShortageReportMessages.Contains(id), escapeText: (group, code) => (group, code) switch
                 { ('C', 'J') => "^02", ('C', 'L') => "^05", ('E', 'K') or ('E', 'M') => string.Empty,
                   _ => throw Failure($"unresolved_escape_{group:X2}_{code:X2}") }, allowOpaqueEscapes: true).Text;
             if (text.Length > 338 || text.Any(c => c == '\0' || char.IsSurrogate(c)))

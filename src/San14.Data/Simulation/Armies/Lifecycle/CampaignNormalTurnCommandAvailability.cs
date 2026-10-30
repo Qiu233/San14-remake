@@ -4,6 +4,35 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    private const string NormalTurnTradeAdmissionParameterPrefix = "simulation.normal-turn.foreign-trade-admission.";
+    //Both complete native admission bodies independently read these same
+    //five file-backed integers. Keep one semantic table, no runtime EXE reads.
+    private static readonly IReadOnlyDictionary<string, int> NormalTurnTradeAdmissionStaticRules =
+        new Dictionary<string, int>
+        {
+            ["maximum-rank"] = 8, ["command-books"] = 1,
+            ["gold"] = 1000, ["food"] = 10000, ["troops"] = 500
+        };
+
+    internal GameState InstallFreshNormalTurnTradeAdmissionParameters(GameState state)
+    {
+        if (state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } || state.Units.Count != 0)
+            throw FinalizationMissing("trade_fresh_boundary");
+        var native = state.NativeArmySimulation ?? throw FinalizationMissing("trade_fresh_parameter_owner");
+        var bank = native.Parameters;
+        if (bank.Language != Seed.Language || bank.Language is not ("TC" or "SC") ||
+            bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language))
+            throw FinalizationMissing("trade_fresh_rule_profile");
+        var values = new Dictionary<string, int>(bank.Int32Values);
+        foreach (var pair in NormalTurnTradeAdmissionStaticRules)
+        {
+            string key = NormalTurnTradeAdmissionParameterPrefix + pair.Key;
+            if (bank.Float32Values.ContainsKey(key)) throw FinalizationMissing("trade_integer_" + pair.Key);
+            values.TryAdd(key, pair.Value);
+        }
+        return state with { NativeArmySimulation = native with { Parameters = bank with { Int32Values = values } } };
+    }
+
     //2DF140/2DF7A0 refresh their real saved menu flags once at their Turn
     //positions. They do not issue commands or consume the application's RNG.
     private GameState RefreshNormalTurnCommandAvailabilityCurrent(GameState state,
@@ -161,14 +190,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         if ((uint)rank >= (uint)ranks.Count) throw FinalizationMissing("trade_Rank_range");
         byte[] row = Convert.FromHexString(ranks[rank].RawBytesHex);
         if (row.Length <= 156) throw FinalizationMissing("trade_RankAC");
-        if (row[156] > P("maximum-rank", 8)) return false;
-        if (FinalizationNeed(current.ReadDistrictRawByte(districtId, 0x14), "trade_District14") < P("command-books", 1)) return false;
+        if (row[156] > P("maximum-rank")) return false;
+        if (FinalizationNeed(current.ReadDistrictRawByte(districtId, 0x14), "trade_District14") < P("command-books")) return false;
         int ruler = FinalizationNeed((current.ReadPersonLookupReference(TalentRulerCurrent(current, force))
             ?? throw FinalizationMissing("trade_ruler_lookup")).PhysicalSlot, "trade_ruler_pointer");
         var home = BaseLookup.Find(FinalizationNeed(current.ReadPersonFirstLocation(ruler), "trade_rulerE2"), current);
-        if (FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Gold), "trade_Gold") < P("gold", 1000) ||
-            FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Supplies), "trade_Food") < P("food", 10000) ||
-            FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "trade_Troops") < P("troops", 500)) return false;
+        var treasury = BaseCurrencyAdditionSource.CurrencyCity(home, current);
+        if (FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Gold), "trade_Gold") < P("gold") ||
+            FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Supplies), "trade_Food") < P("food") ||
+            FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "trade_Troops") < P("troops")) return false;
         bool executor = false;
         foreach (int person in NormalTurnServingPeople(current, own, districtId, false))
         {
@@ -180,12 +210,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             executor = true; break;
         }
         if (!executor) return false;
-        //All current command kinds are enumerated by their owned manager.
-        //None of these is native17/18; unlike an unknown legacy manager this
-        //is evidence for the ordinary711630 empty matching-task branch.
         var manager = current.ReadOwnedPersonCommandManager() ?? throw FinalizationMissing("trade_command_manager");
-        if (manager.Disappearances is null || manager.Talents is null || manager.Diplomacies is null ||
-            manager.Strategies is null || manager.Independences is null) throw FinalizationMissing("trade_command_kinds");
+        var caravans = manager.Caravans ?? throw FinalizationMissing("trade_caravan_owner");
         var first = FinalizationTemporary(current);
         bool hasCountries;
         try { Fill(first); hasCountries = FinalizationNeed(current.ReadTemporaryHexListCount(first), "trade_first_count") != 0; }
@@ -218,6 +244,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var pointer = current.ReadStaticTableReference(0x85A20, raw) ?? throw FinalizationMissing("trade_country_table");
                 int country = FinalizationNeed(pointer.PhysicalSlot, "trade_country_ordinal");
                 if (country == 0 || !Eligible(country)) continue;
+                if (caravans.Values.Any(task => task.SourceForceId == own && task.CountryId == country)) continue;
                 if (FinalizationNeed(current.ReadRegistryLockEnabled(), "trade_append_lock")) current.EnterRegistryLock();
                 try
                 {
@@ -227,13 +254,17 @@ public sealed partial class ArmyCampaignRuleAdapter
                 finally { if (FinalizationNeed(current.ReadRegistryLockEnabled(), "trade_append_unlock")) current.ExitRegistryLock(); }
             }
         }
-        int P(string name, int original)
+        int P(string name)
         {
             var bank = state.NativeArmySimulation?.Parameters ?? throw FinalizationMissing("trade_parameters");
-            string key = "simulation.normal-turn.foreign-trade-admission." + name;
+            if (bank.Language != Seed.Language || bank.Language is not ("TC" or "SC") ||
+                bank.RuleVersion != SimulationRuleIdentity.ForLocale(bank.Language))
+                throw FinalizationMissing("trade_rule_profile");
+            string key = NormalTurnTradeAdmissionParameterPrefix + name;
             if (bank.Float32Values.ContainsKey(key)) throw FinalizationMissing("trade_integer_" + name);
             if (bank.Int32Values.TryGetValue(key, out int value)) return value;
-            return bank.Language == "TC" ? original : throw FinalizationMissing("trade_locale_" + name);
+            return NormalTurnTradeAdmissionStaticRules.TryGetValue(name, out int original) ? original
+                : throw FinalizationMissing("trade_parameter_" + name);
         }
     }
 

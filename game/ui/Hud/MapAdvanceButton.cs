@@ -9,6 +9,8 @@ internal partial class MapAdvanceButton : TextureButton
     private readonly MapCornerColors[] _colors = new MapCornerColors[5];
     private Texture2D _caption = null!;
     private Texture2D _play = null!;
+    private Texture2D _advanceCaption = null!,_stopCaption = null!,_advanceIcon = null!,_stopIcon = null!;
+    private bool _stopping;
     private Rect2 _captionRectangle;
     private Rect2 _playRectangle;
     private Vector2 _sourceSize;
@@ -36,8 +38,10 @@ internal partial class MapAdvanceButton : TextureButton
             // CProgressBtnBehavior writes palettes 25..29 to both sprite glyphs.
             _colors[i] = palettes[25 + i];
         }
-        _caption = assets.Sprite("000_cmn_txt_adv_shinko").Texture;
-        _play = assets.Sprite("000_cmn_icon_advance_play").Texture;
+        _caption = _advanceCaption = assets.Sprite("000_cmn_txt_adv_shinko").Texture;
+        _play = _advanceIcon = assets.Sprite("000_cmn_icon_advance_play").Texture;
+        _stopCaption=assets.Sprite("000_cmn_txt_adv_teishi").Texture;
+        _stopIcon=assets.Sprite("000_cmn_icon_advance_stop").Texture;
         _captionRectangle = GlyphRectangle("cmn_txt_adv_xx_pc026_030");
         _playRectangle = GlyphRectangle("play_pc026_030");
         MouseEntered += QueueRedraw;
@@ -54,6 +58,13 @@ internal partial class MapAdvanceButton : TextureButton
             Vector2 center = new(node.HeaderValues[0], -node.HeaderValues[1]);
             return new(center - size / 2, size);
         }
+    }
+
+    internal void ApplyExecution(bool stopping)
+    {
+        if(_stopping==stopping)return;
+        _stopping=stopping;_caption=stopping?_stopCaption:_advanceCaption;
+        _play=stopping?_stopIcon:_advanceIcon;QueueRedraw();
     }
 
     public override void _Draw()

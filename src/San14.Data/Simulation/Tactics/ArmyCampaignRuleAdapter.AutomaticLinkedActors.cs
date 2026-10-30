@@ -92,12 +92,9 @@ public sealed partial class TacticRemakeCurrentContext
                 var vectors = program.Instructions.Select(instruction =>
                     ResolveAutomaticInstructionHexTargets(state, actor, row, instruction, sourceHex, primaryHex)
                     ?? throw LinkedActorMissing("candidate_current_Hex_vectors")).ToArray();
-                if (vectors.All(vector => vector.OrderedTargets.Length == 0)) continue;
-                //1753E0's active tutorial can filter a definition through
-                //499BC0. It must not be guessed from an opcode or its name.
-                if (TacticRemakeCurrentBattleControl.ReadHeader(state) is not int header)
-                    throw LinkedActorMissing("tutorial_header");
-                if (header != 0) throw LinkedActorMissing("tutorial_linked_tactic_filter499BC0");
+                bool tutorialAllowed = TutorialTacticEligibilitySource.AllowsCurrent(state, program)
+                    ?? throw LinkedActorMissing("tutorial_current_lesson499BC0");
+                if (!tutorialAllowed || vectors.All(vector => vector.OrderedTargets.Length == 0)) continue;
                 usable.Add(new(tactic, program, vectors));
             }
             if (usable.Count == 0) continue;

@@ -67,45 +67,52 @@ public sealed partial class TacticRemakeCurrentContext
         return available is not true ? available : native.Waiting20 == 0;
     }
 
-    /// <summary>The finite Army-only16F360 scanner. Both instruction vectors
-    /// retain native order. A reached Base or unknown footprint stays unknown.</summary>
+    /// <summary>16F360's generic Hex scanner. The explicit execution target
+    /// remains separate from its final no-primary availability fallback.</summary>
     private bool? ReadManualInterventionTargetAvailability(GameState state, UnitState caster, int tacticId)
     {
-        if (EffectiveFormation(state, caster) is not int formation || formation is < 1 or > 20 ||
+        if (EffectiveFormation(state, caster) is not int formation ||
             ReadArmyNativePrimaryRange(state, caster) is not int range ||
             caster.NativeTacticRuntime is not { } native ||
-            _definitions.ReadHexTableReference(caster.HexId)?.PhysicalSlot != caster.HexId ||
+            caster.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
+            ArmyMarchSourceAdapter.ReadCurrentHex(state, caster) is not ushort sourceHex ||
+            _definitions.ReadHexTableReference(sourceHex)?.PhysicalSlot != sourceHex ||
             ReadCurrentProgram(state, _catalog.Rows[tacticId]) is not { } program || !ManualProgram(program)) return null;
-        //Every earlier16F360 candidate either continues or returns true. Its
-        //no-primary fallback is therefore inevitably reached if none succeeds.
-        //For these complete nondamage selectors (no RNG or world writes), a
-        //known caster membership proves the final OR true even when an earlier
-        //Base candidate is outside this finite Army-only projection. This does
-        //not select that Base or alter174020's real explicit target vectors.
-        var fallback = CaptureManualVectors(state, caster, null, tacticId, program);
-        if (fallback?.Any(instruction => instruction.OrderedArmyIds.Contains(caster.Id)) == true) return true;
-        foreach (int hex in NativeHexOrder(caster.HexId, range).Skip(1))
+        if (formation is < 1 or > 20) return false;
+        byte expectedKind = 255;
+        ushort expectedId = 0;
+        if (native.Abnormal25 != 0)
         {
-            if (!TryOccupant(state, hex, out Occupant? occupant)) return null;
-            if (occupant is null || occupant.Army is null && occupant.BaseLocation is null) continue;
-            if (native.Abnormal25 != 0)
-            {
-                if (native.ProvocationOwner is not { } owner) return null;
-                if (occupant.Army is { } army)
-                { if (owner.Kind != DeploymentTargetKind.Unit || owner.Id != army.Id) continue; }
-                else if (occupant.BaseLocation is int location)
-                { if (owner.Kind != DeploymentTargetKind.Location || owner.Id != location) continue; }
-            }
-            if (occupant.Army is not { } primary) return null;
-            bool? excluded = ArmyExcluded(state, primary.Id);
-            if (excluded is null) return null;
-            if (excluded.Value) continue;
-            if (CaptureManualInterventionUse(state, caster, primary, tacticId) is not { } captured) return null;
-            if (captured.Instructions.Any(instruction => instruction.OrderedArmyIds.Length != 0)) return true;
+            var reference = _definitions.ReadRegistryTableReference(RegistryKind.Army, physical);
+            var army = _definitions.ReadArmyUnitTableReference(physical);
+            if (reference is null || army is null ||
+                _definitions.ReadTacticClearByte(reference, 0x3C) is not byte kind ||
+                _definitions.ReadTacticArmyTarget3E(army) is not ushort identity) return null;
+            expectedKind = kind; expectedId = identity;
         }
-        // The no-primary fallback still executes caster-centered programs;
-        // selected-primary instructions have no valid center and stay empty.
-        return fallback is null ? null : fallback.Any(instruction => instruction.OrderedArmyIds.Contains(caster.Id));
+        foreach (int hex in NativeHexOrder(sourceHex, range).Skip(1))
+        {
+            var selected = FieldHexOccupantSource.ReadCurrent(state, _definitions, hex);
+            if (selected.Receipt is not { } occupant) return null;
+            if (occupant.NativeKind is 255 or 11) continue;
+            //16F360's Gate footprint can lie within the ring while its
+            //actual linked Object center is farther away. Keep this extra gate.
+            if (occupant.NativeKind == 6)
+            {
+                var gate = _definitions.ReadGateTableReference(occupant.NativePhysicalSlot);
+                if (gate is null || _definitions.ReadBaseNativeValidity(gate) is not bool valid) return null;
+                if (valid && LinkedDistance(sourceHex, _definitions.ReadBaseCurrentHexIndex(gate)) > range) continue;
+            }
+            if (native.Abnormal25 != 0 &&
+                (occupant.NativeKind != expectedKind || occupant.NativePhysicalSlot != expectedId)) continue;
+            var vectors = CaptureManualInstructionHexVectorsCurrent(state, caster, tacticId, program, sourceHex, hex);
+            if (vectors is null) return null;
+            if (vectors.Any(vector => vector.OrderedTargets.Length != 0)) return true;
+        }
+        //The no-primary fallback tests exact caster Hex membership. It
+        //does not authorize an empty Hex as174020's execution target.
+        var fallback = CaptureManualInstructionHexVectorsCurrent(state, caster, tacticId, program, sourceHex, null);
+        return fallback is null ? null : fallback.Any(vector => vector.OrderedTargets.Any(node => node.HexId == sourceHex));
     }
 
     internal ManualTacticCapturedUse? CaptureManualInterventionUse(GameState state,
@@ -120,21 +127,14 @@ public sealed partial class TacticRemakeCurrentContext
     private TacticInstructionTargetsSource[]? CaptureManualVectors(GameState state,
         UnitState caster, UnitState? primary, int tacticId, S14TacticEffectProgram program)
     {
-        var instructions = new TacticInstructionTargetsSource[2];
-        foreach (var instruction in program.Instructions)
-        {
-            var selected = instruction.Opcode == 0 || instruction.Opcode == 23 && primary is null
-                ? new TacticInstructionTargetsSource([], true, state.RandomState)
-                : ResolveInstructionTargetsAtCapturedHexes(state, caster, primary ?? caster, _catalog.Rows[tacticId],
-                    instruction, caster.HexId, (primary ?? caster).HexId);
-            if (selected is null || !selected.NoSelectedBaseTargets) return null;
-            //16BF20's primary-centered branch clears the whole vector if the
-            //explicit primary was filtered out; nearby targets cannot replace it.
-            if (instruction.Opcode == 23 && primary is not null && !selected.OrderedArmyIds.Contains(primary.Id))
-                selected = selected with { OrderedArmyIds = [] };
-            instructions[instruction.Index] = selected;
-        }
-        return instructions;
+        //Compatibility for the old Army-only effect-query API. The actual
+        //manual executor consumes the generic captured plan instead.
+        if (ArmyMarchSourceAdapter.ReadCurrentHex(state, caster) is not ushort sourceHex) return null;
+        var vectors = CaptureManualInstructionHexVectorsCurrent(state, caster, tacticId, program, sourceHex, primary?.HexId);
+        if (vectors is null || vectors.Any(vector => vector.OrderedTargets.Any(node => node.Entity.NativeKind is 5 or 6))) return null;
+        return vectors.Select(vector => new TacticInstructionTargetsSource(vector.OrderedTargets
+            .Where(node => node.Entity.NativeKind == 27).Select(node => node.Entity.GameplayArmyId!.Value).ToArray(),
+            true, state.RandomState)).ToArray();
     }
 
     internal bool HasManualEmptyChain(GameState state, UnitState caster, int tacticId)
@@ -176,5 +176,5 @@ public sealed partial class TacticRemakeCurrentContext
 
     private static bool ManualProgram(S14TacticEffectProgram program) => program.Instructions.Count == 2 &&
         program.Instructions.Select(instruction => instruction.Index).SequenceEqual([0, 1]) &&
-        program.Instructions.All(instruction => instruction.Opcode is 0 or 15 or 19 or 20 or 23);
+        program.Instructions.All(instruction => instruction.Opcode <= 23);
 }

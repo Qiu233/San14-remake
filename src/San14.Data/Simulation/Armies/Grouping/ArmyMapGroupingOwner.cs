@@ -60,6 +60,8 @@ public sealed class ArmyMapGroupingOwner
     private ushort?[,] _roots = new ushort?[501, 3];
     /// <summary>Starts a private game operation, preserving unknown and excluded roots.</summary>
     internal ArmyMapGroupingOwner Copy() => new() { _roots = (ushort?[,])_roots.Clone() };
+    // Unassigned/imported knowledge remains null; only the actual reset or grouping writer establishes zero.
+    internal ushort? ReadRoot(int physical, int index) => _roots[physical, index];
     internal ushort?[] Export() => Enumerable.Range(0, 1503).Select(i => _roots[i / 3, i % 3]).ToArray();
     internal void Import(ushort?[] roots)
     {

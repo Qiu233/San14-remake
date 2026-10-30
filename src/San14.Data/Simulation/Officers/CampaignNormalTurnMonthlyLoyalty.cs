@@ -151,9 +151,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             var bank = state.NativeArmySimulation?.Parameters ?? throw Missing("parameter_owner");
             if (bank.Float32Values.ContainsKey(key)) throw Missing("integer_parameter_" + name);
             if (bank.Int32Values.TryGetValue(key, out int value)) return value;
-            //TC file-backed1A4A660..684 and6C0..750. Stable-protection BSS
-            //379C/37A4 has no guessed or observed-value fresh fallback.
-            return package.Seed.Language == "TC" && knownTc.HasValue ? knownTc.Value : throw Missing("current_parameter_" + name);
+            // Both editions' immutable rules have independently qualified
+            // sources. Stable-owner fields are saved/fresh only; old absent
+            // values never acquire a query-time default.
+            return NormalTurnPersonnelLoyaltyParameters.ReadImmutableDefault(package.Seed.Language, name, knownTc)
+                ?? throw Missing("current_parameter_" + name);
         }
         private static int Div(int value, int divisor) => divisor == 0 || value == int.MinValue && divisor == -1 ? throw Missing("division") : value / divisor;
         private static int Remainder(int value, int divisor) => divisor == 0 || value == int.MinValue && divisor == -1 ? throw Missing("remainder") : value % divisor;

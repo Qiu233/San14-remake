@@ -73,6 +73,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var automatic = CompleteBorrowedBaseOriginAutomatic(state, current, origin, pair,
                 sampler, operationDate, effects, operationRevision);
             afterAutomatic = automatic.State; activated = automatic.Activated; word22 = automatic.Word22;
+            if (HasNativeCampaignStop(afterAutomatic)) return new(afterAutomatic);
             if (automatic.Continuation is { } pending)
                 return new(afterAutomatic, damage.Damage.NativeFrameWord20) { BaseAutomaticExecution = pending };
         }
@@ -88,6 +89,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         NativeMapSeasonDate date, long revision, List<CampaignEffectRequest> effects)
     {
         var automatic = ResumeBaseOriginAutomaticExecution(state, current, pair, saved, sampler, date, revision, effects);
+        if (HasNativeCampaignStop(automatic.State)) return new(automatic.State);
         if (automatic.Continuation is { } pending)
             return new(automatic.State, normalWord20) { BaseAutomaticExecution = pending };
         var origin = BaseLookup.Find(saved.CasterBaseLocationId, current);

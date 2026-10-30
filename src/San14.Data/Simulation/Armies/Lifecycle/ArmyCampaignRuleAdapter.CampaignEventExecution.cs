@@ -21,10 +21,21 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal CampaignEventExecutionInputs BindCampaignStoryInputs(GameState state, SourceWorldContext current,
         bool? skipCamera)
     {
+        BindStoryAggregateConditionsCurrent(state, current);
+        BindStoryPresenceConditionsCurrent(state, current);
+        BindStoryCoalitionInputsCurrent(state, current);
+        // Bind this detached Story owner once. Item artwork is already normalized
+        // by the current Item definition producer; do not reinterpret its bank.
+        current.ConditionItemIllustrationReader = item =>
+            item.Kind == RegistryKind.Item && item.PhysicalSlot is int physical &&
+            state.Items?.GetValueOrDefault(physical) is { } owner
+                ? state.ItemDefinitions.GetValueOrDefault(owner.DefinitionId)?.Appearance?.ImageIndex : null;
         _baseCapacityInputs.BindCurrent(state, current);
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
             SimulationRuleIdentity.ForLocale(Seed.Language));
         var cache = new Dictionary<int, OfficerAbilities?>();
+        var narrationExperience = new Lazy<CampaignNarrationExperienceBonus>(() =>
+            ReadCampaignNarrationExperienceBonusCurrent(state, current));
         return new(current, (person, key) =>
         {
             if (current.ReadPersonIdentity(person.PhysicalSlot) is not ushort id ||
@@ -34,7 +45,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                 3 => value?.Politics, 4 => value?.Charm, _ => null };
         }, scenery => current.ReadSceneryHexIndex(scenery), scenery =>
             scenery.PhysicalSlot is int slot && slot is >= 0 and < 101
-                ? current.SceneryDefinitions?.Sceneries[slot].Name : null, skipCamera);
+                ? current.SceneryDefinitions?.Sceneries[slot].Name : null, skipCamera)
+        { AreaListCurrent = current,
+            ReadStoryPersonRelationWord = (person, field) => OwnedPersonRelationInputs.ReadCurrentRelationIdentity(state, person, field),
+            ReadStoryPersonKinship = (first, second) => PersonKinshipCurrent.Read(state, current, first, second),
+            SampleStoryInvocationSourceSelection = bound => ReadStoryInvocationSourceSelectionCurrent(state, current, bound),
+            ReadPersonDoctrineValue = physical => ReadStoryPersonDoctrineByteCurrent(state, current, physical),
+            ReadCurrentPersonAge = person => ReadStoryPersonMessageAgeCurrent(state, current, person),
+            ReadDoctrineMessageName = raw => ReadStoryDoctrineMessageNameCurrent(state, current, raw),
+            ReadMonthMessageName = raw => ReadStoryMonthMessageNameCurrent(raw),
+            ReadReturnToTitlePending = ReadApplicationReturnToTitlePending,
+            ReadForceFriendshipValue = (first, other) => ReadEditedEventFriendship(state, current, new(first), other),
+            ReadNarrationExperienceBonus = () => narrationExperience.Value,
+            ReadCameraBaseHex = receiver => current.ReadBaseCurrentHexIndex(receiver),
+            ReadServiceYear = person => _governorInputs.ReadCurrentPhysicalWord166(state, person.PhysicalSlot) };
     }
 
     /// <summary>Runs the actual complete pool, then the caller's type/status/ID

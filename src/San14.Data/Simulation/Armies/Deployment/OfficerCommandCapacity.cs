@@ -47,16 +47,25 @@ public static class OfficerCommandCapacity
             bool specialPerson = (unchecked((uint)(personId - 4111)) <= 9 || unchecked((uint)(personId - 4131)) <= 9 ||
                 unchecked((uint)(personId - 4151)) <= 9 || unchecked((uint)(personId - 4171)) <= 9 ||
                 unchecked((uint)(personId - 4191)) <= 9) && firstLocation is >= 1 and <= 61 && forcePhysical is not (>= 46 and <= 50);
-            if (specialForce || specialPerson) throw Unknown("special_capacity_parameter");
-            var traits = TacticRemakeCurrentTraits.CommanderCapacityTraits(current, personPhysical)
-                ?? throw Unknown("current_personalities");
-            if (state.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(SimulationParameterKeys.Tactics.HealingCapacityCoefficient, out int coefficient) != true)
-                throw Unknown("personality_coefficient");
-            capacity = unchecked(Math.Min(unchecked(capacity + traits.Group256To355 * coefficient), 20000) + traits.OtherGroup * coefficient);
-            if (status != 1)
+            if (specialForce || specialPerson)
             {
-                var bonus = ResolveCreditBonus(state, current, personPhysical);
-                capacity = unchecked(capacity + (bonus.Bonus ?? throw new InvalidDataException(bonus.UnresolvedInput)));
+                var parameters = state.NativeArmySimulation?.Parameters;
+                if (parameters is null || parameters.Float32Values.ContainsKey(SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity) ||
+                    !parameters.Int32Values.TryGetValue(SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity, out capacity))
+                    throw Unknown("special_capacity_parameter");
+            }
+            else
+            {
+                var traits = TacticRemakeCurrentTraits.CommanderCapacityTraits(current, personPhysical)
+                    ?? throw Unknown("current_personalities");
+                if (state.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(SimulationParameterKeys.Tactics.HealingCapacityCoefficient, out int coefficient) != true)
+                    throw Unknown("personality_coefficient");
+                capacity = unchecked(Math.Min(unchecked(capacity + traits.Group256To355 * coefficient), 20000) + traits.OtherGroup * coefficient);
+                if (status != 1)
+                {
+                    var bonus = ResolveCreditBonus(state, current, personPhysical);
+                    capacity = unchecked(capacity + (bonus.Bonus ?? throw new InvalidDataException(bonus.UnresolvedInput)));
+                }
             }
             if (Need(current.ReadForceNativeValidity(forceReference), "force_validity"))
             {
@@ -81,7 +90,7 @@ public static class OfficerCommandCapacity
     //Only the actual selector kind1/kind3 consumers share this wrapper. Kind2
     //retains its existing appointment owner and ruler-specific result.
     internal static OfficerCommandBonusResult ResolveCreditKindBonus(GameState state, SourceWorldContext current,
-        int personPhysical, int kind)
+        int personPhysical, int kind, bool? userSelectionServicePresent = null)
     {
         if (kind is not (1 or 3)) throw new ArgumentOutOfRangeException(nameof(kind));
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(current);
@@ -101,18 +110,26 @@ public static class OfficerCommandCapacity
             // All wrapper early exits also return zero. These saved branches
             // prove the result without inventing an unused app-state owner.
             if ((flags & 0x4000) != 0 || person.MeritState?.RankStageId == 0 || OfficerMeritRules.HasNoSelections(person.MeritState)) return new(0, null);
-            return new(ReadCreditSelectionBonus(state, person, kind), null);
+            return new(ReadCreditSelectionBonus(state, person, kind, userSelectionServicePresent), null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }
 
-    internal static int ReadCreditSelectionBonus(GameState state, OfficerState person, int kind)
+    internal static int ReadCreditSelectionBonus(GameState state, OfficerState person, int kind,
+        bool? userSelectionServicePresent = null)
     {
         //2AA170's current-user check cannot suppress this call when BC=-1,
         //regardless of the external manager pointer. A different current user
         //or the custom-person-selection mode needs its actual app-state owner.
-        if (state.CampaignEventWorld?.CurrentUserIndex != -1) throw Unknown("credit_current_user_gate");
-        if (state.CampaignEventWorld.ScenarioMode == 3) throw Unknown("credit_person_selection_mode");
+        if (userSelectionServicePresent is true)
+        {
+            if (state.CampaignEventWorld?.CurrentUserIndex is not sbyte selection) throw Unknown("credit_current_user_gate");
+            if (selection != -1) return 0;
+        }
+        else if (userSelectionServicePresent is null && state.CampaignEventWorld?.CurrentUserIndex != -1)
+            throw Unknown("credit_current_user_gate");
+        if (state.CampaignEventWorld?.ScenarioMode is not int mode) throw Unknown("credit_scenario_mode");
+        if (mode == 3) throw Unknown("credit_person_selection_mode");
         byte stage = Need(OfficerMeritSourceAdapter.EncodeStage(person.MeritState), "credit_stage");
         if (stage == 0) return 0;
         int first = Need(OfficerMeritSourceAdapter.EncodeFirstSelectionCount(person.MeritState), "credit_first_count");

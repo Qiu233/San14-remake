@@ -16,6 +16,31 @@ public static class DuelAftermathPrimitiveParameters
         ("readiness-strength-divisor", 3)
     ];
 
+    //SC2B9DA0 reward and2E7650 readiness scalar operands are paired
+    //independently with the actual SC data image, even where values match TC.
+    private static readonly (string Name, int Value)[] FreshSc =
+    [
+        ("winner-strength-growth", 10000),
+        ("loser-strength-growth", 2500),
+        ("draw-strength-growth", 5000),
+        ("winner-pending-merit", 120),
+        ("draw-pending-merit", 60),
+        ("readiness-health-cap:0", 100),
+        ("readiness-health-cap:1", 80),
+        ("readiness-health-cap:2", 50),
+        ("readiness-health-cap:3", 30),
+        ("readiness-strength-divisor", 3),
+    ];
+
+    //The SC complete zero-owner audit covers these exact independent fields,
+    //including all possible covering RIP instruction starts and pointer escapes.
+    private static readonly IReadOnlyDictionary<string, int> ScRewardLoaderDefaults =
+        new Dictionary<string, int>
+        {
+            ["winner-difference-growth-cap"] = 0,
+            ["winner-difference-growth-multiplier"] = 0,
+        };
+
     //These two TC scalars have loader-zero initialization, not sampled
     //campaign defaults. The complete cached scalar-block audit contains only
     //reads and no address escape, with no parameter-load or save writer in
@@ -39,11 +64,10 @@ public static class DuelAftermathPrimitiveParameters
                 .Any(key => key.StartsWith(Prefix, StringComparison.Ordinal)))
             throw Missing("fresh_owner");
         var values = new Dictionary<string, int>(simulation.Parameters.Int32Values) { [Prefix + "version"] = 1 };
-        if (simulation.Parameters.Language == "TC")
-        {
-            foreach (var row in FreshTc) values.Add(Prefix + row.Name, row.Value);
-            foreach (var (name, value) in TcRewardLoaderDefaults) values.Add(Prefix + name, value);
-        }
+        var fresh = simulation.Parameters.Language == "SC" ? FreshSc : FreshTc;
+        var loaderDefaults = simulation.Parameters.Language == "SC" ? ScRewardLoaderDefaults : TcRewardLoaderDefaults;
+        foreach (var row in fresh) values.Add(Prefix + row.Name, row.Value);
+        foreach (var (name, value) in loaderDefaults) values.Add(Prefix + name, value);
         return state with { NativeArmySimulation = simulation with
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
@@ -54,10 +78,12 @@ public static class DuelAftermathPrimitiveParameters
         if (state.NativeArmySimulation?.Parameters is not { Language: "TC" or "SC" } bank ||
             bank.Float32Values.ContainsKey(key)) throw Missing("parameter_" + key);
         if (bank.Int32Values.TryGetValue(key, out int value)) return value;
-        //Only these immutable TC rules cover an absent key in an older save.
-        //Loading does not reinstall the fresh family or change the saved bank.
-        if (bank.Language == "TC" && bank.RuleVersion == SimulationRuleIdentity.ForLocale("TC") &&
-            TcRewardLoaderDefaults.TryGetValue(name, out value)) return value;
+        //Only the independently proved locale-specific loader-zero rules
+        //cover absent keys in older saves. Loading never reinstalls the fresh
+        //nonzero family or changes the saved bank.
+        var loaderDefaults = bank.Language == "SC" ? ScRewardLoaderDefaults : TcRewardLoaderDefaults;
+        if (bank.RuleVersion == SimulationRuleIdentity.ForLocale(bank.Language) &&
+            loaderDefaults.TryGetValue(name, out value)) return value;
         throw Missing("parameter_" + key);
     }
 

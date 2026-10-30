@@ -7,7 +7,8 @@ namespace San14.Data;
 internal sealed record ItemProjection(Dictionary<int, ItemDefinition> Definitions,
     Dictionary<int, ItemState> Items, string[] Issues)
 {
-    public static ItemProjection Create(ScenarioCityPreview source, uint marker)
+    public static ItemProjection Create(ScenarioCityPreview source, uint marker,
+        IReadOnlyDictionary<int, ItemAppearance>? appearances = null)
     {
         int count = marker switch
         {
@@ -49,7 +50,12 @@ internal sealed record ItemProjection(Dictionary<int, ItemDefinition> Definition
                 new OfficerAbilities(kind == 1 ? value : 0, kind == 2 ? value : 0,
                     kind == 3 ? value : 0, kind == 4 ? value : 0, kind == 5 ? value : 0))
             {
-                LoyaltyValue = marker == 0x66 ? S14PersonnelSourceReader.ReadItemLoyaltyValue(definition, marker) : null
+                LoyaltyValue = marker == 0x66 ? S14PersonnelSourceReader.ReadItemLoyaltyValue(definition, marker) : null,
+                Appearance = appearances?.GetValueOrDefault(slot),
+                //The header's349900 getter reads Item+1E independently from
+                //the displayed+10 name. Base's fixed22B record has no such
+                //field; never infer a key from its name or later installation.
+                NameSortKey = embedded ? definition.SecondaryText : null
             });
             ItemHolder? holder = item.OwnerId == 0 ? new(null) :
                 item.OwnerId <= 6000 && officers.Contains(item.OwnerId) ? new(item.OwnerId) : null;

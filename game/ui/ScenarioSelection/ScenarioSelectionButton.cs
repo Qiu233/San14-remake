@@ -3,7 +3,7 @@ using San14.Data;
 
 // Content is resolved by the page owner from the selected scenario record.
 internal sealed record ScenarioSelectionButtonContent(string Year, string Month, string Title,
-    LoadedSprite? EditionBadge, bool ScenarioTypeFlag, bool CompletedMarkVisible);
+    LoadedSprite? EditionBadge, bool ScenarioTypeFlag, bool? CompletedMarkVisible);
 
 /// <summary>The original scenario row, borrowing its page's artwork/font.
 /// Preview focus and release activation are separate owner requests. The
@@ -13,7 +13,7 @@ internal partial class ScenarioSelectionButton : UiSourceButton
     private Action? previewChanged, activated;
     private UiAssets assets = null!;
     private Shader shader = null!;
-    private UiSourceText year = null!, month = null!, title = null!;
+    private UiSourceText year = null!, month = null!, title = null!, unknownCompletion = null!;
     private Control editionBadge = null!, firstScenarioMarker = null!, secondScenarioMarker = null!, completedMark = null!;
     private UiSourceSprite? editionImage;
 
@@ -43,10 +43,12 @@ internal partial class ScenarioSelectionButton : UiSourceButton
         year = source.Text(this, 16, default, content?.Year ?? "", font); year.Name = "ScenarioYear";
         month = source.Text(this, 17, default, content?.Month ?? "", font); month.Name = "ScenarioMonth";
         title = source.Text(this, 18, default, content?.Title ?? "", font); title.Name = "ScenarioTitle";
+        unknownCompletion = source.Text(this, 18, default, "?", font, rectangle: source.Rectangle(22));
+        unknownCompletion.Name = "ScenarioCompletionUnknown";
         var tutorialCaption = source.Text(this, 23, default, "", font);
         tutorialCaption.Name = "UnusedTutorialCaption";
-        UiSourceText[] captions = [year, month, title, tutorialCaption];
-        int[] captionNodes = [16, 17, 18, 23];
+        UiSourceText[] captions = [year, month, title, tutorialCaption, unknownCompletion];
+        int[] captionNodes = [16, 17, 18, 23, 18];
         var profiles = captionNodes.Select(node => MapFontProfile.FromNode(source.Nodes[node], source.Source.Source.ResourceUri)).ToArray();
         var presets = MapTextPresets.Create();
         ConfigureStates(states, state =>
@@ -85,14 +87,14 @@ internal partial class ScenarioSelectionButton : UiSourceButton
         }
     }
 
-    internal void ApplyContent(ScenarioSelectionButtonContent? content)
+    internal void ApplyContent(ScenarioSelectionButtonContent? content, bool? enabled = true)
     {
         // A missing row hides the persistent control; it is not a blank option.
         if (content is null) { Hide(); return; }
         Show();
         year.Text = content.Year;
         month.Text = content.Month;
-        title.Text = content.Title;
+        title.Text = enabled is null ? content.Title + " ?" : content.Title;
         if (content.EditionBadge is { } badge)
         {
             var texture = assets.SrgbSprite(badge.Definition.Name, badge);
@@ -108,7 +110,10 @@ internal partial class ScenarioSelectionButton : UiSourceButton
         editionBadge.Visible = content.EditionBadge is not null;
         firstScenarioMarker.Visible = content.ScenarioTypeFlag;
         secondScenarioMarker.Visible = !content.ScenarioTypeFlag;
-        completedMark.Visible = content.CompletedMarkVisible;
+        completedMark.Visible = content.CompletedMarkVisible == true;
+        unknownCompletion.Visible = content.CompletedMarkVisible is null;
+        SetMeta("completion_known", content.CompletedMarkVisible.HasValue);
+        SetMeta("availability_known", enabled.HasValue);
     }
 
     public override void _ExitTree() { previewChanged = null; activated = null; InputAdmission = null; }

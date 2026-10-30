@@ -9,7 +9,12 @@ public sealed record D3D11GateCurrentBinding(D3D11GateDefinition Definition,byte
 public sealed record D3D11CityGatePrimary(int Index,string Identity,int PhysicalSlot,int NativeSlot,int Category,
     MapStaticModelInstance Instance,MapModelNativeFreshVisibilityPrefix Prefix,
     MapModelNativeOrientedBounds Bounds,DeferredEarlyShadowCurrentWorldCallerFields Caller,float Opacity,
-    CityVisualSelection? CitySelection,D3D11GateCurrentBinding? Gate);
+    CityVisualSelection? CitySelection,D3D11GateCurrentBinding? Gate)
+{
+    // Original Foothold4E indexes the created Unit owner independently of the
+    // domain City/Gate ID. Keep that actual source link beside its transform.
+    public int ObjectLink4E { get; init; }
+}
 public sealed record D3D11CityGatePrimaryFrame(IReadOnlyList<D3D11CityGatePrimary> Owners,
     IReadOnlyList<MapStaticModelInstanceFailure> Unavailable,IReadOnlyList<string> Excluded);
 
@@ -22,6 +27,7 @@ public sealed class D3D11CityGatePrimarySource
     readonly MapStaticModelGroundHeightSource ground;
     readonly CityVisualAssetCatalog cities;
     readonly Dictionary<int,D3D11GateDefinition> gates=[];
+    readonly Dictionary<int,int> cityObjectLinks;
     readonly Dictionary<string,(int Category,int Hex,MapStaticModelPublication Node)> nodes=[];
     readonly Dictionary<string,(MapModelNativeFreshVisibilityPrefix Prefix,float Opacity,
         DeferredEarlyShadowCurrentWorldCallerFields Caller)> visibility=[];
@@ -34,8 +40,9 @@ public sealed class D3D11CityGatePrimarySource
         LoadedMap map,NewGameOptions options)
     {
         Variants=CeCityVariantTable.LoadCurrent(scenario.Snapshot.Locale);
-        Descriptors=CityOpeningPostLoadSource.LoadSourceCreatedOrdinary(repository,scenario,map,options,Variants)
-            .CreateCurrentDescriptorOwner(Variants);
+        var opening=CityOpeningPostLoadSource.LoadSourceCreatedOrdinary(repository,scenario,map,options,Variants);
+        Descriptors=opening.CreateCurrentDescriptorOwner(Variants);
+        cityObjectLinks=opening.Cities.Values.ToDictionary(row=>row.Slot,row=>row.ObjectSlot);
         Assets=new(repository,scene);cities=new(repository,scene,Variants);
         geometry.MaterializeOriginXImageSeed();geometry.InitializeOriginZ();
         ground=MapStaticModelGroundHeightSource.PrepareCurrentField(repository,scene,
@@ -86,7 +93,8 @@ public sealed class D3D11CityGatePrimarySource
                 visibility.Add(key,held=(prefix,MapModelNativeCurrentVisibilitySources.ConstructFresh(prefix,instance.CurrentSourceIdentity!).ReadSlot(0),caller));
             }
             current.Add(new(slot-1,instance.InstanceKey+"/primary",slot,city?slot:gate!.Definition.NativeSlot,category,instance,held.Prefix,
-                MapModelNativeBoundsSources.FromSourceWorld(instance,held.Prefix.BoundsPublication),held.Caller,held.Opacity,instance.CitySelection,gate));
+                MapModelNativeBoundsSources.FromSourceWorld(instance,held.Prefix.BoundsPublication),held.Caller,held.Opacity,instance.CitySelection,gate)
+                {ObjectLink4E=city?cityObjectLinks[slot]:gate!.Definition.ObjectSlot});
             var retained=MapStaticModelPublication.CurrentUnparented(instance.CurrentSourceIdentity!,instance.SourceWorldState!,instance.NativePublication!.SourceDefaultLocalPoseIsCurrent)
                 with{CurrentPrimitiveLocalRows=instance.NativePublication.CurrentPrimitiveLocalRows};
             nodes[instance.InstanceKey]=(category,instance.CitySelection?.HexId??gate!.Definition.HexId,retained);

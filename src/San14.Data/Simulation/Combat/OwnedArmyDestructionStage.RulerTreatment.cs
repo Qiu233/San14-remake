@@ -7,7 +7,8 @@ public sealed partial class OwnedArmyDestructionStage
     private ArmyDefeatContinuation CreateDefeatCheckpoint(GameState state, SourceWorldContext current,
         UnitDefeatRequest request, int physical, int commanderId, ForceReference force,
         ArmyDestructionResourceOwners captured, int hex, ArmyUnitReference winner, int? winnerCommander,
-        BaseReference? winnerBase, TacticSourceSamplerWorld? sampler, ArmyDefeatResumePoint point, int immunity)
+        BaseReference? winnerBase, TacticSourceSamplerWorld? sampler, ArmyDefeatResumePoint point, int immunity,
+        bool specialCommanderReclaim, bool? reclaimDefeatedCommander)
     {
         var arena = state.ReadArmyLifecycle() ?? throw Missing("checkpoint_lifecycle");
         SettlementBase? location = winnerBase is null ? null : new(
@@ -15,10 +16,28 @@ public sealed partial class OwnedArmyDestructionStage
             Known(current.ReadBaseObjectLink(winnerBase), "checkpoint_winner_Base4E"));
         return new(-1, request, physical, arena.Slots[physical].ReceiverId,
             Known(force.PhysicalSlot, "checkpoint_victim_Force"), commanderId,
-            Known(captured.VictimHome.PhysicalSlot, "checkpoint_Home_City"), hex, winner.PhysicalSlot,
+            ReadDefeatReportCity(current, captured.VictimHome), hex, winner.PhysicalSlot,
             winnerCommander, location, captured.WinnerForce.PhysicalSlot, sampler?.Day450, sampler?.Salt45C,
-            point, immunity);
+            point, immunity)
+        { VictimHome = CaptureDefeatHome(current, captured.VictimHome),
+          SpecialCommanderReclaim = specialCommanderReclaim,
+          ReclaimDefeatedCommander = point == ArmyDefeatResumePoint.AfterPersonDeath ? null : reclaimDefeatedCommander };
     }
+
+    private static SettlementBase? CaptureDefeatHome(SourceWorldContext current, BaseReference home)
+        => home.PhysicalSlot is > 0 ? new(
+            home.Kind == BaseKind.Gate ? SettlementBaseKind.Gate : SettlementBaseKind.City,
+            Known(current.ReadBaseObjectLink(home), "checkpoint_Home_Base4E")) : null;
+
+    private static BaseReference ResolveDefeatHome(GameState state, SourceWorldContext current,
+        ArmyDefeatContinuation checkpoint) => checkpoint.VictimHome is { } home
+            ? ArmyDestructionQueue.ResolveBaseReference(state, current, home)
+            : new(BaseKind.City, null);
+
+    private static int ReadDefeatReportCity(SourceWorldContext current, BaseReference home)
+        => home.PhysicalSlot is not > 0 ? 0 :
+            Known((home.Kind == BaseKind.City ? home : CurrentGateMapQueries.FindCity(home, current)).PhysicalSlot,
+                "checkpoint_report_City");
 
     private (GameState State, OwnedArmyDestructionReceipt? Receipt) ResumeRulerTreatmentTail(
         GameState state, SourceWorldContext current, WorldIndexContext pool, ArmyDefeatContinuation checkpoint,

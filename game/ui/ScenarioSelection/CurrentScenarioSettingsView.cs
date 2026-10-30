@@ -43,9 +43,7 @@ internal partial class CurrentScenarioSettingsView : Control
         var tabLayout = new UiSourceLayout(repository, 0x5C9D1E9E);
         Vector2 tabMount = layout.Rectangle(12).Position;
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
-        var rowPositions = layout.Nodes.Where(node => node.ParentIndex == 2 && node.Type == 0 &&
-                node.Name.StartsWith("02_03_02_setup_offset_04", StringComparison.Ordinal))
-            .Select(node => layout.Rectangle(node.Index).Position).OrderBy(point => point.Y).ToArray();
+
 
         for (int group = 0; group < 5; group++)
         {
@@ -69,7 +67,7 @@ internal partial class CurrentScenarioSettingsView : Control
             chrome.Canvas.AddChild(tab);
             tab.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,
                 messages.Records[0x881 + group].Text ??
-                throw new InvalidDataException("Missing current scenario settings tab caption."));
+                throw new InvalidDataException("Missing current scenario settings tab caption."), ScenarioSettingsSourceLayout.TabLayout(group));
             Action handler = () => { if (ReadAdmission()) SelectGroup(index); };
             tab.Pressed += handler;
             tabs.Add((tab, handler));
@@ -80,29 +78,24 @@ internal partial class CurrentScenarioSettingsView : Control
             var row = new Control
             {
                 Name = $"ScenarioSetting{setting.Group}_{setting.Row}",
-                Position = rowPositions[setting.Row],
+                Position = ScenarioSettingsSourceLayout.Row(layout, setting.Row).Position,
                 Size = new(1128, 64),
                 MouseFilter = MouseFilterEnum.Ignore
             };
             groups[setting.Group].AddChild(row);
-            var rowSource = new UiSourceLayout(repository,
-                setting.Choices.Count > 4 ? 0x7F1F1D88u : 0x28012CA9u);
+            var rowSource = ScenarioSettingsSourceLayout.RadioRow(repository, setting.Choices.Count);
             rowSource.Art(row, 2, rowSource.Rectangle(2), chrome.Assets, chrome.SpriteShader);
             rowSource.Text(row, 3, default, setting.Title ?? text.Get("detail_unknown"), chrome.Font);
-            var slots = rowSource.Nodes.Where(node => node.ParentIndex == 0 && node.Type == 0 &&
-                    node.Name.StartsWith("cmn_btn_radio_", StringComparison.Ordinal))
-                .Select(node => rowSource.Rectangle(node.Index)).OrderBy(box => box.Position.X).ToArray();
-            float start = slots[0].Position.X, end = slots[^1].End.X;
-            float width = (end - start) / setting.Choices.Count;
             for (int index = 0; index < setting.Choices.Count; index++)
             {
                 var choice = setting.Choices[index];
+                Rect2 radioBox = ScenarioSettingsSourceLayout.Radio(rowSource, index, setting.Choices.Count);
                 bool selected = setting.SelectedRadioIndex == choice.RadioIndex;
                 var radio = new UiSourceRadioButton
                 {
                     Name = $"ScenarioSetting{setting.Group}_{setting.Row}_{choice.RadioIndex}",
-                    Position = new(start + width * index, slots[0].Position.Y),
-                    Size = new(width, slots[0].Size.Y),
+                    Position = radioBox.Position,
+                    Size = radioBox.Size,
                     MouseFilter = MouseFilterEnum.Ignore,
                     InputAdmission = static () => false,
                     Selected = selected,
@@ -127,36 +120,10 @@ internal partial class CurrentScenarioSettingsView : Control
     private void ConfigureHelp(UiSourceLayout source, Vector2 mount, string message)
     {
         Rect2 box = source.Rectangle(2, mount);
-        var help = new Control
-        {
-            Name = "ScenarioSettingsHelp", Position = box.Position,
-            Size = box.Size, MouseFilter = MouseFilterEnum.Ignore
-        };
+        var help = new UiSourceFixedHelp { Name = "ScenarioSettingsHelp", Position = box.Position, Size = box.Size };
         chrome.Canvas.AddChild(help);
-        var profile = MapFontProfile.FromNode(source.Nodes[2], source.Source.Source.ResourceUri);
-        if (profile.RawFlags != 4 || profile.RawAlign != 1 || profile.RawLineArrange != 1 || profile.WidthFitMode != 0)
-            throw new InvalidDataException("Scenario settings help requires its fixed-height centred source paragraph.");
-        string[] lines = message.Split('\n');
-        var lineProfile = profile with { RawAlign = 0, VerticalSpace = 0 };
-        chrome.Font.Prepare(lines, lineProfile);
-        if (lines.Any(line => chrome.Font.Measure(line, lineProfile).Width > help.Size.X))
-            throw new InvalidDataException("Scenario settings help requires its source wrapping branch.");
-        // Share EnvironmentSettingsView's actual source paragraph baseline:
-        // truncate nominal line height plus spacing, then centre the LF rows.
-        int advance = (int)(chrome.Font.Source.Record('\u3042', profile.Face).Height *
-            profile.ScaleY + profile.VerticalSpace);
-        int top = (int)((help.Size.Y - (lines.Length * advance - profile.VerticalSpace)) * .5f);
-        for (int index = 0; index < lines.Length; index++)
-        {
-            var line = new UiSourceText
-            {
-                Name = "HelpLine" + index, Position = new(0, top + index * advance),
-                Size = new(help.Size.X, advance - profile.VerticalSpace)
-            };
-            help.AddChild(line);
-            line.Configure(chrome.Font, lineProfile);
-            line.Text = lines[index];
-        }
+        help.Configure(chrome.Font, MapFontProfile.FromNode(source.Nodes[2], source.Source.Source.ResourceUri));
+        help.Apply(message);
     }
 
     private void SelectGroup(int group)

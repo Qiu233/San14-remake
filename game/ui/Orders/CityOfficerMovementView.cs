@@ -15,24 +15,24 @@ internal partial class CityOfficerMovementView : Control
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private Func<bool>? admitted;
-    private Action? returned, accepted, choosePersons;
-    private Action<int>? destinationSelected;
-    private CityOfficerMovementCitySelectionView? citySelection;
+    private Action? returned, accepted, choosePersons, chooseDestination;
     private CityOfficerMovementPage? page;
     private AreaAdministrationOfficerValues card = new(null, null, null, null, null);
     private bool abandoned, busy;
     private string unknown = "", countFormat = "", defaultHint = "";
     internal CityOfficerMovementPage? Publication => page;
+    internal AdministrationPageChrome.Resources SharedResources => new(chrome.Assets, chrome.Font, chrome.SpriteShader);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, OfficerMoveMode mode,
-        Func<bool> admitted, Action returned, Action accepted, Action choosePersons, Action<int> destinationSelected)
+        Func<bool> admitted, Action returned, Action accepted, Action choosePersons, Action chooseDestination)
     {
         this.repository = repository; this.text = text; this.admitted = admitted;
         this.returned = returned; this.accepted = accepted; this.choosePersons = choosePersons;
-        this.destinationSelected = destinationSelected;
+        this.chooseDestination = chooseDestination;
         Name = "CityOfficerMovement"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         bool summon = mode == OfficerMoveMode.Summon;
+        var backdrop=new UiSourceCommonBlur();AddChild(backdrop);backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, summon ? 0x0271 : 0x0270, RequestBack,
             () => { if (ReadAdmission() && page?.CanConfirm == true) this.accepted?.Invoke(); });
@@ -89,16 +89,16 @@ internal partial class CityOfficerMovementView : Control
     {
         if (abandoned) return;
         page = publication; city.Text = publication.CityName;
-        people.Text = publication.SelectedOfficerIds.Count == 0 ? "" : countFormat.Replace("%d",
+        people.Text = countFormat.Replace("%d",
             publication.SelectedOfficerIds.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
         books.Text = Number(publication.AvailableBooks);
         afterBooks.Text = publication.AvailableBooks is int available && publication.RequiredBooks is int cost ? Number(available-cost) : unknown;
         if (publication.RequiredBooks is int debit)
             bookDelta.SetRuns(new("("), new("-"+Number(debit), MapTextPresets.Create()[40].LT.CpuPacked), new(")"));
         else bookDelta.Text = unknown;
-        if (journey is not null) journey.Text = Number(publication.TravelDays);
+        if (journey is not null) journey.Text = publication.DestinationCityId is null?"":Number(publication.TravelDays);
         if (dayUnit is not null) dayUnit.Visible = publication.DestinationCityId is not null;
-        if (destination is not null) destination.Caption = publication.Destinations.FirstOrDefault(v => v.CityId == publication.DestinationCityId)?.Name ?? unknown;
+        if (destination is not null) destination.Caption = publication.DestinationCityId is null?"":publication.Destinations.FirstOrDefault(v => v.CityId == publication.DestinationCityId)?.Name ?? unknown;
         chrome.ApplyDefaultHint(hint ?? (publication.UnresolvedInput is null ? defaultHint : unknown));
         RefreshAdmission();
     }
@@ -106,43 +106,27 @@ internal partial class CityOfficerMovementView : Control
     { if (!abandoned) { card = values; RefreshAdmission(); } }
 
     private void OpenCities()
-    {
-        if (!ReadAdmission() || page is not { Mode: OfficerMoveMode.Dispatch } publication) return;
-        var selector = new CityOfficerMovementCitySelectionView(); citySelection = selector; AddChild(selector);
-        try
-        {
-            selector.Configure(repository, text, publication.Destinations, publication.DestinationCityId,
-                () => !abandoned && !busy && citySelection == selector && (admitted?.Invoke() ?? false), result =>
-                {
-                    if (abandoned || citySelection != selector) return;
-                    citySelection = null; selector.Abandon(); selector.QueueFree(); RefreshAdmission();
-                    if (result is int id && ReadAdmission()) destinationSelected?.Invoke(id);
-                });
-            RefreshAdmission();
-        }
-        catch { citySelection = null; selector.Abandon(); selector.QueueFree(); RefreshAdmission(); throw; }
-    }
-    private bool ReadAdmission() => !abandoned && !busy && citySelection is null && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
+    { if (ReadAdmission() && page is { Mode: OfficerMoveMode.Dispatch }) chooseDestination?.Invoke(); }
+    private bool ReadAdmission() => !abandoned && !busy && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     private string Number(int? value) => value?.ToString(CultureInfo.InvariantCulture) ?? unknown;
     private void RefreshAdmission()
     {
-        bool enabled = !busy && citySelection is null;
+        bool enabled = !busy;
         string? name = page is { SelectedOfficerIds.Count: > 0 } value
-            ? value.Candidates.FirstOrDefault(p => p.OfficerId == value.SelectedOfficerIds[0])?.Name : null;
+            ? value.Candidates.FirstOrDefault(p => p.OfficerId == value.SelectedOfficerIds[0])?.Name : string.Empty;
         officer?.Apply(card with { Name = name }, enabled && page is { Candidates.Count: > 0, MaximumOfficers: > 0 });
         if (destination is not null) destination.Disabled = !enabled || page is not { Destinations.Count: > 0 };
-        chrome?.ApplyReturn(enabled); chrome?.ApplyDecision(enabled && page?.CanConfirm == true, true); citySelection?.SetBusy(busy);
+        chrome?.ApplyReturn(enabled); chrome?.ApplyDecision(enabled && page?.CanConfirm == true, true);
     }
     internal void SetBusy(bool value) { if (!abandoned) { busy = value; RefreshAdmission(); } }
     internal void ApplyNotice(string message) { if (!abandoned) chrome.ApplyDefaultHint(message); }
     internal void RequestBack()
-    { if (citySelection is { } selector) selector.RequestCancel(); else if (ReadAdmission()) returned?.Invoke(); }
+    { if (ReadAdmission()) returned?.Invoke(); }
     public override void _Process(double delta) { if (!abandoned && chrome is not null) chrome.ApplyHoverHint(null); }
     internal void Abandon()
     {
         if (abandoned) return;
-        abandoned = true; admitted = null; returned = accepted = choosePersons = null; destinationSelected = null; page = null;
-        var selector = citySelection; citySelection = null; selector?.Abandon(); selector?.QueueFree();
+        abandoned = true; admitted = null; returned = accepted = choosePersons = chooseDestination = null; page = null;
         destination?.Abandon(); officer?.Abandon(); chrome?.Abandon(); SetProcess(false); Hide();
     }
 }

@@ -45,23 +45,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (MaintenanceKnown(image.NativeMapUiByte13C, "completion_MapUi13C") != 0)
             return CompleteCampaignExpeditionArmyCommand(working, current, image, operation);
 
-        //22C990 returns the current Force-table receiver, including its actual
-        //physical0 fallback. There is no extra Force native-validity gate.
-        int force = MaintenanceKnown(current.ReadForcePhysicalSlot(current.ReadArmyUnitForceReference(new(physical))), "completion_Force");
-        if (force is < 1 or > 45) throw MaintenanceMissing("completion_special_Force");
-        bool transport = image.NativeTacticRuntime?.Status10 == 2;
-        byte choice = MaintenanceKnown(transport ? TransportRouteSourceAdapter.ReadChoice(working, image)
-            : image.NativeCommandChoice41, "completion_Choice41");
-        if (choice == 0) return working;
-        if (choice == 1) return transport ? FinishTransportReturnCommand(working, current, image, operation)
-            : ApplyAutomaticArmyWithdrawal(working, current, image, operation, reportReason: false);
-        if (choice != 2) throw MaintenanceMissing("completion_non_stay_Choice41");
-        if (transport) return HoldTransportPositionAfterCommand(working, current, image, operation);
-        return HoldArmyPositionAfterCommand(working, current, image, operation);
+        return CompleteArmyCommandPolicyCurrent(working, current, working.Units[image.Id], operation);
     }
 
-    /// <summary>304A20 at the proved native-valid, control0 entry. It overwrites
-    ///the five intermediate points but preserves credit, override and route cache.</summary>
+    /// <summary>304A20 clears the actual valid receiver's five points even
+    ///while a saved command prevents its action/main target from changing.</summary>
     private GameState HoldArmyPositionAfterCommand(GameState state, SourceWorldContext current,
         UnitState image, NativeArmyProgressStageMoment moment)
         => HoldArmyPositionAfterCommand(state, current, image, (FacilityOperation)moment);
@@ -69,19 +57,24 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState HoldArmyPositionAfterCommand(GameState state, SourceWorldContext current,
         UnitState image, FacilityOperation operation)
     {
-        if (MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(state, image), "holding_control140") != 0)
-            throw MaintenanceMissing("holding_saved_command");
+        bool nativeValid = MaintenanceKnown(current.ReadArmyUnitNativeValidity(new(image.NativeArmyOrigin!.NativeSlotIndex)), "holding_Army_validity");
+        bool canReplace = nativeValid &&
+            MaintenanceKnown(ArmySavedCommandKnowledge.ReadControl(state, image), "holding_control140") == 0;
         ushort at = MaintenanceKnown(ArmyMarchSourceAdapter.ReadCurrentHex(state, image), "holding_current2A");
         var march = image.March ?? throw MaintenanceMissing("holding_march");
-        var held = image with { FieldAttackPolicy = ArmyConfigurationSourceAdapter.DecodePolicy(13),
-            March = march with { Target = ArmyMarchDestination.None,
-                FollowingWaypoints = new([]), NextStep = ArmyMarchDestination.None } };
+        var held = image with { FieldAttackPolicy = canReplace ? ArmyConfigurationSourceAdapter.DecodePolicy(13) : image.FieldAttackPolicy,
+            March = march with { Target = nativeValid ? ArmyMarchDestination.None : march.Target,
+                FollowingWaypoints = nativeValid ? new([]) : march.FollowingWaypoints, NextStep = ArmyMarchDestination.None } };
         var receiver = state.ReadArmyLifecycle()!.Receivers.FindUnit(image.Id)
             ?? throw MaintenanceMissing("holding_target_receiver");
-        var working = OwnedArmyLifecycleTargets.Write(state, receiver.ReceiverId, new(9, at));
-        current.SetArmyLifecycleTargetFields(held.NativeArmyOrigin!.NativeSlotIndex!.Value, new(9, at));
-        working = working with { Units = new(working.Units) { [image.Id] = held },
-            ResourceState = ArmyConfigurationSourceAdapter.WriteAction(working.ResourceState, image.Id, 13) };
+        var working = state;
+        if (canReplace)
+        {
+            working = OwnedArmyLifecycleTargets.Write(working, receiver.ReceiverId, new(9, at));
+            current.SetArmyLifecycleTargetFields(held.NativeArmyOrigin!.NativeSlotIndex!.Value, new(9, at));
+            working = working with { ResourceState = ArmyConfigurationSourceAdapter.WriteAction(working.ResourceState, image.Id, 13) };
+        }
+        working = working with { Units = new(working.Units) { [image.Id] = held } };
 
         //3D does not test150 bit2, player affiliation or a district. Preserve
         //the original short circuit and do not consume an unused speech owner.
@@ -109,7 +102,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             ?? throw MaintenanceMissing("command_speech_personnel_owner") };
         int identity = MaintenanceKnown(current.ReadPersonIdentity(person), "command_speech_Person_identity10");
         var speech = new CombatSpeechRequest(CombatParticipantKind.Army, image.Id, identity,
-            speechEvent, hex, null, null, null, null, null) { BaseArrival = arrival };
+            speechEvent, hex, null, null, null, null, null) { BaseArrival = arrival,
+                CommandOwnedLayout = speechEvent is CombatSpeechEvent.ArmyEnteredBase or CombatSpeechEvent.ArmyDestinationReachedHolding
+                    ? CaptureArmyCommandSpeechLayoutCurrent(working,current,identity) : null };
         return working with { CampaignEffectRequests = (working.CampaignEffectRequests ?? throw MaintenanceMissing("command_speech_effect_owner"))
             .Append(arrival is null ? CampaignEffectSource.ArmyCommandMaintenance : CampaignEffectSource.ArmyMovement,
                 operation.Revision, [new(speech, null)]) };

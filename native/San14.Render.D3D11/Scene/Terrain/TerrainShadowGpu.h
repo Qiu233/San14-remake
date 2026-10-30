@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Runtime/PreparedFileInput.h"
 #include "../../Passes/Shadows/ShadowCameraFrame.h"
 #include "../../Passes/Shadows/ShadowRaster.h"
 
@@ -11,7 +12,7 @@ class TerrainShadowGpu {
     unsigned flags_{},nearMode_{},distantMode_{};
 public:
     void prepare(ID3D11Device* device,const fs::path& input) {
-        std::ifstream policy(input/"policy.txt");
+        NativePreparedInputFile policy(input/"policy.txt");
         policy>>flags_>>nearMode_>>distantMode_;
         if(!policy||nearMode_!=11||distantMode_!=9)
             throw std::runtime_error("Landscape shadow requires its actual normal/distant LSSM role");

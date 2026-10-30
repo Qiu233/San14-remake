@@ -43,6 +43,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         ArgumentNullException.ThrowIfNull(sampler); ArgumentNullException.ThrowIfNull(scale);
         _ = BaseTacticCaster(state, current, context, casterId, source, target, instruction, 15);
+        return ApplyBorrowedBaseTacticMoraleTargetCurrent(state, current, casterId, source, target,
+            instruction, stageOrdinal, scale);
+    }
+
+    private BaseTacticEffectApplicationResult ApplyBorrowedBaseTacticMoraleTargetCurrent(GameState state,
+        SourceWorldContext current, int casterId, TacticSourceRow source, BaseReference target,
+        S14TacticEffectInstruction instruction, int stageOrdinal, TacticEffectScaleSourceInput scale)
+    {
         if (scale.EffectValue != instruction.EffectValue || scale.StageOrdinal != stageOrdinal)
             throw new InvalidDataException("Base morale scale belongs to another instruction or stage.");
         int amount = TacticEffectSourceMath.Scale(scale);
@@ -75,6 +83,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         ArgumentNullException.ThrowIfNull(sampler);
         _ = BaseTacticCaster(state, current, context, casterId, source, target, instruction, 19);
+        return ApplyBorrowedBaseTacticClearTargetCurrent(state, current, casterId, source, target,
+            instruction, stageOrdinal);
+    }
+
+    private BaseTacticEffectApplicationResult ApplyBorrowedBaseTacticClearTargetCurrent(GameState state,
+        SourceWorldContext current, int casterId, TacticSourceRow source, BaseReference target,
+        S14TacticEffectInstruction instruction, int stageOrdinal)
+    {
         bool valid = BaseTacticNeed(current.ReadBaseNativeValidity(target), "clear_Base_validity");
         if (!valid) return new(state, false, null);
         var fields = current.ReadCaptureBaseThreatFields(target)
@@ -106,8 +122,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArgumentNullException.ThrowIfNull(instruction);
         if (instruction.Opcode != expectedOpcode || instruction.Index is < 0 or > 1 || source.Slot is < 0 or > 200)
             throw new InvalidDataException("Base tactic support writer needs the reached actual instruction.");
-        if (!context.IsBoundCurrentState(state) || !state.Units.TryGetValue(casterId, out var caster) ||
-            context.ArmyValid(state, caster) != true) throw BaseTacticMissing("source_Army_current_identity");
+        var caster = RequireLatestAutomaticActorImageCurrent(state, current, casterId);
+        if (!context.IsBoundCurrentState(state) || context.ArmyValid(state, caster) != true)
+            throw BaseTacticMissing("source_Army_current_identity");
         return caster;
     }
 

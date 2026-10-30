@@ -12,7 +12,7 @@ internal partial class UiSourceRadioButton : UiSourceButton
     private Action? released;
     private UiSourceText caption = null!;
     internal string Caption { get => caption.Text; set => caption.Text = value; }
-    public override bool _HasPoint(Vector2 point) => hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, UiSourceRadioSegment segment, string text, Action released)
@@ -51,7 +51,7 @@ internal partial class UiSourceRadioButton : UiSourceButton
             // ranges are opaque. Value52 merely declares animation channels.
             mark.Visible = state == 2;
         });
-        Pressed += () => { if (!Disabled) this.released?.Invoke(); };
+        Pressed += () => { if (!Disabled && SourceInputAdmitted) this.released?.Invoke(); };
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 

@@ -248,6 +248,12 @@ public sealed partial class TacticRemakeCurrentContext : ITacticEffectSourceCont
             unit.NativeTacticRuntime is not { } native || !ArmyConfigurationSourceAdapter.HasConfiguration(unit))
             return null;
         if (origin.NativeSlotIndex is not >= 1 or > 500) return null;
+        if (origin.NativeSlotIndex is int resumePhysical && _automaticActorResumeSlots.Contains(resumePhysical))
+        {
+            var reached = ArmyCampaignRuleAdapter.ReadAutomaticActorResumeCurrent(state, _definitions, resumePhysical);
+            if (!reached.IsActiveProjection && reached.LatestImage == unit)
+                return reached.NativeValid;
+        }
         if (!state.Units.TryGetValue(unit.Id, out UnitState? owned) || owned != unit) return null;
         if (unit.Id <= 0 || unit.OfficerId == 0 || native.Status10 == 0) return false;
         if (!state.Officers.TryGetValue(unit.OfficerId, out OfficerState? commander) ||

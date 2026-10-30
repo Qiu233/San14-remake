@@ -18,14 +18,22 @@ public sealed class ArmyReturnPrimaryDistrictPacket
 public static class ArmyReturnPrimaryDistrictUpdater
 {
     internal static ArmyReturnPrimaryDistrictResolution ApplyCurrent(DistrictReference district,
-        SourceWorldContext context, IArmyReturnGovernorCurrentQueries queries)
+        SourceWorldContext context, IArmyReturnGovernorCurrentQueries queries, bool allowLeaderless = false,
+        bool useCaptureForceRetirement = true)
     {
         ArgumentNullException.ThrowIfNull(district); ArgumentNullException.ThrowIfNull(context); ArgumentNullException.ThrowIfNull(queries);
         try
         {
             int physical = district.PhysicalSlot ?? throw Missing("current.District_pointer");
             if (!Get(context.ReadDistrictNativeValidity(physical), "current.District_validity"))
-                return new(new(district, []), null);
+            {
+                //2E9140 third1 admits234690's initialized District even
+                //when its missing leader makes the native header invalid.
+                if (!allowLeaderless || physical == 0 ||
+                    Get(context.ReadDistrictForceId(physical), "current.leaderless_District_force10") == 0 ||
+                    Get(context.ReadDistrictNumber(physical), "current.leaderless_District_number11") == 0)
+                    return new(new(district, []), null);
+            }
             byte forceSlot = Get(context.ReadDistrictForceId(physical), "current.District_force10");
             byte number = Get(context.ReadDistrictNumber(physical), "current.District_number11");
             ushort leaderId = Get(context.ReadDistrictLeader(physical), "current.District_leader12");
@@ -124,7 +132,9 @@ public static class ArmyReturnPrimaryDistrictUpdater
             {
                 var operation = queries as ArmyReturnDistrictOperationQueries
                     ?? throw Missing("current.Force_unregistration_state_owner");
-                if (operation.ForceRetirementHandler is { } retire)
+                //A collected City-tail District is maintained with the
+                //native null recipient, independently of its enclosing captor.
+                if (useCaptureForceRetirement && operation.ForceRetirementHandler is { } retire)
                 {
                     operation.Publish(retire(forcePhysical));
                     return new(new(district, []), null);

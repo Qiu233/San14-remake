@@ -2,14 +2,27 @@ namespace San14.Data;
 
 /// <summary>Identity of the render-graph scope which owns this population.
 /// Ordinary188 and the two special tail scopes are distinct consumers.</summary>
-public readonly record struct G1EffectGpuDrawScope(uint SourceNode, uint View, uint Timing);
+public readonly record struct G1EffectGpuDrawScope(uint SourceNode, uint View, uint Timing)
+{
+    // Transient renderer ownership, never a World or original-program pointer.
+    // Zero is the ordinary renderer; Story contexts receive a nonzero token.
+    public ulong SourceOwner { get; init; }
+}
 
 public enum G1EffectGpuGlobalTexture : uint
 {
     MainDepthMirror = 1,
     AutoExposure = 2,
     ScatteringFogAcceleration = 3,
-    SceneCapture = 4
+    SceneCapture = 4,
+    CameraIesNull = 5,
+    PatternLighting = 6,
+    ClusterIndices = 7,
+    ClusterPositions = 8,
+    ClusterAttributes = 9,
+    ClusterExAttributes = 10,
+    ClusterSpotAttributes = 11,
+    ClusterSpotExAttributes = 12
 }
 
 /// <summary>A physical shader slot and its actual source. Uploaded textures
@@ -22,8 +35,10 @@ public sealed record G1EffectGpuFrameBinding(uint StageCode, uint Slot,
 {
     public static G1EffectGpuFrameBinding Uploaded(uint stage, uint slot, G1EffectGpuTexture texture) =>
         new(stage, slot, texture, null);
-    public static G1EffectGpuFrameBinding Graph(uint stage, uint slot, G1EffectGpuGlobalTexture global) =>
-        new(stage, slot, null, global);
+    public uint? ExternalOwnerObjectId { get; init; }
+    public static G1EffectGpuFrameBinding Graph(uint stage, uint slot, G1EffectGpuGlobalTexture global,
+        uint? externalOwnerObjectId = null) =>
+        new(stage, slot, null, global) { ExternalOwnerObjectId = externalOwnerObjectId };
     public static G1EffectGpuFrameBinding StandaloneSampler(uint stage, uint slot, G1EffectGpuSampler sampler) =>
         new(stage, slot, null, null, sampler);
 }
@@ -35,7 +50,10 @@ public sealed record G1EffectGpuPacketInputs(int RuntimeBankIndex,
     ReadOnlyMemory<byte> FeatureRequest48, G1EffectGpuDrawScope Scope,
     G1EffectGpuConstantInputs Constants, ReadOnlyMemory<byte> BlendDescription,
     Func<G1EffectGpuExternalBinding, G1EffectGpuFrameBinding?>? ExternalBindings = null,
-    G1EffectGpuTexture? SourceDefaultTexture = null);
+    G1EffectGpuTexture? SourceDefaultTexture = null)
+{
+    public int? RetainedFeatureRow { get; init; }
+}
 
 public sealed record G1EffectGpuFrameSource(G1EffectGpuResources Resources,
     G1EffectDrawBatch Batch, Func<G1EffectDrawPacket, G1EffectGpuPacketInputs> Inputs,
@@ -46,6 +64,7 @@ public sealed record G1EffectGpuFrameBuild(G1EffectGpuPublication Publication,
     int DrawCount, IReadOnlyList<G1EffectGpuFrameMissing> Missing)
 {
     public bool IsComplete => Missing.Count == 0;
+    public bool RequiresClusteredLighting { get; init; }
 }
 
 internal sealed record G1EffectGpuPreparedDraw(G1EffectGpuResources Resources,
@@ -67,8 +86,8 @@ public sealed partial class G1EffectGpuFramePublisher
         encoder = new(resourceGeneration);
     }
 
-    public G1EffectGpuFrameBuild Build(ulong sequence, IReadOnlyList<G1EffectGpuFrameSource> sources)
-        => BuildCore(sequence, sources, false);
+    public G1EffectGpuFrameBuild Build(ulong sequence, IReadOnlyList<G1EffectGpuFrameSource> sources, bool mainBankZeroOwner = false)
+        => BuildCore(sequence, sources, false, mainBankZeroOwner);
 
     /// <summary>Prepares the actual direct generic's material and selected
     /// programs. No CPU particle or vertex bytes stand in for the GPU pool;
@@ -83,27 +102,35 @@ public sealed partial class G1EffectGpuFramePublisher
     }
 
     private G1EffectGpuFrameBuild BuildCore(ulong sequence, IReadOnlyList<G1EffectGpuFrameSource> sources,
-        bool direct)
+        bool direct, bool mainBankZeroOwner = false)
     {
         ArgumentNullException.ThrowIfNull(sources);
         var missing = new List<G1EffectGpuFrameMissing>();
         var draws = new List<G1EffectGpuPreparedDraw>();
+        bool requiresClusteredLighting = false;
         using var stream = new MemoryStream();
+        var streamOffsets = new Dictionary<ReadOnlyMemory<byte>, int>();
         foreach (var source in sources)
         {
             foreach (var item in source.Batch.Missing)
                 missing.Add(new(item.GenericFileOffset, "DrawWriter", item.Reason));
             if (source.Batch.CapacityRejectedCount != 0)
                 missing.Add(new(-1, "DrawCapacity", $"The actual draw writer rejected {source.Batch.CapacityRejectedCount} rows."));
-            int streamBase = checked((int)stream.Position);
-            stream.Write(source.Batch.DynamicStream.Span);
+            // Head and both special scopes borrow one prepared live stream.
+            // Memory identity shares that upload without scanning its bytes.
+            if (!streamOffsets.TryGetValue(source.Batch.DynamicStream, out int streamBase))
+            {
+                streamBase = checked((int)stream.Position);
+                streamOffsets.Add(source.Batch.DynamicStream, streamBase);
+                stream.Write(source.Batch.DynamicStream.Span);
+            }
             foreach (var packet in source.Batch.Packets)
             {
                 int before = missing.Count;
                 var input = source.Inputs(packet);
                 var resources = source.ResourceResolver?.Invoke(packet.Resources) ?? source.Resources;
                 var selected = resources.PrepareDrawResources(input.RuntimeBankIndex,
-                    input.FeatureRequest48, packet, input.SourceDefaultTexture);
+                    input.FeatureRequest48, packet, input.SourceDefaultTexture, input.RetainedFeatureRow);
                 foreach (var item in selected.Pipeline.Missing.Concat(selected.Missing))
                     missing.Add(new(packet.GenericFileOffset, item.Operation, item.Reason));
                 if (input.BlendDescription.Length != 264)
@@ -143,8 +170,12 @@ public sealed partial class G1EffectGpuFramePublisher
                             $"Selected stage {external.StageCode} requires current {external.Declaration.Name.Text} at slot {external.Declaration.BindPoint}."));
                         continue;
                     }
+                    requiresClusteredLighting |= binding.Global is G1EffectGpuGlobalTexture.ClusterIndices or
+                        G1EffectGpuGlobalTexture.ClusterPositions or G1EffectGpuGlobalTexture.ClusterAttributes or
+                        G1EffectGpuGlobalTexture.ClusterExAttributes or G1EffectGpuGlobalTexture.ClusterSpotAttributes or
+                        G1EffectGpuGlobalTexture.ClusterSpotExAttributes;
                     if (external.Declaration.InputType == 3 && binding.Global is { } global &&
-                        global != G1EffectGpuGlobalTexture.AutoExposure)
+                        global is not (G1EffectGpuGlobalTexture.AutoExposure or G1EffectGpuGlobalTexture.PatternLighting))
                         missing.Add(new(packet.GenericFileOffset, "ExternalSampler",
                             $"Selected {external.Declaration.Name.Text} has no current native sampler provider."));
                     else if (external.Declaration.InputType == 3) samplers.Add(binding);
@@ -156,8 +187,8 @@ public sealed partial class G1EffectGpuFramePublisher
                         input.BlendDescription));
             }
         }
-        var publication = encoder.Encode(sequence, stream.ToArray(), draws, direct);
-        return new(publication, draws.Count, missing.AsReadOnly());
+        var publication = encoder.Encode(sequence, stream.ToArray(), draws, direct, mainBankZeroOwner);
+        return new(publication, draws.Count, missing.AsReadOnly()) { RequiresClusteredLighting = requiresClusteredLighting };
     }
 
     public G1EffectGpuPublication Clear(ulong sequence) =>

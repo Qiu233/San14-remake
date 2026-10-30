@@ -11,15 +11,16 @@ internal static class GovernanceRosterParameters
     internal const string PolicyCostLimitBase = "simulation.governance.policy-cost-limit-base";
     internal const string AdvisorIntelligenceMinimum = "simulation.governance.advisor-intelligence-minimum";
 
-    /// <summary>Retained TC initial-image inputs, not a restore fallback or a
-    /// claim about other locale profiles. The base30 and step10 are distinct
-    /// inputs established by the authorized eight-byte TC data read retained
-    /// in parameter-values20.json, not derived from appointment pending10.</summary>
+    /// <summary>Independently established TC and SC initial-image inputs.
+    /// Each edition's four actual scalar consumers and file-backed values are
+    /// qualified separately. This installs a fresh bank only; restored missing
+    /// keys remain unknown and loaded overrides are never overwritten.</summary>
     internal static GameState InstallFresh(GameState state)
     {
-        if (state.NativeArmySimulation is not { } native || native.Parameters.Language != "TC") return state;
-        if (state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 })
-            throw new InvalidDataException("Governance parameters require an unused TC campaign.");
+        if (state.NativeArmySimulation is not { } native || native.Parameters.Language is not ("TC" or "SC")) return state;
+        if (native.Parameters.RuleVersion != SimulationRuleIdentity.ForLocale(native.Parameters.Language) ||
+            state.Units.Count != 0 || state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 })
+            throw new InvalidDataException("Governance parameters require a matching unused campaign.");
         var values = new Dictionary<string, int>(native.Parameters.Int32Values);
         foreach (var (key, value) in new[] { (NewAppointmentPending, 10), (AdvisorIntelligenceMinimum, 70),
             (PolicyCostLimitBase, 30), (PendingReductionPerTurn, 10) })

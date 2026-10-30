@@ -4,9 +4,9 @@ namespace San14.Data;
 
 /// <summary>Read-only quotes over the same current owners used at execution.
 /// Offices use the native batch writer instead of the item quote protocol.</summary>
-internal sealed class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) : IPersonnelCommandRules,
+internal sealed partial class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) : IPersonnelItemTransferCommandRules,
     IOfficerOfficeCommandRules, ICommanderSelectionCommandRules, IPersonnelAdministrationCommandRules,
-    IPersonnelDevelopmentCommandRules
+    IPersonnelDevelopmentCommandRules, ICommanderAutomaticTacticsCommandRules
 {
     public CommandResult ApplyHire(GameState state, ForceState force, int districtId, int destinationCityId,
         IReadOnlyList<int> ids, CommandContext context) => army.ApplyPersonnelHire(state, force, districtId, destinationCityId, ids, context);
@@ -22,7 +22,9 @@ internal sealed class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) :
         IReadOnlyList<OfficerCreditChoice> choices, CommandContext context) => army.ApplyPersonnelCreditRankup(state, force, districtId, choices, context);
     public CommandResult ApplyBanish(GameState state, ForceState force,
         IReadOnlyList<int> ids, CommandContext context) => army.ApplyPersonnelBanish(state, force, ids, context);
-    private readonly PersonnelCommandRules items = new(new CurrentItems(army));
+
+    public CommandResult ToggleCommanderAutomaticTactics(GameState state, ForceState force, int officerId, CommandContext context)
+        => army.ToggleCommanderAutomaticTactics(state, force, officerId, context);
 
     public CommandResult ApplyCommanderSelection(GameState state, ForceState force,
         IReadOnlyList<int> officerIds, CommandContext context)
@@ -40,33 +42,28 @@ internal sealed class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) :
             return new(false, Reason: "Personnel administration requires direct strategy control.");
         if (!state.Officers.TryGetValue(change.OfficerId, out var person) || person.ForceId != force.Id)
             return new(false, Reason: "The target does not belong to this force.");
-        if (person.Presence != OfficerPresence.Present || person.Deployed ||
-            PlayableOfficerAvailability.IsSourceBusy(state, person) ||
-            PlayableDiplomacy.IsOfficerOnMission(state, person.Id) ||
-            state.PreparedOfficerMoves?.ContainsKey(person.Id) == true || state.PreparedTalentOrders?.ContainsKey(person.Id) == true ||
-            state.PreparedDeployments.Values.Any(x => x.OfficerId == person.Id))
-            return new(false, Reason: "The target is unavailable.");
         if (change.ItemId is not int itemId || state.Items?.GetValueOrDefault(itemId) is not { } item ||
             item.Holder?.OfficerId is not int holder || !state.Officers.TryGetValue(holder, out var owner) ||
             owner.ForceId != force.Id || item.IsPresent != true)
             return new(false, Reason: "The item is not held by this force.");
         if (force.RulerId is not int ruler ||
-            (change.Kind == PersonnelActionKind.GrantItem ? holder != ruler : holder != person.Id))
+            (change.Kind == PersonnelActionKind.GrantItem ? holder == person.Id : holder != person.Id))
             return new(false, Reason: "The item's current holder does not match the command.");
+        if (change.PreviousHolderId != holder || change.NextHolderId !=
+            (change.Kind == PersonnelActionKind.GrantItem ? person.Id : ruler))
+            return new(false, Reason: "The item's holder changed since selection.");
         if (item.Lifecycle?.RetainedFlags is not byte flags)
             return new(null, MissingRuleKey: "personnel.item_flags", Reason: "Current item flags are unresolved.");
-        var result = items.Evaluate(state, force, change, actor);
-        return result is { Allowed: true, Quote: { } quote }
-            ? result with { Quote = quote with { ItemFlagsAfter = (byte)(flags & 0xF7) } } : result;
+        return EvaluateItemTransfer(state, force, change, actor, flags);
     }
 
-    private sealed class CurrentItems(ArmyCampaignRuleAdapter army) : IPersonnelCommandContext
+    private sealed class CurrentItems(ArmyCampaignRuleAdapter army, SourceWorldContext? suppliedCurrent = null) : IPersonnelCommandContext
     {
         public PersonnelCommandContext? Resolve(GameState state, ForceState force, PersonnelChange change)
         {
             try
             {
-                var current = army.CaptureOwnedArmyReturnWorld(state).Context;
+                var current = suppliedCurrent ?? army.CaptureOwnedArmyReturnWorld(state).Context;
                 int person = current.ResolveOfficerSource(change.OfficerId) ?? throw Missing();
                 bool isRuler = Need(current.ReadPersonStatus(person)) == 1;
                 bool? hired = OfficerBehaviorRules.UsesOrdinaryPersonRules(current.ReadPersonBehavior(person)) is bool ordinary ? !ordinary : null;
@@ -83,19 +80,17 @@ internal sealed class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) :
                 PersonnelCommandContext Inputs(PersonnelLoyaltyGuards guards) => new(
                     PersonnelCommandParameters.Read(state, PersonnelCommandParameters.ItemCommandBooks),
                     PersonnelCommandParameters.Read(state, PersonnelCommandParameters.ConfiscationPenalty),
-                    hired, guards, PersonnelCommandParameters.Revision);
+                    hired, guards, PersonnelCommandParameters.Revision)
+                {
+                    ChargedDistrictId = ForcePrimaryDistrictSource.Resolve(current, new(force.Id)).PhysicalSlot
+                        ?? throw Missing()
+                };
                 ushort Id(int p) => Need(current.ReadPersonIdentity(p));
                 bool Valid(int p) => Need(current.ReadPersonNativeValidity(p));
                 ushort Word(int p, int field) => state.NativeArmySimulation?.Parameters.Int32Values is { } values &&
                     values.GetValueOrDefault(OwnedPersonRelationInputs.VersionKey) == 1 &&
                     values.TryGetValue(OwnedPersonRelationInputs.PersonFieldKey(p, field), out int raw) && raw is >= 0 and <= 65535
                         ? (ushort)raw : throw Missing();
-                bool Kin(int a, int b, int field)
-                {
-                    if (!Valid(a) || !Valid(b) || Id(a) == Id(b)) return false;
-                    ushort value = Word(a, field);
-                    return value != 0 && value == (field == 0xBC ? Word(b, field) : Id(b));
-                }
                 bool InList(int a, int b, int field)
                 {
                     if (!Valid(b)) return false;
@@ -103,17 +98,7 @@ internal sealed class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter army) :
                     for (int i = 0; i < 8; i++) if (Word(a, field + i * 2) == id) return true;
                     return false;
                 }
-                bool Related(int a, int b)
-                {
-                    if (!Valid(a) || !Valid(b)) return false;
-                    bool Serves(int p) => Need(current.ReadPersonStatus(p)) is >= 1 and <= 4;
-                    if (Serves(a) && Serves(b) && Need(current.ReadPersonOldForceSlot(a)) != Need(current.ReadPersonOldForceSlot(b))) return false;
-                    if (Kin(a, b, 0xB4) || Kin(a, b, 0xB6) || Kin(b, a, 0xB4) || Kin(b, a, 0xB6) || Kin(a, b, 0xBA)) return true;
-                    if (Id(a) != Id(b) && (Word(a, 0xB4) != 0 && Word(a, 0xB4) == Word(b, 0xB4) ||
-                        Word(a, 0xB6) != 0 && Word(a, 0xB6) == Word(b, 0xB6))) return true;
-                    if (Kin(a, b, 0xBC)) return true;
-                    return Word(a, 0xB2) != 0 && Word(a, 0xB2) == Word(b, 0xB2);
-                }
+                bool Related(int a, int b) => PersonKinshipCurrent.Read(state, current, a, b);
             }
             catch (InvalidDataException) { return null; }
         }

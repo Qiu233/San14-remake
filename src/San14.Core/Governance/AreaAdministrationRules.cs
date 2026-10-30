@@ -28,9 +28,14 @@ public interface IAreaAdministrationExecution
 {
     CommandResult Execute(GameState state, CityState city,
         IReadOnlyList<AreaAdministrationChange> changes, long reservedCommandBooks, CommandContext context);
+    // Older eligibility-only/single-City fixtures cannot fabricate execution
+    // of an ordered cross-City transaction. Current providers implement this.
+    CommandResult ExecuteOrdered(GameState state, IReadOnlyList<AreaAdministrationChange> changes,
+        long reservedCommandBooks, CommandContext context)
+        => CommandResult.RuleUnavailable("rules.administration_ordered_execution", "Ordered appointment writer is unavailable.");
 }
 
-public sealed class AreaAdministrationRules : IOrderRules
+public sealed partial class AreaAdministrationRules : IOrderRules
 {
     private readonly IAreaAdministrationExecution? _execution;
     public AreaAdministrationRules(IAreaAdministrationExecution? execution) => _execution = execution;
@@ -41,6 +46,7 @@ public sealed class AreaAdministrationRules : IOrderRules
 
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)
     {
+        if (order is ApplyAreaAdministrationOrder ordered) return ApplyOrdered(state, force, ordered, context);
         if (order is not SetAreaAdministrationOrder administration)
             return CommandResult.Reject("Order type is unsupported.", "command.unsupported");
         if (!state.Cities.TryGetValue(administration.CityId, out CityState? city) || city.ForceId != force.Id)

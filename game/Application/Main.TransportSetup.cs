@@ -13,6 +13,15 @@ public partial class Main
     private MapSceneView? _transportSetupMap;
     private GameplaySession? _transportSetupSession;
     private GameState? _transportSetupWorld;
+    private Action<GameState>? _transportSetupAdoptSpeechWorld;
+
+    private void AdoptTransportSetupSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        if (_transportSetup is null || _transportSetupPresenter is null || _transportSetupSession != session ||
+            _transportSetupMap is null || _transportSetupMap != _residentMap ||
+            !ReferenceEquals(_transportSetupWorld, previous)) return;
+        _transportSetupAdoptSpeechWorld?.Invoke(replacement);
+    }
 
     private void OpenTransportSetup(int source, bool fromCommandWorkspace = false)
     {
@@ -28,17 +37,46 @@ public partial class Main
         var rules = composition.PrepareArmyQueries(world);
         var view = new TransportSetupView(); _transportSetup = view;
         _transportSetupMap = map; _transportSetupSession = session; _transportSetupWorld = world;
+        _transportSetupAdoptSpeechWorld = replacement =>
+        {
+            if (_transportSetup != view || _transportSetupPresenter is not { } presenter ||
+                _transportSetupSession != session || _transportSetupMap != map) return;
+            var previous = world;
+            // The existing preference adoption preserves Make quantities, its
+            // selector and cached food quote while advancing their query owner.
+            presenter.AcceptPreferenceWorld(previous, replacement);
+            _transportTargetPresenter?.AcceptPresentationWorld(previous, replacement);
+            world = replacement; _transportSetupWorld = replacement;
+        };
         SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
         AddChild(view);
         try
         {
             _transportSetupPresenter = new(view, _repository, _ui, world, composition.Snapshot, rules, source,
-                _sourceHeaders, Current, CurrentListScrollSpeed, BeginTarget, Returned, TransportUnavailable);
+                _sourceHeaders, Current, CurrentListScrollSpeed, BeginTarget, PrepareFoodWarning, Returned, TransportUnavailable);
         }
         catch { CloseTransportSetup(); throw; }
 
         bool Current() => !_failed && !_shuttingDown && _transportSetup == view &&
             ReferenceEquals(_session, session) && ReferenceEquals(_world, world) && _residentMap == map;
+        TransportFoodWarning PrepareFoodWarning(int cargo)
+        {
+            if (!Current() || _advancingPeriod || session.HasPendingOperation)
+                return new(null, null, "transport.setup.food-warning-owner");
+            var previous = world;
+            var result = session.Issue(new PrepareTransportFoodWarningOrder(force, source, cargo), new(_presentationRandom.State));
+            if (!result.Accepted)
+                return new(null, null, result.MissingRuleKey ?? result.ErrorCode ?? "transport.setup.food-warning");
+            var warning = result.TransportFoodWarning ?? throw new InvalidDataException("transport.setup.food-warning-result");
+            //The normal command transaction owns quote housekeeping. Adopt
+            //it before map refresh or the page's next lifetime admission.
+            world = session.World; _transportSetupWorld = world;
+            _transportSetupPresenter!.AcceptFoodWarningWorld(previous, world);
+            if (world.CampaignAppRandom32 is { } random) _presentationRandom.InstallCommittedState(random.State);
+            SynchronizeApplicationCrtRandom(world);
+            RefreshCurrentPlayWorld(); HideDeploymentHud();
+            return new(warning.Required, warning.Expense, null);
+        }
         void Returned()
         {
             if (!Current()) { CloseTransportSetup(); return; }
@@ -95,8 +133,7 @@ public partial class Main
             if (!preparation.Available || preparation.PortraitRoute is not { } portrait)
             { TransportUnavailable(preparation.UnresolvedInput ?? "transport.narration.portrait"); return; }
             var sprites = new LocalizedUiSpriteSource(_repository!);
-            var layers = new[] { portrait.SpriteB, portrait.SpriteA, portrait.SpriteC }
-                .Select(name => sprites.LoadTexturePackSprite(portrait.ResourceName, name)).ToArray();
+            var layers = portrait.LoadSprites(sprites.LoadTexturePackSprite);
             var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _transportNarration = narration; AddChild(narration);
             try
             {
@@ -111,6 +148,7 @@ public partial class Main
                     }
                 }), () => _preferences.AutomaticMessageAdvance,
                 () => CanAdvanceNarration&&_transportNarration==narration&&Current());
+                narration.BindPreparedVoices(preparation.Voices, _sceneAudioBinding);
                 CloseTransportTarget(); map.SetCommandTargetPicker(null); SetModal(true);
             }
             catch { _transportNarration = null; narration.Abandon(); narration.QueueFree(); throw; }
@@ -141,7 +179,7 @@ public partial class Main
         if (narrator is not null) { narrator.Abandon(); narrator.GetParent()?.RemoveChild(narrator); narrator.QueueFree(); }
         var presenter = _transportSetupPresenter; var view = _transportSetup;
         _transportSetupPresenter = null; _transportSetup = null; presenter?.Dispose();
-        _transportSetupMap = null; _transportSetupSession = null; _transportSetupWorld = null;
+        _transportSetupMap = null; _transportSetupSession = null; _transportSetupWorld = null; _transportSetupAdoptSpeechWorld = null;
         if (view is not null) { view.Abandon(); view.GetParent()?.RemoveChild(view); view.QueueFree(); }
         if (map is not null && GodotObject.IsInstanceValid(map) && _residentMap == map)
         { map.SetCommandTargetPicker(null); map.SetDetailsOpen(false); if (!_shuttingDown && !_failed) SetMapFocus(true); }

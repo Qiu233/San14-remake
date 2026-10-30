@@ -53,8 +53,8 @@ internal sealed class PersonnelHireGenerationSession
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    // File-backed TC definition data, extracted offline. Provenance and section
-    // offsets: .local/personnel-hire-20261025/generation-static63.json.
+    // TC/SC definition arrays and scalar consumers are independently matched offline.
+    // SC also has its own full-name filter; these common arrays contain no generated results.
     // These are definitions, not recorded generated candidates or an EXE reader.
     private static readonly int[] HirePortraits = [0,0,0,0,2502,2500,2501,2501,2504,2509,
         2503,2503,2508,2508,2507,2507,2506,2506,2505,2505];
@@ -114,6 +114,13 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal PersonnelHireGenerationSession CreatePersonnelHireGenerationSession(GameState state,
         SourceWorldContext current, bool initializePools = false)
     {
+        var parameters = state.NativeArmySimulation?.Parameters ?? throw HireMissing("generation_parameters");
+        if (Seed.Language is not ("TC" or "SC") || parameters.Language != Seed.Language ||
+            parameters.RuleVersion != SimulationRuleIdentity.ForLocale(Seed.Language))
+            throw HireMissing("generation_rule_owner");
+        //Refresh this operation's filter through the existing resource/override resolver.
+        //Candidate-name queries do not reopen or hash the resource.
+        _personnelHireNameFilter = Seed.Language == "SC" ? _repository.LoadPersonnelHireNameFilter() : null;
         if (initializePools) return new(PersonnelHireGenerationCatalog.Load(state, current));
         return new(state.PersonnelHire?.GenerationPools ?? throw HireMissing("generation_saved_pools"));
     }

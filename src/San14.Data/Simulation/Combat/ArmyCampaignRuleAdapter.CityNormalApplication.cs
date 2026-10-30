@@ -72,7 +72,9 @@ public sealed partial class ArmyCampaignRuleAdapter
     private NormalBaseApplicationResult TryApplyNativeNormalBaseApplication(GameState input,
         int attackerArmyId, BaseKind kind, int locationId, int requestedLoss,
         NativeArmyCombatCycleSampler? operationSampler, bool allowFatal = false,
-        SourceWorldContext? operationCurrent = null)
+        SourceWorldContext? operationCurrent = null, ArmyUnitReference? retiredArmyOrigin = null,
+        NativeMapSeasonDate? operationDate = null, List<CampaignEffectRequest>? operationEffects = null,
+        long? immediateRevision = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         bool isCity = kind == BaseKind.City;
@@ -87,11 +89,27 @@ public sealed partial class ArmyCampaignRuleAdapter
             var borrowedWorld = operationCurrent is null ? null : OwnedArmyReturnWorld.Borrow(working,
                 operationCurrent, operationCurrent.ReadOwnedCurrentListPool()
                     ?? throw Missing("ordinary_Base_current_pool"));
-            if (!working.Units.TryGetValue(attackerArmyId, out var attacker) ||
-                (operationCurrent ?? CaptureCurrentDefinitions(working)) is not { } attackerDefinitions ||
-                Context(attackerDefinitions, operationSampler).ArmyValid(working, attacker) != true)
-                return Unknown("current.actual_attacker_Army");
-            var reward = requestedLoss > 0
+            var attackerDefinitions = operationCurrent ?? CaptureCurrentDefinitions(working);
+            if (attackerDefinitions is null) return Unknown("current.actual_attacker_Definitions");
+            UnitState? attacker = null;
+            if (retiredArmyOrigin is not null)
+            {
+                if (operationCurrent is null || retiredArmyOrigin.PhysicalSlot is not int retiredPhysical)
+                    return Unknown("current.retired_attacker_operation");
+                RequireRetiredAutomaticActorCurrent(working, operationCurrent, retiredPhysical);
+            }
+            else
+            {
+                attacker = operationCurrent is not null
+                    ? RequireLatestAutomaticActorImageCurrent(working, operationCurrent, attackerArmyId)
+                    : working.Units.GetValueOrDefault(attackerArmyId);
+                if (attacker is null) return Unknown("current.actual_attacker_Army");
+                var sourceContext = Context(attackerDefinitions, operationSampler);
+                if (operationCurrent is not null && attacker.NativeArmyOrigin?.NativeSlotIndex is int physicalSource)
+                    sourceContext.BindAutomaticActorResumeCurrent(working, operationCurrent, physicalSource);
+                if (sourceContext.ArmyValid(working, attacker) != true) return Unknown("current.actual_attacker_Army");
+            }
+            var reward = requestedLoss > 0 && attacker is not null
                 ? operationCurrent is not null
                     ? ApplyBorrowedNormalArmyReward(working, operationCurrent,
                         Context(operationCurrent, operationSampler), attacker.OfficerId, 0, requestedLoss)
@@ -153,11 +171,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var terrain = current.ReadSurfaceTypeTableReference(surface <= 30 ? surface : 0)
                     ?? throw Missing(label + "_Terrain_pointer_231A10");
                 byte category = Known(current.ReadSurfaceTypeWoundedCategory42(terrain), label + "_Terrain42");
-                int attackerSlot = Known(attacker.NativeArmyOrigin?.NativeSlotIndex, "attacker_physical_slot");
-                var nativeArmy = current.ReadArmyUnitTableReference(attackerSlot) ?? throw Missing("attacker_Army_pointer");
-                if (current.ReadArmyUnitNativeValidity(nativeArmy) != true) return Unknown("current.attacker_Army_validity");
-                ushort attackerHex = Known(current.ReadArmyUnitRawHex2A(nativeArmy), "attacker_raw_Hex2A");
-                if (attackerHex >= 48400) return Unknown("current.attacker_Hex2A_outside_map");
+                bool adjacent = false;
+                if (attacker is not null)
+                {
+                    int attackerSlot = Known(attacker.NativeArmyOrigin?.NativeSlotIndex, "attacker_physical_slot");
+                    var nativeArmy = current.ReadArmyUnitTableReference(attackerSlot) ?? throw Missing("attacker_Army_pointer");
+                    if (current.ReadArmyUnitNativeValidity(nativeArmy) != true) return Unknown("current.attacker_Army_validity");
+                    ushort attackerHex = Known(current.ReadArmyUnitRawHex2A(nativeArmy), "attacker_raw_Hex2A");
+                    if (attackerHex >= 48400) return Unknown("current.attacker_Hex2A_outside_map");
+                    adjacent = SourceDistance(hex, attackerHex) == (link < 52 ? 2 : 1);
+                }
                 int difficulty = selector != 0 ? Known(BattleRemakeCurrentSettings.ReadInt32(working, 0x28), "wounded_difficulty28") : 0;
                 bool governorForceValid = false;
                 ushort governorFirst = Known(current.ReadPersonFirstLocation(governorPhysical!.Value), "Governor_E2_special_predicate");
@@ -177,7 +200,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //param6=0. Its effect6F window is genuinely disabled even
                 //though the actual attacking Army above is valid.
                 ratioInput = new(governorValid == true, charm, Known(current.ReadBaseMorale44(target), label + "_raw44"),
-                    SourceDistance(hex, attackerHex) == (link < 52 ? 2 : 1), true, category,
+                    adjacent, true, category,
                     category == 1 ? NormalArmyCombatApplicationSourceMath.ReadCurrentTerrain1Addend(working) : null,
                     selector, difficulty, governorForceValid, false, false, false, 0, 0, false);
                 ratio = NormalArmyCombatApplicationSourceMath.CalculateWoundedRatio(parameters.CurrentValues, ratioInput);
@@ -221,18 +244,22 @@ public sealed partial class ArmyCampaignRuleAdapter
                         Known(current.ReadBaseMorale44(target), label + "44_after_223A70"));
                 }
             }
-            //Fresh virtualB0 precedes the source3C>0 return. There is no
-            //Army-only Force result/personality or fatal queue in this branch.
+            //Fresh virtualB0 precedes the source3C>0 return. The Base branch
+            //skips Army-only Force/personality work, then admits a fatal1745B0.
             _ = Known(current.ReadBaseForceSlot(target), label + "_fresh_virtualB0");
             bool fatal = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), label + "_final3C") <= 0;
             BaseFatalAdmissionReceipt? admission = null;
             if (fatal)
             {
                 if (!allowFatal) return Unknown($"branch.{label}_fatal_after_callback");
-                //This actual caller's Army is valid, so178EC0's joined final
-                //condition reaches1745B0 even if virtualB0 happens to be0.
-                admission = ApplyOrdinaryBaseFatalAdmission(working, current, attacker, target);
-                if (admission.ImmediateFallback) return Unknown("branch.Base_immediate2851B0");
+                if (retiredArmyOrigin is not null)
+                    admission = AdmitNoWinnerBaseFatalCurrent(working, current, target, attackerArmyId,
+                        retiredArmyOrigin.PhysicalSlot ?? throw Missing("retired_Army_physical"));
+                else
+                {
+                    //178EC0 reaches1745B0 even if the target's Force is0.
+                    admission = ApplyOrdinaryBaseFatalAdmission(working, current, attacker!, target);
+                }
             }
             //This branch wrote only target3C/40/44. Retain every unrelated
             //Person/Base field from the reward state; the general return
@@ -243,6 +270,28 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (admission is not null)
                 working = working with { PendingCombatSettlements = current.OwnedDestructionQueue };
             working = PublishRoles(working);
+            if (admission is { HasNoWinner: true, ImmediateFallback: true })
+            {
+                //The numeric body is already published once. Full128 settles
+                //only this new target, without altering or draining the queue.
+                working = ApplyImmediateNoWinnerBaseCaptureCurrent(working, current, target,
+                    operationSampler ?? throw Missing("neutral_Full128_sampler"),
+                    operationDate ?? throw Missing("neutral_Full128_operation_date"),
+                    immediateRevision ?? throw Missing("neutral_Full128_revision"),
+                    operationEffects ?? throw Missing("neutral_Full128_effect_sink"));
+            }
+            else if (admission is { ImmediateFallback: true })
+            {
+                var entity = ArmyDestructionQueue.ResolveBase(current, target)
+                    ?? throw Missing("Full128_Base_identity");
+                var captured = ApplyImmediateBaseCaptureCurrent(working, current,
+                    new(entity, attackerArmyId),
+                    operationDate ?? throw Missing("Full128_operation_date"),
+                    (operationSampler ?? throw Missing("Full128_sampler")).Read(working),
+                    immediateRevision ?? throw Missing("Full128_revision"),
+                    operationEffects ?? throw Missing("Full128_effect_sink"));
+                working = captured.State;
+            }
             return new(fatal ? NormalCityApplicationOutcome.CommittedFatalApplication : NormalCityApplicationOutcome.CommittedNonfatal, working,
                 new(locationId, attackerArmyId, requestedLoss, applied, reward, debit, wounds, moraleLoss, moraleWrite,
                     fatal, $"native-{label}-178EC0-{(fatal ? "fatal-admission" : "nonfatal")}:{Revision}")

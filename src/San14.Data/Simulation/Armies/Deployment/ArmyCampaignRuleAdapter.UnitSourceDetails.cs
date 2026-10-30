@@ -31,6 +31,23 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             var current = CaptureOfficerCommandCapacityCurrent(state);
+            //The page reads actual Army receivers, including target Army names.
+            //Restore the existing saved receiver inputs once for the publication.
+            if (state.ReadArmyLifecycle() is { } lifecycle)
+            {
+                //The definitions capture owns a fresh local index pool. Bind
+                //the saved receiver/logical identities before restoring the
+                //trait descriptors, which are indexed by logical UnitId.
+                current.OwnedIndexes?.BindWorld(state);
+                current.RestoreOwnedArmyReturnSlots(state, lifecycle);
+                //The saved Person registry is independent of receiver identity
+                //binding. Supply its actual ordered physical view for230C70;
+                //an unknown saved registry remains unknown rather than empty.
+                if (current.OwnedIndexes is { } indexes)
+                    current.SetRegisteredPersonPhysicalSlots(lifecycle.Indexes.Registries
+                        .GetValueOrDefault(WorldEntityKind.Officer)?
+                        .Select(person => indexes.ToSource(person).PhysicalSlot).ToArray());
+            }
             return (current, new(current, _catalog, _map, _terrain, _usage, Revision), null);
         }
         catch (InvalidDataException error) { return (null, null, error.Message); }
@@ -165,18 +182,48 @@ public sealed partial class ArmyCampaignRuleAdapter
             // a stock placeholder route, never a fabricated valid Person.
             if (nameplateVisible == false)
                 return new DeploymentNarrationPortraitRoute(2198, 2198,
-                    "texture_chara_anime_2198", "face_2198_b", "face_2198_a", "face_2198_c");
+                    "texture_chara_anime_2198", ["face_2198_b", "face_2198_a", "face_2198_c"])
+                    { Kind = StandingPortraitKind.ThreePart };
             int physical = Person();
             ushort appearance = Current().ReadPersonPortraitAppearance(physical) ?? throw DetailMissing("portrait_appearance");
             return ReadNarrationPortrait(state, Current(), _definitions, unit.OfficerId, appearance);
         });
         missing["axes.without_modifiers"] = "unit.details.existing_army_axes_without_modifiers";
         missing["axes.with_modifiers"] = "unit.details.existing_army_axes_with_modifiers";
-        missing["format.home"] = "unit.details.home_display_conditions";
-        missing["format.command"] = "unit.details.command_display_format";
-        missing["format.status"] = "unit.details.abnormal_counter_format";
-        missing["supply.icon"] = "unit.details.supply_icon_route";
-        return new(unitId, exists, identity, formation, resources, abnormal, cargo, portrait, null, null, Missing());
+        var formatted = new Dictionary<int, string>();
+        var palettes = new Dictionary<int, int>();
+        void Text(int node, string group, Func<string> read)
+        {
+            if (Reference(group, read) is string value) formatted[node] = value;
+        }
+        Text(17, "format.home", () => ReadUnitDetailHome(state, Current(), unit));
+        Text(116, "format.command", () => ReadUnitDetailAction(state, Current(), unit));
+        Text(121, "format.target", () => ReadUnitDetailTarget(state, Current(), unit, false));
+        Text(126, "format.temporary_target", () => ReadUnitDetailTarget(state, Current(), unit, true));
+        Text(131, "format.construction", () => ReadUnitDetailConstruction(state, Current(), unit));
+        Text(136, "format.captives", () => ReadUnitDetailCaptiveCount(state, Current(), unit));
+        foreach (int node in new[] { 142, 147, 152, 157 })
+            Text(node, "format.preference." + node, () => ReadUnitDetailPreference(state, unit, node));
+        if (unit.NativeTacticRuntime is { } status)
+        {
+            foreach (var row in new[] { (Text: 73, Art: 72, Unit: 74, Count: status.Abnormal25),
+                (Text: 78, Art: 77, Unit: 79, Count: status.Abnormal23),
+                (Text: 83, Art: 82, Unit: 84, Count: status.Abnormal24) })
+            {
+                Text(row.Text, "format.status." + row.Text,
+                    () => ReadUnitDetailAbnormal(state, Current(), unit, row.Count));
+                Text(row.Unit, "format.status_unit." + row.Unit, () => UnitDetailData(1, 0x469));
+                palettes[row.Art] = row.Count != 0 ? 12 : 45;
+            }
+        }
+        else missing["format.status"] = "unit.details.current_abnormal_counters";
+        if (Value<int>("supply.icon", () => ReadUnitDetailSupplyPalette(state, Current(), unit)) is int supplyPalette)
+            palettes[57] = supplyPalette;
+        return new(unitId, exists, identity, formation, resources, abnormal, cargo, portrait, null, null, Missing())
+        {
+            FormattedValues = new ReadOnlyDictionary<int, string>(formatted),
+            NodePalettes = new ReadOnlyDictionary<int, int>(palettes)
+        };
     }
     private static InvalidDataException DetailMissing(string field) => new("unit.details." + field);
 }
