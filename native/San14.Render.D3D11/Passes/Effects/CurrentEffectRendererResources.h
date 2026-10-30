@@ -36,7 +36,7 @@ struct Resources {
 
     void add(ID3D11Device* device,Bytes bytes) {
         const auto h=value<San14EffectResourceHeaderV1>(bytes,0);
-        if(h.magic!=0x31524543||h.version!=1)throw std::runtime_error("Current Effect CER1 version");
+        if(h.magic!=0x31524543||(h.version!=1&&h.version!=2))throw std::runtime_error("Current Effect CER1 version");
         for(const auto& row:records<San14EffectPipelineV1>(bytes,h.pipelineOffset,h.pipelineCount)) {
             if(pipelines.contains(row.id))continue;
             Pipeline p;p.pass=row.renderingType;p.bank=row.runtimeBank;Bytes vertex;
@@ -71,16 +71,25 @@ struct Resources {
         }
         for(const auto& row:records<San14EffectTextureV1>(bytes,h.textureOffset,h.textureCount)) {
             if(textures.contains(row.id))continue;
-            if(!row.width||!row.height||!row.mipCount||row.subresourceCount!=row.mipCount)
-                throw std::runtime_error("Current Effect 2D texture mip declarations");
+            const UINT arraySize=h.version==1?1:row.reserved0;
+            const UINT viewDimension=h.version==1?4:row.reserved1;
+            if(!row.width||!row.height||!row.mipCount||!arraySize||
+                std::uint64_t(row.mipCount)*arraySize!=row.subresourceCount||
+                (viewDimension!=4&&viewDimension!=5)||(viewDimension==4&&arraySize!=1))
+                throw std::runtime_error("Current Effect 2D texture subresource declarations");
             std::vector<D3D11_SUBRESOURCE_DATA> initial;
             for(const auto& s:records<San14EffectSubresourceV1>(bytes,row.subresourceOffset,row.subresourceCount)) {
-                require(bytes,s.byteOffset,s.byteLength);initial.push_back({bytes.data()+s.byteOffset,s.rowPitch,s.slicePitch});
+                require(bytes,s.byteOffset,s.byteLength);
+                if(!s.rowPitch||s.slicePitch<s.rowPitch||s.byteLength!=s.slicePitch)
+                    throw std::runtime_error("Current Effect texture subresource pitches");
+                initial.push_back({bytes.data()+s.byteOffset,s.rowPitch,s.slicePitch});
             }
-            D3D11_TEXTURE2D_DESC desc{};desc.Width=row.width;desc.Height=row.height;desc.ArraySize=1;desc.MipLevels=row.mipCount;
+            D3D11_TEXTURE2D_DESC desc{};desc.Width=row.width;desc.Height=row.height;desc.ArraySize=arraySize;desc.MipLevels=row.mipCount;
             desc.Format=DXGI_FORMAT(row.resourceFormat);desc.SampleDesc.Count=1;desc.Usage=D3D11_USAGE_IMMUTABLE;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
             Texture texture;check(device->CreateTexture2D(&desc,initial.data(),&texture.texture),"Current Effect normal texture");
-            D3D11_SHADER_RESOURCE_VIEW_DESC view{};view.Format=DXGI_FORMAT(row.viewFormat);view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;view.Texture2D.MipLevels=row.mipCount;
+            D3D11_SHADER_RESOURCE_VIEW_DESC view{};view.Format=DXGI_FORMAT(row.viewFormat);
+            if(viewDimension==4){view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;view.Texture2D.MipLevels=row.mipCount;}
+            else {view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2DARRAY;view.Texture2DArray.MipLevels=row.mipCount;view.Texture2DArray.ArraySize=arraySize;}
             check(device->CreateShaderResourceView(texture.texture.Get(),&view,&texture.view),"Current Effect texture view");
             textures.emplace(row.id,std::move(texture));
         }

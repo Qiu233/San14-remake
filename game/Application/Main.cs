@@ -1486,11 +1486,14 @@ public partial class Main : Control
         if(_cityDeploymentCancellation is{} cancellation&&!IsCityDeploymentCancellationCurrent(cancellation))CloseCityDeploymentCancellation();
         if(_campaignSaveWorld is { } saveWorld&&(!ReferenceEquals(saveWorld,world)||!ReferenceEquals(_campaignSaveSession,_session)))CloseCampaignSaves();
         if(_mapSystemWorld is { } systemWorld&&(!ReferenceEquals(systemWorld,world)||!ReferenceEquals(_mapSystemSession,_session)))CloseMapSystemMenu();
+        // The live checkpoint keeps its incremental frame and borrowed
+        // owner until its existing release; never redraw it from a root.
+        if (_periodPlayback is not null) return;
         if (_residentMap is not null)
         {
             if (!_residentMap.InitialSceneLoad.IsCompleted ||
                 !_residentMap.IsPlayableMapReady) return;
-            var mapWorld = IsStoryPresentationCurrent ? _storyPresentation!.World : world;
+            var mapWorld = IsStoryPresentationCurrent ? _storyPresentation!.World : ResidentPresentationWorld(world);
             _residentMap.RefreshPlayableWorld(mapWorld);
             RefreshGeographicAdvantages(mapWorld,_residentMap);
             RefreshCityMapAttention(mapWorld, _residentMap);
@@ -1502,6 +1505,7 @@ public partial class Main : Control
             RefreshCommanderCards();
             return;
         }
+        var displayWorld = ResidentPresentationWorld(world);
         var retained=TakeStartedNewGameMap();
         var view = retained??new MapSceneView();
         ApplyCommittedCgQuality(view);
@@ -1509,16 +1513,15 @@ public partial class Main : Control
         view.SetSourceNavigationOptions(_preferences.Navigation);
         view.SetKeyboardBindings(_preferences.KeyboardBindings);
         view.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        // The accepted World graph currently owns the original static map
-        // with current facilities and an empty Army publication. Supply it before Configure captures
-        // its first frame. Later unsupported publications retain the last
-        // accepted image through SceneView's existing transaction boundary.
-        if (WorldMapDiagnosticEnabled && !view.HasRetainedScenarioNativeOwner && world.Units.Count == 0 &&
-            world.NativeMapSeason is not null)
+        // Bind the actual display owner before Configure captures its first
+        // frame. Later unsupported publications retain the last accepted image
+        // through SceneView's existing transaction boundary.
+        if (WorldMapDiagnosticEnabled && !view.HasRetainedScenarioNativeOwner && displayWorld.Units.Count == 0 &&
+            displayWorld.NativeMapSeason is not null)
             view.SetNativeWorldMapDependencyFactory(
                 SceneViewNativeMapWorldSourceFactory.Create());
         var safeText = new PreviewText(_locale.Selected == 1, null);
-        var campaignQueries = _campaignComposition!.PrepareArmyQueries(world);
+        var campaignQueries = _campaignComposition!.PrepareArmyQueries(displayWorld);
         var informationComposition = _campaignComposition;
         view.SetInformationLayerQuery(current => informationComposition.PrepareArmyQueries(current).QueryMapInformationLayers(current, player));
         view.SetArmyDeparturePresentationQuery((current,request)=>informationComposition.PrepareArmyQueries(current)
@@ -1621,7 +1624,7 @@ public partial class Main : Control
         });
         try
         {
-            if(retained is null)view.Configure(_repository, _ui, safeText, () => { }, _map, world,
+            if(retained is null)view.Configure(_repository, _ui, safeText, () => { }, _map, displayWorld,
                 openCityDetails: cityId => RunUiAction(() => OpenMapCityDetails(view, cityId)),
                 acceptHex: hexId => RunUiAction(() => SelectMapTarget(hexId)),
                 playerForceId: player, embedded: true, sourceSnapshot: _selectedSnapshot,
@@ -1636,7 +1639,7 @@ public partial class Main : Control
                 }),
                 selectCommandUnit: unitId => RunUiAction(() => SelectMapCommandUnit(unitId)),
                 selectCommandArea: areaId => RunUiAction(() => SelectMapCommandArea(areaId)));
-            else view.AdoptStartedCampaign(world,player,_selectedSnapshot!,
+            else view.AdoptStartedCampaign(displayWorld,player,_selectedSnapshot!,
                 cityId=>RunUiAction(()=>OpenMapCityDetails(view,cityId)),
                 hexId=>RunUiAction(()=>SelectMapTarget(hexId)),
                 cityId=>RunUiAction(()=>
@@ -1675,8 +1678,14 @@ public partial class Main : Control
                     view.GetMeta("native_map_source_error", "Source map projection unavailable.")).AsString();
                 throw new InvalidDataException(reason);
             }
-            view.RefreshPlayableWorld(world);
-            RefreshCityMapAttention(world, view);
+            // Resolve again after asynchronous map loading: this same session
+            // can now own a typed wait or its completed source-only receipt.
+            var displayWorld = IsStoryPresentationCurrent ? _storyPresentation!.World : ResidentPresentationWorld(world);
+            if (_periodPlayback is null)
+            {
+                view.RefreshPlayableWorld(displayWorld);
+                RefreshCityMapAttention(displayWorld, view);
+            }
             _campaignComposition?.ConfigureArmyTraitSpeechViews(view.CaptureArmyTraitSpeechViews());
             _campaignComposition?.ConfigureFacilityPeriodicArmyViews(view.CaptureFacilityArmyView);
             _campaignComposition?.ConfigureArmyFireViews(view.CaptureArmyFireView);

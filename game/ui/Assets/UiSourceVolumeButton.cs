@@ -16,7 +16,7 @@ internal partial class UiSourceVolumeButton : UiSourceButton
     private bool transientPress;
     private bool PressedHere => transientPress && GetDrawMode() is DrawMode.Pressed or DrawMode.HoverPressed;
     internal override int VisualState => Disabled ? (IsHovered() ? 4 : 3) : Selected || PressedHere ? 2 : IsHovered() ? 1 : 0;
-    public override bool _HasPoint(Vector2 point) => point.X >= hit.Position.X && point.Y >= hit.Position.Y &&
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && point.X >= hit.Position.X && point.Y >= hit.Position.Y &&
         point.X <= hit.End.X && point.Y <= hit.End.Y;
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
@@ -65,7 +65,7 @@ internal partial class UiSourceVolumeButton : UiSourceButton
             };
         }
         ConfigureStates(states,color);
-        ButtonDown += () => { transientPress = !Disabled; QueueRedraw(); };
+        ButtonDown += () => { transientPress = !Disabled && SourceInputAdmitted; QueueRedraw(); };
         // 8569C0/856DB0 restore the persistent selection on hover transfer;
         // leaving an unselected segment does not re-arm it on re-entry.
         MouseExited += () => { transientPress = false; QueueRedraw(); };
@@ -78,7 +78,7 @@ internal partial class UiSourceVolumeButton : UiSourceButton
         if (input is not InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false }) return;
         bool eligible = Selected || PressedHere;
         transientPress = false; QueueRedraw();
-        if (released is null || Disabled || !IsVisibleInTree() || !eligible ||
+        if (released is null || Disabled || !SourceInputAdmitted || !IsVisibleInTree() || !eligible ||
             GetViewport().GuiGetHoveredControl() != this) return;
         released();
         // Let the normal GUI pass clear the engine's transient press state.

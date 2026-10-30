@@ -8,7 +8,7 @@ internal partial class UiSourceListCheckboxButton : UiSourceButton
     private Rect2 hit;
     private Action? released;
     protected UiSourceText CaptionControl { get; private set; } = null!;
-    public override bool _HasPoint(Vector2 point) => hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, Vector2 requestedSize, string caption, Action released, Rect2? captionRectangle = null)
@@ -54,7 +54,7 @@ internal partial class UiSourceListCheckboxButton : UiSourceButton
             CaptionControl.Configure(font, profile.WithPreset(presets[styles[state]]));
             CaptionControl.QueueRedraw();
         });
-        Pressed += () => { if (!Disabled) this.released?.Invoke(); };
+        Pressed += () => { if (!Disabled && SourceInputAdmitted) this.released?.Invoke(); };
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 

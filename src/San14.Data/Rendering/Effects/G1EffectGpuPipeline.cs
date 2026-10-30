@@ -76,12 +76,35 @@ public sealed record G1EffectGpuPipeline(int Id, G1EffectGpuPipelineKey Key,
     public bool IsReady => Missing.Count == 0;
 }
 
+/// <summary>One 2D subresource. Arrays use D3D order: mip + slice * MipCount.</summary>
 public sealed record G1EffectGpuTextureMip(int Level, int Width, int Height,
-    int RowPitch, int SlicePitch, ReadOnlyMemory<byte> Bytes);
+    int RowPitch, int SlicePitch, ReadOnlyMemory<byte> Bytes)
+{
+    public int ArraySlice { get; init; }
+}
 
-public sealed record G1EffectGpuTexture(int Id, int TextureSlot, StaticTextureBinding Source,
+/// <summary>The resource-generation owner retains the actual image source.
+/// Generated sources supply their own typed definition rather than a G1T binding.</summary>
+public abstract record G1EffectGpuTextureSource;
+
+public sealed record G1EffectGpuStaticTextureSource(StaticTextureBinding Binding)
+    : G1EffectGpuTextureSource;
+
+public sealed record G1EffectGpuTexture(int Id, int TextureSlot, G1EffectGpuTextureSource Source,
     int Width, int Height, uint ResourceFormat, uint ViewFormat,
-    IReadOnlyList<G1EffectGpuTextureMip> Mips, ReadOnlyMemory<byte> SamplerDescription);
+    IReadOnlyList<G1EffectGpuTextureMip> Mips, ReadOnlyMemory<byte> SamplerDescription)
+{
+    public G1EffectGpuTexture(int id, int textureSlot, StaticTextureBinding source,
+        int width, int height, uint resourceFormat, uint viewFormat,
+        IReadOnlyList<G1EffectGpuTextureMip> mips, ReadOnlyMemory<byte> samplerDescription)
+        : this(id, textureSlot, new G1EffectGpuStaticTextureSource(source), width, height,
+            resourceFormat, viewFormat, mips, samplerDescription) { }
+
+    /// <summary>DXBC resource dimension: 4 is 2D; 5 is 2DArray, including one slice.</summary>
+    public uint ViewDimension { get; init; } = 4;
+    public int ArraySize { get; init; } = 1;
+    public int MipCount => ArraySize > 0 ? Mips.Count / ArraySize : 0;
+}
 
 public sealed record G1EffectGpuMesh(int Id, int VertexStride, int IndexFormat,
     ReadOnlyMemory<byte> VertexBytes, ReadOnlyMemory<byte> IndexBytes,

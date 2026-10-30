@@ -6,7 +6,7 @@ internal partial class UiSourceCalculatorButton : UiSourceButton
 {
     private Rect2 hitArea;
     internal override int VisualState=>Disabled?3:base.VisualState;
-    public override bool _HasPoint(Vector2 point)=>hitArea.HasPoint(point);
+    public override bool _HasPoint(Vector2 point)=>SourceInputAdmitted&&hitArea.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
         string caption,bool closeIcon,Action pressed)
@@ -34,7 +34,7 @@ internal partial class UiSourceCalculatorButton : UiSourceButton
             if(icon is not null)
                 foreach(var part in icon.GetChildren().OfType<UiSourceSprite>())part.SetColors(palettes[17+style]);
         });
-        Pressed+=()=>{if(!Disabled)pressed();};
+        Pressed+=()=>{if(!Disabled&&SourceInputAdmitted)pressed();};
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }
 }

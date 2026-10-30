@@ -16,7 +16,7 @@ struct San14CurrentEffectInputV1 {
 static_assert(sizeof(San14CurrentEffectInputV1)==56);
 
 struct San14EffectResourceHeaderV1 {
-    std::uint32_t magic,version; //CER1=31524543, version1
+    std::uint32_t magic,version; //CER1=31524543; v1 planar 2D, v2 explicit texture arrays
     std::uint32_t pipelineCount,pipelineOffset,meshCount,meshOffset;
     std::uint32_t textureCount,textureOffset,samplerCount,samplerOffset;
     std::uint32_t reserved0,reserved1;
@@ -35,6 +35,9 @@ struct San14EffectMeshV1 {
 };
 struct San14EffectTextureV1 {
     std::uint32_t id,width,height,mipCount,resourceFormat,viewFormat;
+    // v1: reserved fields are zero; ArraySize is one and view dimension is 2D.
+    // v2: reserved0 is ArraySize; reserved1 is DXBC view dimension (4=2D, 5=2DArray).
+    // Subresources are in D3D order: mip + arraySlice * mipCount.
     std::uint32_t subresourceOffset,subresourceCount,reserved0,reserved1;
 };
 struct San14EffectSubresourceV1 {std::uint32_t byteOffset,byteLength,rowPitch,slicePitch;};

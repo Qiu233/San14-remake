@@ -72,6 +72,8 @@ internal sealed class MapSystemMenuPreparedResources : IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 var command = assets.CommandButtonLayout(menu.Rectangle(binding.Node).Size);
                 PrepareArt(command, [3, 5, 8, 11, 13]);
+                // Parse the retained state profile before this CPU owner transfers to the UI thread.
+                _ = assets.ButtonStateProfile(command.Source);
                 var profile = MapFontProfile.FromNode(command.Nodes[16], command.Source.Source.ResourceUri);
                 for (int state = 0; state < 5; state++)
                     MapFont.PrepareText(font, Caption(binding.Message), profile.WithPreset(presets[28 + state]),

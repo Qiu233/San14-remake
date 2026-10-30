@@ -39,7 +39,7 @@ internal partial class UiSourceCitySubcommandButton : UiSourceButton
         // attention marker23 is also explicitly hidden. Neither is duplicated.
         // The changing push glow remains deferred rather than frozen at its entry.
         ConfigureStates(states);
-        Pressed += () => { if (!Disabled) this.released?.Invoke(); };
+        Pressed += () => { if (!Disabled && SourceInputAdmitted) this.released?.Invoke(); };
         SetMeta("source_layout", source.Source.Source.ResourceUri);
     }
 

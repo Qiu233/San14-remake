@@ -6,7 +6,7 @@ internal partial class UiSourceBottomButton : UiSourceButton
 {
     private Rect2 hit;
     private UiSourceText _label = null!;
-    public override bool _HasPoint(Vector2 point)=>hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point)=>SourceInputAdmitted&&hit.HasPoint(point);
 
     internal void ApplyCaption(string caption) => _label.Text = caption;
 
@@ -22,7 +22,7 @@ internal partial class UiSourceBottomButton : UiSourceButton
         var presets=MapTextPresets.Create();
         ConfigureStates(states,state=>
         {_label.Configure(font,profile.WithPreset(presets[3+state]));_label.QueueRedraw();});
-        Pressed+=()=>{if(!Disabled)released();};
+        Pressed+=()=>{if(!Disabled&&SourceInputAdmitted)released();};
         // The footer owns the device guide; node17 is hidden by the source.
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }

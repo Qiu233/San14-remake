@@ -33,6 +33,7 @@ public sealed partial class G1EffectMapInputs
     private readonly GameResourceRepository sourceRepository;
     private readonly G1EffectGpuSampler nullImageSampler;
     private readonly uint cameraIesReference;
+    private readonly RenderResourceContext renderResources;
     private readonly G1EffectGpuSampler depthSampler;
     private readonly G1EffectGpuSampler captureSampler;
     private readonly CommonRenderSettings common;
@@ -46,10 +47,13 @@ public sealed partial class G1EffectMapInputs
     private readonly SkyWeatherNativePowerSource lightingPower;
     private readonly uint lightingIndexFormat;
 
-    public G1EffectMapInputs(GameResourceRepository repository, D3D11CurrentSeasonResources resources)
+    public G1EffectMapInputs(GameResourceRepository repository, D3D11CurrentSeasonResources resources,
+        RenderResourceContext renderResources)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(renderResources);
         this.resources = resources;
+        this.renderResources = renderResources;
         sourceRepository = repository;
         cameraIesReference = ReadCameraIesReference(resources.Source.CameraSource.Selection.FirstPackage.Camera);
         var objects = repository.LoadObjects("system", 0x93FB3280);

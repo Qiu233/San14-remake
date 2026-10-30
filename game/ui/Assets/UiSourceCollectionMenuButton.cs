@@ -7,7 +7,7 @@ internal partial class UiSourceCollectionMenuButton : UiSourceButton
     private Rect2 hitArea;
     private Action? released;
     internal string Caption { get; private set; } = "";
-    public override bool _HasPoint(Vector2 point) => hitArea.HasPoint(point);
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && hitArea.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, string text, string locale, CollectionMenuCommand command, Action released)

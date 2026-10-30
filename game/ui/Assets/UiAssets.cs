@@ -24,6 +24,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     private readonly Dictionary<uint, LoadedLayout> _layouts = [];
     private readonly Dictionary<uint, UiSourceLayout> _sourceLayouts = [];
     private readonly Dictionary<Vector2, UiSourceLayout> _commandLayouts = [];
+    private readonly Dictionary<LcskDocument,UiSourceButtonStateProfile> _buttonStateProfiles = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(string Locale, string Caption), LoadedSprite> _captions = [];
     private sealed record PreparedLinearPixels(int Width, int Height, byte[] Bytes);
     private readonly Dictionary<string, PreparedLinearPixels> _preparedLinearPixels = [];
@@ -44,6 +45,14 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         if (!_sourceLayouts.TryGetValue(file, out var result))
             _sourceLayouts.Add(file, result = new UiSourceLayout(Layout(file)));
         return result;
+    }
+
+    internal UiSourceButtonStateProfile ButtonStateProfile(LoadedLayout layout)
+    {
+        ObjectDisposedException.ThrowIf(_disposed,this);
+        if(!_buttonStateProfiles.TryGetValue(layout.Layout,out var profile))
+            _buttonStateProfiles.Add(layout.Layout,profile=new UiSourceButtonStateProfile(layout));
+        return profile;
     }
 
     internal UiSourceLayout CommandButtonLayout(Vector2 size)
@@ -353,6 +362,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         _sprites.Clear();
         _sources.Clear();
         _layouts.Clear(); _sourceLayouts.Clear(); _commandLayouts.Clear(); _captions.Clear();
+        _buttonStateProfiles.Clear();
         _preparedLinearPixels.Clear();
         _sampling.Clear();
         _parts.Clear();

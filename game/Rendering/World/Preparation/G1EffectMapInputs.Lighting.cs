@@ -4,6 +4,20 @@ using San14.Data.Formats;
 
 public sealed partial class G1EffectMapInputs
 {
+    private G1EffectIesTextureSource? currentIesSource;
+    private ulong currentIesRevision;
+
+    private G1EffectGpuTexture CurrentIesTexture()
+    {
+        var source = currentIesSource;
+        if (source is null || currentIesRevision != renderResources.Revision && !source.IsCurrent(renderResources))
+            source = G1EffectIesTextureSource.Load(renderResources, cameraIesReference);
+        var texture = source.PrepareTexture();
+        currentIesSource = source;
+        currentIesRevision = renderResources.Revision;
+        return texture;
+    }
+
     private static uint ReadCameraIesReference(DokObject camera)
     {
         var value = camera.Properties.Single(property => property.NameHash == 0x9148D7AD);
@@ -19,7 +33,11 @@ public sealed partial class G1EffectMapInputs
         if (external.Registrations.Any(entry => entry.PrimaryEncoded == 32 && entry.Name == "sIES"))
         {
             if (cameraIesReference != 0)
-                throw new NotSupportedException("Current nonzero Camera IES requires its actual image owner.");
+            {
+                if (declaration.InputType == 3 || declaration.InputType == 2 && declaration.Dimension == 5 && declaration.ReturnType == 5)
+                    return G1EffectGpuFrameBinding.Uploaded(0, declaration.BindPoint, CurrentIesTexture());
+                throw new InvalidDataException("Current Effect IES has another resource shape.");
+            }
             if (declaration.InputType == 3)
                 return G1EffectGpuFrameBinding.StandaloneSampler(0, declaration.BindPoint, nullImageSampler);
             if (declaration.InputType == 2 && declaration.Dimension == 5 && declaration.ReturnType == 5)

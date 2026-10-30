@@ -183,13 +183,16 @@ public partial class Main
             if (playback is not null && GodotObject.IsInstanceValid(playbackMap))
             {
                 // A returned session can still own a private waiting period.
-                // Only its committed world, or its active story world, owns
-                // the map after this borrow; never briefly redraw the old one
-                // through presentation owners advanced by the candidate.
+                // A typed source wait retains its reached candidate for map
+                // presentation, alongside the existing active Story owner.
+                // The authoritative command world remains committed.
                 bool showingStory = resume && IsStoryPresentationCurrent;
-                var displayedWorld = resume ? showingStory ? _storyPresentation!.World : _world : null;
+                var displayedWorld = resume ? showingStory ? _storyPresentation!.World :
+                    _world is { } committedRoot ? ResidentPresentationWorld(committedRoot) : null : null;
+                bool showingTypedWait = !showingStory && displayedWorld is not null &&
+                    !ReferenceEquals(displayedWorld, _world);
                 bool adoptPresentation = resume && adopted is not null &&
-                    (adopted.PendingNormalPeriod is null || showingStory);
+                    (adopted.PendingNormalPeriod is null || showingStory || showingTypedWait);
                 playbackMap!.EndPeriodPlayback(playback, adoptPresentation, displayedWorld);
             }
             cancellation.Dispose();

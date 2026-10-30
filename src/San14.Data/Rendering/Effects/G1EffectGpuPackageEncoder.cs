@@ -111,7 +111,8 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
         int meshRows = blob.Reserve(checked(meshes.Count * 28));
         int textureRows = blob.Reserve(checked(textures.Count * 40));
         int samplerRows = blob.Reserve(checked(samplers.Count * 12));
-        blob.Words(header, 0x31524543, 1, pipelines.Count, pipelineRows, meshes.Count, meshRows,
+        bool hasTextureArrayViews = textures.Keys.Any(texture => texture.ViewDimension == 5);
+        blob.Words(header, 0x31524543, hasTextureArrayViews ? 2 : 1, pipelines.Count, pipelineRows, meshes.Count, meshRows,
             textures.Count, textureRows, samplers.Count, samplerRows, 0, 0);
         foreach (var (pipeline, id) in pipelines)
         {
@@ -143,14 +144,30 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
         }
         foreach (var (texture, id) in textures)
         {
+            if (texture.Source is null || texture.Width <= 0 || texture.Height <= 0 ||
+                texture.ArraySize <= 0 || texture.Mips.Count == 0 || texture.Mips.Count % texture.ArraySize != 0 ||
+                texture.ViewDimension is not (4 or 5) || texture.ViewDimension == 4 && texture.ArraySize != 1)
+                throw new InvalidDataException("Effect texture requires complete source dimensions and subresources.");
+            int mipCount = texture.MipCount;
+            if (mipCount > 1 + System.Numerics.BitOperations.Log2((uint)Math.Max(texture.Width, texture.Height)))
+                throw new InvalidDataException("Effect texture mip chain exceeds its dimensions.");
             int subresources = blob.Reserve(checked(texture.Mips.Count * 16));
             for (int index = 0; index < texture.Mips.Count; index++)
             {
-                var mip = texture.Mips[index]; int bytes = blob.Append(mip.Bytes.Span);
+                var mip = texture.Mips[index];
+                int level = index % mipCount, slice = index / mipCount;
+                if (mip.Level != level || mip.ArraySlice != slice ||
+                    mip.Width != Math.Max(1, texture.Width >> level) ||
+                    mip.Height != Math.Max(1, texture.Height >> level) ||
+                    mip.RowPitch <= 0 || mip.SlicePitch < mip.RowPitch || mip.Bytes.Length != mip.SlicePitch)
+                    throw new InvalidDataException("Effect texture subresources must retain actual D3D slice and mip order and pitches.");
+                int bytes = blob.Append(mip.Bytes.Span);
                 blob.Words(subresources + index * 16, bytes, mip.Bytes.Length, mip.RowPitch, mip.SlicePitch);
             }
-            blob.Words(textureRows + id * 40, id, texture.Width, texture.Height, texture.Mips.Count,
-                texture.ResourceFormat, texture.ViewFormat, subresources, texture.Mips.Count, 0, 0);
+            blob.Words(textureRows + id * 40, id, texture.Width, texture.Height, mipCount,
+                texture.ResourceFormat, texture.ViewFormat, subresources, texture.Mips.Count,
+                hasTextureArrayViews ? texture.ArraySize : 0,
+                hasTextureArrayViews ? texture.ViewDimension : 0);
         }
         foreach (var (source, id) in samplers)
         {

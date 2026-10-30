@@ -57,7 +57,7 @@ public sealed partial class G1EffectGpuResources
                 throw new InvalidDataException("Effect texture mip does not match its encoded device pitch.");
             mips.Add(new(mip.Level, mip.Width, mip.Height, rowPitch, slicePitch, bytes));
         }
-        var result = new G1EffectGpuTexture(slot, slot, binding, image.Width, image.Height,
+        var result = new G1EffectGpuTexture(slot, slot, new G1EffectGpuStaticTextureSource(binding), image.Width, image.Height,
             ordinary.ResourceFormat, view, mips.AsReadOnly(),
             G1TextureSamplerReader.ReadRetainedSource(image).EncodeD3D11Descriptor());
         textures.Add(slot, result);

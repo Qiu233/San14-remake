@@ -19,7 +19,7 @@ internal partial class UiSourceCaptionButton : UiSourceButton
             0x60C991A4=>28,
             _=>throw new ArgumentOutOfRangeException(nameof(sourceLayout))
         };
-        var source=new UiSourceLayout(repository,sourceLayout).ResizedSubtree(0,Size,true);
+        var source=assets.SourceLayout(sourceLayout).ResizedSubtree(0,Size,true);
         ConfigureSource(repository,assets,shader,font,source,firstPreset,text,released);
     }
 
@@ -28,8 +28,8 @@ internal partial class UiSourceCaptionButton : UiSourceButton
     internal void ConfigureFooterText(GameResourceRepository repository,UiAssets assets,Shader shader,
         MapFont font,string text,Action released)
     {
-        var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"cmn_btn_ft"))
-            .ResizedSubtree(0,Size,true);
+        var declared=MapMarkerLayout.LoadNamed(repository,"cmn_btn_ft");
+        var source=assets.SourceLayout(declared.Source.FileId).ResizedSubtree(0,Size,true);
         ConfigureSource(repository,assets,shader,font,source,3,text,released);
     }
 
@@ -43,14 +43,13 @@ internal partial class UiSourceCaptionButton : UiSourceButton
         hit=new(new Vector2((int)sourceHit.Position.X,(int)sourceHit.Position.Y),
             new Vector2((int)sourceHit.Size.X,(int)sourceHit.Size.Y));
         ActionMode=ActionModeEnum.Release;
-        var states=new[]{3,5,8,11,13}
-            .Select(index=>source.Art(this,index,source.Rectangle(index),assets,shader)).ToArray();
-        // The additive focus/push animation layers have separate blend state.
+        int[][] layers=[[3],[5,6],[8,9],[11],[13,14]];
+        var art=new UiSourceButtonStateArt(this,source,assets,shader,layers,"CaptionButtonState");
         var caption=source.Text(this,16,default,text,font);caption.Name="Caption";label=caption;
         var profile=MapFontProfile.FromNode(source.Nodes[16],source.Source.Source.ResourceUri);
         var presets=MapTextPresets.Create();
-        ConfigureStates(states,state=>
-        {caption.Configure(font,profile.WithPreset(presets[firstPreset+state]));caption.QueueRedraw();});
+        ConfigureStates(art.States,state=>
+        {art.ApplyState(state);caption.Configure(font,profile.WithPreset(presets[firstPreset+state]));caption.QueueRedraw();});
         Pressed+=()=>{if(!Disabled&&SourceInputAdmitted)released();};
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }

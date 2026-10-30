@@ -406,7 +406,7 @@ public partial class MapSceneView
                         {
                             if (!ReferenceEquals(effectInputResources, season.LoadedResources))
                             {
-                                effectInputs = new(mapRepository, season.LoadedResources);
+                                effectInputs = new(mapRepository, season.LoadedResources, resourceContext);
                                 effectInputResources = season.LoadedResources;
                             }
                             //The current native View has no primary-light

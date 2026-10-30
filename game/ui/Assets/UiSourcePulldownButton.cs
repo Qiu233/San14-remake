@@ -6,7 +6,7 @@ using San14.Data;
 internal partial class UiSourcePulldownButton : UiSourceButton
 {
     private Rect2 hit;
-    public override bool _HasPoint(Vector2 point)=>hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point)=>SourceInputAdmitted&&hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,
         MapFont font,uint sourceLayout,string text,Action released)
@@ -26,7 +26,7 @@ internal partial class UiSourcePulldownButton : UiSourceButton
         var presets=MapTextPresets.Create();int[] styles=[57,58,59,60,60];
         ConfigureStates(states,state=>
         {caption.Configure(font,profile.WithPreset(presets[styles[state]]));caption.QueueRedraw();});
-        Pressed+=()=>{if(!Disabled)released();};
+        Pressed+=()=>{if(!Disabled&&SourceInputAdmitted)released();};
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }
 }

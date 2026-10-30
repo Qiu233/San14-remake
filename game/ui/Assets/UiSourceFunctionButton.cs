@@ -10,7 +10,7 @@ internal partial class UiSourceFunctionButton : UiSourceButton
     private Shader shader=null!;
     private Control? glyph;
     private string? currentIcon;
-    public override bool _HasPoint(Vector2 point) => _hit.HasPoint(point);
+    public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && _hit.HasPoint(point);
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string icon,Action pressed)
     {
@@ -32,7 +32,7 @@ internal partial class UiSourceFunctionButton : UiSourceButton
         {
             foreach (var part in glyph!.GetChildren().OfType<UiSourceSprite>()) part.SetColors(colors[25+state]);
         });
-        Pressed += () => { if (!Disabled) pressed(); };
+        Pressed += () => { if (!Disabled && SourceInputAdmitted) pressed(); };
         SetMeta("source_layout",source.Source.Source.ResourceUri);
     }
 
