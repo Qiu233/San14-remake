@@ -22,14 +22,14 @@ public partial class Main
         var composition = _campaignComposition!;
         int player = _session?.PlayerForceId ?? throw new InvalidOperationException("Officer information requires a player.");
         list.Configure(repository, _ui, pages, () => current(list), close,
-            officer => RunUiAction(() =>
+            officer => RunInspectionUiAction(world, () =>
             {
                 if (!current(list) || !world.Officers.ContainsKey(officer)) return;
                 var detail = new OfficerDetailsView();
                 showChild(detail, back => ConfigureCurrentOfficerDetail(detail, world, officer, back,
                     () => current(detail), Adopt, list.Pages.CurrentOfficerIds,
                     list.ApplyDetailReturn, list.NameSortAscending));
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         RetainCommandDetailSpeechWorld(list, next =>
         {
             world = next; rules = composition.PrepareArmyQueries(next);

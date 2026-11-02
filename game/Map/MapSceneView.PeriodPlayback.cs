@@ -10,13 +10,30 @@ public partial class MapSceneView
         D3D11TerritoryPublication? Territory, D3D11ArmyPublication? Army,
         ArmyMapGroupingFrame? Groups, D3D11CityGatePublication? Cities,
         D3D11AreaCapitalPublication? Areas, D3D11ArmyLabelPublication? Labels,
-        FacilityMapInfoPublication? FacilityInfo, HexFirePresentationPublication? HexFire);
+        FacilityMapInfoPublication? FacilityInfo, HexFirePresentationPublication? HexFire,
+        AreaAdministrationQuery<RulerHomeCameraTarget> RulerHome);
     private PeriodMapFrame? _periodMapFrame;
+    private AreaAdministrationQuery<RulerHomeCameraTarget>? _periodInitialRulerHome;
     private bool _periodMapActive;
     private bool _periodMapPaused;
     private GameState? _periodBorrowedCandidate;
     private D3D11ArmyPublisher? _periodOriginalArmy;
     private CampaignPeriodPlayback? _periodMapOwner;
+    // A continuing Story can advance without a six-hour map borrow. This
+    // lease follows the worker operation, independently of render ownership.
+    private CampaignPeriodPlayback? _periodProgressFrameDriver;
+    internal void SetPeriodProgressFrameDriver(CampaignPeriodPlayback owner)
+        => _periodProgressFrameDriver = owner;
+    internal void ClearPeriodProgressFrameDriver(CampaignPeriodPlayback owner)
+    {
+        if (ReferenceEquals(_periodProgressFrameDriver, owner)) _periodProgressFrameDriver = null;
+    }
+    private void StopPeriodProgressFrames(Exception failure)
+    {
+        if (_periodProgressFrameDriver is not { } owner) return;
+        owner.FailPresentation(failure);
+        ClearPeriodProgressFrameDriver(owner);
+    }
 
     internal void BeginPeriodPlayback(CampaignPeriodPlayback owner)
     {
@@ -26,9 +43,11 @@ public partial class MapSceneView
         _periodOriginalArmy = _d3d11Army;
         _d3d11Army = nextArmy;
         _periodMapOwner = owner;
+        _periodInitialRulerHome = CaptureRulerHomeCameraTarget(_logicalWorld);
         _periodMapActive = true; _periodMapFrame = null; _periodMapPaused = false;
         SuspendMapSummaries();
         CloseCityCommandMenu();
+        CloseAreaHexCommandMenu();
         SetDetailsOpen(false);
         foreach (var button in new[] { _mapCityInformation, _mapCityOrders, _mapAreaOrders, _mapUnitOrders, _mapNextUnit })
             if (button is not null) button.Visible = false;
@@ -40,20 +59,24 @@ public partial class MapSceneView
     {
         if (!_periodMapActive || !ReferenceEquals(_periodMapOwner, owner)) return;
         if (!UseD3D11Map) return;
+        CapturePeriodPlaybackFrame(candidate);
+        ScheduleD3D11MapFrame();
+    }
+
+    private void CapturePeriodPlaybackFrame(GameState candidate)
+    {
         var season = candidate.NativeMapSeason ?? throw new InvalidDataException("Period display has no actual native date.");
-        _d3d11Army?.AdvanceMotion(candidate, _d3d11AnimationPacer?.FpsMode ?? 0);
         var cityGateWorld=CaptureCityGateFacilityWorld(candidate,_d3d11CityGate?.Capture(candidate,_d3d11CommonFrustumMode));
         var frame = new PeriodMapFrame(season, _d3d11Ownership?.Capture(candidate),
-            _d3d11Army?.Capture(candidate), _d3d11ArmyGroupingQueries?.Invoke(candidate),
+            _d3d11Army?.CapturePlaybackTargets(candidate), _d3d11ArmyGroupingQueries?.Invoke(candidate),
             cityGateWorld,
             _d3d11AreaCapital?.Capture(candidate, _d3d11CommonFrustumMode),
             _d3d11Markers?.CaptureArmyLabels(candidate),
             _d3d11Markers?.CaptureFacilityInfo(candidate,cityGateWorld?.Facilities),
-            CaptureHexFirePresentation(candidate));
+            CaptureHexFirePresentation(candidate), CaptureRulerHomeCameraTarget(candidate));
         _d3d11Markers?.RefreshWorld(candidate, ForceMarkerColors);
         _periodMapFrame = frame;
         _periodBorrowedCandidate = candidate;
-        ScheduleD3D11MapFrame();
     }
 
     internal void SetPeriodPlaybackPaused(CampaignPeriodPlayback owner, bool paused)
@@ -63,14 +86,26 @@ public partial class MapSceneView
     }
 
     internal void ReleasePeriodPlaybackCandidate(CampaignPeriodPlayback owner)
-    { if (ReferenceEquals(_periodMapOwner, owner)) _periodBorrowedCandidate = null; }
+    {
+        // A continuing Story owns the same stopped-worker borrow through its
+        //frame driver, without installing the ordinary six-hour map display.
+        if (!ReferenceEquals(_periodMapOwner, owner) && !ReferenceEquals(_periodProgressFrameDriver, owner)) return;
+        // No chronology inspector may retain the checkpoint after Main lends
+        // it back to the simulation worker, including cancellation/retirement.
+        RetirePeriodChronology(owner);
+        _periodBorrowedCandidate = null;
+        ReleasePeriodArmyViewSources();
+    }
 
     internal void EndPeriodPlayback(CampaignPeriodPlayback owner, bool adoptPresentation,
         GameState? displayedWorld = null)
     {
         if (!ReferenceEquals(_periodMapOwner, owner)) return;
+        RetirePeriodChronology(owner);
+        ReleasePeriodArmyViewSources();
         _periodMapOwner = null;
         _periodMapActive = false; _periodMapFrame = null; _periodBorrowedCandidate = null;
+        _periodInitialRulerHome = null;
         if (adoptPresentation) _periodOriginalArmy?.Dispose();
         else if (_periodOriginalArmy is not null)
         { _d3d11Army?.Dispose(); _d3d11Army = _periodOriginalArmy; }

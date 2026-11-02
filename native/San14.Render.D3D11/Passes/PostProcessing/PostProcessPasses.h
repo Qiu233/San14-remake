@@ -30,6 +30,7 @@ struct NativeNormalPostSamplerBinding {
     UINT slot{};
     ComPtr<ID3D11SamplerState> sampler; // Existing graphics recipe binds PS.
 };
+enum class NormalPostScatterClear { Recipe, GpuRear, GpuFore };
 struct NativeNormalPostPass {
     std::string name;
     bool compute{};
@@ -52,6 +53,7 @@ struct NativeNormalPostPass {
     bool indirect{};
     UINT index{},offset{},stagingSide{}; // Source indirect buffer index/byte offset.
     D3D11_PRIMITIVE_TOPOLOGY topology{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST};
+    NormalPostScatterClear scatterClear{NormalPostScatterClear::Recipe};
     bool clear{}; // Execute after target bind on every reached call, not at load.
     UINT clearMask{},clearPacked{}; // Current source scatter recipe:15/RGBA0.
 };

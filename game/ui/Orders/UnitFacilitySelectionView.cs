@@ -32,14 +32,15 @@ internal partial class UnitFacilitySelectionView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
         IReadOnlyList<UnitFacilitySelectionEntry> entries,Action<FacilityConstructionChoice?> complete,
-        IReadOnlyList<string>? preselectedDefinitionKeys=null,FacilitySelectionPageSet? pages=null,Func<int>? scrollSpeed=null)
+        IReadOnlyList<string>? preselectedDefinitionKeys=null,FacilitySelectionPageSet? pages=null,Func<int>? scrollSpeed=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         this.repository=repository;this.text=text;this.entries=entries;this.complete=complete;this.pages=pages;
         this.scrollSpeed=scrollSpeed??(()=>0);
         Name="UnitFacilitySelection";ZIndex=4;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome=new AdministrationPageChrome();AddChild(chrome);
-        chrome.Configure(repository,text,0x5B9,RequestCancel,Accept);
+        chrome.Configure(repository,text,0x5B9,RequestCancel,Accept,resources:resources);
         chrome.ApplyDefaultHint(text.Get("play_facility_construction"));
         var seeds=entries.Where(entry=>preselectedDefinitionKeys?.Contains(entry.Choice.DefinitionKey)==true).ToArray();
         if(seeds.Length==1)
@@ -86,7 +87,7 @@ internal partial class UnitFacilitySelectionView : Control
                 chrome.ApplyHoverHint(!entry.CommandSupported?text.Get("play_facility_order_unavailable"):
                     entry.Reason=="structure.selection.policy"?text.Get("play_facility_blocked_policy"):
                     entry.Allowed!=true?text.Get("play_facility_unavailable"):entry.Choice.Name);
-            });
+            },resources:new(chrome.Assets,chrome.Font,chrome.SpriteShader));
         // The actual existing selection chrome owns Return/Decide. Keep the
         // shared list's transparent surface from blocking those live buttons.
         next.MouseFilter=MouseFilterEnum.Ignore;next.SourceCanvas.MouseFilter=MouseFilterEnum.Ignore;

@@ -33,6 +33,12 @@ public static class MapGameLightQualityOverlay
         return new(completeLightData,currentCgQualityOption18,currentMainMode288);
     }
 
+    public static MapGameLightQualityWrites ReadCurrentControls(ReadOnlySpan<byte> light)
+    {
+        if(light.Length!=CompleteLightDataBytes)throw new InvalidDataException("Game light controls need a complete current light.");
+        return new(light[0x10B1],light[0x10B2],light[0x10B5],light[0xF1D]);
+    }
+
     internal static void Write(Span<byte> bytes,MapGameLightQualityWrites values)
     {
         bytes[0x10B1]=values.Light10B1;bytes[0x10B2]=values.Light10B2;

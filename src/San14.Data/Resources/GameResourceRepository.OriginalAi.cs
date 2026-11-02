@@ -19,7 +19,9 @@ public sealed partial class GameResourceRepository
     public LoadedOriginalAiResources LoadOriginalAiResources(
         string relativePath = "0000/bt_exce.bin")
     {
+        SynchronizeResidentInvalidation();
         var id = GameResourceId.File(relativePath);
+        _residentSources.OriginalAiBehaviorSources.TryAdd(id, 0);
         string resourceUri = id.ToString();
         string physicalPath = _overrides.Find(id) ?? SourcePath(relativePath);
         var info = new FileInfo(physicalPath);
@@ -51,7 +53,12 @@ public sealed partial class GameResourceRepository
     /// preserve file timestamps. Ordinary loads also detect changed path/size/time.</summary>
     public void InvalidateOriginalAiResources(string? relativePath = null)
     {
-        if (relativePath is null) _originalAiResources.Clear();
-        else _originalAiResources.Remove(GameResourceId.File(relativePath).ToString());
+        // Invalidate the shared source as well as this reader's parsed view;
+        // otherwise same-size/time replacement would reuse resident old bytes.
+        GameResourceId[] sources = relativePath is null
+            ? _residentSources.OriginalAiBehaviorSources.Keys
+                .Append(GameResourceId.File("0000/bt_exce.bin")).Distinct().ToArray()
+            : [GameResourceId.File(relativePath)];
+        foreach (var source in sources) Invalidate(source);
     }
 }

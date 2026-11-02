@@ -118,6 +118,11 @@ public sealed class OwnedArmyGovernorComparatorInputs
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
+    // Normal-load callers borrow the once-parsed immutable row. This is not
+    // a fallback for a started campaign whose saved owner is missing.
+    internal ArmyGovernorPersonSource? ReadNormalLoadPerson(int physical) =>
+        (uint)physical < _people.Length ? _people[physical] : null;
+
     public byte? ReadCurrentPriority160(GameState state, int physical) =>
         Bound(state) && ReadInt(state, VersionKey) == 1 && (uint)physical < _people.Length &&
         CurrentPerson(state, physical)?.Id is int id &&

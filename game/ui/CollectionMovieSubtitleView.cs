@@ -8,13 +8,15 @@ internal partial class CollectionMovieSubtitleView : UiSourceAnimationView
     private IReadOnlyList<CollectionMovieSubtitle> entries = [];
     private UiSourceMultilineText paragraph = null!;
     private MapFont? font;
+    private bool ownsFont;
     private int selected = -1;
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, CollectionMoviePlayback source)
+    internal void Configure(GameResourceRepository repository, PreviewText text, CollectionMoviePlayback source, AdministrationPageChrome.Resources? resources = null)
     {
         Name = "OriginalMovieSubtitles"; AutomaticAnimationClock = false; entries = source.Subtitles;
-        font = new(repository, text.SourceLocale);
-        var layout = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, source.SubtitleLayoutName));
+        ownsFont = resources is null; font = resources?.Font ?? new(repository, text.SourceLocale);
+        var layout = resources?.Assets.SourceLayout(source.SubtitleLayoutName) ??
+            new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, source.SubtitleLayoutName));
         ConfigureAnimation(layout, new HashSet<string> { "in", "loop", "out" }, Enumerable.Range(0, layout.Nodes.Count));
         // Node1 is the dynamic movie capture plane, supplied by the decoded
         // frame view below this overlay, rather than a static atlas image.
@@ -45,5 +47,5 @@ internal partial class CollectionMovieSubtitleView : UiSourceAnimationView
         float factor = Math.Min(canvasSize.X / 1920, canvasSize.Y / 1080);
         Scale = Vector2.One * factor; Position = (canvasSize - new Vector2(1920, 1080) * factor) / 2;
     }
-    public override void _ExitTree() => font?.Dispose();
+    public override void _ExitTree() { if (ownsFont) font?.Dispose(); }
 }

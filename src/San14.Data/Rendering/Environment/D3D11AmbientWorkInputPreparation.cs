@@ -26,8 +26,11 @@ public static class D3D11AmbientWorkInputPreparation
         var inputs = present.AcceptedSeasonCamera.Inputs;
         var source = inputs.Source;
         var selection = source.Selection;
-        if (!light.ContextApplied || !light.Mode6Applied || light.Exposure.Type != 6 || !light.ThirdColorMixEnabled)
-            throw new InvalidDataException("WORK requires the current mode-six directional light with third-color mixing.");
+        // The Camera writer supplies Sun/Moon, the first directional light and
+        // Fog before its optional third-color continuation. WORK reads only
+        // those fields, so either current third-color branch has the same ABI.
+        if (!light.ContextApplied || !light.Mode6Applied || light.Exposure.Type != 6)
+            throw new InvalidDataException("WORK requires the current mode-six Camera directional light.");
         if (selection.SecondPackage is not null || inputs.MainFrame.Camera.Source.Declaration.SkyDomeSceneKey != 0 ||
             selection.FirstPackage.SkyDomeSceneKey != 0)
             throw new NotSupportedException("WORK requires the direct selected package and an implemented null scene branch.");

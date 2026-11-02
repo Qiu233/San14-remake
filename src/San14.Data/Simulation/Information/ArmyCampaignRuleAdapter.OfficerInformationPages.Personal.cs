@@ -61,13 +61,13 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private int PersonalDisposition(Person person)
         {
-            int value = Need(current.ReadAllegianceDisposition(person.PhysicalSlot), "personal.allegiance_disposition");
+            int value = Need(prestartListInputs is not null ? prestartListInputs.Disposition(person.PhysicalSlot) : current.ReadAllegianceDisposition(person.PhysicalSlot), "personal.allegiance_disposition");
             return value is >= short.MinValue and <= short.MaxValue ? value
                 : throw Missing("personal.allegiance_disposition_range");
         }
 
         private int PersonalPreference(Person person, int field) =>
-            Need(RulerCaptureReleaseInputs.ReadCurrentWord(state, person.PhysicalSlot, field),
+            Need(prestartListInputs is not null ? prestartListInputs.Preference(person.PhysicalSlot, field) : RulerCaptureReleaseInputs.ReadCurrentWord(state, person.PhysicalSlot, field),
                 "personal.preference." + field.ToString("X"));
 
         private static int PersonalInnerDisplay(int value) => value switch

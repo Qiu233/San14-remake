@@ -42,32 +42,67 @@ public sealed class D3D11SceneMediaPreparation
         LoadedTerrainSceneResources sources, MapCameraConstructionPacket camera,
         string terrainDirectory, int width, int height)
     {
-        var scene = sources.Scene;
+        ArgumentNullException.ThrowIfNull(camera);
+        return PrepareOpening(repository, LoadSources(repository, sources, camera.ExecutableLocale),
+            camera, terrainDirectory, width, height);
+    }
+
+    /// <summary>Load the static closure without a World, accepted camera or
+    /// output directory. The application's repository generation retains it.</summary>
+    public static D3D11SceneMediaSources LoadSources(GameResourceRepository repository,
+        LoadedTerrainSceneResources sources, string locale)
+    {
+        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(sources);
         var renderer = NamedViewRendererResources.Load(repository);
-        var terrain = D3D11TerrainInputPreparation.Load(repository, sources, camera.ExecutableLocale);
-        var initialTerrain = terrain.PrepareInitialFrame(camera, width, height);
-        var root = LoadedReflectionSceneRootSource.Load(repository, scene);
-        var rootPlacements = root.CreateModelAndEffectPlacements();
-        var models = D3D11ModelInputPreparation.Load(repository, scene,
-            rootPlacements, camera,
-            placement => MapStaticModelPublication.FreshUnparented($"scene-field/{placement.Source.Index}"));
+        var terrain = D3D11TerrainInputSources.Load(repository, sources, locale);
+        var root = LoadedReflectionSceneRootSource.Load(repository, sources.Scene);
+        var placements = root.CreateModelAndEffectPlacements();
+        var models = D3D11ModelInputSources.Load(repository, sources.Scene, placements, locale);
         var common = CommonRenderResources.ImportSettings(repository.LoadObjects(
             "KIDSSystemResource", CommonRenderResources.SourceFileId));
+        var oceanTextures = D3D11OceanTextureInputPreparation.Load(repository, renderer, "system", "RRPreview");
+        var oceanShaders = OceanShaderResources.LoadPb2Wave(repository, renderer);
+        return new(terrain, models, renderer, oceanShaders, oceanTextures, root, common);
+    }
+
+    /// <summary>Construct only this opening's publications and accepted-camera
+    /// output bank from loaded source content. No current state is retained in
+    /// the shared source object.</summary>
+    public static D3D11SceneMediaPreparation PrepareOpening(GameResourceRepository repository,
+        D3D11SceneMediaSources sources, MapCameraConstructionPacket camera,
+        string terrainDirectory, int width, int height)
+        => PrepareOpening(repository, sources, camera, terrainDirectory, width, height, null);
+
+    public static D3D11SceneMediaPreparation PrepareOpening(GameResourceRepository repository,
+        D3D11SceneMediaSources sources, MapCameraConstructionPacket camera,
+        string terrainDirectory, int width, int height, D3D11TerrainPreparedPrograms? terrainPrograms)
+    {
+        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(camera);
+        if (sources.Locale != camera.ExecutableLocale)
+            throw new InvalidDataException("Scene media sources differ from the accepted camera locale.");
+        var renderer = sources.Renderer;
+        var terrain = D3D11TerrainInputPreparation.CreateOpening(sources.Terrain);
+        var initialTerrain = terrain.PrepareInitialFrame(camera, width, height);
+        var root = sources.SceneRoot;
+        var rootPlacements = sources.FieldModels.Placements;
+        var models = D3D11ModelInputPreparation.PrepareOpening(repository, sources.FieldModels, camera,
+            placement => MapStaticModelPublication.FreshUnparented($"scene-field/{placement.Source.Index}"));
+        var common = sources.Common;
         var reflectionScene = D3D11ReflectionSceneInputPreparation.Prepare(
             root, rootPlacements, models, common, camera);
         var reflectionInputs = D3D11ReflectionInputPreparation.Prepare(repository, models, rootPlacements, camera);
         string inputs = Path.GetDirectoryName(Path.GetFullPath(terrainDirectory))!;
         reflectionScene.WriteNativeInputs(inputs);
         reflectionInputs.WriteNativeInputs(inputs);
-        terrain.WriteNativeInputs(terrainDirectory, initialTerrain);
+        terrain.WriteNativeInputs(terrainDirectory, initialTerrain, terrainPrograms);
         models.WriteNativeInputs(Path.Combine(inputs, "model-continuous-input"));
         OceanGridSettingsEncoding.WriteNativeInputs(
             Path.Combine(inputs, OceanGridSettingsEncoding.NativeDirectory), renderer.OceanGrid);
         NamedViewRendererEncoding.WriteNativeInputs(
             Path.Combine(inputs, OceanGridSettingsEncoding.NativeDirectory), renderer, viewIndex: 0);
-        D3D11OceanTextureInputPreparation.Load(repository, renderer, "system", "RRPreview")
-            .WriteNativeInputs(Path.Combine(inputs, "ocean-texture-input"));
-        var oceanShaders = OceanShaderResources.LoadPb2Wave(repository, renderer);
+        sources.OceanTextures.WriteNativeInputs(Path.Combine(inputs, "ocean-texture-input"));
+        var oceanShaders = sources.OceanShaders;
         oceanShaders.WriteNativeInputs(Path.Combine(inputs, "water-input"));
         return new(terrain, models, initialTerrain, renderer, oceanShaders, root, reflectionScene, reflectionInputs);
     }

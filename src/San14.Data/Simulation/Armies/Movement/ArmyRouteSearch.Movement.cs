@@ -32,8 +32,8 @@ internal static partial class ArmyRouteSearch
         internal override bool WallPermission { get; }
         internal override byte? Action => ArmyConfigurationSourceAdapter.ReadAction(state, army);
         internal override bool HasNoDestination =>
-            (AvoidHostile ? TransportRouteSourceAdapter.ReadWaypoint(state, army, 0) :
-                ArmyMarchSourceAdapter.EncodeDestination(army.March?.Target)) == Count;
+            AvoidHostile ? TransportRouteSourceAdapter.ReadWaypoint(state, army, 0) == TransportRouteSourceAdapter.EmptyWaypoint :
+                army.March?.Target is { Kind: ArmyMarchDestinationKind.None, HexId: null };
 
         internal LiveMovement(GameState state, SourceWorldContext current, UnitState army)
         {
@@ -48,11 +48,13 @@ internal static partial class ArmyRouteSearch
             int physical = person.PhysicalSlot ?? throw Missing("Person_receiver");
             //183C00 leaves homeStart false for a special Force without the
             //232860 binding. Other actors use32C7D0's actual Base lookup.
-            HomeHex = Count;
+            HomeHex = current.MapTileCount;
             if (Force is not (>= 46 and <= 51) || current.IsArmyUnitBoundToSpecialForce(actor))
             {
                 ushort location = K(current.ReadPersonFirstLocation(physical), "PersonE2");
-                HomeHex = current.ReadBaseCurrentHexIndex(BaseLookup.Find(location, current));
+                ushort home = current.ReadBaseCurrentHexIndex(BaseLookup.Find(location, current));
+                HomeHex = ArmyMarchSourceAdapter.DecodeDestination(home) is { Kind: ArmyMarchDestinationKind.Hex, HexId: int hex }
+                    ? hex : current.MapTileCount;
             }
             WallPermission = !K(TacticRemakeCurrentTraits.CommanderImmune(current, physical, 102), "Commander_trait102");
         }

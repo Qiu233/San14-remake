@@ -39,6 +39,8 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
     {
         try
         {
+            if (CaptureArmyReturnContinuationSource.Read(input) is not null)
+                return ResumePlayerReturnTail(input, request, borrowedCurrent);
             if (request.Target.Kind != SettlementBaseKind.Gate || request.WinnerUnitId is not int winnerId)
                 throw Missing("branch.ordinary_Gate_settlement");
             var resumed = input.BaseCaptureContinuation;
@@ -76,7 +78,9 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
                 throw Missing("resume_winner_receiver");
             if (saved is null && oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, [], true), null);
-            if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
+            //2851B0 also admits a real neutral former owner. Only the
+            //recipient must be an ordinary valid Force; unknown B0 is not0.
+            if (oldForce is < 0 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
             var winningForce = current.ReadForceTableReference(newForce) ?? throw Missing("winner_Force_pointer");
             var effects = new List<string>(); var working = input;
             if (saved is null)
@@ -113,10 +117,12 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
                     current.ReadOwnedCurrentListPool() ?? throw Missing("nearby_Army_pool"),
                     target, operationThirdDate, districtEffects, sampler);
                 effects.Add("2851B0.mode0_current_ring_old_Force_Army_confusion");
-                var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, newDistrict, commander);
+                working = package.AppendBaseCaptureChronicleCurrent(working, current, target, winner, winningForce, sampler);
                 queries = package.CreateCaptureDistrictOperationQueries(current, () => working,
                     next => working = next, operationThirdDate, districtEffects, newForce, groups);
-                Primary(current, assignment.CapturedOldDistrict, queries);
+                var capturedOldDistrict = GateCaptureTerritorySource.AssignGateCityCurrent(current, target,
+                    newDistrict, commander, queries);
+                Primary(current, capturedOldDistrict, queries);
                 if (IsTerminal()) return CompleteTerminal();
                 effects.Add("26D2E0.270880_and_first_old_District_2E9140");
                 current.SetObjectForceSlot13(location, (byte)newForce);
@@ -135,7 +141,7 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
                     if (removed.UnresolvedOwner is not null) throw Missing(removed.UnresolvedOwner);
                 }
                 effects.Add("26DA10.resource_keep_and_Area36_removal");
-                Primary(current, assignment.CapturedOldDistrict, queries);
+                Primary(current, capturedOldDistrict, queries);
                 if (IsTerminal()) return CompleteTerminal();
                 Primary(current, district, queries);
                 if (IsTerminal()) return CompleteTerminal();
@@ -146,10 +152,14 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
                 working = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "27BE40_new_Force");
                 effects.Add("26DA10.two_2E9140_HomeArmy_and_27BE40");
                 _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
-                    assignment.CapturedOldDistrict.PhysicalSlot ?? 0, newDistrict);
+                    capturedOldDistrict.PhysicalSlot ?? 0, newDistrict,
+                    readAdviser: adviceDistrict => package.ReadCaptureAdviserCurrent(working, current, adviceDistrict));
                 int cap = K(ArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_bound");
                 byte zero = unchecked((byte)Math.Min(cap, 0));
-                current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
+                var threatFields = current.ReadCaptureBaseThreatFields(target)
+                    ?? throw Missing("capture_threat_current_fields");
+                current.SetCaptureBaseThreatFields(target, threatFields with
+                    { Byte49 = zero, Byte4B = zero, Byte62 = 255, Word64 = 0 });
                 _ = GateCaptureRoutingSource.ClearTargetRouting(current, target);
                 effects.Add("26DA10.2DF9F0_final_footprint_threat_and_D0_routing");
                 //The territory wrapper is local to26DA10. Winner29F220 uses
@@ -167,6 +177,15 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
                 var returnResult = package.PrepareOwnedArmyReturnCurrent(working, winner, target, 0,
                     returnWorld.Context, returnWorld.Pool, package.CreateCaptureGovernorQueries(working), new(false, false),
                     operationDate: operationThirdDate, sampler: sampler);
+                if (returnResult.Suspension is { } suspendedReturn)
+                {
+                    var returnTail = CaptureArmyReturnContinuationSource.Save(current, captureContext, counts);
+                    working = CaptureArmyReturnContinuationSource.Attach(
+                        returnWorld.CommitSuspension(working, suspendedReturn), returnTail);
+                    ReleaseOwned();
+                    working = BaseCapturePublicationSource.Publish(working, current, returnWorld.Pool, projectOwnedRoles: true);
+                    return new(working, null, null);
+                }
                 var returnPacket = returnResult.Packet ?? throw Missing(returnResult.UnresolvedOwner ?? "winner_29F220");
                 working = returnWorld.CommitPrepared(working, returnPacket) ?? throw Missing("winner_29F220_publication");
                 current = returnWorld.Context;
@@ -212,6 +231,20 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
         catch (InvalidDataException error) { return new(null, null, error.Message); }
     }
 
+    private OwnedGateCaptureResult ResumePlayerReturnTail(GameState input, BaseCaptureRequest request,
+        SourceWorldContext? borrowedCurrent)
+    {
+        if (request.Target.Kind != SettlementBaseKind.Gate) throw Missing("player_return_target_kind");
+        var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
+        var completed = CaptureArmyReturnContinuationSource.Resume(package, input, current, request);
+        if (completed.Rewards is null) return new(completed.State, null, null);
+        var operation = completed.Operation;
+        return new(completed.State, new(request.Target.Id, operation.PreviousForceId, operation.WinnerForceId,
+            request.WinnerUnitId ?? throw Missing("player_return_winner"), operation.CommanderOfficerId,
+            null, null, completed.Rewards, ["2851B0.saved_player_return_and_original_reward_tail"])
+            { ReturnedTroops = operation.ReturnedTroops }, null);
+    }
+
     private static void Primary(SourceWorldContext current, DistrictReference district,
         IArmyReturnGovernorCurrentQueries queries)
     {
@@ -224,15 +257,31 @@ public sealed class OwnedGateCaptureStage(ArmyCampaignRuleAdapter package)
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
-    internal IArmyReturnGovernorCurrentQueries CreateCaptureGovernorQueries(GameState state) => new CaptureGovernorQueries(() => state, _governorInputs);
-    private sealed class CaptureGovernorQueries(Func<GameState> latest, OwnedArmyGovernorComparatorInputs inputs) : IArmyReturnGovernorCurrentQueries
-    { public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int personPhysical) => inputs.ReadCurrentComparatorFields(latest(), personPhysical); }
+    //This standalone comparator factory has no borrowed current owner.
+    //Retain unknown associated-kind knowledge rather than recapturing State.
+    internal IArmyReturnGovernorCurrentQueries CreateCaptureGovernorQueries(GameState state) => new CaptureGovernorQueries(() => state, _governorInputs, null);
+    //An actual return draft supplies its current manager after the caller's
+    //comparator provider was selected. Preserve that provider's own fields.
+    internal IArmyReturnGovernorCurrentQueries CreateCaptureGovernorQueries(Func<GameState> latest,
+        SourceWorldContext current, IArmyReturnGovernorCurrentQueries comparator) =>
+        new CaptureGovernorQueries(latest, _governorInputs, current, comparator);
+    private sealed class CaptureGovernorQueries(Func<GameState> latest, OwnedArmyGovernorComparatorInputs inputs,
+        SourceWorldContext? current, IArmyReturnGovernorCurrentQueries? comparator = null) : IArmyReturnGovernorCurrentQueries
+    {
+        public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int personPhysical) => comparator is null
+            ? inputs.ReadCurrentComparatorFields(latest(), personPhysical)
+            : comparator.ReadCurrentComparatorFields(personPhysical);
+        //Use the existing actual task-kind getter over the same live manager;
+        //Primary may reach it after another Person's command/assignment writes.
+        public int? ReadCurrentAssociatedVirtual98(PersonLinkedEntityReference reference) =>
+            current is null ? null : new PersonReturnGovernorQueries(latest(), inputs, current).ReadCurrentAssociatedVirtual98(reference);
+    }
 
     internal ArmyReturnDistrictOperationQueries CreateCaptureDistrictOperationQueries(SourceWorldContext current,
         Func<GameState> latest, Action<GameState> publish, NativeMapSeasonDate? date,
         List<CampaignEffectRequest> effects, int? capturingForceId = null, ArmyMapGroupingOwner? groups = null,
         Func<int, GameState>? forceRetirementHandler = null)
-        => new(new CaptureGovernorQueries(latest, _governorInputs), latest, publish, (person, assignment) =>
+        => new(new CaptureGovernorQueries(latest, _governorInputs, current), latest, publish, (person, assignment) =>
         {
             if (assignment.NativeReturn is null) throw new InvalidDataException(assignment.UnresolvedOwner ?? "capture.District_assignment");
             if (assignment.Reports.Count != 0)
@@ -253,7 +302,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArmyReturnDistrictOperationQueries operation, List<CampaignEffectRequest> effects)
     {
         state = PersonReturnDistrictReorganizationSource.PublishCurrent(state, current, operation);
-        state = PersonReturnDistrictTransferSource.PublishAreaAssignments(state, current, [], operation.ChangedGates);
+        state = PersonReturnDistrictTransferSource.PublishAreaAssignments(state, current, operation.ChangedAreas, operation.ChangedGates);
         return effects.Count == 0 ? state : state with
         {
             CampaignEffectRequests = (state.CampaignEffectRequests

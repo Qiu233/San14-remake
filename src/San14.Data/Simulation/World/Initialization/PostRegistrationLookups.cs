@@ -25,6 +25,8 @@ public static class PostRegistrationLookups
     //their embedded ID/status currently describes a live generated Person.
     internal static int? HirePersonPhysicalSlot(int officerId) =>
         officerId is >= 4201 and <= 4400 ? 1651 + officerId - 4201 : null;
+    internal static int? HirePersonIdAtPhysical(int physical) =>
+        physical is >= 1651 and <= 1850 ? 4201 + physical - 1651 : null;
     internal static int? RegisteredPersonPhysicalSlot(int officerId) =>
         officerId is >= 3001 and <= 3150 ? 1401 + officerId - 3001 : null;
     internal static int? RegisteredPersonIdAtPhysical(int physical) =>

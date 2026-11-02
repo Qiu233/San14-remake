@@ -99,13 +99,13 @@ public partial class Main
         }
         var speech = handover.Narration ?? throw new InvalidDataException("City handover narration is unavailable.");
         var route = speech.PortraitRoute;
-        var sprites = new LocalizedUiSpriteSource(_repository!);
-        var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _cityDomesticNarration = narration; AddChild(narration);
         try
         {
+            var resources=TryBorrowApplicationUiResources(narration)??throw new InvalidOperationException("Narration requires its prepared application resources.");
+            var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
             presenter.SetBusy(true);
-            narration.Configure(_repository!, _ui, speech.SpeakerName, speech.Text, layers, () => RunPlayAction(() =>
+            narration.Configure(_repository!, _ui, speech.SpeakerName, speech.Text, layers,resources, () => RunPlayAction(() =>
             {
                 if (_cityDomesticNarration != narration) return;
                 if (!Current(intent)) { CloseCityDomestic(); return; }

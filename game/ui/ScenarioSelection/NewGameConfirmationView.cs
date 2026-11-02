@@ -19,15 +19,15 @@ internal partial class NewGameConfirmationView : Control
     internal int CurrentTab { get; private set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text, NewGameForcePageHeader header,
-        NewGameForcePreview force, LoadedSprite portrait, IReadOnlyList<NewGameConfirmationSetting> settings,
+        NewGameForcePreview force, LoadedUiSpriteSource portrait, IReadOnlyList<NewGameConfirmationSetting> settings,
         NewGameConfirmationExtras extras, Func<bool> admitted, Action returned, Action confirmed, Action aborted,
-        Func<int> scrollSpeed)
+        Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.admitted = admitted; this.returned = returned; this.confirmed = confirmed; this.aborted = aborted;
         Name = "NewGameConfirmation"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new AdministrationPageChrome { Name = "NewGameConfirmationChrome" }; AddChild(chrome);
-        chrome.Configure(repository, text, 0x615, RequestBack, RequestConfirm, threeButtonFooter: true);
+        chrome.Configure(repository, text, 0x615, RequestBack, RequestConfirm, threeButtonFooter: true,resources:resources);
         var messages = new AdministrationMessages(repository, text.SourceLocale);
         chrome.ApplyDefaultHint(messages.Format(0x2761)); chrome.ApplyReturnHint(messages.Format(0x2733));
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
@@ -46,13 +46,9 @@ internal partial class NewGameConfirmationView : Control
         body.AddChild(face); face.ConfigureLayoutPane(repository,chrome.Assets,chrome.SpriteShader,portrait,faceSource,1);
         BuildForceSummary(repository,text,source,body,force);
         source.Art(body,9,source.Rectangle(9),chrome.Assets,chrome.SpriteShader);
-        var banner = new UiSourceLayout(repository,0x6C522E54);Vector2 bannerMount = source.Rectangle(10).Position;
-        foreach(var node in banner.Nodes.Where(node => node.Type is 1 or 3))
-            banner.Art(body,node.Index,banner.Rectangle(node.Index,bannerMount),chrome.Assets,chrome.SpriteShader);
-        var preset = MapTextPresets.Create()[27];
-        banner.Text(body,6,bannerMount,extras.Year,chrome.Font,preset);
-        banner.Text(body,7,bannerMount,extras.Month,chrome.Font,preset);
-        banner.Text(body,8,bannerMount,header.Title,chrome.Font,preset);
+        NewGameScenarioHeader.Configure(body, source.Rectangle(10).Position,
+            repository, text.SourceLocale, chrome.Assets, chrome.SpriteShader, chrome.Font,
+            header with { Year = extras.Year, Month = extras.Month });
         var rightSource = new UiSourceLayout(repository,0xC2A59862);
         var right = new Control { Name = "ConfirmationRight", Position = source.Rectangle(7).Position,
             Size = rightSource.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Ignore }; body.AddChild(right);

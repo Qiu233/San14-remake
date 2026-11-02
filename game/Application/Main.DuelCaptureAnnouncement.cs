@@ -12,10 +12,10 @@ public partial class Main
         internal readonly GameplaySession Session = session;
         internal GameState World = world;
         internal readonly bool RetainedHiredOwner = playback is null &&
-            session.PendingNormalPeriod is { } retained && ReferenceEquals(retained.Candidate, world) &&
+            ReferenceEquals(session.PendingNormalPeriod?.Candidate ?? session.PendingArmyProgressCandidate, world) &&
             HiredArmyCaptureProgress.IsPresentationPending(world);
         internal readonly bool OwnedHiredWait = playback is null &&
-            session.PendingNormalPeriod is { } pending && ReferenceEquals(pending.Candidate, world) &&
+            ReferenceEquals(session.PendingNormalPeriod?.Candidate ?? session.PendingArmyProgressCandidate, world) &&
             HiredArmyCaptureProgress.IsAwaitingAnnouncement(world) &&
             world.ArmyDefeatContinuation!.HiredCapture!.AnnouncementBatchSequence == entry.BatchSequence;
         internal readonly MapSceneView Map = map;

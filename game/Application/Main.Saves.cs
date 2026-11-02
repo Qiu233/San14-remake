@@ -84,7 +84,7 @@ public partial class Main
         }
         if (index < 0) throw new InvalidDataException("The saved scenario is unavailable in the selected language.");
         ShowScenario(index, restored.State, restored.PlayerForceId,
-            restored.PendingProgress, restored.LastStorySequence, restored.PendingManualTactic, restored.PendingNormalPeriod);
+            restored.PendingProgress, restored.LastStorySequence, restored.PendingManualTactic, restored.PendingNormalPeriod, restored.PendingArmyProgress);
         _scenarioList.Select(index);
         RefreshSceneAudioContext();
         int forceIndex = ScenarioBrowserViews.FindForce(_shownForces, restored.PlayerForceId);

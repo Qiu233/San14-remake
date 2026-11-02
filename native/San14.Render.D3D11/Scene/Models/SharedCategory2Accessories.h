@@ -89,14 +89,14 @@ inline void observeNativeSharedAccessorySource(NativeSharedAccessories& current,
 // pre-release sweep can make a later unit's slots available to this caller.
 inline void updateNativeSharedAccessoryFamily(ID3D11Device* device,NativeGraphicsModelPool& pool,
         NativeSharedAccessories& current,NativeCityAccessoryGpu& source,GraphicsModelFamily family,
-        const source_camera::Frame& camera,int appMode,float ecB0,double distance90,
+        const source_camera::Prefix& cameraPrefix,int appMode,float ecB0,double distance90,
         const NativeArmyGraphicsAction& action,const NativeAccessoryPoseSource& bankPose,
         const std::array<uint32_t,2>& fps,unsigned fpsMode,
         NativeArmyAnimationGroups& groups){
     for(const auto& unit:source.population.units){
         auto& state=current.units[unit.index];if(state.family!=family)continue;
         const auto gate=source_accessory_population::unitAdmission(unit.position,
-            reinterpret_cast<const char*>(camera.prefix.data()),reinterpret_cast<const char*>(camera.prefix.data()),
+            reinterpret_cast<const char*>(cameraPrefix.data()),reinterpret_cast<const char*>(cameraPrefix.data()),
             appMode,ecB0,distance90);
         const bool reached=gate.visible||state.priorVisible;state.priorVisible=gate.visible;
         if(!reached)continue;

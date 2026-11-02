@@ -6,7 +6,7 @@ namespace San14.Data;
 /// personnel groups. No candidate eligibility, whole-card resolve or writer.</summary>
 internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldContext current,
     ArmyOperationContext definitions, OwnedArmyGovernorComparatorInputs? governor = null, LoadedScenario? scenario = null, GameResourceRepository? repository = null, string? language = null,
-    bool? userSelectionServicePresent = null)
+    bool? userSelectionServicePresent = null, NewGameOfficerListInputs? prestart = null)
 {
     private San14.Data.Formats.MessageDocument? _forceMessages;
     private CurrentPersonListSource? listSource;
@@ -125,8 +125,8 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal int ServiceStatusKey(CityDomesticCandidate c)
     { int status = Status(c); return status * 10 + ((Flags(c) >> 14) & 1); }
     internal int? Health(CityDomesticCandidate c)
-    { byte value = K(OfficerHealthSourceAdapter.ReadByte(current, c.PhysicalSlot), "health"); return value <= 3 ? value : null; }
-    internal int HealthKey(CityDomesticCandidate c) => K(OfficerHealthSourceAdapter.ReadByte(current, c.PhysicalSlot), "health");
+    { byte value = K((prestart is not null ? prestart.Health(c.PhysicalSlot) : OfficerHealthSourceAdapter.ReadByte(current, c.PhysicalSlot)), "health"); return value <= 3 ? value : null; }
+    internal int HealthKey(CityDomesticCandidate c) => K((prestart is not null ? prestart.Health(c.PhysicalSlot) : OfficerHealthSourceAdapter.ReadByte(current, c.PhysicalSlot)), "health");
     internal int? Sex(CityDomesticCandidate c) => SexKey(c);
     internal int SexKey(CityDomesticCandidate c) => Owner(c).Sex switch
     { OfficerSex.Male => 0, OfficerSex.Female => 1, _ => throw Missing("sex") };
@@ -152,13 +152,14 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     }
     internal SortValue LoyaltyKey(CityDomesticCandidate c)
     { int? value = Loyalty(c); return value is int n ? SortValue.Numeric(n) : SortValue.Empty; }
-    private byte RawLoyalty(CityDomesticCandidate c) => K(ArmyDestructionLoyalty.ReadCurrentRawE8(state, current,
-        c.PhysicalSlot, governor ?? throw Missing("governor_owner")), "loyalty_raw");
+    private byte RawLoyalty(CityDomesticCandidate c) => K(prestart is not null
+        ? prestart.Loyalty(c.PhysicalSlot) : ArmyDestructionLoyalty.ReadCurrentRawE8(state, current,
+            c.PhysicalSlot, governor ?? throw Missing("governor_owner")), "loyalty_raw");
     internal int? ServiceYears(CityDomesticCandidate c, bool display)
     {
         if (SpecialForce(c) || Special(c)) return null;
-        ushort firstYear = K((governor ?? throw Missing("governor_owner")).ReadCurrentWord166(state, c.PhysicalSlot), "service_year_word");
-        short year = K(state.NativeMapSeason?.ThirdDate.Year, "current_year");
+        ushort firstYear = K(prestart is not null ? prestart.ServiceYear(c.PhysicalSlot) : (governor ?? throw Missing("governor_owner")).ReadCurrentWord166(state, c.PhysicalSlot), "service_year_word");
+        short year = K(prestart is not null ? prestart.ThirdYear : state.NativeMapSeason?.ThirdDate.Year, "current_year");
         byte status = Status(c); var force = Force(c);
         bool forceValid = ForceValid(force), personValid = NativeValid(c);
         if (!personValid || status is 1 or 5 || !forceValid) return null;
@@ -171,10 +172,10 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     {
         if (SpecialForce(c) || Special(c)) return null;
         if (!NativeValid(c) || Status(c) == 1) return null;
-        byte raw = K(current.ReadMoraleWavePersonPostE7(c.PhysicalSlot), "office");
+        byte raw = K(prestart is not null ? prestart.Office(c.PhysicalSlot) : current.ReadMoraleWavePersonPostE7(c.PhysicalSlot), "office");
         //The supported canonical 256-row directory resolves byteN to ordinalN.
         int ordinal = raw;
-        if (!K(OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, ordinal), "office_post_validity")) return "";
+        if (!K(prestart is not null ? prestart.OfficeValid(ordinal) : OwnedArmyMoraleWaveInputs.ReadPostNativeValidity(state, ordinal), "office_post_validity")) return "";
         if (!state.OfficerOffices.TryGetValue(ordinal, out var office) || office.Id != ordinal)
             throw Missing("office_definition");
         return office.Name ?? throw Missing("office_name");
@@ -182,7 +183,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal SortValue OfficeKey(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c)) return SortValue.Empty;
-        byte office = K(OfficerAppointmentSourceAdapter.ReadOfficeId(Owner(c).Appointment), "office");
+        byte office = K(prestart is not null ? prestart.Office(c.PhysicalSlot) : OfficerAppointmentSourceAdapter.ReadOfficeId(Owner(c).Appointment), "office");
         bool valid = NativeValid(c);
         if (!valid || Status(c) == 1 || office == 0) return SortValue.Empty;
         return SortValue.Numeric(office);
@@ -203,7 +204,8 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         return SortValue.Numeric(!NativeValid(c) || Status(c) == 1 ? 0 : Salary(c));
     }
     private int Salary(CityDomesticCandidate c) => Force51(c) || SpecialForce(c) ? 0
-        : ArmyReturnCaptivesSource.ReadGuard(state, current, c.PhysicalSlot);
+        : prestart is not null ? ArmyReturnCaptivesSource.ReadGuard(state,current,c.PhysicalSlot,prestart)
+            : ArmyReturnCaptivesSource.ReadGuard(state, current, c.PhysicalSlot);
     internal int? ItemCount(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c)) return null;
@@ -212,6 +214,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     internal SortValue ItemKey(CityDomesticCandidate c)
     {
         if (SpecialForce(c) || Special(c)) return SortValue.Empty;
+        prestart?.PrepareItemRegistry();
         return SortValue.Numeric(ListSource.RegisteredItemCount(Identity(c)));
     }
     internal string? Doctrine(CityDomesticCandidate c)
@@ -236,12 +239,12 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         if (SpecialForce(c) || Special(c) || (Flags(c) & 0x4000) != 0) return SortValue.Empty;
         return SortValue.String(ListSource.DoctrineSortText(DoctrineByte(c)));
     }
-    private int Mode() => state.CampaignEventWorld?.ScenarioMode ?? throw Missing("scenario_mode");
+    private int Mode() => (prestart is not null ? prestart.Mode : state.CampaignEventWorld?.ScenarioMode) ?? throw Missing("scenario_mode");
     internal int? Age(CityDomesticCandidate c, bool display)
     {
         if (Mode() == 2 || Force51(c) || SpecialForce(c) || (Flags(c) & 0x400) != 0 || Special(c)) return null;
-        if (display && Mode() == 3 && PersonCurrentAgeSource.UsesTimelessAges(state)) return null;
-        int value = PersonCurrentAgeSource.Read(state, current, c.PhysicalSlot);
+        if (display && Mode() == 3 && (prestart is not null ? prestart.TimelessAges : PersonCurrentAgeSource.UsesTimelessAges(state))) return null;
+        int value = PersonCurrentAgeSource.Read(state, current, c.PhysicalSlot, prestart?.ThirdYear, prestart?.Mode, prestart?.HistoricalEventControl);
         return value == 0 ? null : value;
     }
     internal SortValue AgeKey(CityDomesticCandidate c)
@@ -262,7 +265,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     private ushort RelationWord(CityDomesticCandidate c, int field)
     {
         Identity(c);
-        return K(OwnedPersonRelationInputs.ReadCurrentRelationIdentity(state, c.PhysicalSlot, field), "relation_word");
+        return K(prestart is not null ? prestart.Relation(c.PhysicalSlot, field) : OwnedPersonRelationInputs.ReadCurrentRelationIdentity(state, c.PhysicalSlot, field), "relation_word");
     }
     private string PersonName(int physical, bool key)
     {
@@ -295,7 +298,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         if (Mode() == 3) throw Missing("credit_person_selection_state");
         return true;
     }
-    private byte Stage(CityDomesticCandidate c) => K(OfficerMeritSourceAdapter.EncodeStage(Owner(c).MeritState), "credit_stage");
+    private byte Stage(CityDomesticCandidate c) => K(prestart is not null ? prestart.Stage(c.PhysicalSlot) : OfficerMeritSourceAdapter.EncodeStage(Owner(c).MeritState), "credit_stage");
     internal string? RankName(CityDomesticCandidate c)
     {
         if (!CreditDisplayVisible()) return null;
@@ -317,7 +320,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     {
         if (display && !CreditDisplayVisible()) return null;
         if (Status(c) == 1 || Special(c) || (Flags(c) & 0x4000) != 0 || Stage(c) == 0) return null;
-        return K(OfficerMeritSourceAdapter.EncodeMerit(Owner(c).MeritState), "merit");
+        return K(prestart is not null ? prestart.Merit(c.PhysicalSlot) : OfficerMeritSourceAdapter.EncodeMerit(Owner(c).MeritState), "merit");
     }
     internal SortValue MeritKey(CityDomesticCandidate c)
     { int? value = Merit(c, false); return value is int n ? SortValue.Numeric(n) : SortValue.Empty; }
@@ -325,6 +328,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     {
         if (!NativeValid(c) || !CreditDisplayVisible()) return 0;
         Identity(c);
+        if(prestart is not null)return prestart.CreditBonus(c.PhysicalSlot,kind==1?1:3);
         var result = kind == 1 ? OfficerCommandCapacity.ResolveCreditKindBonus(state, current, c.PhysicalSlot, 1, userSelectionServicePresent)
             : OfficerCommandCapacity.ResolveCreditKindBonus(state, current, c.PhysicalSlot, 3, userSelectionServicePresent);
         return result.Bonus ?? throw new InvalidDataException(result.UnresolvedInput);
@@ -333,7 +337,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
     {
         if (!NativeValid(c) || !CreditDisplayVisible()) return 0;
         Identity(c);
-        return PersonAreaAppointmentSource.AdditionalCount(state, current, c.PhysicalSlot, userSelectionServicePresent);
+        return prestart is not null ? prestart.CreditBonus(c.PhysicalSlot,2) : PersonAreaAppointmentSource.AdditionalCount(state, current, c.PhysicalSlot, userSelectionServicePresent);
     }
     internal int? BonusDisplay(CityDomesticCandidate c, Func<int> read)
     { int first = read(); return first > 0 ? read() : null; }
@@ -342,7 +346,7 @@ internal sealed class CityDomesticPersonCellSource(GameState state, SourceWorldC
         if (!NativeValid(c)) return null;
         int value = ResetByte(c); return value == 0 ? null : value;
     }
-    private int ResetByte(CityDomesticCandidate c) => K(PersonAssignmentPrecallInputs.ReadCurrentResetWord1FF(state, current, c.PhysicalSlot), "reset_word") & 255;
+    private int ResetByte(CityDomesticCandidate c) => K(prestart is not null ? prestart.Reset(c.PhysicalSlot) : PersonAssignmentPrecallInputs.ReadCurrentResetWord1FF(state, current, c.PhysicalSlot), "reset_word") & 255;
     internal SortValue ResetKey(CityDomesticCandidate c) => NativeValid(c) ? SortValue.Numeric(ResetByte(c)) : SortValue.Empty;
 
     internal CityDomesticPersonForceName? ForceName(CityDomesticCandidate c)

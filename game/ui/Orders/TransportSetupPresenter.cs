@@ -35,7 +35,7 @@ internal sealed class TransportSetupPresenter : IDisposable
         GameState world, ScenarioCityPreview scenario, ArmyCampaignRuleAdapter rules, int source,
         UiSourceHeaderStack headers, Func<bool> current, Func<int> scrollSpeed,
         Action<TransportSetupSelection> accepted, Func<int, TransportFoodWarning> prepareFoodWarning,
-        Action returned, Action<string> unavailable)
+        Action returned, Action<string> unavailable, AdministrationPageChrome.Resources? uiResources=null)
     {
         this.view = view; this.repository = repository; this.text = text; this.world = world;
         this.scenario = scenario; this.rules = rules; this.source = source; this.headers = headers;
@@ -46,7 +46,7 @@ internal sealed class TransportSetupPresenter : IDisposable
         {
             if (!Admitted()) return;
             Draft.Edit(quantity, value); Refresh();
-        }, RequestDecision, () => { if (Admitted()) returned(); }, Admitted);
+        }, RequestDecision, () => { if (Admitted()) returned(); }, Admitted,resources:uiResources);
         view.RegisterHeader(headers);
     }
     private bool Admitted() => !disposed && current() && personSelection is null && foodConfirmation is null;
@@ -105,7 +105,7 @@ internal sealed class TransportSetupPresenter : IDisposable
                 // release replaces only this local Make selection.
                 if(result is int id&&!Draft.SelectOfficer(id))unavailable("transport.setup.person-selection");
                 Refresh();
-            },scrollSpeed);
+            },scrollSpeed,resources:view.SourceResources);
             modal.RegisterHeader(headers);
         }
         catch{personSelection=null;modal.Abandon();modal.QueueFree();view.SetBusy(false);throw;}
@@ -131,7 +131,7 @@ internal sealed class TransportSetupPresenter : IDisposable
                 if (disposed || foodConfirmation != modal) return;
                 foodConfirmation = null; modal.Hide(); modal.QueueFree(); view.SetBusy(false);
                 if (yes && Admitted() && Draft.CanAccept) accepted(Draft.Accept());
-            });
+            },resources:view.SourceResources);
         }
         catch { foodConfirmation = null; modal.QueueFree(); view.SetBusy(false); throw; }
     }

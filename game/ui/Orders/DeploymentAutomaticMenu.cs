@@ -10,7 +10,7 @@ internal partial class DeploymentAutomaticMenu : UiSourcePulldownMenu
     private bool completing;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,IReadOnlyList<bool> available,
-        Action<int?> closed,Action<Control,string?> hintChanged)
+        Action<int?> closed,Action<Control,string?> hintChanged,AdministrationPageChrome.Resources? resources=null)
     {
         if(available.Count!=5)throw new ArgumentException("Automatic composition has five strategies.",nameof(available));
         Name="AutomaticDeploymentMenu";this.closed=closed;
@@ -21,7 +21,7 @@ internal partial class DeploymentAutomaticMenu : UiSourcePulldownMenu
             messages.Records[0x037F+index].Text??throw new InvalidDataException("Missing automatic strategy caption."),
             available[index],game.Records[available[index]?0x0860+index:0x0865].Literals.Single().Text)).ToArray();
         base.Configure(repository,text.SourceLocale,new(new((int)mount.Position.X-299,(int)mount.Position.Y-6),mount.Size),
-            items,UiSourcePulldownOutsideClick.PressPassthrough,Finish,hintChanged);
+            items,UiSourcePulldownOutsideClick.PressPassthrough,Finish,hintChanged,resources:resources);
         for(int index=0;index<5;index++)GetNode<UiSourcePulldownButton>("MenuItem"+index).Name="AutomaticStrategy"+index;
         // The source's generic menu background is explicitly hidden.
         SetMeta("source_layout",page.Source.Source.ResourceUri);SetMeta("source_node_index",53);

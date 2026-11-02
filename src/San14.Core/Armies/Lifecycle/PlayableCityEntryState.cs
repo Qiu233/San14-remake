@@ -30,11 +30,17 @@ public static class PlayableCityEntryStates
         var result = rules.Return(state, unit, city);
         if (result is null) return null;
         GameState next = result.State;
+        bool suspended = next?.ArmyReturnCaptiveContinuation is { Caller: ArmyReturnCaptiveCaller.OrdinaryEntry } captive &&
+            captive.ArmyUnitId == unit.Id && captive.ArmyPhysicalSlot == unit.NativeArmyOrigin?.NativeSlotIndex &&
+            captive.Destination == new SettlementBase(SettlementBaseKind.City, city.Id) &&
+            next.Units.ContainsKey(unit.Id);
         if (next is null || string.IsNullOrWhiteSpace(result.RuleId) || next.Date != state.Date ||
-            next.NativeClock != state.NativeClock || next.Phase != state.Phase || next.Units.ContainsKey(unit.Id) ||
-            !next.Officers.TryGetValue(unit.OfficerId, out OfficerState? commander) || commander.Deployed ||
-            !next.Cities.TryGetValue(city.Id, out CityState? receiving) || receiving.ForceId != city.ForceId || receiving.HexId != city.HexId)
-            throw new InvalidDataException("Complete city entry did not preserve its boundary and retire the current receiver.");
+            next.NativeClock != state.NativeClock || next.Phase != state.Phase ||
+            !next.Cities.TryGetValue(city.Id, out CityState? receiving) ||
+            receiving.ForceId != city.ForceId || receiving.HexId != city.HexId ||
+            !suspended && (next.Units.ContainsKey(unit.Id) ||
+                !next.Officers.TryGetValue(unit.OfficerId, out OfficerState? commander) || commander.Deployed))
+            throw new InvalidDataException("City entry did not preserve its boundary or its active captive continuation.");
         return result;
     }
 }

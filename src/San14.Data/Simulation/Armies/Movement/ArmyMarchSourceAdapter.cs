@@ -7,6 +7,40 @@ namespace San14.Data;
 public static class ArmyMarchSourceAdapter
 {
     public const int SourceHexCount = 48400;
+
+    /// <summary>A confirmed campaign position is an int map identity. Only
+    /// conflicting old source words require the original profile decoder.</summary>
+    internal static int? ReadCurrentMapHex(GameState state, UnitState unit)
+    {
+        if (unit.PositionKnowledge != ArmyPositionKnowledge.Conflicting)
+            return unit.ConfirmedHexId;
+        ushort? raw = ReadCurrentHex(state, unit);
+        return raw is < SourceHexCount ? raw.Value : null;
+    }
+
+    // Route publication still writes the original word fields. Reject the
+    // unrepresentable identity explicitly; never clamp or wrap the int path.
+    internal static ushort EncodeRouteHex(int hex) => EncodeDestination(ArmyMarchDestination.AtHex(hex))
+        ?? throw new InvalidDataException("Route Hex cannot be represented by the original word adapter.");
+    // A source Base getter still returns the original None word. Decode it
+    // before geometry can admit that same integer as a campaign Hex identity.
+    // A known absent linked Object is not revived by a static Base center.
+    internal static ArmyMarchDestination? ReadBaseMapDestination(GameState state,
+        SourceWorldContext current, BaseReference receiver)
+    {
+        var source = DecodeDestination(current.ReadBaseCurrentHexIndex(receiver));
+        if (source.Kind == ArmyMarchDestinationKind.None) return source;
+        if (receiver.PhysicalSlot is int physical)
+        {
+            if (receiver.Kind == BaseKind.City && state.Cities.TryGetValue(physical, out var city))
+                return city.HexId is int cityHex ? ArmyMarchDestination.AtHex(cityHex) : null;
+            if (receiver.Kind == BaseKind.Gate && state.Gates.TryGetValue(physical + 51, out var gate))
+                return gate.HexId is int gateHex ? ArmyMarchDestination.AtHex(gateHex) : null;
+        }
+        // Independent source consumers may have no campaign Base projection.
+        return source;
+    }
+
     public static ushort? ReadCurrentHex(GameState state, UnitState unit)
     {
         var residue = (state.ResourceState as CampaignSourceKnowledge)?.FindArmyPosition(unit.Id);

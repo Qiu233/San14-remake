@@ -20,14 +20,25 @@ internal partial class MapInformationListView : Control
         internal UiSourceSprite?[] Icons { get; } = new UiSourceSprite?[cells.Length];
         internal MapInformationListRow? Entry { get; set; }
     }
+    private bool ownsResources;
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
-    private Control canvas = null!, rows = null!;
+    private Control canvas = null!;
+    private Control rows => activeTable.RowsHost;
     private UiSourceScrollbar scrollbar = null!;
-    private readonly List<RowDisplay> rowPool = [];
-    private readonly List<(string Key, UiSourceColumnButton Button)> columnButtons = [];
-    private IReadOnlyList<MapInformationListRow> orderedRows = [];
+    private List<RowDisplay> rowPool => activeTable.RowPool;
+    private List<(string Key, UiSourceColumnButton Button)> columnButtons => activeTable.ColumnButtons;
+    private IReadOnlyList<MapInformationListRow> orderedRows
+    { get => activeTable.OrderedRows; set => activeTable.OrderedRows = value; }
+    private TableState activeTable = null!;
+    private readonly Dictionary<int, TableState> tables = [];
+    private readonly List<UiSourceTabButton> tabs = [];
+    private GameResourceRepository repository = null!;
+    private UiSourceLayout tableSource = null!;
+    private MapFontProfile tableProfile = null!;
+    private Func<int> scrollSpeed = null!;
+    private TableGeometry tableGeometry = null!;
     private Func<bool>? admitted;
     private Action? returned;
     private Action<int>? inspect;
@@ -40,9 +51,7 @@ internal partial class MapInformationListView : Control
     private MapFontProfile personCellProfile = null!;
     private readonly MapTextPresets personPresets = MapTextPresets.Create();
     private int? selectedIndex;
-    private Func<bool?>? readNameSort;
-    private Action<bool?>? applyNameSort;
-    internal bool? NameSortAscending => readNameSort?.Invoke();
+    internal bool? NameSortAscending => activeTable?.SortedColumn == "name" ? activeTable.Ascending : null;
     internal Control SourceCanvas => canvas;
     internal UiAssets SourceAssets => assets;
     internal MapFont SourceFont => font;
@@ -57,20 +66,25 @@ internal partial class MapInformationListView : Control
         bool narrowTable = false, int returnNode = 1, string? initialSortColumn = null, bool initialSortAscending = true,
         bool retainSortDirections = false, IDictionary<string, bool>? retainedSortDirections = null,
         bool disableUninspectableRows = false, Action<int?>? hoverSourceIndex = null, float? rowExtentWidth = null,
-        bool sourcePersonCellBounds = false)
+        bool sourcePersonCellBounds = false, AdministrationPageChrome.Resources? resources = null)
     {
-        this.admitted = admitted; this.returned = returned; this.inspect = inspect; orderedRows = publication;
+        this.admitted = admitted; this.returned = returned; this.inspect = inspect;
+        this.repository=repository;this.scrollSpeed=scrollSpeed;
         this.disableUninspectableRows=disableUninspectableRows;this.hoverSourceIndex=hoverSourceIndex;
         Name = "InformationList"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        if (resources is null)
+        { assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader(); }
+        else
+        { assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader; }
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         if (includeHeader)
         {
             header = new(); canvas.AddChild(header); header.Configure(repository, assets, shader, font, title);
         }
-        var source = new UiSourceLayout(repository, 0xA3B4A82E);
+        var source = new UiSourceLayout(repository, 0xA3B4A82E); tableSource=source;
         source.Blur(canvas, 2, source.Rectangle(2, new(191, 147)));
         source.Art(canvas, 3, source.Rectangle(3, new(191, 147)), assets, shader);
         if (tabCaptions is not null)
@@ -82,9 +96,10 @@ internal partial class MapInformationListView : Control
                 float width = tabCaptions[index].Length * 28 + 36;
                 var tab = new UiSourceTabButton { Name = "InformationSection" + index,
                     Position = tabPosition, Size = new(width, 64), InputAdmission = ReadAdmission };
-                canvas.AddChild(tab);
+                canvas.AddChild(tab); tabs.Add(tab);
                 tab.Configure(repository, assets, shader, font, tabCaptions[index],
-                    tabCaptions.Count == 1 ? 0x9AFB27B7u : index == 0 ? 0x172EDC24u : 0xD45873AAu);
+                    tabCaptions.Count == 1 ? 0x9AFB27B7u : index == 0 ? 0x172EDC24u
+                        : index == tabCaptions.Count - 1 ? 0xD45873AAu : 0x9AFB27B7u);
                 tab.Selected = index == selectedTab;
                 tab.Pressed += () => { if (ReadAdmission()) selectTab?.Invoke(tabIndex); };
                 tabPosition.X += width - 6;
@@ -98,102 +113,11 @@ internal partial class MapInformationListView : Control
             .875f, .875f, 0, 0, uint.MaxValue, uint.MaxValue, uint.MaxValue, uint.MaxValue,
             0, 0x01, 1, 0, 0, 0xFF000000, 0xFF000000, 0xFF000000, 0xFF000000)
             { WidthFitMode = 2, WidthReserve = 0, StrokeColour = 0xFF000000, StrokeWidth = 3 };
-        float totalWidth = columns.Sum(column => column.Width);
-        float rowWidth = rowExtentWidth ?? totalWidth;
-        if (!float.IsFinite(rowWidth) || rowWidth < totalWidth)
-            throw new ArgumentOutOfRangeException(nameof(rowExtentWidth));
-        var viewport = new ScrollContainer { Name = "InformationColumns", Position = new(213, 172),
-            Size = new(1464, 688), HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
-            VerticalScrollMode = ScrollContainer.ScrollMode.Disabled };
-        if (tabCaptions is not null)
-        {
-            viewport.Position = source.Rectangle(14, new(191, 147)).Position;
-            viewport.Size = new(1464, 648);
-        }
-        if (narrowTable) viewport.Size = new(totalWidth, viewport.Size.Y);
-        canvas.AddChild(viewport);
-        var table = new Control { Name = "InformationTable", CustomMinimumSize = new(rowWidth, 668),
-            MouseFilter = MouseFilterEnum.Pass };
-        viewport.AddChild(table);
-        float left = 0; string? sortedColumn = initialSortColumn; bool ascending = initialSortAscending;
-        var nextDirections = retainedSortDirections ?? columns.ToDictionary(column => column.Key, column => column.InitialAscending);
-        foreach (var column in columns) nextDirections.TryAdd(column.Key, column.InitialAscending);
-        readNameSort = () => sortedColumn == "name" ? ascending : null;
-        applyNameSort = direction =>
-        {
-            if (direction is bool order)
-            { sortedColumn = "name"; ascending = order; nextDirections["name"] = !order; }
-            foreach (var entry in columnButtons)
-                entry.Button.ApplySortDirection(entry.Key == sortedColumn ? ascending : null);
-        };
-        foreach (var column in columns)
-        {
-            var heading = new UiSourceColumnButton { Position = new(left, 0), Size = new(column.Width, 48),
-                InputAdmission = ReadAdmission, Disabled = sort is null || !column.CanSort };
-            table.AddChild(heading);
-            heading.Configure(repository, assets, shader, font, column.Caption, personList: true,
-                normalLayout: normalColumnLayout);
-            columnButtons.Add((column.Key, heading));
-            heading.ApplySortDirection(column.Key == sortedColumn ? ascending : null);
-            heading.Pressed += () =>
-            {
-                if (!ReadAdmission() || sort is null || !column.CanSort) return;
-                bool requested = retainSortDirections ? nextDirections[column.Key] :
-                    sortedColumn == column.Key ? !ascending : column.InitialAscending;
-                var sorted = sort(column.Key, requested);
-                if (sorted is null) return;
-                ascending = requested; nextDirections[column.Key] = !ascending; sortedColumn = column.Key;
-                orderedRows = sorted; PositionRows();
-                foreach (var entry in columnButtons)
-                    entry.Button.ApplySortDirection(entry.Key == sortedColumn ? ascending : null);
-            };
-            left += column.Width;
-        }
-        rows = new() { Name = "InformationRows", Position = new(0, 64), Size = new(rowWidth, 596),
-            ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
-        if (tabCaptions is not null)
-        {
-            rows.Position = source.Rectangle(17).Position - source.Rectangle(14).Position;
-            rows.Size = new(rowWidth, 598);
-        }
-        table.AddChild(rows);
-        scrollbar = new() { Name = "InformationScrollbar", Position = new(1687, 236), Size = new(16, 596) };
-        if (tabCaptions is not null)
-        {
-            Rect2 box = source.Rectangle(32, new(191, 147));
-            scrollbar.Position = box.Position; scrollbar.Size = box.Size;
-        }
-        if (narrowTable) scrollbar.Position = new(191 + totalWidth + 26, scrollbar.Position.Y);
-        canvas.AddChild(scrollbar);
-        scrollbar.Configure(repository, assets, shader, Math.Max(0, publication.Count * 48 - (int)rows.Size.Y),
-            scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
-        rows.GuiInput += input => { if (ReadAdmission()) scrollbar.HandleWheel(input); };
-        for (int slot = 0; slot < Math.Min(14, publication.Count); slot++)
-        {
-            var button = new UiSourceListRow { Name = "InformationVisibleRow" + slot,
-                InputAdmission = ReadAdmission, ActionMode = BaseButton.ActionModeEnum.Release };
-            rows.AddChild(button); button.Configure(repository, assets, shader, font, "", rowWidth, false);
-            var cells = new List<UiSourceText>(); left = 0;
-            foreach (var column in columns)
-            {
-                var cell = new UiSourceText { Position = new(left + (sourcePersonCellBounds?10:8), sourcePersonCellBounds?10:8),
-                    Size = new(column.Width - (sourcePersonCellBounds?20:12), sourcePersonCellBounds?28:32),
-                    MouseFilter = MouseFilterEnum.Ignore };
-                button.AddChild(cell); cell.Configure(font, profile); cells.Add(cell); left += column.Width;
-            }
-            var display = new RowDisplay(button, cells.ToArray(), cells.Select(cell => new Rect2(cell.Position,cell.Size)).ToArray()); rowPool.Add(display);
-            button.TextVisualStateChanged += _ => ApplyCells(display);
-            button.MouseEntered+=()=>{if(ReadAdmission())this.hoverSourceIndex?.Invoke(display.Entry?.SourceIndex);};
-            button.MouseExited+=()=>{if(ReadAdmission())this.hoverSourceIndex?.Invoke(null);};
-            button.Pressed += () =>
-            {
-                if (!ReadAdmission() || display.Entry is not { } entry) return;
-                selectedIndex = entry.SourceIndex;
-                foreach (var row in rowPool) row.Button.Selected = row.Entry?.SourceIndex == selectedIndex;
-                if (entry.CanInspect) this.inspect?.Invoke(entry.SourceIndex);
-            };
-            button.GuiInput += input => { if (ReadAdmission()) scrollbar.HandleWheel(input); };
-        }
+        tableProfile=profile;
+        tableGeometry=new(tabCaptions is not null,normalColumnLayout,narrowTable,rowExtentWidth,
+            sourcePersonCellBounds,retainSortDirections);
+        activeTable=CreateTable(columns,publication,sort,initialSortColumn,initialSortAscending,retainedSortDirections);
+        tables.Add(selectedTab,activeTable);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "InformationListReturn",
             Position = footer.Rectangle(returnNode, new(0, 904)).Position, InputAdmission = ReadAdmission };
@@ -210,6 +134,155 @@ internal partial class MapInformationListView : Control
         Resized += Fit; Fit(); PositionRows();
     }
 
+    private sealed record TableGeometry(bool Tabbed,bool NormalColumnLayout,bool NarrowTable,
+        float? RowExtentWidth,bool SourcePersonCellBounds,bool RetainSortDirections);
+    private sealed class TableState
+    {
+        internal Control RowsHost = null!;
+        internal ScrollContainer Viewport = null!;
+        internal readonly List<RowDisplay> RowPool = [];
+        internal readonly List<(string Key,UiSourceColumnButton Button)> ColumnButtons = [];
+        internal IReadOnlyList<MapInformationListColumn> Columns = [];
+        internal IReadOnlyList<MapInformationListRow> OrderedRows = [];
+        internal Func<string,bool,IReadOnlyList<MapInformationListRow>?>? Sort;
+        internal string? SortedColumn;
+        internal bool Ascending;
+        internal IDictionary<string,bool> Directions = null!;
+    }
+
+    // One immutable-world list owns its shell and resources. Each authored
+    // column schema is created on first use; later tab visits rebind current
+    // caller order without rebuilding headers, footer, blur or row artwork.
+    internal void PresentGroup(int index,IReadOnlyList<MapInformationListColumn> columns,
+        IReadOnlyList<MapInformationListRow> publication,
+        Func<string,bool,IReadOnlyList<MapInformationListRow>?>? sort,
+        string? sortedColumn,bool ascending,IDictionary<string,bool> directions)
+    {
+        if(abandoned)return;
+        int scroll=scrollbar.Value;
+        activeTable.Viewport.Hide();
+        if(!tables.TryGetValue(index,out var next))
+            tables.Add(index,next=CreateTable(columns,publication,sort,sortedColumn,ascending,directions));
+        activeTable=next;next.OrderedRows=publication;next.Sort=sort;
+        next.SortedColumn=sortedColumn;next.Ascending=ascending;
+        foreach(var (key,button) in next.ColumnButtons)
+            button.ApplySortDirection(key==sortedColumn?ascending:null);
+        for(int tab=0;tab<tabs.Count;tab++)tabs[tab].Selected=tab==index;
+        next.Viewport.ScrollHorizontal=0;
+        next.Viewport.Show();
+        scrollbar.SetValue(scroll);PositionRows();
+    }
+    private bool ReadTableAdmission(TableState table)=>ReferenceEquals(activeTable,table)&&ReadAdmission();
+
+    private TableState CreateTable(IReadOnlyList<MapInformationListColumn> columns,
+        IReadOnlyList<MapInformationListRow> publication,
+        Func<string,bool,IReadOnlyList<MapInformationListRow>?>? sort,
+        string? sortedColumn,bool ascending,IDictionary<string,bool>? directions)
+    {
+        var state=new TableState {Columns=columns,OrderedRows=publication,Sort=sort,
+            SortedColumn=sortedColumn,Ascending=ascending,
+            Directions=directions??columns.ToDictionary(column=>column.Key,column=>column.InitialAscending)};
+        var source=tableSource;
+        float totalWidth = columns.Sum(column => column.Width);
+        float rowWidth = tableGeometry.RowExtentWidth ?? totalWidth;
+        if (!float.IsFinite(rowWidth) || rowWidth < totalWidth)
+            throw new ArgumentOutOfRangeException(nameof(tableGeometry.RowExtentWidth));
+        var viewport = new ScrollContainer { Name = "InformationColumns", Position = new(213, 172),
+            Size = new(1464, 688), HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        if (tableGeometry.Tabbed)
+        {
+            viewport.Position = source.Rectangle(14, new(191, 147)).Position;
+            viewport.Size = new(1464, 648);
+        }
+        if (tableGeometry.NarrowTable) viewport.Size = new(totalWidth, viewport.Size.Y);
+        canvas.AddChild(viewport); state.Viewport=viewport;
+        var table = new Control { Name = "InformationTable", CustomMinimumSize = new(rowWidth, 668),
+            MouseFilter = MouseFilterEnum.Pass };
+        viewport.AddChild(table);
+        float left = 0;
+        foreach (var column in columns) state.Directions.TryAdd(column.Key,column.InitialAscending);
+        foreach (var column in columns)
+        {
+            var heading = new UiSourceColumnButton { Position = new(left, 0), Size = new(column.Width, 48),
+                InputAdmission = () => ReadTableAdmission(state), Disabled = state.Sort is null || !column.CanSort };
+            table.AddChild(heading);
+            heading.Configure(repository, assets, shader, font, column.Caption, personList: true,
+                normalLayout: tableGeometry.NormalColumnLayout);
+            state.ColumnButtons.Add((column.Key, heading));
+            heading.ApplySortDirection(column.Key == state.SortedColumn ? state.Ascending : null);
+            heading.Pressed += () =>
+            {
+                if (!ReadTableAdmission(state) || state.Sort is null || !column.CanSort) return;
+                bool requested = tableGeometry.RetainSortDirections ? state.Directions[column.Key] :
+                    state.SortedColumn == column.Key ? !state.Ascending : column.InitialAscending;
+                var sorted = state.Sort(column.Key, requested);
+                if (sorted is null) return;
+                state.Ascending = requested; state.Directions[column.Key] = !requested; state.SortedColumn = column.Key;
+                state.OrderedRows = sorted; PositionRows();
+                foreach (var entry in state.ColumnButtons)
+                    entry.Button.ApplySortDirection(entry.Key == state.SortedColumn ? state.Ascending : null);
+            };
+            left += column.Width;
+        }
+        var rows = new Control { Name = "InformationRows", Position = new(0, 64), Size = new(rowWidth, 596),
+            ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
+        if (tableGeometry.Tabbed)
+        {
+            rows.Position = source.Rectangle(17).Position - source.Rectangle(14).Position;
+            rows.Size = new(rowWidth, 598);
+        }
+        table.AddChild(rows); state.RowsHost=rows;
+        if(scrollbar is null)
+        {
+            scrollbar = new UiSourceScrollbar { Name = "InformationScrollbar", Position = new(1687, 236), Size = new(16, 596) };
+            if (tableGeometry.Tabbed)
+            {
+                Rect2 box = source.Rectangle(32, new(191, 147));
+                scrollbar.Position = box.Position; scrollbar.Size = box.Size;
+            }
+            if (tableGeometry.NarrowTable) scrollbar.Position = new(191 + totalWidth + 26, scrollbar.Position.Y);
+            canvas.AddChild(scrollbar);
+            scrollbar.Configure(repository, assets, shader, Math.Max(0, publication.Count * 48 - (int)rows.Size.Y),
+                scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
+        }
+        rows.GuiInput += input => { if (ReadTableAdmission(state)) scrollbar.HandleWheel(input); };
+        for (int slot = 0; slot < Math.Min(14, publication.Count); slot++)
+        {
+            var button = new UiSourceListRow { Name = "InformationVisibleRow" + slot,
+                InputAdmission = () => ReadTableAdmission(state), ActionMode = BaseButton.ActionModeEnum.Release };
+            rows.AddChild(button); button.Configure(repository, assets, shader, font, "", rowWidth, false);
+            var cells = new List<UiSourceText>(); left = 0;
+            foreach (var column in columns)
+            {
+                var cell = new UiSourceText { Position = new(left + (tableGeometry.SourcePersonCellBounds?10:8), tableGeometry.SourcePersonCellBounds?10:8),
+                    Size = new(column.Width - (tableGeometry.SourcePersonCellBounds?20:12), tableGeometry.SourcePersonCellBounds?28:32),
+                    MouseFilter = MouseFilterEnum.Ignore };
+                button.AddChild(cell); cell.Configure(font, tableProfile); cells.Add(cell); left += column.Width;
+            }
+            var display = new RowDisplay(button, cells.ToArray(), cells.Select(cell => new Rect2(cell.Position,cell.Size)).ToArray()); state.RowPool.Add(display);
+            button.TextVisualStateChanged += _ => ApplyCells(display);
+            button.MouseEntered+=()=>{if(ReadTableAdmission(state))this.hoverSourceIndex?.Invoke(display.Entry?.SourceIndex);};
+            button.MouseExited+=()=>{if(ReadTableAdmission(state))this.hoverSourceIndex?.Invoke(null);};
+            button.Pressed += () =>
+            {
+                if (!ReadTableAdmission(state) || display.Entry is not { } entry) return;
+                selectedIndex = entry.SourceIndex;
+                foreach (var row in state.RowPool) row.Button.Selected = row.Entry?.SourceIndex == selectedIndex;
+                if (entry.CanInspect) this.inspect?.Invoke(entry.SourceIndex);
+            };
+            button.GuiInput += input => { if (ReadTableAdmission(state)) scrollbar.HandleWheel(input); };
+        }
+        return state;
+    }
+    private void ApplyNameSort(bool? direction)
+    {
+        if(direction is bool order)
+        { activeTable.SortedColumn="name";activeTable.Ascending=order;activeTable.Directions["name"]=!order; }
+        foreach(var entry in columnButtons)
+            entry.Button.ApplySortDirection(entry.Key==activeTable.SortedColumn?activeTable.Ascending:null);
+    }
+
     internal int ScrollValue => scrollbar.Value;
     internal void RestoreScroll(int value) { scrollbar.SetValue(value); PositionRows(); }
     internal void RegisterHeader(UiSourceHeaderStack stack) => header?.Publish(stack);
@@ -217,7 +290,7 @@ internal partial class MapInformationListView : Control
     {
         if (abandoned) return;
         orderedRows = ordered; selectedIndex = selected;
-        applyNameSort?.Invoke(nameSortAscending);
+        ApplyNameSort(nameSortAscending);
         PositionRows();
     }
     internal void SelectSourceIndex(int index)
@@ -300,10 +373,16 @@ internal partial class MapInformationListView : Control
     internal void Abandon()
     {
         noticeText=null;
-        readNameSort = null; applyNameSort = null;hoverSourceIndex=null;
-        abandoned = true; admitted = null; returned = null; inspect = null; orderedRows = [];
-        foreach (var row in rowPool) { row.Button.InputAdmission = null; row.Button.Disabled = true; row.Entry = null; }
-        foreach (var entry in columnButtons) { entry.Button.InputAdmission = null; entry.Button.Disabled = true; }
+        hoverSourceIndex=null;
+        abandoned = true; admitted = null; returned = null; inspect = null;
+        foreach(var table in tables.Values)
+        {
+            table.OrderedRows=[];table.Sort=null;
+            foreach(var row in table.RowPool){row.Button.InputAdmission=null;row.Button.Disabled=true;row.Entry=null;}
+            foreach(var entry in table.ColumnButtons){entry.Button.InputAdmission=null;entry.Button.Disabled=true;}
+        }
+        scrollbar?.SetProcessInput(false);
+        foreach(var tab in tabs)tab.InputAdmission=null;
         Hide();
     }
     internal void ApplyNotice(string text)
@@ -316,5 +395,9 @@ internal partial class MapInformationListView : Control
         float scale = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    {
+        Abandon();
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    }
 }

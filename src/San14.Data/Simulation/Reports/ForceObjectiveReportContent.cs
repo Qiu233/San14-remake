@@ -22,6 +22,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
+        //Advice reuses selection with an explicit nonmutating text consumer.
+        private readonly Func<ForceObjectiveReportFormattingInputs,string>? textOnly;
         private readonly List<ForceObjectiveReportEntry> entries = [];
         private bool entered, completed;
         private ForceObjectiveReportFormattingInputs? formatting;
@@ -30,10 +32,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         public ForceObjectiveReportSnapshot Snapshot => new(entries.ToImmutableArray(), completed, formatting, formattedText);
 
         internal ForceObjectiveReportContentOperation(ArmyCampaignRuleAdapter package, GameState state,
-            SourceWorldContext current, WorldIndexContext pool)
+            SourceWorldContext current, WorldIndexContext pool, Func<ForceObjectiveReportFormattingInputs,string>? textOnly = null)
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile()) throw Missing("same_current_pool");
-            this.package = package; State = state; this.current = current; this.pool = pool;
+            this.package = package; State = state; this.current = current; this.pool = pool; this.textOnly=textOnly;
         }
 
         public ForceObjectiveReportSnapshot Produce(TransferPersonReference speaker,
@@ -70,7 +72,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     ushort ruler = actorId == 0 ? (ushort)5014 :
                         K(current.ReadForceRecord(P(actor.PhysicalSlot, "message_actor"))?.RawRuler10, "message_ruler10");
                     formatting = new(speakerId, forceId, baseId, ruler);
-                    string text = package.FormatActionForceObjectiveReport(State, current, formatting, value => State = value).Text;
+                    string text = textOnly is {} render ? render(formatting) : package.FormatActionForceObjectiveReport(State, current, formatting, value => State = value).Text;
                     formattedText = text;
                     ushort freshSpeaker = Identity(speaker);
                     //22EA10 uses the other Force ruler's current home, not the target base.

@@ -35,6 +35,13 @@ public sealed class ArmyMovementEligibilityCurrentProducer
     private readonly LoadedTerrainTypes terrain;
     private readonly TacticSourceCatalog catalog;
     private readonly IArmyMovementEligibilityCurrentOwnerQueries? owners;
+    internal ArmyMovementEligibilityCurrentProducer(ArmyCampaignRuleAdapter ownedPackage,
+        LoadedMap ownedMap, LoadedTerrainTypes ownedTerrain, TacticSourceCatalog ownedCatalog,
+        IArmyMovementEligibilityCurrentOwnerQueries currentOwners)
+    {
+        package = ownedPackage; map = ownedMap; terrain = ownedTerrain; catalog = ownedCatalog; owners = currentOwners;
+    }
+
     public ArmyMovementEligibilityCurrentProducer(GameResourceRepository repository,
         ArmyCampaignRuleAdapter ownedPackage, LoadedMap ownedMap,
         IArmyMovementEligibilityCurrentOwnerQueries? currentOwners = null)

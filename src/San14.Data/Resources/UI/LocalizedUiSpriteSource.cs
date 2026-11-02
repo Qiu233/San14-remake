@@ -92,6 +92,40 @@ public sealed class LocalizedUiSpriteSource
         return _repository.ContainsRdbAsset("ScreenLayout", texture) && _repository.ContainsRdbAsset("ScreenLayout", atlas);
     }
 
+    // A declaration is different from an opened payload. Startup enumerates
+    // real Common declarations; a missing payload of one is still an error.
+    public bool HasTexturePackDeclaration(string resourceName)=>_names.ContainsKey(ResourceNameHash.Compute(resourceName));
+
+    public LoadedUiSpriteSource LoadTexturePackSource(string resourceName,string spriteName)
+    {
+        if(GameResourceRepository.TryUserPortraitResource(resourceName,out _,out _,out _)||
+            GameResourceRepository.IsDlcPortraitResource(resourceName))
+            return _repository.LoadExternalPortraitSource(resourceName,spriteName);
+        var declaration=_declarations[_names[ResourceNameHash.Compute(resourceName)]];
+        var visited=new HashSet<uint>();
+        while(true)
+        {
+            if(declaration.ClassId!=0x79991E79||!visited.Add(declaration.ObjectId))
+                throw new InvalidDataException("Invalid wrapped UI texture declaration: "+resourceName);
+            uint wrapped=Word(declaration,0x2856A1B3);if(wrapped==0)break;
+            declaration=_textures.TryGetValue(wrapped,out var target)?target:
+                throw new InvalidDataException("Missing wrapped UI texture declaration: "+resourceName);
+        }
+        uint textureId=Word(declaration,0xC8BB66DA),atlasId=Word(declaration,0x2276FC56);
+        if(textureId==0||atlasId==0)throw new InvalidDataException("Incomplete UI texture declaration: "+resourceName);
+        if(!_atlases.TryGetValue(atlasId,out var atlas))
+        {
+            var source=_repository.LoadRdbAsset("ScreenLayout",atlasId);
+            atlas=(source,SpriteAtlasReader.Read(source.Bytes));_atlases.Add(atlasId,atlas);
+        }
+        var definition=atlas.Sprites.SingleOrDefault(s=>s.Name==spriteName)
+            ??throw new InvalidDataException("Declared UI atlas does not contain "+spriteName);
+        var container=_repository.LoadTextureContainer("ScreenLayout",textureId);
+        if(definition.Value64>=container.Container.Textures.Count)throw new InvalidDataException("Declared image index is outside texture.");
+        var image=container.Container.Textures[(int)definition.Value64];_=definition.GetRectangle(image.Width,image.Height);
+        return new(definition,container,atlas.Source);
+    }
+
     public LoadedSprite LoadTexturePackSprite(string resourceName,string spriteName)
     {
         bool userPortrait = GameResourceRepository.TryUserPortraitResource(resourceName, out _, out _, out _);

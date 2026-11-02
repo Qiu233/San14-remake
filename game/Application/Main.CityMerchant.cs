@@ -6,6 +6,8 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private CityMerchantView? _cityMerchantView;
+    private GlobalMerchantCitySelectionView? _globalMerchantCities;
+    private bool _cityMerchantFromGlobal;
     private CityMerchantDraft? _cityMerchantDraft;
     private CityMerchantPersonSelectionView? _cityMerchantPersons;
     private MerchantAmountMenuView? _cityMerchantAmount;
@@ -14,7 +16,7 @@ public partial class Main
     private GameState? _cityMerchantWorld;
     private GameplaySession? _cityMerchantSession;
     private AreaAdministrationOfficerContent? _cityMerchantOfficers;
-    private bool HasCityMerchantPage => _cityMerchantView is not null || _cityMerchantNarration is not null;
+    private bool HasCityMerchantPage => _cityMerchantView is not null || _cityMerchantNarration is not null || _globalMerchantCities is not null;
     private bool IsCityMerchantCurrent => !_failed && !_shuttingDown && _cityMerchantView is not null &&
         _cityMerchantDraft is not null && ReferenceEquals(_session, _cityMerchantSession) &&
         ReferenceEquals(_world, _cityMerchantWorld) && ReferenceEquals(_session?.World, _cityMerchantWorld) &&
@@ -32,7 +34,9 @@ public partial class Main
         _cityMerchantWorld = replacement;
     }
 
-    private void OpenCityMerchant(int city)
+    private void OpenCityMerchant(int city) => OpenCityMerchant(city, fromGlobal: false);
+
+    private void OpenCityMerchant(int city, bool fromGlobal)
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasActionReport || HasPersonnelConfirmation || HasAdministrationPage || HasMilitaryOrderPage ||
             HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
@@ -43,14 +47,15 @@ public partial class Main
         var opened = composition.PrepareArmyQueries(world).OpenCityMerchantDraft(world, city, voiceRequests);
         if (!opened.Available) { CityMerchantUnavailable(opened.UnresolvedInput!); return; }
         _cityMerchantDraft = opened.Value!; _cityMerchantWorld = world;
-        _cityMerchantSession = session; _cityMerchantMap = map;
+        _cityMerchantSession = session; _cityMerchantMap = map; _cityMerchantFromGlobal = fromGlobal;
         _cityMerchantOfficers = new(_repository);
         var view = new CityMerchantView(); _cityMerchantView = view; AddChild(view);
         try
         {
             SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
             view.Configure(_repository, _ui,
-                () => RunUiAction(() => { if (!CanEditCityMerchant) return; CloseCityMerchant(); ReturnToCityMenu(session, map, city); }),
+                () => RunUiAction(() => { if (!CanEditCityMerchant) return; bool global = _cityMerchantFromGlobal; CloseCityMerchant();
+                    if (global) OpenGlobalMerchant(); else ReturnToCityMenu(session, map, city); }),
                 () => RunPlayAction(() => ConfirmCityMerchant(force)),
                 () => RunUiAction(OpenCityMerchantPersons),
                 mode => RunUiAction(() => OpenCityMerchantAmount(mode)),
@@ -145,13 +150,13 @@ public partial class Main
         var prepared = draft.PrepareNarration(_ui.SourceLocale, _presentationRandom.Next);
         if (!prepared.Available) { CityMerchantUnavailable(prepared.UnresolvedInput!); return; }
         var speech = prepared.Value!; var route = speech.PortraitRoute;
-        var sprites = new LocalizedUiSpriteSource(_repository);
-        var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard }; _cityMerchantNarration = narration; AddChild(narration);
         view.SetBusy(true);
         try
         {
-            narration.Configure(_repository, _ui, speech.SpeakerName, speech.Text, layers, () => RunPlayAction(() =>
+            var resources=TryBorrowApplicationUiResources(narration)??throw new InvalidOperationException("Narration requires its prepared application resources.");
+            var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
+            narration.Configure(_repository, _ui, speech.SpeakerName, speech.Text, layers,resources, () => RunPlayAction(() =>
             {
                 if (_cityMerchantNarration != narration) return;
                 if (!IsCityMerchantCurrent || _cityMerchantDraft != draft) { CloseCityMerchant(); return; }
@@ -159,8 +164,10 @@ public partial class Main
                 _cityMerchantNarration = null; narration.Abandon(); narration.QueueFree();
                 try
                 {
+                    bool global = _cityMerchantFromGlobal;
                     if (!ApplyPlayableOrder(order.Value!, CloseCityMerchant))
                     { RefreshCityMerchant(); view.ApplyNotice(_playMessage.Text); }
+                    else if (global) OpenGlobalMerchant();
                 }
                 catch { if (IsCityMerchantCurrent) RefreshCityMerchant(); throw; }
             }), () => _preferences.AutomaticMessageAdvance,
@@ -187,6 +194,7 @@ public partial class Main
     }
     private void RequestCityMerchantBack()
     {
+        if (_globalMerchantCities is { } cities) { cities.RequestCancel(); return; }
         if (!IsCityMerchantCurrent || _cityMerchantNarration is not null) return;
         if (_cityMerchantPersons is { } persons) persons.RequestCancel();
         else if (_cityMerchantAmount is { } amount) amount.RequestCancel();
@@ -196,6 +204,8 @@ public partial class Main
     {
         if (!HasCityMerchantPage && _cityMerchantMap is null && _cityMerchantDraft is null) return;
         _sceneAudioBinding?.StopNarrationVoice();
+        var cities = _globalMerchantCities; _globalMerchantCities = null; _cityMerchantFromGlobal = false;
+        if (cities is not null) { cities.Abandon(); cities.QueueFree(); }
         var map = _cityMerchantMap; _cityMerchantMap = null; _cityMerchantWorld = null; _cityMerchantSession = null;
         var persons = _cityMerchantPersons; _cityMerchantPersons = null;
         var amount = _cityMerchantAmount; _cityMerchantAmount = null;

@@ -18,7 +18,9 @@ public sealed partial class GameplaySession
     // The manual command stores its invocation on the actual session World.
     // The existing normal APIs keep their private-period candidate semantics.
     public bool TryPrepareCampaignStoryStep(GameState expectedOwner, ICampaignStoryPreparationRules rules,
-        out CampaignStoryPreparationResult result) => PendingCampaignEventCommand is not null
+        out CampaignStoryPreparationResult result) => PendingProgressCandidate is not null
+        ? _simulation.TryPrepareLegacyStoryStep(expectedOwner, rules, out result)
+        : PendingCampaignEventCommand is not null
         ? _simulation.TryPrepareCampaignEventCommandStep(expectedOwner, rules, out result)
         : TryPrepareNormalTurnStoryStep(expectedOwner, rules, out result);
 
@@ -26,7 +28,9 @@ public sealed partial class GameplaySession
         TryCompleteCampaignStoryStep(expectedOwner, new CampaignStoryStepReceipt(sequence, step));
 
     public bool TryCompleteCampaignStoryStep(GameState expectedOwner, CampaignStoryStepReceipt receipt) =>
-        PendingCampaignEventCommand is not null
+        PendingProgressCandidate is not null
+            ? _simulation.TryCompleteLegacyStoryStep(expectedOwner, receipt)
+            : PendingCampaignEventCommand is not null
             ? _simulation.TryCompleteCampaignEventCommandStep(expectedOwner, receipt)
             : TryCompleteNormalTurnStoryStep(expectedOwner, receipt);
 

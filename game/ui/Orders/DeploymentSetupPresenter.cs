@@ -18,7 +18,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
     private readonly Func<int>? scrollSpeed;
     private readonly UiSourceHeaderStack headers;
     private readonly Func<int,int> nextApplication;
-    private readonly Dictionary<int,LoadedSprite?> portraits=[];
+    private readonly Dictionary<int,LoadedUiSpriteSource?> portraits=[];
     private readonly Dictionary<int,AreaAdministrationQuery<DeploymentOfficerPanePublication>> officerPanes=[];
     private int? displayedOfficer;
     private DeploymentPersonSelectionView? modal;
@@ -102,31 +102,53 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
         if(!query.Available){unavailable(query.UnresolvedInput??"deployment.person-list.unavailable");return;}
         var entries=DeploymentPersonListContent.Create(repository,text,world,scenario,query);
         var selection=new DeploymentPersonSelectionView();modal=selection;view.AddChild(selection);
-        selection.Configure(repository,text,entries,query.MaximumSelection!.Value,
-            Draft.Rows.Select(row=>row.Request.OfficerId),scrollSpeed?.Invoke()??0,result=>
-            {
-                if(disposed||modal!=selection)return;
-                officerSelectionChanges+=selection.SelectionChangedSequence;
-                modal=null;selection.Hide();selection.QueueFree();
-                if(result is null)return;
-                var previous=Draft.Rows;
-                if(Draft.SelectOfficers(result) is { } error){unavailable(error);return;}
-                LastAcceptedOfficerIds=Array.AsReadOnly(Draft.Rows.Select(row=>row.Request.OfficerId).ToArray());
-                OfficerSelectionAcceptedSequence++;
-                RecordSettingsChange(previous);
-                RefreshAll();
-            },(rows,column,ascending)=>rules.QueryDeploymentPersonOrder(world,rows,column,ascending),unavailable,
-            ids=>rules.QueryDeploymentPersonFormationCapabilities(world,ids),
-            (rows,formation,ascending)=>rules.QueryDeploymentPersonFormationOrder(world,rows,formation,ascending),
-            (ids,selected)=>rules.QueryDeploymentPersonLinkage(world,ids,selected),
-            (rows,selected,slot,ascending)=>rules.QueryDeploymentPersonLinkageOrder(world,rows,selected,slot,ascending),
-            (ids,firstSlot)=>rules.QueryDeploymentPersonTactics(world,ids,firstSlot),
-            (rows,slot,ascending)=>rules.QueryDeploymentPersonTacticOrder(world,rows,slot,ascending),
-            id=>world.Tactics.GetValueOrDefault(id)?.Name,
-            ids=>rules.QueryDeploymentPersonTraits(world,ids),
-            (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed,
-            selectionAdmission:ids=>OfficerSelectionAdmission?.Invoke(ids)??true,commonBackdrop:view.CommonBackdrop);
-        selection.RegisterHeader(headers);
+        try
+        {
+            view.BeginChildSelection(selection, keepBackdrop: true);
+            selection.Configure(repository,text,entries,query.MaximumSelection!.Value,
+                Draft.Rows.Select(row=>row.Request.OfficerId),scrollSpeed?.Invoke()??0,result=>
+                {
+                    if(disposed||modal!=selection)return;
+                    RetireOfficerSelection(selection);
+                    if(result is null)return;
+                    var previous=Draft.Rows;
+                    if(Draft.SelectOfficers(result) is { } error){unavailable(error);return;}
+                    LastAcceptedOfficerIds=Array.AsReadOnly(Draft.Rows.Select(row=>row.Request.OfficerId).ToArray());
+                    OfficerSelectionAcceptedSequence++;
+                    RecordSettingsChange(previous);
+                    RefreshAll();
+                },(rows,column,ascending)=>rules.QueryDeploymentPersonOrder(world,rows,column,ascending),unavailable,
+                ids=>rules.QueryDeploymentPersonFormationCapabilities(world,ids),
+                (rows,formation,ascending)=>rules.QueryDeploymentPersonFormationOrder(world,rows,formation,ascending),
+                (ids,selected)=>rules.QueryDeploymentPersonLinkage(world,ids,selected),
+                (rows,selected,slot,ascending)=>rules.QueryDeploymentPersonLinkageOrder(world,rows,selected,slot,ascending),
+                (ids,firstSlot)=>rules.QueryDeploymentPersonTactics(world,ids,firstSlot),
+                (rows,slot,ascending)=>rules.QueryDeploymentPersonTacticOrder(world,rows,slot,ascending),
+                id=>world.Tactics.GetValueOrDefault(id)?.Name,
+                ids=>rules.QueryDeploymentPersonTraits(world,ids),
+                (rows,slot,ascending)=>rules.QueryDeploymentPersonTraitOrder(world,rows,slot,ascending),currentScrollSpeed:scrollSpeed,
+                selectionAdmission:ids=>OfficerSelectionAdmission?.Invoke(ids)??true,commonBackdrop:view.CommonBackdrop,resources:view.SourceResources);
+            selection.RegisterHeader(headers);
+        }
+        catch
+        {
+            RetireOfficerSelection(selection);
+            throw;
+        }
+    }
+
+    private void RetireOfficerSelection(DeploymentPersonSelectionView? expected = null)
+    {
+        if(modal is not { } selection || expected is not null && !ReferenceEquals(expected,selection))return;
+        modal=null;
+        if(GodotObject.IsInstanceValid(selection))
+        {
+            officerSelectionChanges+=selection.SelectionChangedSequence;
+            selection.Abandon();
+            if(GodotObject.IsInstanceValid(view))view.EndChildSelection(selection, restore: !disposed);
+            if(!selection.IsQueuedForDeletion())selection.QueueFree();
+        }
+        else if(GodotObject.IsInstanceValid(view))view.EndChildSelection(selection, restore: !disposed);
     }
 
     internal bool TryCancelModal()
@@ -153,7 +175,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
                 if(disposed||automaticMenu!=menu)return;
                 automaticMenu=null;menu.QueueFree();
                 if(strategy is int value)apply(value);
-            },view.ApplyBalloon);
+            },view.ApplyBalloon,resources:view.SourceResources);
         }
         catch{automaticMenu=null;menu.QueueFree();throw;}
     }
@@ -163,10 +185,10 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
         if(disposed||definitionModal is not null)return;
         var figures=rules.QueryDeploymentDraftFigures(world,Draft.Rows);
         var routes=rules.QueryOfficerPortraitRoutes(world,Draft.Rows.Select(row=>row.Request.OfficerId).ToArray());
-        portraits.Clear();var sprites=new LocalizedUiSpriteSource(repository);
+        portraits.Clear();
         foreach(var (officer,route) in routes)
             portraits[officer]=route.Kind==OfficerPortraitRouteKind.StockNamed?
-                sprites.LoadTexturePackSprite(route.ResourceName!,route.SpriteName!):null;
+                view.SourceResources.Assets.Portraits.RequireSource(route.ResourceName!,route.SpriteName!):null;
         var contents=Draft.Rows.Select(row=>DeploymentSummaryContent.Create(repository,text,world,row,
             portraits.GetValueOrDefault(row.Request.OfficerId),figures[row.Request.OfficerId])).ToArray();
         view.ApplyDraftSummaries(repository,contents,Draft.FocusedOfficerId,officer=>
@@ -342,7 +364,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
                     var previous=Draft.Rows;
                     if(Draft.SetAllTroops(troops) is { } error)unavailable(error);
                     else {RecordTroopsAccepted(previous);RefreshAll();}
-                },new(351,612));
+                },new(351,612),resources:view.SourceResources);
             }
             catch{batchCalculator=null;dialog.QueueFree();throw;}
         }
@@ -380,8 +402,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
     {
         if(disposed)return;disposed=true;
         RetireDefinitionSelection();
-        if(modal is { } selection)
-        {officerSelectionChanges+=selection.SelectionChangedSequence;modal=null;selection.Abandon();selection.QueueFree();}
+        RetireOfficerSelection();
         if(batchCalculator is { } calculator){batchCalculator=null;calculator.Abandon();calculator.QueueFree();}
         if(automaticMenu is { } automatic){automaticMenu=null;automatic.Abandon();automatic.QueueFree();}
         view.UnitInformation.AbandonInteraction();

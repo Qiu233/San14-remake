@@ -10,6 +10,7 @@ public partial class MapSceneView
     private ulong? _routeResourceContextRevision;
     private string? _routeResourceRoot;
     private string? _routeResourceDirectory;
+    private MapRouteStaticResources? _routeStaticResources;
 
     internal void SetDeploymentRoutePreviews(IReadOnlyList<MapRoutePreviewPath> paths)
     {
@@ -21,8 +22,8 @@ public partial class MapSceneView
     private D3D11RoutePublication? CaptureDeploymentRoutes(MainMapCameraFrame frame)
     {
         if (_deploymentRoutePaths.Count == 0 && _deploymentRoutePublication is null) return null;
-        if (_sourceMainCameraTerrain is not { } terrain || _sourceMainCamera is not { } camera)
-            throw new InvalidOperationException("Route drawing requires the map's current terrain and camera owner.");
+        if (_sceneTerrain?.WorldGroundHeight is not { } terrain || _sourceMainCamera is not { } camera)
+            throw new InvalidOperationException("Route drawing requires the Scene Landscape world Field and current camera owner.");
         bool changed = _deploymentRouteGeometry.Update(_deploymentRoutePaths, terrain, frame, camera.Parameters);
         var meshes = _deploymentRouteGeometry.Meshes;
         if (changed)
@@ -42,14 +43,24 @@ public partial class MapSceneView
         if (publication is null || publication.IsEmpty) return publication;
         if (_routeResourceContextRevision != _d3d11ResourceContext!.Revision)
         {
-            var resources = MapRouteDrawResources.Load(_repository, _d3d11ResourceContext);
-            _routeResourceRoot ??= Path.Combine(Path.GetDirectoryName(_d3d11ResourceContextDirectory!)!,
-                "route-resources", Guid.NewGuid().ToString("N"));
-            string root = Path.Combine(_routeResourceRoot,
-                resources.ContextRevision.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            MapRouteShaderNativeInputs.WriteNativeInputs(resources, root);
-            _routeResourceDirectory = Path.Combine(root, "route-program-input");
-            _routeResourceContextRevision = resources.ContextRevision;
+            if (_routeStaticResources is { } loaded)
+            {
+                _routeResourceDirectory = loaded.Require(_d3d11ResourceContext).Directory;
+                _routeResourceContextRevision = _d3d11ResourceContext.Revision;
+            }
+            else
+            {
+                // Explicit standalone consumers retain their independent import
+                // path. The product opening requires its startup owner above.
+                var resources = MapRouteDrawResources.Load(_repository, _d3d11ResourceContext);
+                _routeResourceRoot ??= Path.Combine(Path.GetDirectoryName(_d3d11ResourceContextDirectory!)!,
+                    "route-resources", Guid.NewGuid().ToString("N"));
+                string root = Path.Combine(_routeResourceRoot,
+                    resources.ContextRevision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                MapRouteShaderNativeInputs.WriteNativeInputs(resources, root);
+                _routeResourceDirectory = Path.Combine(root, "route-program-input");
+                _routeResourceContextRevision = resources.ContextRevision;
+            }
         }
         if (publication.ResourceGeneration == _routeResourceContextRevision &&
             publication.ResourceDirectory == _routeResourceDirectory) return publication;
@@ -70,5 +81,6 @@ public partial class MapSceneView
         _deploymentRouteGeometry = new(); _deploymentRoutePublication = null;
         _preparedRouteSource = null; _preparedRoutePublication = null;
         _routeResourceContextRevision = null; _routeResourceRoot = null; _routeResourceDirectory = null;
+        _routeStaticResources = null;
     }
 }

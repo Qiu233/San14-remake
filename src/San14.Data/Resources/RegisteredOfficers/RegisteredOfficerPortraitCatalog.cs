@@ -7,6 +7,8 @@ public static class RegisteredOfficerPortraitCatalog
     private static readonly ArmyMapUiSources Names = ArmyMapUiSources.Create();
     internal static bool IsStockAppearance(int id) => id is >= 0 and <= 1310 or >= 2000 and <= 2199
         or >= 2500 and <= 2509 or >= 3000 and <= 3005 or >= 5000 and <= 5399;
+    public static IEnumerable<int> StockAppearances=>Enumerable.Range(0,1311).Concat(Enumerable.Range(2000,200))
+        .Concat(Enumerable.Range(2500,10)).Concat(Enumerable.Range(3000,6)).Concat(Enumerable.Range(5000,400));
     public static ArmyMapPortraitNames FacePortrait(int id)
     {
         if (!IsStockAppearance(id)) throw new ArgumentOutOfRangeException(nameof(id));

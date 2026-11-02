@@ -105,7 +105,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             portraits.Add(new(4, ReadOfficerPortraitAppearance(state, current, _definitions, unit.OfficerId,
                 appearance, ArmyMapUiSources.Create())));
             var formation = details.Formation?.Selected ?? throw SummaryArmyMissing("group.row_formation");
-            images.Add(new(5, ArmyMapUiSources.Create().IconName(formation.Icon)));
+            images.Add(new(5, ArmyMapUiSources.Create().IconName(formation.Icon),
+                formation.Icon.SpriteId == 0x3F0 ? "texture_pk_common" : null));
             colors[5] = MapSpritePalettes.Create()[21];
             var indicatorFrame = QueryMapSummaryIndicatorStates(state, current);
             if (indicatorFrame.ArmyStates.TryGetValue(receiver.ReceiverId, out var states))

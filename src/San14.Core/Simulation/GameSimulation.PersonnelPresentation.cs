@@ -6,10 +6,10 @@ public sealed partial class GameSimulation
     /// A receipt belongs to the exact world from which its request was read.</summary>
     public bool TryCompletePersonnelPresentation(GameState expectedOwner, long batchSequence, int requestIndex)
     {
-        //Other continuation kinds own their own presentation receipt protocols.
-        if (_progress is not null) return false;
+        // Ordinary periods and restored legacy operations own the same real
+        // source outbox. Every request retains its existing admission below.
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
+        var owner = SourcePresentationOwner;
         if (!ReferenceEquals(owner, expectedOwner) || owner.CampaignEffectRequests is not { } effects)
             return false;
         int batchIndex = Array.FindIndex(effects.PendingBatches, batch => batch.Sequence == batchSequence);
@@ -71,7 +71,7 @@ public sealed partial class GameSimulation
             CampaignEffectSource.StrategicCommands => request.TalentCommandPresentation is
                 { Operation: TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText },
             CampaignEffectSource.ArmyBattleDefeat => request.TalentCommandPresentation is
-                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 4 or 5 or 6 or 7 or 8 or 23 } or
+                { Operation: TalentCommandPresentationOperation.SoundCue, SoundId: 4 or 5 or 6 or 7 or 8 or 23 or 24 } or
                 { Operation: TalentCommandPresentationOperation.Announcement } or
                 { Operation: TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText, Speaker: not null } ||
                 request.MonthlyMaintenance is { Operation: MonthlyMaintenanceOperation.NarrationText } or
@@ -148,8 +148,7 @@ public sealed partial class GameSimulation
                 _ => activeMonthly
             }
         };
-        if (pending is not null) _normalPeriod = pending with { Candidate = completedOwner };
-        else State = completedOwner;
+        PublishSourcePresentationOwner(completedOwner, pending);
         return true;
     }
 

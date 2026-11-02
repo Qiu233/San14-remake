@@ -1,4 +1,5 @@
 {
+  "startup_loading": "讀取中……",
   "new_game_preparing": "正在準備新遊戲……",
   "new_game_prepare_failed": "新遊戲準備失敗。請返回後重試。",
   "play_unit_destination_none": "無",
@@ -147,7 +148,7 @@
   "title": "三國志14 · 原版資料瀏覽器",
   "hint": "直接讀取原版安裝資料；目前可核對劇本、城市、地圖與肖像。結算規則仍在解析。",
   "language": "語言",
-  "locale_sc": "简体中文",
+  "locale_sc": "簡體中文",
   "locale_tc": "繁體中文",
   "scenarios": "劇本",
   "force_selection": "勢力",

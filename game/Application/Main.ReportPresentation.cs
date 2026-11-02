@@ -27,6 +27,7 @@ public partial class Main
         if(HasForcePresentation||TryOpenPersonnelPresentation()){RetirePeriodReportView();return;}
         if (HasIncomeReport) { RetirePeriodReportView(); return; }
         if (_failed || _repository is null || _sceneView is not null ||
+            _session is not { } session || _campaignApplication is not { } application ||
             _world is not { Phase: TurnPhase.Reporting, RulesetId: PlayableSkeleton.RulesetId } world ||
             _playerForceId is not int player || !world.Forces.ContainsKey(player))
         {
@@ -40,6 +41,7 @@ public partial class Main
         _ = RenderPlayReport(world, player);
         if (_periodReportView is { } view)
         {
+            EnsureReportBackground(session, application, _residentMap, view);
             view.Refresh(_ui, status, _reportPresentation!, world.PeriodNumber);
             return;
         }
@@ -47,8 +49,10 @@ public partial class Main
         AddChild(view);
         try
         {
+            EnsureReportBackground(session, application, _residentMap, view);
             view.Configure(_repository, _ui, status, _reportPresentation!, world.PeriodNumber,
-                () => RunPlayAction(FinishPlayableReport), _sourceHeaders, CurrentListScrollSpeed(), CurrentListScrollSpeed);
+                () => RunPlayAction(FinishPlayableReport), _sourceHeaders, CurrentListScrollSpeed(), CurrentListScrollSpeed,
+                TryBorrowApplicationUiResources(view));
             _periodReportView = view;
             if (_detailsView is { } details && details.GetParent() == this)
                 MoveChild(details, GetChildCount() - 1);
@@ -58,6 +62,7 @@ public partial class Main
         {
             RemoveChild(view);
             view.Free();
+            if (!HasActionReport && !HasIncomeReport) CloseReportBackground();
             throw;
         }
     }
@@ -79,6 +84,7 @@ public partial class Main
             view.Retire();
             if (view.GetParent() == this) RemoveChild(view);
             view.QueueFree();
+            if (!HasActionReport && !HasIncomeReport) CloseReportBackground();
         }
     }
 }

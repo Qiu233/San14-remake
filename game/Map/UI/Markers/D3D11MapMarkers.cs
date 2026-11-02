@@ -68,7 +68,43 @@ internal partial class D3D11MapMarkers : Control
     private sealed partial class MarkerCanvas : Node2D { }
     private sealed partial class MarkerInk(D3D11MapMarkers owner,Marker marker) : Node2D,IUiSourceDrawing
     {
-        public override void _Draw()=>owner.DrawMarker(this,marker);
+        private MarkerPaintPacket? ordinaryPaint;
+        private bool drawingVisible;
+        private Vector2 ordinaryAnchor;
+        private bool SetPaintAnchor(Vector2 value)
+        {
+            if(ordinaryAnchor==value)return false;
+            Position=value;ordinaryAnchor=value;
+            return true;
+        }
+        internal void RefreshPaint(bool visible,MarkerPaintPlacement? placement)
+        {
+            bool becameVisible=visible&&!drawingVisible;
+            drawingVisible=visible;
+            var current=owner.CaptureOrdinaryMarkerPaint(marker,placement,out var anchor);
+            if(current is null)
+            {
+                SetPaintAnchor(Vector2.Zero);
+                ordinaryPaint=null;
+                QueueRedraw(); // Special presentations keep their existing live draw path.
+                return;
+            }
+            bool moved=SetPaintAnchor(anchor);
+            if(!becameVisible&&ordinaryPaint is {} prior&&current.SameDrawing(prior))
+            {
+                // Font draw RIDs inherit this anchor. Their backbuffer copies
+                // explicitly use viewport identity and need their own placement.
+                if(moved&&visible)current.Font.RefreshDrawingPlacement(this);
+                return;
+            }
+            ordinaryPaint=current;
+            QueueRedraw();
+        }
+        public override void _Draw()
+        {
+            if(ordinaryPaint is {} paint)paint.Draw(this);
+            else owner.DrawMarker(this,marker);
+        }
         public void SetDrawingVisibilityLayer(uint layer)=>owner._font?.SetDrawingVisibilityLayer(this,layer);
     }
 
@@ -82,6 +118,7 @@ internal partial class D3D11MapMarkers : Control
     private MapSpritePalettes? _spritePalettes;
     private MapTextPresets? _textPresets;
     private D3D11ArmyMapLabels? _armyLabels;
+    private Func<GameState,ArmyMapPresenceFrame?>? _armyPresenceQueries;
     private AreaMapMarkerSources? _areaSources;
     private AreaMarkerRestGeometry? _areaLayout;
     private D3D11AreaCapitalPublication? _areaPublication;
@@ -114,7 +151,8 @@ internal partial class D3D11MapMarkers : Control
 
     internal void UpdatePointer(Vector2 point, MainMapCameraFrame frame, bool? pressed = null)
     {
-        int? hit = TryPickMarker(point, frame, out int hex) ? hex : null;
+        _armyLabels?.UpdateInteractionPointer(point, frame, pressed);
+        int? hit = TryPickArmy(point, frame, out _) ? null : TryPickMarker(point, frame, out int hex) ? hex : null;
         AcceptPointerHex(hit,pressed);
     }
 
@@ -131,6 +169,7 @@ internal partial class D3D11MapMarkers : Control
 
     internal void ClearPointer()
     {
+        _armyLabels?.ClearInteractionPointer();
         _hoveredHex = _pressedHex = null;
         PositionFoodWarnings();
         PositionFacilityInfo();
@@ -147,6 +186,8 @@ internal partial class D3D11MapMarkers : Control
 
     internal IReadOnlyList<D3D11MapLocation> Locations => _locations;
     internal D3D11ArmyLabelPublication? CaptureArmyLabels(GameState world) => _armyLabels?.CaptureWorld(world);
+
+    internal void ReleaseBorrowedArmyLabelWorld() => _armyLabels?.ReleaseBorrowedWorld();
 
     internal bool RefreshArmyTraitViews(GameState world)
     {
@@ -179,14 +220,14 @@ internal partial class D3D11MapMarkers : Control
         IReadOnlyDictionary<int, Color>? markerColors,
         string locale, int? playerForceId, ScenarioCityPreview scenario,
         UiAssets? sharedAssets = null, LoadedLayout? sharedLayout = null,
-        IReadOnlyDictionary<int, int>? durabilityCapacities = null)
+        IReadOnlyDictionary<int, int>? durabilityCapacities = null, CityGateMapMarkerSources? sharedCitySources = null)
     {
         MouseFilter = MouseFilterEnum.Ignore;
         ClipContents = true;
         tacticRepository = repository;
         _assets = sharedAssets ?? new UiAssets(repository);
         _ownsAssets = sharedAssets is null;
-        _citySources = CityGateMapMarkerSources.Load(repository);
+        _citySources = sharedCitySources ?? CityGateMapMarkerSources.Load(repository);
         var layout = _citySources.Full;
         _playerForce = playerForceId;
         _areaSources = AreaMapMarkerSources.LoadCurrentTc(repository);
@@ -249,13 +290,14 @@ internal partial class D3D11MapMarkers : Control
 
     internal void ConfigureArmyLabels(GameResourceRepository repository, ScenarioCityPreview scenario,
         Func<GameState, SourceWorldContext?>? currentQueries,
-        MainMapCameraControllerParameters cameraParameters)
+        MainMapCameraControllerParameters cameraParameters,Func<GameState,ArmyMapPresenceFrame?>? presenceQueries=null)
     {
         _armyLabels = new() { Name = "NativeArmyMapLabels", Visible = _armyInformationVisible };
+        _armyPresenceQueries=presenceQueries;
         AddChild(_armyLabels);
         _armyLabels.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _armyLabels.Configure(repository, scenario, _assets!, _font!, _textPresets!, _areaSources!,
-            _spritePalettes!, _citySources!, _barPanel!, currentQueries, cameraParameters);
+            _spritePalettes!, _citySources!, _barPanel!, currentQueries, cameraParameters,presenceQueries);
     }
 
     internal void PresentArmy(D3D11MapInput input, D3D11MapReceipt receipt)
@@ -267,6 +309,8 @@ internal partial class D3D11MapMarkers : Control
     internal bool HasArmySpeechLayout(int unitId) => _armyLabels?.HasSpeechLayout(unitId) == true;
     internal ArmyMapSpeechBubbleView? ArmySpeechLayout(int unitId) => _armyLabels?.SpeechLayout(unitId);
     internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureArmySpeechViews() => _armyLabels?.CaptureSpeechViews();
+    internal San14.Client.Gameplay.ArmyTraitSpeechViews.View? CaptureArmySpeechView(int armyId)
+        => _armyLabels?.CaptureSpeechView(armyId);
 
     internal bool TryPickArmy(Vector2 localPoint, MainMapCameraFrame displayedFrame,
         out ArmyMapLabelHit hit)
@@ -278,6 +322,7 @@ internal partial class D3D11MapMarkers : Control
     internal void RefreshWorld(GameState world, IReadOnlyDictionary<int, Color>? markerColors,
         IReadOnlyDictionary<int, int>? durabilityCapacities = null)
     {
+        var armyPresence=_armyPresenceQueries?.Invoke(world);
         var live = new HashSet<(Kind, int)>();
         _locations.Clear();
         foreach (CityState city in world.Cities.Values.OrderBy(city => city.Id))
@@ -333,6 +378,10 @@ internal partial class D3D11MapMarkers : Control
             }
             marker.Name = name;
             marker.Troops = troops.ToString(CultureInfo.InvariantCulture);
+            if(kind!=Kind.Area && armyPresence is not null &&
+                armyPresence.BaseLabelArmyTroopsByLocation.TryGetValue(id,out var stationed))
+                marker.Troops=stationed is int sum
+                    ? sum.ToString(CultureInfo.InvariantCulture).PadLeft(6)+"/"+marker.Troops : "?";
             marker.Force = force;
             // An unavailable force palette stays neutral; no generated HSV
             // palette or guessed ruler-first-character is published as source.
@@ -433,15 +482,22 @@ internal partial class D3D11MapMarkers : Control
     }
 
     internal bool TryPickMarker(Vector2 localPoint, MainMapCameraFrame displayedFrame, out int hexId)
+        => TryPickMarker(localPoint, displayedFrame, out hexId, out _);
+
+    // Location sound consumers must distinguish the actual City/Gate/Area
+    // marker from the shared facility fallback and independent card bucket.
+    internal bool TryPickMarker(Vector2 localPoint, MainMapCameraFrame displayedFrame, out int hexId,
+        out bool locationMarker)
     {
         hexId = -1;
+        locationMarker = false;
         if (!_baseInformationVisible && campaignMarkerHexes is null || !IsVisibleInTree() || Size.X <= 0 || Size.Y <= 0) return false;
         Vector2 cursor = localPoint / Size * CanonicalSize;
         // The same unsigned bucket selects both source GUI and map targets.
         if(informationHits.TryPick(cursor,displayedFrame,true,out var hit,campaignMarkerHexes,directionSuppression))
         {
             if(hit.Hex is not int hex)return false;
-            hexId=hex;return true;
+            hexId=hex;locationMarker=!hit.IsCard;return true;
         }
         return TryPickFacility(localPoint, displayedFrame, out hexId);
     }
@@ -625,10 +681,24 @@ internal partial class D3D11MapMarkers : Control
     private Rect2 AreaHitRectangle(Marker marker, Vector2 p, bool showName)
         => AreaRectangle(AreaMapMarkerSources.NormalHitRectangle(marker.Name.Length, showName), p);
 
-    public override void _Ready() => Resized += QueueMarkerRedraw;
+    private Viewport? paintViewport;
+    public override void _Ready()
+    {
+        Resized+=QueueMarkerRedraw;
+        paintViewport=GetViewport();paintViewport.SizeChanged+=QueueMarkerRedraw;
+        SetNotifyTransform(true);
+    }
+
+    public override void _Notification(int what)
+    {
+        if(what==NotificationTransformChanged&&paintViewport is not null)QueueMarkerRedraw();
+    }
 
     public override void _ExitTree()
     {
+        SetNotifyTransform(false);Resized-=QueueMarkerRedraw;
+        if(paintViewport is {} viewport&&GodotObject.IsInstanceValid(viewport))viewport.SizeChanged-=QueueMarkerRedraw;
+        paintViewport=null;
         //Before its first base action this owned canvas has no tree parent.
         //A mounted canvas is already retired with this marker subtree.
         if (GodotObject.IsInstanceValid(tacticBaseCanvas) && tacticBaseCanvas.GetParent() is null)

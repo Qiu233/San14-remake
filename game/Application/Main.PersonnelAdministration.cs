@@ -110,7 +110,7 @@ public partial class Main
                             ClosePersonnelAdministrationPeople(); view.SetBusy(false);
                             if (selected is not null) draft.SelectTargets(selected);
                             Refresh();
-                        }), CurrentListScrollSpeed);
+                        }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(selector));
                 }
                 catch { ClosePersonnelAdministrationPeople(); view.SetBusy(false); throw; }
             }
@@ -144,7 +144,7 @@ public partial class Main
                         }));
                     }
                     catch { _personnelAdministrationQuestion = null; question.Abandon(); question.QueueFree(); view.Show(); throw; }
-                }), CurrentListScrollSpeed, retainOnAccept: true), view.Abandon, view.RequestCancel);
+                }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(view), retainOnAccept: true), view.Abandon, view.RequestCancel);
         }
 
         void OpenCredit(bool rankup)
@@ -244,7 +244,7 @@ public partial class Main
                             ClosePersonnelAdministrationPeople(); view.SetBusy(false);
                             if (selected is not null) _personnelCreditSelectionAcceptedSequence++;
                             Refresh();
-                        }), CurrentListScrollSpeed, retainOnAccept: true);
+                        }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(selector), retainOnAccept: true);
                     selector.SelectionConfirmationAdmission = ids => PersonnelCreditSelectionAdmission?.Invoke(ids) ?? true;
                     BindCurrentTutorialCreditAndDoctrine();
                 }

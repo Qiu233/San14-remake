@@ -23,14 +23,19 @@ public sealed partial class SourceWorldContext
     }
 
     public ushort? ReadCaptureHexWord16(int physical)
-    { Check(physical, 48400, "capture Hex physical slot"); return _captureHexWords16?[physical]; }
+    {
+        Check(physical, MapTileCount, "capture Hex physical slot");
+        return _captureHexWords16 is { } words && physical < words.Length ? words[physical] : null;
+    }
 
     public void SetCaptureHexWord16(int physical, ushort? value)
     {
-        Check(physical, 48400, "capture Hex physical slot");
+        Check(physical, MapTileCount, "capture Hex physical slot");
         //Null-initialized storage means unknown for all other fields. Only
         //the explicit setter below supplies this reached native write.
-        _captureHexWords16 ??= new ushort?[48400];
+        _captureHexWords16 ??= new ushort?[MapTileCount];
+        if (physical >= _captureHexWords16.Length)
+            throw new InvalidDataException("Current capture Hex owner does not cover this map index.");
         _captureHexWords16[physical] = value; CaptureHex16Writes.Add(physical);
     }
 

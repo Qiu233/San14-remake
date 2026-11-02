@@ -1,13 +1,18 @@
 using Godot;
 using San14.Core;
 using San14.Data;
+using San14.Client.Gameplay;
 using NVector3=System.Numerics.Vector3;
 using NMatrix=System.Numerics.Matrix4x4;
 
 public partial class MapSceneView
 {
     private Control? chronologyOwner;
+    // The immutable committed map identity continues into native requests and
+    // Accepted. A held execution World is used only by synchronous capture.
     private GameState? chronologyWorld;
+    private GameState? chronologyInspectionWorld;
+    private CampaignPeriodPlayback? chronologyPeriod;
     private MainMapCameraControllerState? chronologyPriorPose;
     private ChronologyMapCameraAdapter? chronologyCamera;
     private bool chronologyPriorDetails,chronologyPriorVisible,chronologyPriorGeographicVisible;
@@ -19,11 +24,27 @@ public partial class MapSceneView
     private ulong chronologyRevision,chronologyPresentedRevision;
     internal bool IsChronologyMapActive=>chronologyOwner is not null;
 
-    internal bool BeginChronology(Control owner,ChronologyInformationMapSnapshot snapshot,out string? missing)
+    private bool ChronologyInspectionCurrent(GameState inspectionWorld,CampaignPeriodPlayback? period)
+        => period is null ? !_periodMapActive && ReferenceEquals(inspectionWorld,_logicalWorld)
+            : _periodMapActive && ReferenceEquals(period,_periodMapOwner) &&
+                period.MenuPresentationOpen && ReferenceEquals(period.Candidate,inspectionWorld);
+
+    private bool ChronologyOwnerCurrent()=>chronologyOwner is not null &&
+        ReferenceEquals(chronologyWorld,_logicalWorld) && chronologyInspectionWorld is {} inspection &&
+        ChronologyInspectionCurrent(inspection,chronologyPeriod);
+
+    internal bool BeginChronology(Control owner,ChronologyInformationMapSnapshot snapshot,
+        GameState inspectionWorld,CampaignPeriodPlayback? period,out string? missing)
     {
         missing=null;
-        if(chronologyOwner==owner){UpdateChronology(owner,snapshot);return true;}
-        if(chronologyOwner is not null||!IsPlayableMapReady||_periodMapActive||_cgQualityRebuilding||
+        if(chronologyOwner==owner)
+        {
+            if(!ReferenceEquals(chronologyInspectionWorld,inspectionWorld)||
+                !ReferenceEquals(chronologyPeriod,period)||!ChronologyOwnerCurrent())
+            {RetireChronologyMap(restore:true);missing="chronology.map.inspection-owner";return false;}
+            UpdateChronology(owner,snapshot);return true;
+        }
+        if(chronologyOwner is not null||!IsPlayableMapReady||!ChronologyInspectionCurrent(inspectionWorld,period)||_cgQualityRebuilding||
             storyPresentationOwner is not null||uniqueDirectionOwner is not null||
             _sourceMainCamera is not {CurrentRuntime.Transition:null,CurrentRuntime.RequestMode188:0} primary||
             _logicalWorld is not {} world||_d3d11Ownership is null||_d3d11Markers is null||ForcePalette is null)
@@ -31,6 +52,7 @@ public partial class MapSceneView
         try
         {
             chronologyOwner=owner;chronologyWorld=world;
+            chronologyInspectionWorld=inspectionWorld;chronologyPeriod=period;
             chronologyPriorPose=primary.CurrentState;
             chronologyPriorDetails=_detailsOpen;chronologyPriorVisible=Visible;
             chronologyPriorGeographicVisible=geographicView?.Visible==true;
@@ -62,14 +84,18 @@ public partial class MapSceneView
 
     internal void UpdateChronology(Control owner,ChronologyInformationMapSnapshot snapshot)
     {
-        if(chronologyOwner!=owner||!ReferenceEquals(chronologyWorld,_logicalWorld))
-            throw new InvalidOperationException("chronology.map.owner");
+        if(chronologyOwner!=owner)throw new InvalidOperationException("chronology.map.owner");
+        if(!ChronologyOwnerCurrent())
+        {
+            RetireChronologyMap(restore:true);
+            throw new InvalidOperationException("chronology.map.inspection-owner");
+        }
         if(ReferenceEquals(chronologySnapshot,snapshot))return;
         if(snapshot.AreaColors.IsDefault||snapshot.AreaColors.Length!=501||snapshot.HexIds.IsDefault||snapshot.HexIds.Length!=4)
             throw new InvalidDataException("chronology.map.saved-fields");
         foreach(byte color in snapshot.AreaColors)
             if(color>60)throw new InvalidDataException("chronology.map.saved-area-color");
-        var current=_d3d11CurrentWorldQueries?.Invoke(chronologyWorld!)??
+        var current=_d3d11CurrentWorldQueries?.Invoke(chronologyInspectionWorld!)??
             throw new InvalidDataException("chronology.map.current-object-owner");
         var colors=new byte[D3D11TerritoryPublisher.CellCount];
         var map=_d3d11Ownership!.StaticMap;
@@ -77,8 +103,10 @@ public partial class MapSceneView
             colors[hex]=map.TerrainFlags[hex]==0?(byte)60:snapshot.AreaColors[Math.Min(map.AreaSlots[hex],(ushort)500)];
         var anchors=new List<(NVector3 Position,Vector2 Offset)?>(4);
         foreach(ushort hex in snapshot.HexIds)anchors.Add(CaptureChronologyFlare(current,hex));
-        // Each selected record is one immutable publication. No world state,
-        // live affiliation or caller-owned saved arrays are modified.
+        // The held World and its source context remain on Main. Only the
+        // captured colours, positions and marker strings survive this call;
+        // native D3D11MapInput.WorldState keeps the committed map identity.
+        // No live affiliation or caller-owned saved arrays are modified.
         _d3d11Markers!.ApplyChronologyShortNames(snapshot,current);
         chronologyAnchors.Clear();chronologyAnchors.AddRange(anchors);
         chronologyTerritory=new(colors,0xC000000000000000UL|++chronologyRevision,chronologyMapColors!);
@@ -105,6 +133,8 @@ public partial class MapSceneView
 
     private void PresentChronologyFrame(D3D11MapInput input)
     {
+        if(chronologyOwner is not null&&!ChronologyOwnerCurrent())
+        {RetireChronologyMap(restore:true);return;}
         if(chronologyOwner is null||chronologyFlares is null||chronologyPresentedRevision==chronologyRevision||
             !ReferenceEquals(input.WorldState,chronologyWorld)||!ReferenceEquals(input.TerritoryOwnership,chronologyTerritory)||
             input.SourceFrame is not {} frame||chronologyCamera is null||frame.ControllerState!=chronologyCamera.CurrentState)return;
@@ -127,12 +157,16 @@ public partial class MapSceneView
     internal void EndChronology(Control owner)
     {if(chronologyOwner==owner)RetireChronologyMap(restore:true);}
     private void ChronologyOwnerExiting()=>RetireChronologyMap(restore:true);
+    private void RetirePeriodChronology(CampaignPeriodPlayback period)
+    {if(ReferenceEquals(chronologyPeriod,period))RetireChronologyMap(restore:true);}
     private void RetireChronologyMap(bool restore)
     {
         if(chronologyOwner is not {} owner)return;
         chronologyOwner=null;
         if(GodotObject.IsInstanceValid(owner))owner.TreeExiting-=ChronologyOwnerExiting;
-        chronologySnapshot=null;chronologyWorld=null;chronologyTerritory=null;chronologyMapColors=null;
+        chronologySnapshot=null;chronologyWorld=null;
+        chronologyInspectionWorld=null;chronologyPeriod=null;
+        chronologyTerritory=null;chronologyMapColors=null;
         chronologyAnchors.Clear();chronologyPresentedRevision=0;chronologyCamera=null;
         _d3d11Markers?.ClearChronologyShortNames();
         if(chronologyFlares is {} flares){flares.Hide();flares.QueueFree();chronologyFlares=null;}

@@ -144,6 +144,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             foreach (var choice in choices)
                 if (!CreditChoiceSource.IsLegal(rules.People.First(p => p.Id == choice.OfficerId), choice.ChoiceCode))
                     throw CreditMissing("rankup_choice_code");
+            //6CD870 collects presentation groups in the accepted UI list order,
+            //before the formal numerical map is consumed in Person ID order.
+            var presentation = PreparePersonnelCreditRankupPresentationCurrent(state, rules, choices);
             var working = state;
             var current = rules.Current;
             //1EC640 consumes the native map in ascending Person identity order.
@@ -165,9 +168,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var updated = old.SetItem(doctrine - 1, (byte)Math.Clamp(unchecked(old[doctrine - 1] + points), 0, 99));
                     working = working with { ForceCreditReserves = reserve with { PointsByForce = reserve.PointsByForce.SetItem(force.Id, updated) } };
                 }
-                //The max-stage caller includes an Episode-person presentation and
-                //an application achievement service. Preserve its unresolved boundary.
-                if (next == 6) throw CreditMissing("rankup_stage6_Episode32C410_application3EA090");
+
                 ushort flags = (ushort)(CreditNeed(current.ReadArmyReturnPersonFlags196(row.Physical), "rankup_Person15E") | 0x8000);
                 current.WriteArmyReturnPersonFlags196(row.Physical, flags);
                 working = working with { Officers = new(working.Officers) { [id] = owner with
@@ -179,7 +180,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             working = PayCreditOrderCurrent(working, rules, ids.Length);
             var effects = new List<CampaignEffectRequest>();
-            working = ApplyPersonnelCreditReportsCurrent(working, current, force.Id, ids, true, effects, state);
+            working = ApplyPersonnelCreditRankupPresentationCurrent(working, current, effects, state, presentation);
             return CommandResult.Accept(AppendCreditEffects(working, effects));
         }
         catch (InvalidDataException error) { return CommandResult.RuleUnavailable("personnel-credit.rankup", error.Message); }

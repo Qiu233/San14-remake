@@ -11,16 +11,34 @@ public sealed class D3D11CurrentSeasonResources
         internal Light(uint objectId, uint groupMask, DirectionalLightProviderTemporary defaultCaller)
         {
             ObjectId = objectId; GroupMask = groupMask; DefaultCaller = defaultCaller;
-            CurrentSource = DirectionalLightCurrentSource.FromTemporary(defaultCaller);
-            NumericEncoding = new(defaultCaller.Bytes.Span);
+            SelectedConstruction=defaultCaller.Root;
+            GameControls=MapGameLightQualityOverlay.ReadCurrentControls(SelectedConstruction.Bytes.Span);
+            var bytes=DirectionalLightConstruction.PrepareSelectedGameLightData(SelectedConstruction,GameControls);
+            CurrentSource=DirectionalLightCurrentSource.FromPreparedConstruction(SelectedConstruction,bytes);
+            NumericEncoding = new(bytes);
         }
+        internal Light(Light registered,DirectionalLightConstructionPacket selected,MapGameLightQualityWrites controls)
+        {
+            ObjectId=registered.ObjectId;GroupMask=selected.Metadata.SourceGroupMask;
+            DefaultCaller=registered.DefaultCaller;SelectedConstruction=selected;GameControls=controls;
+            var bytes=DirectionalLightConstruction.PrepareSelectedGameLightData(selected,controls);
+            CurrentSource=DirectionalLightCurrentSource.FromPreparedConstruction(selected,bytes);
+            NumericEncoding=new(bytes);
+        }
+        internal DirectionalLightConstructionPacket SelectedConstruction {get;}
         internal uint ObjectId { get; }
         internal uint GroupMask { get; }
         internal DirectionalLightProviderTemporary DefaultCaller { get; }
         internal DirectionalLightCurrentSource CurrentSource { get; }
         internal D3D11CurrentLightEncoding NumericEncoding { get; }
+        internal MapGameLightQualityWrites GameControls { get; }
     }
     internal IReadOnlyList<Light> Lights { get; }
+    private readonly DirectionalLightConstructionPacket[][] modeLights;
+    internal MapSeasonMainCameraModeSources CameraModes {get;}
+    internal IReadOnlyList<D3D11CurrentSeasonCameraSettings> ModeSettings {get;}
+    internal DirectionalLightConstructionPacket SelectModeLight(int registeredIndex,int successfulMode)
+        =>modeLights[registeredIndex][successfulMode];
     internal CameraViewSettings ViewDefaults { get; }
     internal OceanWaveSettings OceanWaves { get; }
     internal OceanSurfaceSettings OceanSurface { get; }
@@ -41,11 +59,34 @@ public sealed class D3D11CurrentSeasonResources
     public float ControllerGeometry40 { get; }
     public byte FreshExposureSelector { get; }
 
-    private D3D11CurrentSeasonResources(
+    private D3D11CurrentSeasonResources(GameResourceRepository repository,
         SceneViewNativeMapSeasonResourceBundle source, Light[] lights, byte exposureSelector,
         CommonRenderPolicy commonPolicy,CommonRenderSettings initialCommonSettings)
     {
         Source = source; Lights = lights; FreshExposureSelector = exposureSelector;
+        CameraModes=new(repository,source.CameraSource);
+        ModeSettings=source.CameraSource.Selection.Provider.CameraChildren.Prepend(
+            source.CameraSource.Selection.Provider.Root).Select(package=>new D3D11CurrentSeasonCameraSettings(package)).ToArray();
+        // Each child borrows actual named bindings retained by its registered
+        // family. No guessed handle or synthetic resource readiness is added.
+        modeLights=lights.Select((registered,index)=>
+        {
+            var root=registered.DefaultCaller.Root;
+            var family=source.DirectionalDeclarations.Roots[index];
+            var result=new DirectionalLightConstructionPacket[family.Children.Count+1];result[0]=root;
+            for(int child=0;child<family.Children.Count;child++)
+            {
+                uint id=family.Children[child].ObjectId;
+                var requests=DirectionalLightConstruction.RequiredResourceKeys(root.Source,id,root.ContextFlags3E4,root.ResourceBindings);
+                var actual=root.ResourceBindings.Where(binding=>requests.Contains(binding.SourceObjectKey)).ToArray();
+                if(requests.Count!=actual.Length)
+                    throw new NotSupportedException("Selected Directional child requires another actual named resource owner.");
+                result[child+1]=DirectionalLightCpuConstruction.Create(root.Source,id,root.ContextFlags3E4,actual,
+                    DirectionalLightCpuInitialization.Default);
+                DirectionalLightConstruction.RequireSharedPhysicalTextureSlots(root,result[child+1]);
+            }
+            return result;
+        }).ToArray();
         PatternTextures = Array.AsReadOnly(lights.Select(light =>
         {
             var root = light.DefaultCaller.Root;
@@ -56,18 +97,18 @@ public sealed class D3D11CurrentSeasonResources
         InitialCommonSettings = initialCommonSettings;
         if (source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Current Main needs its actual paired selection writer.");
-        var selected = source.CameraSource.Selection.FirstPackage;
-        CloudShaderSettings = SkyCloudShaderSettings.Import(selected);
-        PatternSettings = PatternCameraSettingsImport.Load(selected);
-        RainSettings = RainDropCameraSettings.Import(selected);
-        ViewDefaults = CameraViewSettingsImport.Load(selected);
-        OceanWaves = OceanWaveSettingsImport.Load(selected);
-        OceanSurface = OceanSurfaceSettingsImport.Load(selected);
-        OceanOptics = OceanOpticsSettingsImport.Load(selected);
-        OceanTextureMaterial = OceanTextureMaterialSettingsImport.Load(selected);
-        OceanBubbleMaterial = OceanBubbleMaterialSettingsImport.Load(selected);
-        Stars = SkyStarSettings.Import(selected);
-        HeightFog = HeightFogResourceImport.Load(selected);
+        var selected = ModeSettings[0];
+        CloudShaderSettings = selected.Cloud;
+        PatternSettings = selected.Pattern;
+        RainSettings = selected.Rain;
+        ViewDefaults = selected.View;
+        OceanWaves = selected.Waves;
+        OceanSurface = selected.Surface;
+        OceanOptics = selected.Optics;
+        OceanTextureMaterial = selected.Texture;
+        OceanBubbleMaterial = selected.Bubble;
+        Stars = selected.Stars;
+        HeightFog = selected.Fog;
         ControllerGeometry40 = Stars.ExposureScale;
     }
 
@@ -80,7 +121,9 @@ public sealed class D3D11CurrentSeasonResources
         if(actualMain.Camera.ExecutableLocale!=Source.Locale)
             throw new InvalidDataException("Calendar adoption cannot change the loaded season locale.");
         var camera=Source.CameraSource.AdoptStartedCampaignCalendar(actualNativeState,actualMain);
-        Source=Source.WithAdoptedCamera(camera);
+        var adopted=Source.WithAdoptedCamera(camera);
+        CameraModes.AdoptStartedCampaignCalendar(actualNativeState,actualMain);
+        Source=adopted;
     }
 
     /// <summary>Bind the actual fresh Main/Aux default caller: force=-1,
@@ -112,7 +155,7 @@ public sealed class D3D11CurrentSeasonResources
         var lights = actualOrderedRoots.Select(root => new Light(root.SourceObjectId,
             root.Metadata.SourceGroupMask,
             DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root))).ToArray();
-        return new(source, lights, common.ViewGroupSelector ?? 0,
+        return new(repository,source, lights, common.ViewGroupSelector ?? 0,
             CommonRenderPolicy.FromAuxiliary(common.Auxiliary),commonSource);
     }
 

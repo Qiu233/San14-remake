@@ -186,14 +186,11 @@ public sealed partial class TacticRemakeCurrentContext
                 if (force != sourceForce) return false;
                 if (targetArmy is not null)
                 {
-                    var reference = _definitions.ReadRegistryTableReference(RegistryKind.Army, entity.NativePhysicalSlot);
-                    if (reference is null) return null;
-                    for (int offset = 0x23; offset <= 0x25; offset++)
-                    {
-                        if (_definitions.ReadTacticClearByte(reference, offset) is not byte abnormal) return null;
-                        if (abnormal != 0) return true;
-                    }
-                    return false;
+                    // The reached GameState owns all three current counters. The
+                    // explicit abnormal-clear write overlay is not initialized
+                    // for an Army that has not had a clear/assignment this cycle.
+                    if (targetArmy.NativeTacticRuntime is not { } runtime) return null;
+                    return runtime.Abnormal23 != 0 || runtime.Abnormal24 != 0 || runtime.Abnormal25 != 0;
                 }
                 if (targetBase is null) return false;
                 var fields = _definitions.ReadCaptureBaseThreatFields(targetBase);

@@ -7,6 +7,7 @@ public sealed partial class RemakeArmySceneVisuals
     private sealed record OwnedMotion(RemakeArmyInitialization Initialization,
         ArmyGraphicsMotion Motion, ArmyGraphicsCurrentInputs Inputs)
     {
+        public RemakeArmyVisualUnit Unit { get; init; }
         public uint Revision { get; set; }
         public int Mode { get; init; }
         public byte SelectedFormation1B { get; init; }
@@ -70,15 +71,15 @@ public sealed partial class RemakeArmySceneVisuals
                     selection.Transport is null ? null : selection.ExplicitLandFormationSlot);
                 owned = new(initial, new ArmyGraphicsMotion(initial.CopyRecords(), position, heading,
                     inputs.CurrentHex2A, inputs.Commander12, clock.UpdateInterval32C510, 48400), inputs)
-                    {Revision=1,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval};
+                    {Unit=RemakeArmyVisualUnit.Capture(unit),Revision=1,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval};
             }
             else
             {
                 uint revision=owned.Revision+(owned.Mode!=mode?1u:0u);
-                owned = owned with { Inputs = inputs,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval,Revision=revision };
+                owned = owned with { Unit=RemakeArmyVisualUnit.Capture(unit),Inputs = inputs,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval,Revision=revision };
             }
             _motions[id] = owned;
-            frames.Add(id, PublishMotionFrame(unit, owned));
+            frames.Add(id, PublishMotionFrame(owned));
         }
         foreach (var id in _motions.Keys.Where(id => !frames.ContainsKey(id)).ToArray())
         { _motions.Remove(id); _states.Remove(id); _randomCounters.Remove(id); }
@@ -87,7 +88,7 @@ public sealed partial class RemakeArmySceneVisuals
 
     /// <summary>Actual paced manager event, before native camera admission.
     /// A camera-only draw never invokes this motion owner.</summary>
-    public bool AdvanceMotion(GameState world, ArmyGraphicsMotionFrame clock)
+    public bool AdvanceMotion(ArmyGraphicsMotionFrame clock)
     {
         Dictionary<int, RemakeArmyVisualFrame>? frames = null;
         foreach (var (id, owned) in _motions)
@@ -100,17 +101,17 @@ public sealed partial class RemakeArmySceneVisuals
             if(step.Changed)++owned.Revision;
             if (!step.Changed && priorAction == step.GraphicsAction60) continue;
             frames ??= new(Frames);
-            frames[id] = PublishMotionFrame(world.Units[id], owned);
+            frames[id] = PublishMotionFrame(owned);
         }
         if (frames is null) return false;
         Frames = frames;
         return true;
     }
 
-    private RemakeArmyVisualFrame PublishMotionFrame(UnitState unit, OwnedMotion owned)
+    private RemakeArmyVisualFrame PublishMotionFrame(OwnedMotion owned)
     {
-        var frame=owned.Mode==1?PublishNavalMotionFrame(unit,owned):owned.Mode==2?PublishSiegeMotionFrame(unit,owned):
-            _states[unit.Id].PublishMotion(unit,owned.Initialization,owned.Motion.CaptureRecords(),
+        var frame=owned.Mode==1?PublishNavalMotionFrame(owned):owned.Mode==2?PublishSiegeMotionFrame(owned):
+            _states[owned.Unit.UnitId].PublishMotion(owned.Unit,owned.Initialization,owned.Motion.CaptureRecords(),
                 owned.Motion.UnitPosition10,owned.Motion.GraphicsAction60,_constructors);
         return frame with{CurrentGroundHeight=Ground(owned.Motion.UnitPosition10.X,owned.Motion.UnitPosition10.Z),
             MotionRevision=owned.Revision,Mode=owned.Mode,SelectedFormation1B=owned.SelectedFormation1B,

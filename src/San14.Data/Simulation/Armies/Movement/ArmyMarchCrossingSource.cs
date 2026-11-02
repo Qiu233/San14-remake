@@ -148,7 +148,8 @@ public sealed partial class ArmyMarchCrossingSource(ArmyCampaignRuleAdapter pack
             !OrdinaryArmyRouteSource.HasSupportedMovementOverride(army) ||
             ArmyConfigurationSourceAdapter.ReadAction(state, army) is not byte action ||
             action is not (0 or 1 or 2 or 3 or 4 or 5 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 16 or 17) &&
-                !(objectTarget && action is 6 or 15) ||
+                !((objectTarget || army.NativeTacticRuntime.Status10 == 1 &&
+                    OrdinaryArmyRouteSource.HasExplicitMovementOverride(army)) && action is 6 or 15) ||
             ArmyMarchSourceAdapter.ReadCurrentHex(state, army) is not ushort from || from != army.HexId ||
             ArmyMarchSourceAdapter.EncodeDestination(army.March?.NextStep) is not ushort to ||
             OrdinaryArmyRouteSource.ReadCurrentTarget(state, army, current) is not ushort target ||
@@ -167,10 +168,9 @@ public sealed partial class ArmyMarchCrossingSource(ArmyCampaignRuleAdapter pack
         {
             var attackTarget = OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(state, army);
             if (army.NativeTacticRuntime.Status10 != 1 || attackTarget is null ||
-                (OrdinaryArmyRouteSource.HasTypedObjectOverride(army) ? attackTarget.Value.Kind != 11 :
-                    army.OverrideTarget?.Kind == ArmyOverrideTargetKind.ArmyReceiver
-                        ? attackTarget.Value.Kind != 27
-                        : attackTarget.Value.Kind != (action == 4 ? 5 : action == 5 ? 6 : 27)))
+                (OrdinaryArmyRouteSource.HasExplicitMovementOverride(army)
+                    ? attackTarget.Value.Kind is not (5 or 6 or 9 or 11 or 27)
+                    : attackTarget.Value.Kind != (action == 4 ? 5 : action == 5 ? 6 : 27)))
                 return Missing<ArmyMovementResolution>(state, army, "cross.attack_receiver_scope", moment, credit, cost, target: effectiveTarget);
         }
 

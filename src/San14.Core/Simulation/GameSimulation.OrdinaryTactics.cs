@@ -35,8 +35,8 @@ public sealed partial class GameSimulation
 
     private bool TryReadOrdinaryTacticOwner(GameState expectedOwner, out GameState owner)
     {
-        owner = _progress?.ManualTactic?.Candidate ?? _normalPeriod?.Candidate ?? State;
-        if (_progress is { ManualTactic: null } || !ReferenceEquals(owner, expectedOwner)) return false;
+        owner = _progress?.ManualTactic?.Candidate ?? _progress?.ArmyProgress?.Candidate ?? _normalPeriod?.Candidate ?? State;
+        if (_progress is { ManualTactic: null, ArmyProgress: null } || !ReferenceEquals(owner, expectedOwner)) return false;
         if (_progress?.ManualTactic is { } manual &&
             (manual.ContinueAfterPresentation || manual.Presentation is not
                 { Kind: TacticPresentationKind.OrdinaryEffects })) return false;
@@ -53,6 +53,7 @@ public sealed partial class GameSimulation
                         new(manager.Effects[0].Sequence, TacticPresentationKind.OrdinaryEffects),
                     ContinueAfterPresentation = manager.Effects.Length == 0 }
                 : manual with { Candidate = next });
+        else if (_progress?.ArmyProgress is { } army) _progress = new(null, null, army with { Candidate = next });
         else if (_normalPeriod is { } period) _normalPeriod = period with { Candidate = next };
         else State = next;
     }

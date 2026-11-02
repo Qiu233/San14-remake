@@ -26,7 +26,8 @@ public partial class Main
                 () => RunUiAction(() => CloseTitleEditMenu()), () => RunUiAction(OpenMusicEditor),
                 () => RunUiAction(OpenRegisteredOfficers), () => RunUiAction(OpenHistoricalOfficers),
                 () => RunUiAction(OpenHistoricalItemsEditor), () => RunUiAction(OpenNewItemsEditor),
-                () => RunUiAction(OpenPersonalityEditors), () => RunUiAction(OpenEventEditors));
+                () => RunUiAction(OpenPersonalityEditors), () => RunUiAction(OpenEventEditors),
+                resources: TryBorrowApplicationUiResources(view));
         }
         catch { CloseTitleEditMenu(); throw; }
     }
@@ -50,7 +51,7 @@ public partial class Main
                 () => IsMusicEditorCurrent && _musicEditor == view && _musicSelection is null && _musicQuestion is null,
                 () => RunUiAction(RequestMusicEditorReturn), () => RunUiAction(ApplyMusicEditor),
                 () => RunUiAction(() => AskMusicQuestion(0x2867, () => { draft.InitializeDefaults(); view.Refresh(); })),
-                slot => RunUiAction(() => OpenMusicSelection(slot)), CurrentListScrollSpeed, () => draft.CanInitializeDefaults);
+                slot => RunUiAction(() => OpenMusicSelection(slot)), CurrentListScrollSpeed, () => draft.CanInitializeDefaults, resources: TryBorrowApplicationUiResources(view));
         }
         catch { CloseMusicEditor(); throw; }
     }
@@ -71,7 +72,8 @@ public partial class Main
                     _musicSelection = null; view.Abandon(); view.QueueFree();
                     if (chosen is int index) draft.Select(slot, index);
                     parent.Show(); parent.SetBusy(false); parent.Refresh();
-                }), index => RunUiAction(() => PreviewMusic(slot, index)), CurrentListScrollSpeed);
+                }), index => RunUiAction(() => PreviewMusic(slot, index)), CurrentListScrollSpeed,
+                resources: TryBorrowApplicationUiResources(view));
         }
         catch
         {

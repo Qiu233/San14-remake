@@ -136,11 +136,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                         ?? throw NeutralCaptureMissing("Object_F0_pending")).Contains(receiver);
                 }, remove: at => working = RemoveMapObjectWithoutActor(working, current, at, effects));
             }
-            else GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, 0, oldDistrictId, 0, eagerAdvice: eagerAdvice);
+            else GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, 0, oldDistrictId, 0, eagerAdvice: eagerAdvice,
+                readAdviser: adviceDistrict => ReadCaptureAdviserCurrent(working, current, adviceDistrict));
             int bound = NeutralCaptureNeed(ArmyDestructionParameterSeed.ReadCurrent(working,
                 SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480");
             byte zero = unchecked((byte)Math.Min(bound, 0));
-            current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
+            var threatFields = current.ReadCaptureBaseThreatFields(target)
+                ?? throw NeutralCaptureMissing("threat_current_fields");
+            current.SetCaptureBaseThreatFields(target, threatFields with
+                { Byte49 = zero, Byte4B = zero, Byte62 = 255, Word64 = 0 });
             if (areas is not null)
             {
                 CityCaptureTerritorySource.RequireEmperorCaptureNotReached(working, current, areas);

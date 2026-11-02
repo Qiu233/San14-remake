@@ -12,6 +12,8 @@ public sealed class D3D11CityGateTemplateBank
     readonly IReadOnlyDictionary<string,D3D11CityGatePreparedAsset> assets;
     readonly IReadOnlyList<D3D11CityGatePreparedAsset> profiles;
     readonly IReadOnlyDictionary<string,byte[]> files;
+    readonly D3D11CityGateStaticResources? staticResources;
+    readonly string[] templateMediaDirectories;
     readonly Dictionary<string,D3D11CityGatePreparedAsset> bound=[];
     public string Directory{get;}
     public int AssetCount=>profiles.Count;
@@ -19,23 +21,46 @@ public sealed class D3D11CityGateTemplateBank
     public int MaxDraws{get;}
     public IReadOnlyList<D3D11CityGatePreparedAsset> Profiles=>profiles;
     public IReadOnlyDictionary<string,ulong> ShaderTableOwners{get;}
+    public D3D11PrimaryForwardStaticResources Forward=>staticResources?.Forward??
+        throw new InvalidOperationException("Primary Forward resources were not prepared with the static model owner.");
+    public D3D11PrimaryShadowStaticResources RequireShadow(string locale)
+        =>(staticResources??throw new InvalidOperationException("Primary Shadow resources were not prepared with the static model owner."))
+            .RequireShadow(locale);
 
     internal D3D11CityGateTemplateBank(string directory,int templateCount,int maxDraws,
         IEnumerable<D3D11CityGatePreparedAsset> sourceProfiles,Dictionary<string,byte[]> media,
-        Dictionary<string,ulong> shaderTableOwners)
+        Dictionary<string,ulong> shaderTableOwners,D3D11CityGateStaticResources? sharedResources=null)
     {
         Directory=Path.GetFullPath(directory);TemplateCount=templateCount;MaxDraws=maxDraws;
         profiles=Array.AsReadOnly(sourceProfiles.OrderBy(p=>p.Index).ToArray());
         assets=new ReadOnlyDictionary<string,D3D11CityGatePreparedAsset>(profiles.ToDictionary(p=>p.AssetSourceKey,StringComparer.Ordinal));
         files=new ReadOnlyDictionary<string,byte[]>(media);
         ShaderTableOwners=new ReadOnlyDictionary<string,ulong>(shaderTableOwners);
+        staticResources=sharedResources;
+        string mediaRoot=staticResources?.Directory??Directory;
+        templateMediaDirectories=profiles.SelectMany(profile=>profile.DrawIndices.Select(draw=>
+            Path.Combine(mediaRoot,$"assets/category-{profile.Category}/draw-{draw}"))).ToArray();
     }
+
+    /// <summary>Resource media belongs to the retained application generation;
+    /// downstream preparations do not assume it lives beside opening constants.</summary>
+    public string ResolveTemplateMediaFile(int templateIndex,string filename)
+        =>Path.Combine(templateMediaDirectories[templateIndex],filename);
 
     public static D3D11CityGateTemplateBank Prepare(GameResourceRepository repository,LoadedSceneResources scene,
         MapCameraConstructionPacket initialCamera,MapCommonRenderState common,uint contextFlags3E4,
         IReadOnlyList<MapWorldKind1SourceMetadata> orderedRecords,IReadOnlyDictionary<string,ulong> fieldShaderTableOwners,
         string directory)
         =>D3D11CityGateInputPreparation.Prepare(repository,scene,initialCamera,common,contextFlags3E4,
+            orderedRecords,fieldShaderTableOwners,directory);
+
+    /// <summary>Bind this opening's real camera, records and table allocations
+    /// to the application's already published immutable primary media.</summary>
+    public static D3D11CityGateTemplateBank Prepare(D3D11CityGateStaticResources sources,
+        MapCameraConstructionPacket initialCamera,MapCommonRenderState common,uint contextFlags3E4,
+        IReadOnlyList<MapWorldKind1SourceMetadata> orderedRecords,IReadOnlyDictionary<string,ulong> fieldShaderTableOwners,
+        string directory)
+        =>D3D11CityGateInputPreparation.Prepare(sources,initialCamera,common,contextFlags3E4,
             orderedRecords,fieldShaderTableOwners,directory);
 
     /// <summary>Write this generation's imported resources. No old cache or

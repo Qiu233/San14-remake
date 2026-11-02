@@ -23,10 +23,10 @@ internal static partial class ArmyRouteSearch
         if (action is 1 or 15)
         {
             ushort position = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, other), "occupant_Army2A");
-            int hex = Hex(position < Count ? position : 0).PhysicalSlot ?? throw Missing("occupant_current_Hex_pointer");
+            int hex = Hex(SourceHex(position)).PhysicalSlot ?? throw Missing("occupant_current_Hex_pointer");
             ushort destination = K(OwnedArmyLifecycleTargets.Read(state, slot.ReceiverId)?.Identity3A, "occupant_Army3A");
-            if (Distance(destination, hex) != 1) return false;
-            var goal = Hex(destination < Count ? destination : 0);
+            if (Distance(destination, hex, current.MapWidth) != 1) return false;
+            var goal = Hex(SourceHex(destination));
             if (goal.PhysicalSlot is null) return false;
             bool hasObject = K(current.ReadHexObjectLink(goal), "occupant_goal_Hex1A") != 0;
             short marker = unchecked((short)K(current.ReadHexRaw1C(goal), "occupant_goal_Hex1C"));
@@ -40,11 +40,11 @@ internal static partial class ArmyRouteSearch
         if (action is not (4 or 5 or 6 or 7 or 8 or 9 or 10 or 16 or 17)) return true;
         ushort target = OrdinaryArmyRouteSource.ReadCurrentTarget(state, other, current)
             ?? throw Missing("occupant_work_effective_target");
-        int range = K(current.ReadHexSurfaceCode(Hex(target < Count ? target : 0)), "occupant_work_target_Hex10") == 16 ? 2 : 1;
+        int range = K(current.ReadHexSurfaceCode(Hex(SourceHex(target))), "occupant_work_target_Hex10") == 16 ? 2 : 1;
         if (action is >= 4 and <= 7)
         {
             ushort rawHex = K(current.ReadArmyUnitRawHex2A(occupant), "occupant_range_Army2A");
-            var at = Hex(rawHex < Count ? rawHex : 0);
+            var at = Hex(SourceHex(rawHex));
             byte surface = K(current.ReadHexSurfaceCode(at), "occupant_range_Hex10");
             int terrain = K(current.ReadSurfaceTypeTableReference(surface <= 30 ? surface : 0), "occupant_range_Terrain").PhysicalSlot
                 ?? throw Missing("occupant_range_Terrain_pointer");
@@ -63,9 +63,13 @@ internal static partial class ArmyRouteSearch
             if (extended) range++;
         }
         ushort workPosition = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, other), "occupant_work_Army2A");
-        int physicalHex = Hex(workPosition < Count ? workPosition : 0).PhysicalSlot ?? throw Missing("occupant_work_current_Hex_pointer");
-        return Distance(physicalHex, target) <= range;
+        int physicalHex = Hex(SourceHex(workPosition)).PhysicalSlot ?? throw Missing("occupant_work_current_Hex_pointer");
+        return Distance(physicalHex, target, current.MapWidth) <= range;
 
+        // These operands still come from original words. Decode their None
+        // before applying current geometry; 48400 may be a real domain Hex.
+        int SourceHex(ushort raw) => ArmyMarchSourceAdapter.DecodeDestination(raw) is
+            { Kind: ArmyMarchDestinationKind.Hex, HexId: int hex } && current.ContainsMapHex(hex) ? hex : 0;
         HexReference Hex(int raw) => K(current.ReadHexTableReference(raw), "Hex_pointer");
     }
 }

@@ -2,7 +2,15 @@ using San14.Core;
 
 namespace San14.Data;
 
-public sealed record ArmyOrdinaryReturnResolution(ArmyOrdinaryReturnPacket? Packet, string? UnresolvedOwner);
+public sealed record ArmyOrdinaryReturnResolution(ArmyOrdinaryReturnPacket? Packet, string? UnresolvedOwner)
+{
+    internal ArmyOrdinaryReturnSuspension? Suspension { get; init; }
+}
+
+/// <summary>Immediate private publication of an actual player-prefix boundary.
+/// Only its domain State survives; these borrowed owners are not serialized.</summary>
+internal sealed record ArmyOrdinaryReturnSuspension(GameState State, SourceWorldContext Owner,
+    WorldIndexContext Pool, WorldIndexContext DraftPool, ArmyReturnDistrictOperationQueries? DistrictOperation);
 public sealed class ArmyOrdinaryReturnPacket
 {
     public ArmyUnitReference Army { get; }
@@ -62,7 +70,10 @@ public static class ArmyOrdinaryReturnRuntime
         try
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, context) || !pool.OwnsArmyReturnProfile()) throw Missing("current.complete_owned_shared_pool");
-            if (context.TransferServiceRefresher is not null || context.TransferServiceEligibilityReader is not null || context.TransferModeStateReader is not null)
+            //An enclosing Person/captive operation may own its real service
+            //callback. It is not copied to the transaction: this private draft
+            //binds the returning operation's own pending-service publisher.
+            if (context.TransferServiceEligibilityReader is not null || context.TransferModeStateReader is not null)
                 throw Missing("current.owned_return_service_source_fields");
             if (!Get(context.ReadArmyUnitNativeValidity(army), "current.Army_validity")) throw Missing("branch.invalid_army");
             byte armyStatus = Get(context.ReadArmyReturnUnitStatus10(army), "current.Army_status10");
@@ -72,6 +83,7 @@ public static class ArmyOrdinaryReturnRuntime
             if (transportEnter && transportFlags26 is null) throw Missing("current.transport_Flags26");
             bool personReturn = transportEnter && (transportFlags26!.Value & 0x20) != 0;
             var draft = context.CreateArmyReturnTransactionDraft(); var stagedPool = pool.DetachForArmyReturn(draft);
+            captives?.BindPersonnelServiceCurrent(draft);
             var districtOperation = createDistrictOperation?.Invoke(draft, queries);
             if (districtOperation is not null) queries = districtOperation;
             int commander = Person(Get(draft.ReadArmyUnitCommanderId(army), "current.Commander_word12"));
@@ -133,15 +145,88 @@ public static class ArmyOrdinaryReturnRuntime
             if (captives is not null)
             {
                 captiveResult = captives.ApplyReport(draft, report, army, target, nativeMode);
+                if (captiveResult.PlayerPreparation is { } playerPreparation)
+                {
+                    ClearRelease(draft, report);
+                    var held = captives.PreparePlayerSuspension(draft, army, target,
+                        savedCommander, savedTarget, personReturn, playerPreparation);
+                    if (districtOperation is not null)
+                    {
+                        held = PersonReturnDistrictTransferSource.PublishAreaAssignments(held, draft,
+                            districtOperation.ChangedAreas, districtOperation.ChangedGates);
+                        held = PersonReturnDistrictReorganizationSource.PublishCurrent(held, draft, districtOperation);
+                        held = held with { PersonnelCommands = draft.ReadOwnedPersonCommandManager() };
+                        captives.AdoptCurrentState(held);
+                    }
+                    return new(null, null)
+                        { Suspension = new(held, context, pool, stagedPool, districtOperation) };
+                }
                 if (captiveResult.Receipt is null) throw Missing(captiveResult.UnresolvedOwner ?? "current.2F8F00_captives");
                 effects.Add(captiveResult.Receipt.PersonOrder.Length == 0 ? "29F720.2F8F00_empty_associates_report_descriptor_release"
                     : "29F720.2F8F00_player_nativeState_absent_captives");
             }
             else { RequireNoAssociates(); RequireEmpty(report); effects.Add("29F720.2F8F00_empty_associates_report_descriptor_release"); }
             ClearRelease(draft, report);
+            return PrepareTailCurrent(army, target, context, pool, draft, stagedPool, queries,
+                savedCommander, savedTarget, personReturn, captives, captiveResult, districtOperation,
+                homeAssignments, districtTransferWrites, effects, receiveAssignment);
+
+            int Person(ushort id)
+            {
+                var value = draft.ReadPersonLookupReference(id <= 6000 ? id : 0) ?? throw Missing("current.Person_lookup");
+                return value.PhysicalSlot ?? throw Missing("current.Person_pointer");
+            }
+            void Marker(string step)
+            {
+                ushort flags = Get(draft.ReadArmyReturnPersonFlags196(commander), "current.Commander_flags15E");
+                draft.WriteArmyReturnPersonFlags196(commander, OfficerBehaviorSourceAdapter.MarkReturn(flags)); effects.Add(step);
+            }
+            int[] RegisteredPersons()
+            {
+                var sequence = draft.ReadRegisteredPersonPhysicalSlots()?.ToArray() ?? throw Missing("current.Person_manager100_complete_order");
+                return sequence.Select(x => x ?? throw Missing("current.Person_manager100_payload")).ToArray();
+            }
+            void RequireNoAssociates()
+            {
+                int location = army.PhysicalSlot is >= 1 and <= 500 ? army.PhysicalSlot.Value + 61 : 0;
+                foreach (int person in RegisteredPersons())
+                {
+                    byte status = Get(draft.ReadPersonStatus(person), "current.associated_Person_statusE6");
+                    if (status != 6) continue;
+                    ushort second = Get(draft.ReadPersonSecondLocation(person), "current.associated_Person_secondE4");
+                    if (second == location) throw Missing("branch.nonempty_status6_Army_associates2F8F00");
+                }
+            }
+            void RequireEmpty(HexListHandle descriptor)
+            {
+                var head = draft.ReadRegistryHead(new(descriptor.Identity)) ?? throw Missing("current.associated_temporary_head");
+                int count = Get(draft.ReadTemporaryHexListCount(descriptor), "current.associated_temporary_count");
+
+                if (head.Identity.HasValue || count != 0) throw Missing("branch.report_not_actual_empty_descriptor");
+            }
+        }
+        catch (MissingOwner error) { return new(null, error.Message); }
+        catch (InvalidDataException error) { return new(null, "current.OrdinaryReturn_input: " + error.Message); }
+    }
+    internal static ArmyOrdinaryReturnResolution PrepareTailCurrent(ArmyUnitReference army, BaseReference target,
+        SourceWorldContext context, WorldIndexContext pool, SourceWorldContext draft, WorldIndexContext stagedPool,
+        IArmyReturnGovernorCurrentQueries queries, DistrictReference savedCommander, DistrictReference savedTarget,
+        bool personReturn, ArmyReturnCaptivesSource? captives, ArmyReturnCaptivesResult? captiveResult,
+        ArmyReturnDistrictOperationQueries? districtOperation, PersonAssignmentPrecallResult? homeAssignments,
+        bool districtTransferWrites, List<string> effects,
+        Action<SourceWorldContext, int, PersonAssignmentPrecallResult>? receiveAssignment)
+    {
+        var rulerOrder = new List<int>();
+        var transferAssociations = new List<PersonAssignmentPrecallResult>();
+        captives?.BindPersonnelServiceCurrent(draft);
+        int commander = (draft.ReadPersonLookupReference(Get(draft.ReadArmyUnitCommanderId(army), "tail_Commander12"))
+            ?? throw Missing("tail_Commander_lookup")).PhysicalSlot ?? throw Missing("tail_Commander_pointer");
+        try
+        {
             var associated = NewTemporary(draft);
             draft.ClearTemporaryHexList(associated); //230C8E before manager100 scan.
-            if (captiveResult?.Receipt is { PersonOrder.Length: > 0 })
+            if (captiveResult?.Receipt is { PersonOrder.Length: > 0 } ||
+                captives?.CurrentState.ArmyReturnCaptiveContinuation is { OriginalOfficerIds.Length: > 0 })
             {
                 int[] captiveOrder = ArmyReturnCaptivesSource.FillArmyAssociates(draft, associated, army);
                 ushort targetSecond = Math.Min(Get(draft.ReadBaseObjectLink(target), "current.return_captive_Base4E"), (ushort)1061);
@@ -160,7 +245,7 @@ public static class ArmyOrdinaryReturnRuntime
 
             if (hex.PhysicalSlot is int physicalHex) draft.SetHexRaw1C(physicalHex, 0); //226870, no validity guard.
             effects.Add("29F840.Hex1C_clear_after_pending");
-            targetForce = Get(draft.ReadBaseForceSlot(target), "current.tail_Base_virtualB0");
+            int targetForce = Get(draft.ReadBaseForceSlot(target), "current.tail_Base_virtualB0");
             if (targetForce == 0) throw Missing("branch.return_capture26DA10");
             byte role = Get(draft.ReadPersonStatus(commander), "current.tail_Commander_statusE6");
             ushort location = Get(draft.ReadBaseObjectLink(target), "current.Base_word4E");
@@ -215,47 +300,47 @@ public static class ArmyOrdinaryReturnRuntime
                 publication = publication with { PersonnelCommands = draft.ReadOwnedPersonCommandManager() };
                 districtTransferWrites = true;
             }
+            if (publication?.ArmyReturnCaptiveContinuation is not null)
+                publication = publication with { ArmyReturnCaptiveContinuation = null };
             return new(new(army, target, savedCommander, savedTarget, outcome, rulerOrder.ToArray(), effects.ToArray(), context,
                 pool, stagedPool, homeAssignments,
                 districtTransferWrites, transferAssociations.ToArray(), publication, captiveResult?.Receipt, districtOperation), null);
 
-            int Person(ushort id)
-            {
-                var value = draft.ReadPersonLookupReference(id <= 6000 ? id : 0) ?? throw Missing("current.Person_lookup");
-                return value.PhysicalSlot ?? throw Missing("current.Person_pointer");
-            }
-            void Marker(string step)
-            {
-                ushort flags = Get(draft.ReadArmyReturnPersonFlags196(commander), "current.Commander_flags15E");
-                draft.WriteArmyReturnPersonFlags196(commander, OfficerBehaviorSourceAdapter.MarkReturn(flags)); effects.Add(step);
-            }
-            int[] RegisteredPersons()
-            {
-                var sequence = draft.ReadRegisteredPersonPhysicalSlots()?.ToArray() ?? throw Missing("current.Person_manager100_complete_order");
-                return sequence.Select(x => x ?? throw Missing("current.Person_manager100_payload")).ToArray();
-            }
+            int[] RegisteredPersons() => (draft.ReadRegisteredPersonPhysicalSlots()
+                ?? throw Missing("tail_Person_registry")).Select(value => value ?? throw Missing("tail_Person_pointer")).ToArray();
             void RequireNoAssociates()
             {
                 int location = army.PhysicalSlot is >= 1 and <= 500 ? army.PhysicalSlot.Value + 61 : 0;
                 foreach (int person in RegisteredPersons())
-                {
-                    byte status = Get(draft.ReadPersonStatus(person), "current.associated_Person_statusE6");
-                    if (status != 6) continue;
-                    ushort second = Get(draft.ReadPersonSecondLocation(person), "current.associated_Person_secondE4");
-                    if (second == location) throw Missing("branch.nonempty_status6_Army_associates2F8F00");
-                }
+                    if (Get(draft.ReadPersonStatus(person), "tail_associate_status") == 6 &&
+                        Get(draft.ReadPersonSecondLocation(person), "tail_associate_E4") == location)
+                        throw Missing("branch.nonempty_status6_Army_associates2F8F00");
             }
-            void RequireEmpty(HexListHandle descriptor)
+            void RequireEmpty(HexListHandle value)
             {
-                var head = draft.ReadRegistryHead(new(descriptor.Identity)) ?? throw Missing("current.associated_temporary_head");
-                int count = Get(draft.ReadTemporaryHexListCount(descriptor), "current.associated_temporary_count");
-
-                if (head.Identity.HasValue || count != 0) throw Missing("branch.report_not_actual_empty_descriptor");
+                if ((draft.ReadRegistryHead(new(value.Identity)) ?? throw Missing("tail_associate_head")).Identity.HasValue ||
+                    Get(draft.ReadTemporaryHexListCount(value), "tail_associate_count") != 0)
+                    throw Missing("branch.report_not_actual_empty_descriptor");
             }
         }
         catch (MissingOwner error) { return new(null, error.Message); }
-        catch (InvalidDataException error) { return new(null, "current.OrdinaryReturn_input: " + error.Message); }
+        catch (InvalidDataException error) { return new(null, "current.OrdinaryReturn_tail: " + error.Message); }
     }
+
+    internal static GameState CommitSuspension(ArmyOrdinaryReturnSuspension value, bool borrowed)
+    {
+        value.Pool.CommitArmyReturnPool(value.DraftPool);
+        value.Owner.CommitArmyReturnTransactionFields(value.DraftPool.ArmyReturnOwner);
+        if (value.DistrictOperation is { } district)
+            value.Owner.CommitArmyReturnDistrictOperationFields(value.DraftPool.ArmyReturnOwner, district);
+        var state = OwnedArmyReturnCurrentFields.PublishCurrent(value.State, value.Owner);
+        state = PersonAssignmentPrecallInputs.PublishCurrent(state, value.Owner);
+        state = OwnedArmyLifecycleDetachedInputs.PublishCurrent(state, value.Owner);
+        //No pending70 or receiver retirement has occurred at this boundary.
+        return state.WithArmyLifecycle(state.ReadArmyLifecycle()! with
+            { Indexes = borrowed ? value.Pool.ProjectOwnedRoles() : value.Pool.ExportOwnedState() });
+    }
+
     internal static void Commit(ArmyOrdinaryReturnPacket packet)
     {
         ArgumentNullException.ThrowIfNull(packet);
@@ -315,29 +400,10 @@ public static class ArmyOrdinaryReturnRuntime
         {
             if (first != 1 || second != 1 || third != 0) throw Failure("branch.unsupported_service_dispatch");
             if (state.TransferService is null) throw Failure("current.ruler_tail_service_owner");
-            var eligibility = new Eligibility(state);
-            bool eligible = TransferServiceEligibility.IsEligible(eligibility);
-            //Both branches execute the original eligibility/count logic.
-            //No state/bitmap callback is used to pretend a missing effect ran.
-            if (!eligible) return;
-            var player = state.ReadCurrentPlayerForce() ?? throw Failure("current.service_PlayerForce");
-            bool valid = Known(state.ReadForceNativeValidity(player), "current.service_PlayerForce_validity");
-            if (!valid) return;
-            int count = 0;
-            for (int i = 0; i < 1851; i++)
-            {
-                var person = state.ReadTransferPersonTableReference(i) ?? throw Failure($"current.service_owned_Person_table[{i}]");
-                if (person.PhysicalSlot is not int physical) continue;
-                bool personValid = Known(state.ReadPersonNativeValidity(physical), "current.service_Person_validity");
-                if (!personValid) continue;
-                byte status = Known(state.ReadPersonStatus(physical), "current.service_Person_statusE6");
-                if (status is < 1 or > 4) continue;
-                int force = Known(state.ReadForcePhysicalSlot(player), "current.service_PlayerForce_virtual60");
-                byte raw = Known(state.ReadPersonCurrentRawForceSlot(physical), "current.service_Person_Force22CF60");
-                if (force == raw) count++;
-            }
-
-            if (count >= 200) throw Failure("branch.ruler_tail_service_flag17_or_completion_effects");
+            if (!TransferService.HasPersonnelMilestoneReached(new ServiceQueries(state))) return;
+            var refresh = state.TransferServiceRefresher
+                ?? throw Failure("current.personnel_milestone_service_writer");
+            refresh(first, second, third);
         }
         private Exception Failure(string field) => unresolvedAsData
             ? new InvalidDataException(field) : Missing(field);
@@ -348,7 +414,18 @@ public static class ArmyOrdinaryReturnRuntime
         public uint? ReadWorldTransferServiceFlags()
             => state.ReadWorldTransferServiceFlags();
         public TransferModeState? ReadTransferModeState()
-            => state.ArmyReturnTransferMode;
+            => state.TransferModeStateReader is { } reader ? reader() : state.ArmyReturnTransferMode;
+    }
+    private sealed class ServiceQueries(SourceWorldContext state) : ITransferServiceQueries
+    {
+        public bool? ReadTransferServiceEligibility() => TransferServiceEligibility.IsEligible(new Eligibility(state));
+        public ForceReference? ReadCurrentPlayerForce() => state.ReadCurrentPlayerForce();
+        public bool? ReadForceNativeValidity(ForceReference force) => state.ReadForceNativeValidity(force);
+        public int? ReadForcePhysicalSlot(ForceReference force) => state.ReadForcePhysicalSlot(force);
+        public TransferPersonReference? ReadTransferPersonTableReference(int slot) => state.ReadTransferPersonTableReference(slot);
+        public bool? ReadPersonNativeValidity(int person) => state.ReadPersonNativeValidity(person);
+        public byte? ReadPersonStatus(int person) => state.ReadPersonStatus(person);
+        public byte? ReadPersonCurrentRawForceSlot(int person) => state.ReadPersonCurrentRawForceSlot(person);
     }
     private static T Get<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static MissingOwner Missing(string field) => new(field);

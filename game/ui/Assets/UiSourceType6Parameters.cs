@@ -37,6 +37,10 @@ internal sealed record UiSourceType6Parameters(float WeightInput, float PixelSca
             // selector 5; their RGB and alpha equations are otherwise equal.
             0x00394800 or 0x00594800 => UiSourceType6Blend.DestinationAlphaSourceAlpha,
             0x00554400 => UiSourceType6Blend.SourceAlpha,
+            // CMainJump's masked rail: RGB DEST_ALPHA/INV_DEST_ALPHA;
+            // alpha SRC_ALPHA/INV_DEST_ALPHA. This differs from00394800
+            // only in the destination-alpha factor, not in capture or kernel.
+            0x00994800 => UiSourceType6Blend.DestinationAlphaSourceAlphaInverseDestinationAlpha,
             _ => throw new InvalidDataException($"Unsupported Type6 blend {packed:X8}: {node.Name}.")
         };
         return new(weight, pixel, samplingFields?bytes[72]:(byte)0, flags, alpha, compare, blend);
@@ -100,6 +104,8 @@ internal sealed record UiSourceType6Parameters(float WeightInput, float PixelSca
             UiSourceType6Blend.DestinationAlpha => Rgba(rgb * a + dst * (1 - a), source.W * a),
             UiSourceType6Blend.DestinationAlphaSourceAlpha => Rgba(rgb * a + dst * (1 - a),
                 source.W * source.W + a * (1 - source.W)),
+            UiSourceType6Blend.DestinationAlphaSourceAlphaInverseDestinationAlpha => Rgba(rgb * a + dst * (1 - a),
+                source.W * source.W + a * (1 - a)),
             UiSourceType6Blend.SourceAlpha => Rgba(rgb * source.W + dst * (1 - source.W),
                 source.W * source.W + a * (1 - source.W)),
             _ => throw new InvalidOperationException("Unsupported normal Type6 blend.")
@@ -108,4 +114,4 @@ internal sealed record UiSourceType6Parameters(float WeightInput, float PixelSca
     }
 }
 
-internal enum UiSourceType6Blend { Replace, PreserveRgbPrepareAlpha, DestinationAlpha, DestinationAlphaSourceAlpha, SourceAlpha }
+internal enum UiSourceType6Blend { Replace, PreserveRgbPrepareAlpha, DestinationAlpha, DestinationAlphaSourceAlpha, SourceAlpha, DestinationAlphaSourceAlphaInverseDestinationAlpha }

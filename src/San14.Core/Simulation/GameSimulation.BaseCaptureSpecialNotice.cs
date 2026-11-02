@@ -8,7 +8,8 @@ public sealed partial class GameSimulation
         ArgumentNullException.ThrowIfNull(appRandomSnapshot);
         if (!TryReadSourcePresentationHead(expectedOwner, CampaignEffectSource.ArmyBattleDefeat,
                 batchSequence, requestIndex, out var owner, out var operation, out var effects,
-                out int batchIndex, out var request) || operation is null ||
+                out int batchIndex, out var request) ||
+            operation is null && _progress?.ArmyProgress is null ||
             owner.BaseCaptureContinuation is not { PersonPrefixProgress:
                 { Stage: BaseCapturePersonPrefixStage.AwaitingSpecialCaptureNotice } progress } capture ||
             progress.AnnouncementBatchSequence != batchSequence ||

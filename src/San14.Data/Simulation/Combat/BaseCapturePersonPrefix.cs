@@ -64,9 +64,12 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             int link = K(current.ReadBaseObjectLink(target), "Base4E");
             if (link is < 1 or > 61 || !K(current.ReadBaseNativeValidity(target), "Base validity")) throw Missing("branch.invalid_Base");
             int oldForce = restored?.Operation.PreviousForceId ?? K(current.ReadBaseForceSlot(target), "Base B0");
-            if (oldForce is < 1 or > 45) throw Missing("branch.nonordinary_old_Force");
+            if (oldForce is < 0 or > 45) throw Missing("branch.nonordinary_old_Force");
             var oldForceReference = current.ReadForceTableReference(oldForce) ?? throw Missing("old Force pointer");
-            if (restored is null && !K(current.ReadForceNativeValidity(oldForceReference), "old Force validity")) throw Missing("branch.invalid_old_Force");
+            //The real2851B0 victim may have the default Force0. Its invalid
+            //header does not skip Home armies, captives or resident people.
+            if (restored is null && oldForce != 0 &&
+                !K(current.ReadForceNativeValidity(oldForceReference), "old Force validity")) throw Missing("branch.invalid_old_Force");
             bool winnerArmyValid = K(current.ReadArmyUnitNativeValidity(winnerArmy), "winner Army validity");
             if (!winnerArmyValid && winnerDistrict is null) throw Missing("branch.invalid_winner_Army");
             if (allowNoWinner && (winnerArmyValid || restored is not null)) throw Missing("neutral_winner_scope");
@@ -348,7 +351,11 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
             if (noncapturedOrder.Length != 0)
             {
                 var ownedCities = ReadOwnedCityLocations(current, oldForce);
-                lastCity = ownedCities.Length == 0 || ownedCities is [var only] && only == link;
+                //287930: count0 reaches the freedom tail; count1 requires
+                //the old Force's native validity and the actual same City.
+                //An invalid Force0 with one match is not a defeated ruler.
+                lastCity = ownedCities.Length == 0 || ownedCities is [var only] &&
+                    K(current.ReadForceNativeValidity(oldForceReference), "noncaptured old Force validity") && only == link;
             }
             var homeWrites = new List<ReturningPersonHomeReceipt>();
             var noncapturedFeedback = new List<CampaignEffectRequest>();
@@ -376,11 +383,32 @@ public sealed class BaseCapturePersonPrefix(ArmyCampaignRuleAdapter package)
                     {
                         int id = K(current.ReadPersonIdentity(person), "noncaptured Person10");
                         var rules = package.CreateCaptureReturningPersonRules();
+                        //260310 can exhaust this Person's District cities
+                        //while the old Force still owns another District's
+                        //cities. Its Force fallback and both real Primary
+                        //callbacks borrow this capture's latest State/sink.
+                        var homeOperation = borrowed
+                            ? package.CreateCaptureDistrictOperationQueries(current, () => working,
+                                next => working = next, sourceDate, noncapturedFeedback)
+                            : null;
                         var result = borrowed
-                            ? rules.TryApplyHomeCurrent(working, current, link, oldForce, id, sourceDate)
+                            ? rules.TryApplyHomeCurrent(working, current, link, oldForce, id, sourceDate,
+                                homeOperation, noncapturedFeedback)
                             : rules.TryApplyIdleBase(working, link, oldForce, id, sourceDate);
                         working = result.State ?? throw Missing(result.UnresolvedOwner ?? "260310 noncaptured Home");
+                        if (homeOperation is not null)
+                        {
+                            working = PersonReturnDistrictReorganizationSource.PublishCurrent(working, current, homeOperation);
+                            working = PersonReturnDistrictTransferSource.PublishAreaAssignments(working, current,
+                                homeOperation.ChangedAreas, homeOperation.ChangedGates);
+                            homeOperation.Publish(working);
+                        }
                         homeWrites.Add(result.Receipt!);
+                        if (working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null)
+                        {
+                            AppendFeedback(noncapturedFeedback);
+                            return StopForTerminal();
+                        }
                         //The standalone Home operation adopts its actual
                         //current, retaining the still-live caller lists.
                         if (!borrowed) current = package.CaptureOwnedArmyReturnWorld(working).Context;

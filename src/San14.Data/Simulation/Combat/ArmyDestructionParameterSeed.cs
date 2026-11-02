@@ -178,6 +178,8 @@ public sealed class ArmyDestructionParameterSeed
             new(SimulationParameterKeys.ArmyDestruction.RulerReleasePersonRelationThreshold, RulerReleasePersonRelationThreshold),
             new(SimulationParameterKeys.ArmyDestruction.RulerExecutionRelationPenalty, RulerExecutionRelationPenalty)
         ];
+        fields = [.. fields, .. CaptiveTreatmentParameters.Defaults.Select(value =>
+            new BattleRemakeCurrentParameterField(CaptiveTreatmentParameters.Key(value.Key), value.Value))];
         return new(language, source, fields);
     }
 

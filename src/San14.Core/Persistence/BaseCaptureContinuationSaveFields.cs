@@ -16,7 +16,7 @@ internal static class BaseCaptureContinuationSaveFields
             throw new InvalidDataException("Legacy world contains a future immediate Base capture continuation.");
     }
 
-    internal static void Migrate(JsonObject state, int version)
+    internal static void Migrate(JsonObject state, int version, CampaignOperationWorldContext? operationContext = null)
     {
         const string key = "BaseCaptureContinuation";
         if (version < 179) { state[key] = null; return; }
@@ -36,12 +36,12 @@ internal static class BaseCaptureContinuationSaveFields
         if (value["SettlementIndex"]!.GetValue<int>() == -1)
         {
             if (version < 181 ||
-                !(Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) && state["NormalCombatImmediateContinuation"] is JsonObject ||
+                !((Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) || operationContext?.Moment is { SchedulerStageIndex: 13 }) && state["NormalCombatImmediateContinuation"] is JsonObject ||
                   state["ManualTacticExecutionContinuation"] is JsonObject && (state["NativePeriodContinuation"]?["Cursor"] is null ||
                     Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 6, 6)))) throw Invalid();
             return;
         }
-        if (!Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 25, 25) ||
+        if (!Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 25, 25) && operationContext?.Moment is not { SchedulerStageIndex: 25 } ||
             state["PendingCombatSettlements"]?["Requests"] is not JsonArray queue ||
             value["SettlementIndex"]!.GetValue<int>() >= queue.Count) throw Invalid();
         //The exact retained request must still occupy this queue slot. The

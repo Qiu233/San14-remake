@@ -19,7 +19,7 @@ public partial class Main
             rules.QueryAreaInformation(world, areaId), _ui, Return,
             PrepareDetailSelection(rules, world, InformationListKind.Areas, areaId, selectionIds)
                 with { InitialNameSortAscending = initialNameSortAscending },
-            id => RunUiAction(() => view.Apply(rules.QueryAreaInformation(world, id))));
+            id => RunInspectionUiAction(world, () => view.Apply(rules.QueryAreaInformation(world, id))));
         void Return()
         {
             returnSelection?.Invoke(view.ReadSelectionReturn());

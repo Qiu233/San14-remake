@@ -9,7 +9,7 @@ public partial class Main
         var session = _session!;
         var list = new AreaInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             RetainCommandDetailSpeechWorld(list, next =>
@@ -18,14 +18,14 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository!, _ui, pages, () => Current(list), close,
-            id => RunUiAction(() =>
+            id => RunInspectionUiAction(world, () =>
             {
                 if (!Current(list) || !world.Areas.ContainsKey(id)) return;
                 var detail = new AreaDetailsView();
                 browser.ShowDetail(detail, back => ConfigureCurrentAreaDetail(detail, world, id, back,
                     preparedRules: rules, selectionIds: list.Pages.CurrentAreaIds,
                     returnSelection: list.ApplyDetailReturn, initialNameSortAscending: list.NameSortAscending));
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         });
     }
 
@@ -36,7 +36,7 @@ public partial class Main
         int player = session.PlayerForceId!.Value;
         var list = new DistrictInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             RetainCommandDetailSpeechWorld(list, next =>
@@ -45,12 +45,12 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository!, _ui, pages, () => Current(list), close,
-            id => RunUiAction(() =>
+            id => RunInspectionUiAction(world, () =>
             {
                 if (!Current(list) || !world.Districts.ContainsKey(id)) return;
                 OpenInformationDistrict(browser, rules, world, id, Adopt, list.Pages.CurrentDistrictIds,
                     list.ApplyDetailReturn, list.NameSortAscending);
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         });
         void Adopt(GameState next)
         {
@@ -66,7 +66,7 @@ public partial class Main
         int player = session.PlayerForceId!.Value;
         var list = new GateInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             RetainCommandDetailSpeechWorld(list, next =>
@@ -75,12 +75,12 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository!, _ui, pages, () => Current(list), close,
-            id => RunUiAction(() =>
+            id => RunInspectionUiAction(world, () =>
             {
                 if (!Current(list) || world.Gates?.ContainsKey(id)!=true) return;
                 OpenInformationGate(browser,rules,world,id,Adopt,list.Pages.CurrentGateIds,
                     list.ApplyDetailReturn,list.NameSortAscending);
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         });
         void Adopt(GameState next)
         {

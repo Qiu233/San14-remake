@@ -37,6 +37,10 @@ public sealed class D3D11NormalPostInitialConstants
     public int EnableDof{get;}
     public IReadOnlyList<string> HistoryPairs{get;}
     public D3D11NormalPostResources Resources{get;}
+    // Numeric templates are retained independently of this graph's selected
+    // programs. Low quality can omit FXAA without losing the complete CB22
+    // source used by subsequent camera and season publications.
+    internal IReadOnlyList<D3D11NormalPostInitialPass> CompositeTemplates {get;init;}=[];
 
     public void WriteNativeInputs(string inputRoot)
     {
@@ -55,6 +59,10 @@ public sealed class D3D11NormalPostInitialConstants
             foreach(string name in new[]{"DOF2SpriteDofAccumRear","DOF2InputColor","DOF2PrefilteredColor","DOF2PreComposite"})
             {var extent=DofExtents[name];profile.Write(extent.Present?1u:0u);profile.Write((uint)extent.Width);profile.Write((uint)extent.Height);}
         }
+
+        File.WriteAllLines(Path.Combine(continuous,"retained-composite-templates.txt"),
+            CompositeTemplates.Select(pass=>pass.Name+"/cb22.bin"));
+        foreach(var pass in CompositeTemplates)WritePass(continuous,pass);
 
         foreach(var pass in Passes)
         {
@@ -248,7 +256,11 @@ public static class D3D11NormalPostInitialInputPreparation
         }).ToArray();
         var tail=MapPostEffect3ApplyFreshCameraScalars.ConstructFreshSource(camera,owner+"/tail");
         return new(allocation,owned,dofController,passes.AsReadOnly(),tail.Settings.HeatShimmer.Speed,fresh.GatherSizeTypeC0,
-            fresh.GatherSizeTypeC0,Array.AsReadOnly(history),resources){Sources=native,DofExtents=dofInputs.Extents,DofContextWord=contextWord,DofDescriptorMode=(uint)configuration.ProjectionConvention,DofQuality=configuration.QualityLevel};
+            fresh.GatherSizeTypeC0,Array.AsReadOnly(history),resources){Sources=native,DofExtents=dofInputs.Extents,DofContextWord=contextWord,DofDescriptorMode=(uint)configuration.ProjectionConvention,DofQuality=configuration.QualityLevel,
+                CompositeTemplates=Array.AsReadOnly(new[]{
+                    Pass("100-add-bloom",100,composite.ConstantBuffer),
+                    Pass("108-tone",108,composite.ConstantBuffer),
+                    Pass("109-fxaa",109,composite.ConstantBuffer)})};
 
         D3D11NormalPostInitialPass Pass(string name,int pass,
             params MapPostEffect3ParameterConstantBuffer[] buffers)

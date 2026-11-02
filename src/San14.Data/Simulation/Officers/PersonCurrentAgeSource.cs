@@ -7,9 +7,9 @@ namespace San14.Data;
 /// opening settings and scenario bytes cannot replace a missing saved owner.</summary>
 internal static class PersonCurrentAgeSource
 {
-    internal static int Read(GameState state, SourceWorldContext current, int personPhysical, int? currentYear = null)
+    internal static int Read(GameState state, SourceWorldContext current, int personPhysical, int? currentYear = null, int? scenarioMode = null, int? historicalEventControl = null)
     {
-        if (UsesTimelessAges(state))
+        if (scenarioMode is int mode ? UsesTimelessAges(mode, historicalEventControl) : UsesTimelessAges(state))
         {
             ushort identity = current.ReadPersonIdentity(personPhysical) ?? throw Missing("person_identity");
             //The finite normal source table contains these five identities.
@@ -32,9 +32,12 @@ internal static class PersonCurrentAgeSource
     internal static bool UsesTimelessAges(GameState state)
     {
         var world = state.CampaignEventWorld ?? throw Missing("scenario_mode");
-        return world.ScenarioMode == 2 || world.ScenarioMode == 3 &&
-            (world.HistoricalEventControl ?? throw Missing("mode3_current_age_policy")) == 0;
+        return UsesTimelessAges(world.ScenarioMode, world.HistoricalEventControl);
     }
+
+    internal static bool UsesTimelessAges(int mode, int? historicalEventControl) =>
+        mode == 2 || mode == 3 &&
+            (historicalEventControl ?? throw Missing("mode3_current_age_policy")) == 0;
 
     private static InvalidDataException Missing(string input) => new("person.current-age." + input);
 }

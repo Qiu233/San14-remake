@@ -15,12 +15,12 @@ internal partial class NewGameSetupView : Control
     private UiSourceRoundButton settingsAbort = null!;
     private NewGameForcePageHeader scenarioHeader = null!;
     private NewGameConfirmationView? confirmationPage;
-    private Func<NewGameForcePreview, LoadedSprite>? resolveConfirmationRuler;
+    private Func<NewGameForcePreview, LoadedUiSpriteSource>? resolveConfirmationRuler;
     private Func<NewGameConfirmationExtras>? resolveConfirmationExtras;
     private Func<int>? confirmationScrollSpeed;
     internal bool IsConfirmationPage => confirmationPage is not null;
     private Func<bool>? admitted;
-    private Func<NewGameForcePreview, LoadedSprite?>? resolveRuler;
+    private Func<NewGameForcePreview, LoadedUiSpriteSource?>? resolveRuler;
     private Action<int>? selectionChanged;
     private Action<int?>? previewChanged;
     private Action? returned;
@@ -31,14 +31,17 @@ internal partial class NewGameSetupView : Control
     private UiAssets rulerAssets = null!;
     private MapFont? pageFont;
     private Shader rulerShader = null!;
+    private bool ownsResources;
     private GovernanceRosterPage? governmentPage;
     private NewGameForceGovernancePreview? governmentPublication;
     private Func<int, NewGameForceGovernmentContent>? resolveGovernment;
     private NewGameGeographicAdvantagesView? geographicPage;
+    private Func<NewGameForcePreview,DefinitionInformationPageSet>? resolveGeographicAdvantages;
     private DeploymentTargetConfirmation? abortConfirmation;
     private Action? aborted;
     private NewGameForceOfficersView? officersPage;
     private Func<int, NewGameForceOfficersContent>? resolveOfficers;
+    private Func<int> officersScrollSpeed = () => 0;
     private NewGameForcePickerView? forcePickerPage;
     private Func<int?, NewGameForcePickerPreview>? resolveForcePicker;
     private bool HasModal => governmentPage is not null || geographicPage is not null || abortConfirmation is not null || officersPage is not null || forcePickerPage is not null;
@@ -51,10 +54,10 @@ internal partial class NewGameSetupView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         NewGameForceSelectionPreview publication, NewGameForcePageHeader header,
         IReadOnlyList<NewGameForceFaceContent> faces, Texture2D? map,
-        Func<NewGameForcePreview, LoadedSprite?> resolveRuler, NewGameOptions initial, NewGameSettingsPreview settingsPublication,
+        Func<NewGameForcePreview, LoadedUiSpriteSource?> resolveRuler, NewGameOptions initial, NewGameSettingsPreview settingsPublication,
         Func<bool> admitted, Action<int> selectionChanged, Action<int?> previewChanged,
         Action returned, Action<int, NewGameOptions> accepted, Action<Exception> failed,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null, AdministrationPageChrome.Resources? resources = null)
     {
         Mark(diagnostic,"setup-view-begin");
         this.repository=repository;this.text=text;this.resolveRuler=resolveRuler;Draft=initial;scenarioHeader=header;
@@ -64,9 +67,11 @@ internal partial class NewGameSetupView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(new ColorRect { Color=new("#292d2c"), AnchorRight=1, AnchorBottom=1,
             MouseFilter=MouseFilterEnum.Ignore });
-        rulerAssets=new(repository);rulerShader=UiSourceSprite.CreateShader();
-        pageFont=new(repository,text.SourceLocale);
-        var resources=new AdministrationPageChrome.Resources(rulerAssets,pageFont,rulerShader);
+        ownsResources=resources is null;
+        rulerAssets=resources?.Assets??new(repository);
+        rulerShader=resources?.SpriteShader??UiSourceSprite.CreateShader();
+        pageFont=resources?.Font??new(repository,text.SourceLocale);
+        resources??=new AdministrationPageChrome.Resources(rulerAssets,pageFont,rulerShader);
         forcePage=new NewGameForceSelectionView();AddChild(forcePage);
         Mark(diagnostic,"setup-settings-chrome-begin");
         chrome=new AdministrationPageChrome { Name="NewGameSettings" };AddChild(chrome);
@@ -85,6 +90,9 @@ internal partial class NewGameSetupView : Control
         settings=new Control { Name="SettingsPage",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore };
         chrome.Canvas.AddChild(settings);
         Mark(diagnostic,"setup-settings-chrome-end");
+        // The retained settings draft is prepared now; its row controls are
+        // mounted when this page actually becomes visible.
+        chrome.Hide();
         Mark(diagnostic,"setup-settings-rows-begin");
         ConfigureOptions(settingsPublication);
         Mark(diagnostic,"setup-settings-rows-end");
@@ -191,7 +199,7 @@ internal partial class NewGameSetupView : Control
     private bool ReadBaseAdmission()=>!abandoned&&!busy&&IsVisibleInTree()&&CanProcess()&&(admitted?.Invoke()??false);
     private bool ReadAdmission()=>mapLoading is null&&!HasModal&&ReadBaseAdmission();
     private bool ReadSettingsAdmission()=>ReadAdmission()&&IsSettingsPage&&!IsConfirmationPage;
-    internal void ConfigureConfirmation(Func<NewGameForcePreview, LoadedSprite> ruler,
+    internal void ConfigureConfirmation(Func<NewGameForcePreview, LoadedUiSpriteSource> ruler,
         Func<NewGameConfirmationExtras> extras, Func<int> scrollSpeed)
     { resolveConfirmationRuler = ruler; resolveConfirmationExtras = extras; confirmationScrollSpeed = scrollSpeed; }
     private void OpenConfirmation()
@@ -210,7 +218,7 @@ internal partial class NewGameSetupView : Control
                 () => ReadAdmission() && confirmationPage == page,
                 () => { if (ReadAdmission() && confirmationPage == page) CloseConfirmation(); },
                 () => { if (ReadAdmission() && confirmationPage == page && SelectedForceId == force) accepted?.Invoke(force, Draft); },
-                OpenAbortConfirmation, confirmationScrollSpeed);
+                OpenAbortConfirmation, confirmationScrollSpeed, new(rulerAssets,pageFont!,rulerShader));
             chrome.Hide();
         }
         catch (Exception error)
@@ -239,8 +247,12 @@ internal partial class NewGameSetupView : Control
         this.aborted = aborted;
         forcePage.ConfigureNavigation(OpenAbortConfirmation, OpenGeographicAdvantages);
     }
-    internal void ConfigureOfficers(Func<int, NewGameForceOfficersContent> resolver)
-    { resolveOfficers = resolver; forcePage.ConfigureOfficers(OpenOfficers); }
+    internal void ConfigureOfficers(Func<int, NewGameForceOfficersContent> resolver, Func<int>? scrollSpeed = null)
+    {
+        resolveOfficers = resolver;
+        if (scrollSpeed is not null) officersScrollSpeed = scrollSpeed;
+        forcePage.ConfigureOfficers(OpenOfficers);
+    }
     internal void ConfigureForcePicker(Func<int?, NewGameForcePickerPreview> resolver)
     { resolveForcePicker = resolver; forcePage.ConfigureForceOverview(OpenForcePicker); }
     private void OpenForcePicker()
@@ -285,7 +297,8 @@ internal partial class NewGameSetupView : Control
             var content = resolveOfficers(forceId);
             page = new NewGameForceOfficersView(); officersPage = page; AddChild(page);
             page.Configure(repository, text, content, () => CloseOfficers(page),
-                error => { if (failed is { } report) report(error); else throw error; });
+                error => { if (failed is { } report) report(error); else throw error; },
+                officersScrollSpeed, new(chrome.Assets, chrome.Font, chrome.SpriteShader));
             SetBusy(busy);
         }
         catch (Exception error)
@@ -328,13 +341,20 @@ internal partial class NewGameSetupView : Control
         question.QueueFree();
         if (!abandoned) SetBusy(busy);
     }
+    internal void ConfigureGeographicAdvantages(Func<NewGameForcePreview,DefinitionInformationPageSet> resolver)
+        => resolveGeographicAdvantages=resolver;
+
     private void OpenGeographicAdvantages(NewGameForcePreview publication)
     {
-        if (!ReadAdmission() || IsSettingsPage || publication.CanOpenGeographicAdvantages != true) return;
+        if (!ReadAdmission() || IsSettingsPage || publication.CanOpenGeographicAdvantages != true || resolveGeographicAdvantages is null) return;
         var page = new NewGameGeographicAdvantagesView(); geographicPage = page; AddChild(page);
         try
         {
-            page.Configure(repository, text, publication, () => CloseGeographicAdvantages(page));
+            var pages=resolveGeographicAdvantages(publication);
+            page.Configure(repository,text,publication,pages,
+                ()=>ReadBaseAdmission()&&geographicPage==page,()=>CloseGeographicAdvantages(page),
+                confirmationScrollSpeed??throw new InvalidOperationException("New-game list scroll settings are unavailable."),
+                new(rulerAssets,pageFont!,rulerShader));
             SetBusy(busy);
         }
         catch (Exception error)
@@ -398,12 +418,13 @@ internal partial class NewGameSetupView : Control
         Hide();
     }
     private void ClearCallbacks()
-    {resolveConfirmationRuler=null;resolveConfirmationExtras=null;confirmationScrollSpeed=null;admitted=null;resolveRuler=null;resolveGovernment=null;resolveOfficers=null;resolveForcePicker=null;aborted=null;selectionChanged=null;previewChanged=null;returned=null;accepted=null;failed=null;}
+    {resolveConfirmationRuler=null;resolveConfirmationExtras=null;confirmationScrollSpeed=null;admitted=null;resolveRuler=null;resolveGovernment=null;resolveOfficers=null;resolveForcePicker=null;resolveGeographicAdvantages=null;aborted=null;selectionChanged=null;previewChanged=null;returned=null;accepted=null;failed=null;}
     public override void _ExitTree()
     {
         ClearCallbacks();forcePage?.ApplyMap(null);
         // Children retire their drawing owners before this page releases borrowed resources.
-        pageFont?.Dispose();pageFont=null;
-        rulerAssets?.Dispose();rulerAssets=null!;rulerShader?.Dispose();rulerShader=null!;
+        if(ownsResources)
+        {pageFont?.Dispose();rulerAssets?.Dispose();rulerShader?.Dispose();}
+        pageFont=null;rulerAssets=null!;rulerShader=null!;
     }
 }

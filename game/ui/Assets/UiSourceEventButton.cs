@@ -11,7 +11,7 @@ internal partial class UiSourceEventButton : UiSourceButton
         MapFont font, CollectionEventRow row, Action selected)
     {
         RowId = row.RowId;
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "09_01_01_event_list_offset_00_cn"));
+        var source = assets.SourceLayout("09_01_01_event_list_offset_00_cn");
         Size = source.Rectangle(0).Size; ActionMode = ActionModeEnum.Release;
         int[][] art = [[3], [7, 8], [10], [12], [14, 15]];
         var states = new Control[art.Length];

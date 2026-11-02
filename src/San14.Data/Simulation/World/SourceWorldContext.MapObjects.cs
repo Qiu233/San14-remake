@@ -33,7 +33,7 @@ public sealed partial class SourceWorldContext
         var source = CampaignSourceKnowledge.From(state.ResourceState).MapObjectSource;
         CurrentMapObjectDirectory = null;
         if (state.MapObjects is not { } owner || source is null) return;
-        var directory = new MapObjectSourceDirectory(source);
+        var directory = source.Directory;
         CurrentMapObjectDirectory = directory;
         foreach (var field in source.CurrentFields16) _currentObjectFields16[field.Key] = field.Value;
         var rows = owner.Receivers.ToDictionary(x => x.Id);

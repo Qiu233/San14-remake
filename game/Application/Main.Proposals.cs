@@ -219,7 +219,7 @@ public partial class Main
                 (tab, node) => RunUiAction(() => OpenList(tab, node)),
                 () => RunUiAction(OpenHistory), () => CloseProposalInformation(), CurrentListScrollSpeed,
                 Literal(0x5F00), Literal(0x2733), true, (int)initialTab,
-                initial.TabEnabled.Select(value => value == true).ToArray());
+                initial.TabEnabled.Select(value => value == true).ToArray(), TryBorrowApplicationUiResources(browser));
             browser.RegisterHeader(_sourceHeaders);
         }
         catch { CloseProposalInformation(); throw; }
@@ -262,7 +262,7 @@ public partial class Main
             {
                 var detail = new MapInformationDestinyView();
                 browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, popularity,
-                    Current, close, CurrentListScrollSpeed));
+                    Current, close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
                 return;
             }
             if ((InformationTab)tab == InformationTab.OwnForce && node == 20)

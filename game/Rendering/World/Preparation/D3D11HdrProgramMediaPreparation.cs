@@ -56,7 +56,7 @@ public static class D3D11HdrProgramMediaPreparation
             var pixelInterfaces=new Dictionary<int,bool>();
             foreach(var recipe in HdrProgramBankEncoding.WriteNativeInputs(declaration,bank))
             {
-                Directory.CreateDirectory(recipe.Directory);
+                var media=new D3D11HdrRecipeMedia(recipe.Directory);
                 var program=recipe.Program;
                 var reasons=new List<string>();
                 var pixel=program.PixelDefinitions;
@@ -79,7 +79,7 @@ public static class D3D11HdrProgramMediaPreparation
                 }
                 if(!singleTarget)
                     reasons.Add("Pixel program requires an output outside the single Scene target.");
-                WriteDeclarations(recipe.Directory,vertex,pixel);
+                WriteDeclarations(media,vertex,pixel);
                 foreach(var binding in vertex.Bindings)
                     reasons.Add("Vertex resource has no producer: "+binding.Name.Text);
                 foreach(var binding in pixel.Bindings.Where(binding=>binding.InputType==0 && binding.Name.Text!="$Globals"))
@@ -93,13 +93,13 @@ public static class D3D11HdrProgramMediaPreparation
                     bool hasHatching=globals.Variables.Any(field=>IsUsed(field) &&
                         (field.Name.Text is "hsRampPrm" or "hsAOPrm" or "hsUVMat"));
                     bool hasShadowFade=globals.Variables.Any(field=>IsUsed(field) && field.Name.Text=="fSdmFade");
-                    File.WriteAllText(Path.Combine(recipe.Directory,"policy.txt"),
+                    media.WriteAllText("policy.txt",
                         $"{(hasHatching?1:0)} {(hasShadowFade?1:0)}\n");
                     // These are constructor values. Before drawing, the native
                     // current owners overwrite lighting, camera and refraction
                     // through this program's own named layouts.
                     var packet=D3D11DeferredConstantInputPreparation.PrepareRecipe(canonical,pixel,scene,caustics,false);
-                    var clusterFields=WriteClusterLayout(recipe.Directory,pixel,globals,reasons);
+                    var clusterFields=WriteClusterLayout(media,pixel,globals,reasons);
                     // RDEF may retain disabled plugin declarations. Unread
                     // lanes keep their constructor/template storage; they do
                     // not request an invented current value or upload.
@@ -107,34 +107,36 @@ public static class D3D11HdrProgramMediaPreparation
                             globals.Variables.Any(field=>field.Name.Text==name && IsUsed(field)))
                         .Select(field=>"Constant field has no producer: "+field));
                     string file="ps-b"+globalBinding.BindPoint+".bin";
-                    File.WriteAllBytes(Path.Combine(recipe.Directory,file),packet.Bytes);
-                    File.WriteAllText(Path.Combine(recipe.Directory,"cbuffers.txt"),
+                    media.WriteAllBytes(file,packet.Bytes);
+                    media.WriteAllText("cbuffers.txt",
                         FormattableString.Invariant($"PS {globalBinding.BindPoint} {file}\n"));
-                    File.WriteAllLines(Path.Combine(recipe.Directory,"camera-writes.txt"),packet.CameraWriteLayout);
-                    WriteMaterialLayout(recipe.Directory,pixel,globals,reasons);
-                    WriteHeightFogLayout(recipe.Directory,pixel,globals,reasons);
+                    media.WriteAllLines("camera-writes.txt",packet.CameraWriteLayout);
+                    WriteMaterialLayout(media,pixel,globals,reasons);
+                    WriteHeightFogLayout(media,pixel,globals,reasons);
                     var lighting=CreateWrites(globals,LightingNames,LightingSizes,reasons);
-                    using(var stream=File.Create(Path.Combine(recipe.Directory,"hdr-lighting-layout.bin")))
+                    using(var stream=new MemoryStream())
                     using(var writer=new BinaryWriter(stream))
                     {
                         writer.Write(0x314C4C48u);writer.Write(globalBinding.BindPoint);
                         writer.Write(globals.ByteSize);writer.Write(lighting.Count);
                         foreach(var write in lighting)
                         {writer.Write(write.Kind);writer.Write(write.Destination);writer.Write(0);writer.Write(write.Bytes);}
+                        media.WriteAllBytes("hdr-lighting-layout.bin",stream.ToArray());
                     }
-                    File.WriteAllLines(Path.Combine(recipe.Directory,"refraction-writes.txt"),
+                    media.WriteAllLines("refraction-writes.txt",
                         CreateWrites(globals,RefractionNames,RefractionSizes,reasons).Select(write=>
                             FormattableString.Invariant($"{write.Kind} {write.Destination} 0 {write.Bytes}")));
                 }
                 reasons.AddRange(D3D11HdrResourceBindings.Write(repository,declaration,program,
-                    recipe.Directory,resources.Source.Locale,current,outputWidth,outputHeight));
+                    recipe.Directory,resources.Source.Locale,current,outputWidth,outputHeight,media));
                 if(program.PixelDefinitions.Bindings.Any(binding=>binding.Name.Text=="tMaterialTable"))
                 {
                     var material=catalog.Resources.MaterialTable(declaration.NodeIndex);
                     if(material.IsEmpty)reasons.Add("Declared material table has no source rows.");
-                    else File.WriteAllBytes(Path.Combine(recipe.Directory,"material-table.bin"),material.ToArray());
+                    else media.WriteAllBytes("material-table.bin",material.ToArray());
                 }
-                File.WriteAllLines(Path.Combine(recipe.Directory,"unsupported.txt"),reasons.Distinct(StringComparer.Ordinal));
+                media.WriteAllLines("unsupported.txt",reasons.Distinct(StringComparer.Ordinal));
+                media.Commit();
             }
         }
     }
@@ -142,7 +144,7 @@ public static class D3D11HdrProgramMediaPreparation
     private sealed record FieldWrite(int Kind,int Destination,int Bytes);
     private static bool IsUsed(DxbcRdefVariable field)=>(field.Flags&2)!=0;
 
-    private static void WriteMaterialLayout(string directory,DxbcResourceDefinitions definitions,
+    private static void WriteMaterialLayout(D3D11HdrRecipeMedia media,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)
     {
         string[] names=["hsRampPrm","hsAOPrm","hsUVMat","fSdmFade"];
@@ -161,10 +163,10 @@ public static class D3D11HdrProgramMediaPreparation
             for(int element=0;element<count;element++)
                 rows.Add(FormattableString.Invariant($"{kind} {field.StartOffset+element*16} {element*16} {width}"));
         }
-        File.WriteAllLines(Path.Combine(directory,"material-writes.txt"),rows);
+        media.WriteAllLines("material-writes.txt",rows);
     }
 
-    private static HashSet<string> WriteClusterLayout(string directory,DxbcResourceDefinitions definitions,
+    private static HashSet<string> WriteClusterLayout(D3D11HdrRecipeMedia media,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)
     {
         string[] names=["vClstZPrm","nClstPtch","fClstScl","vFadeDist"];
@@ -185,11 +187,11 @@ public static class D3D11HdrProgramMediaPreparation
                 rows.Add(FormattableString.Invariant($"{kind} {field.StartOffset+element*16} {element*width} {width}"));
             supplied.Add(names[kind]);
         }
-        File.WriteAllLines(Path.Combine(directory,"cluster-writes.txt"),rows);
+        media.WriteAllLines("cluster-writes.txt",rows);
         return supplied;
     }
 
-    private static void WriteHeightFogLayout(string directory,DxbcResourceDefinitions definitions,
+    private static void WriteHeightFogLayout(D3D11HdrRecipeMedia media,DxbcResourceDefinitions definitions,
         DxbcRdefBuffer globals,List<string> reasons)
     {
         string[] names=["hFogType","cHFog","hFogParam","hFogFlucPrms"];
@@ -210,7 +212,7 @@ public static class D3D11HdrProgramMediaPreparation
             for(int element=0;element<elements[kind];element++)
                 rows.Add(FormattableString.Invariant($"{kind} {field.StartOffset+element*16} {element*width} {width}"));
         }
-        File.WriteAllLines(Path.Combine(directory,"height-fog-writes.txt"),rows);
+        media.WriteAllLines("height-fog-writes.txt",rows);
     }
     private static List<FieldWrite> CreateWrites(DxbcRdefBuffer globals,string[] names,int[] sizes,List<string> reasons)
     {
@@ -225,7 +227,7 @@ public static class D3D11HdrProgramMediaPreparation
         return result;
     }
 
-    private static void WriteDeclarations(string directory,DxbcResourceDefinitions vertex,DxbcResourceDefinitions pixel)
+    private static void WriteDeclarations(D3D11HdrRecipeMedia media,DxbcResourceDefinitions vertex,DxbcResourceDefinitions pixel)
     {
         var rows=new List<string>();
         void Add(string stage,DxbcResourceDefinitions definitions)
@@ -239,7 +241,7 @@ public static class D3D11HdrProgramMediaPreparation
             }
         }
         Add("VS",vertex);Add("PS",pixel);
-        File.WriteAllLines(Path.Combine(directory,"declarations.txt"),rows);
+        media.WriteAllLines("declarations.txt",rows);
     }
 
     private static DeferredSceneInputs CreateConstructorInputs(D3D11CurrentSeasonFrame current,

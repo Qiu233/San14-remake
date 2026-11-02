@@ -22,13 +22,12 @@ public sealed partial class GameSimulation
             SelectedMode = receive ? 1 : 2, Phase = AutomaticEmperorCapturePhase.Opening,
             PendingDecision = null
         } };
-        if (_normalPeriod is { } normal) _normalPeriod = normal with { Candidate = next };
-        else if (_progress?.ManualTactic is { } manual)
+        if (_normalPeriod is null && _progress?.ManualTactic is { } manual)
             _progress = new(null, manual with { Candidate = next, ContinueAfterPresentation = true });
-        else State = next;
+        else PublishSourcePresentationOwner(next, _normalPeriod);
         return true;
     }
 
     private GameState EmperorCaptureOwner() =>
-        _normalPeriod?.Candidate ?? _progress?.ManualTactic?.Candidate ?? State;
+        SourcePresentationOwner;
 }

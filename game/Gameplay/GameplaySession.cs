@@ -57,6 +57,8 @@ public sealed partial class GameplaySession
     public CampaignProgressOperation? PendingProgress => _simulation.PendingProgress;
     public ManualTacticProgressOperation? PendingManualTactic => _simulation.PendingManualTactic;
     public GameState? PendingManualTacticCandidate => _simulation.PendingManualTacticCandidate;
+    public CampaignArmyProgressOperation? PendingArmyProgress => _simulation.PendingArmyProgress;
+    public GameState? PendingArmyProgressCandidate => _simulation.PendingArmyProgressCandidate;
     public bool TryBeginOrdinaryTacticPresentation(GameState expectedOwner,
         ManualTacticInterventionState expectedManager, long sequence, GameState? preparedState = null) =>
         _simulation.TryBeginOrdinaryTacticPresentation(expectedOwner, expectedManager, sequence, preparedState);
@@ -206,10 +208,11 @@ public sealed partial class GameplaySession
         PlayableRuleSet rules, Func<GameState, GameState> advanceCalendar, ISaveCodec? saveCodec = null,
         CampaignProgressOperation? pending = null, long lastStorySequence = 0, ManualTacticProgressOperation? manualTactic = null,
         NormalPeriodOperation? normalPeriod = null,
-        Func<PlayableRuleSet, int, ICommandPlanner>? commandPlannerFactory = null)
+        Func<PlayableRuleSet, int, ICommandPlanner>? commandPlannerFactory = null,
+        CampaignArmyProgressOperation? armyProgress = null)
     {
         var session = new GameplaySession(world, rules, playerForceId, advanceCalendar, saveCodec ?? new JsonGzipSaveCodec(), commandPlannerFactory);
-        session._simulation.RestoreProgress(pending, lastStorySequence, manualTactic);
+        session._simulation.RestoreProgress(pending, lastStorySequence, manualTactic, armyProgress);
         if (normalPeriod is not null) session._simulation.RestoreNormalPeriod(normalPeriod);
         return session;
     }
@@ -291,7 +294,8 @@ public sealed partial class GameplaySession
         if (!HasPendingOperation && appRandomSnapshot is not null)
             savedWorld = savedWorld with { CampaignAppRandom32 = appRandomSnapshot };
         var savedNormalPeriod = PendingNormalPeriod;
-        var speechOwner = savedNormalPeriod?.Candidate ?? World;
+        var savedArmyProgress = PendingArmyProgress;
+        var speechOwner = savedNormalPeriod?.Candidate ?? PendingArmyProgressCandidate ?? World;
         if (appRandomSnapshot is not null && savedNormalPeriod?.Candidate.NativePeriodContinuation?.Cursor?.AwaitingIntelligenceTaskId is int intelligenceTask &&
             savedNormalPeriod.Candidate.PersonnelCommands?.Intelligences?.GetValueOrDefault(intelligenceTask)?.NarrationProgress?.Pending is
                 { Phase: PersonnelIntelligenceNarrationPhase.AwaitingNarration or PersonnelIntelligenceNarrationPhase.ReadyToResume } &&
@@ -307,15 +311,18 @@ public sealed partial class GameplaySession
         // A stale display snapshot must not replace a newer queue or another
         // suspended transaction's owner. Saving never mutates the live session.
         if (speechSnapshot is not null && ReferenceEquals(speechExpectedOwner, speechOwner) &&
-            (savedNormalPeriod is not null || PendingCampaignEventCommand is not null || !HasPendingOperation))
+            (savedNormalPeriod is not null || savedArmyProgress is not null || PendingCampaignEventCommand is not null || !HasPendingOperation))
         {
             if (savedNormalPeriod is not null)
                 savedNormalPeriod = savedNormalPeriod with
                 { Candidate = savedNormalPeriod.Candidate with { ArmyMapSpeech = speechSnapshot } };
+            else if (savedArmyProgress is not null)
+                savedArmyProgress = savedArmyProgress with
+                { Candidate = savedArmyProgress.Candidate with { ArmyMapSpeech = speechSnapshot } };
             else savedWorld = savedWorld with { ArmyMapSpeech = speechSnapshot };
         }
         _saves.Save(path, savedWorld, RequirePlayer(), PendingProgress, LastStorySequence, PendingManualTactic, savedAt,
-            normalPeriod: savedNormalPeriod);
+            normalPeriod: savedNormalPeriod, armyProgress: savedArmyProgress);
     }
 
     public void SavePreview(string path) => _previewSaves.Save(path, World);

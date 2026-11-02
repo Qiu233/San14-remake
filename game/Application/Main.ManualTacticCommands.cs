@@ -23,7 +23,7 @@ public partial class Main
     private Button _nativeManualTacticEntry=null!;
     private bool HasManualTacticCommands=>_manualTacticCommand is not null;
     private bool CanOpenManualTacticCommands=>_manualTacticCommand is null&&!_failed&&!_shuttingDown&&
-        !IsReturningToTitle&&!TutorialOverlayOwnsInput&&_repository is not null&&_campaignComposition is not null&&
+        !IsReturningToTitle&&!TutorialOverlayOwnsInput&&_periodPlayback?.MapMusicPresentationOpen!=true&&_repository is not null&&_campaignComposition is not null&&
         _residentMap is{IsPlayableMapReady:true}&&_session is{PlayerForceId:int player}&&
         _manualTacticCommandWorld is{Phase:TurnPhase.Strategy,NativeArmySimulation:not null} owner&&
         owner.Forces.GetValueOrDefault(player) is{IsActive:true}&&
@@ -63,7 +63,7 @@ public partial class Main
             {
                 AddChild(view);view.Configure(_repository!,_ui,_sourceHeaders,
                     unit=>RunUiAction(()=>SelectManualTacticCaster(page,unit), allowDuringPeriod: true),
-                    slot=>RunUiAction(()=>SelectManualTactic(page,slot), allowDuringPeriod: true),()=>RunUiAction(RequestManualTacticBack, allowDuringPeriod: true));
+                    slot=>RunUiAction(()=>SelectManualTactic(page,slot), allowDuringPeriod: true),()=>RunUiAction(RequestManualTacticBack, allowDuringPeriod: true), resources:TryBorrowApplicationUiResources(view));
                 view.Apply(publication,null);
             }
             map.SetUnitSelectionPicker();map.SetDetailsOpen(false);SetMapFocus(true);

@@ -10,6 +10,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly Dictionary<int, OfficerCommandCapacityResult> informationCommandCapacities = [];
         private readonly Dictionary<(int Person, int Kind), int> informationCreditBonuses = [];
         private bool informationCreditNamesBound;
+        private NewGameOfficerAbilityProducer? newGameAbilityProducer;
 
         private PreparedCell AbilitiesCreditCell(Person person, int column)
         {
@@ -31,7 +32,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     () => new NumberKey(InformationNativeValid(person) ? InformationCommandCapacity(person) : 0),
                     () => InformationCommandPalette(person)),
                 193 => MakeCell(() => InformationCreditDisplayVisible(person) && InformationStage(person) != 0
-                        ? Number(Need(OfficerMeritSourceAdapter.EncodeMerit(person.Owner.MeritState), "information_merit1BE"))
+                        ? Number(Need(prestartListInputs is not null ? prestartListInputs.Merit(person.PhysicalSlot) : OfficerMeritSourceAdapter.EncodeMerit(person.Owner.MeritState), "information_merit1BE"))
                         : Data(1, 0x353),
                     () => InformationCellSortKey(Cells.MeritKey(person.Candidate))),
                 194 => MakeCell(() => InformationRankName(person),
@@ -50,7 +51,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             var key = (person.Id, dimension);
             if (informationAbilities.TryGetValue(key, out int value)) return value;
-            value = Need(Abilities.ResolveDimension(state, person.Id, dimension,
+            if (ArmyOperationContext.IsNewGamePreview(state))
+            {
+                var read = (newGameAbilityProducer ??= rules.CreateNewGameOfficerAbilities(state,current)).Resolve(person.Id);
+                var values = read.Abilities;
+                value = values is null ? throw Missing(read.UnresolvedInput ?? "information_effective_ability." + dimension)
+                    : dimension switch { 0 => values.Leadership, 1 => values.Strength, 2 => values.Intelligence,
+                        3 => values.Politics, 4 => values.Charm, _ => throw new ArgumentOutOfRangeException(nameof(dimension)) };
+            }
+            else value = Need(Abilities.ResolveDimension(state, person.Id, dimension,
                 (force, effect) => rules._baseCapacityInputs.ReadPanelModifier(state, force, effect)),
                 "information_effective_ability." + dimension);
             informationAbilities.Add(key, value);
@@ -61,7 +70,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (!informationCommandCapacities.TryGetValue(person.Id, out var capacity))
             {
-                capacity = OfficerCommandCapacity.Resolve(state, current, person.PhysicalSlot);
+                capacity = prestartListInputs is null ? OfficerCommandCapacity.Resolve(state, current, person.PhysicalSlot)
+                    : OfficerCommandCapacity.Resolve(state,current,person.PhysicalSlot,prestartListInputs);
                 informationCommandCapacities.Add(person.Id, capacity);
             }
             if (capacity.Capacity is not int value)
@@ -80,7 +90,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private int? InformationCommandPalette(Person person)
             => CurrentPersonCommandCapacitySource.ReadPalette(state,current,person.PhysicalSlot,
                 ()=>InformationCreditBonus(person,1),
-                (force,effect)=>rules._baseCapacityInputs.ReadPanelModifier(state,force,effect),Missing);
+                (force,effect)=>prestartListInputs is not null ? prestartListInputs.PolicyModifier(force,effect)
+                    : rules._baseCapacityInputs.ReadPanelModifier(state,force,effect),Missing);
 
         private bool InformationItemSuppressed(Person person) => InformationSpecialForce(person) || Cells.Special(person.Candidate);
 
@@ -123,7 +134,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             else
             {
                 InformationCreditModeGate();
-                if (kind == 2) value = PersonAreaAppointmentSource.AdditionalCount(state, current, person.PhysicalSlot, rules.ReadApplicationGameplay()?.UserSelectionServicePresent);
+                if(prestartListInputs is not null)value=prestartListInputs.CreditBonus(person.PhysicalSlot,kind);
+                else if (kind == 2) value = PersonAreaAppointmentSource.AdditionalCount(state, current, person.PhysicalSlot, rules.ReadApplicationGameplay()?.UserSelectionServicePresent);
                 else
                 {
                     var bonus = OfficerCommandCapacity.ResolveCreditKindBonus(state, current, person.PhysicalSlot, kind, rules.ReadApplicationGameplay()?.UserSelectionServicePresent);
@@ -144,7 +156,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             //The mode3 branch asks for the actual CCCPersonSelectState. No
             //such owner is currently carried by this ordinary page scope.
-            if (Need(state.CampaignEventWorld?.ScenarioMode, "information_credit_World_mode") == 3)
+            if (Need(prestartListInputs is not null ? prestartListInputs.Mode : state.CampaignEventWorld?.ScenarioMode, "information_credit_World_mode") == 3)
                 throw Missing("information_credit_CCCPersonSelectState");
         }
         private static SortKey InformationCellSortKey(CityDomesticPersonCellSource.SortValue value)
@@ -152,7 +164,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         private bool InformationNativeValid(Person person) => Need(current.ReadPersonNativeValidity(person.PhysicalSlot), "information_Person_validity");
         private byte InformationStatus(Person person) => Need(current.ReadPersonStatus(person.PhysicalSlot), "information_PersonE6");
         private ushort InformationFlags(Person person) => Need(current.ReadArmyReturnPersonFlags196(person.PhysicalSlot), "information_Person15E");
-        private byte InformationStage(Person person) => Need(OfficerMeritSourceAdapter.EncodeStage(person.Owner.MeritState), "information_Person1BC");
+        private byte InformationStage(Person person) => ArmyOperationContext.IsNewGamePreview(state)
+            ? Need((newGameAbilityProducer ??= rules.CreateNewGameOfficerAbilities(state,current)).ReadCreditStage(person.Id), "new-game.ability.credit-stage")
+            : Need(prestartListInputs is not null ? prestartListInputs.Stage(person.PhysicalSlot) : OfficerMeritSourceAdapter.EncodeStage(person.Owner.MeritState), "information_Person1BC");
         private ForceReference InformationForce(Person person) => current.ReadPersonForce(person.PhysicalSlot)
             ?? throw Missing("information_Person_Force_pointer");
         private bool InformationSpecialForce(Person person) => Need(current.ReadForcePhysicalSlot(InformationForce(person)), "information_Person_Force") is >= 46 and <= 50;

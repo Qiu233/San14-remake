@@ -14,20 +14,47 @@ public sealed partial class ArmyCampaignRuleAdapter
         catch (InvalidDataException error) { return AreaAdministrationQuery<DefinitionInformationPageSet>.Unknown(error.Message); }
     }
 
+    // The startup force page supplies its actual ordered pointer-list
+    // projection. Do not run the ordinary own/all candidate filter again:
+    // multiple qualifying Provinces can intentionally supply the same entry.
+    public AreaAdministrationQuery<DefinitionInformationPageSet> PrepareNewGameGeographicAdvantageInformationPages(
+        GameState state,NewGameForcePreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(preview);
+        if(preview.ForceValid is not true||preview.GeographicAdvantages is not {} rows)
+            return AreaAdministrationQuery<DefinitionInformationPageSet>.Unknown("new-game.force.geographic-list");
+        try
+        {
+            return AreaAdministrationQuery<DefinitionInformationPageSet>.Known(
+                new DefinitionInformationCurrent(this,state,preview.ForceId,
+                    newGamePreview:ArmyOperationContext.IsNewGamePreview(state))
+                    .Pages(InformationListKind.Advantages,rows.Select(row=>row.AdvantageId).ToArray()));
+        }
+        catch(InvalidDataException error)
+        {return AreaAdministrationQuery<DefinitionInformationPageSet>.Unknown(error.Message);}
+    }
+
     private sealed partial class DefinitionInformationCurrent
     {
         private readonly ArmyCampaignRuleAdapter rules;
         private readonly GameState state;
         private readonly int playerForceId;
         private readonly bool ownOnly;
+        private readonly bool newGamePreview;
         private readonly Lazy<SourceWorldContext> captured;
         private SourceWorldContext current => captured.Value;
         private readonly Dictionary<(InformationListKind Kind, int Id, int Column), PreparedCell> prepared = [];
         private readonly HashSet<string> candidateIssues = new(StringComparer.Ordinal);
-        internal DefinitionInformationCurrent(ArmyCampaignRuleAdapter rules, GameState state, int playerForceId, bool ownOnly = false)
+        internal DefinitionInformationCurrent(ArmyCampaignRuleAdapter rules, GameState state, int playerForceId,
+            bool ownOnly = false,bool newGamePreview = false)
         {
             this.rules = rules; this.state = state; this.playerForceId = playerForceId; this.ownOnly = ownOnly;
-            captured = new(() => new OfficerInformationCurrent(rules, state, playerForceId).current);
+            this.newGamePreview=newGamePreview;
+            // The actual startup dialog borrows normal-loaded Person/Base
+            // inputs; there are no saved Army indexes or lifecycle to bind.
+            captured = new(() => newGamePreview ? rules.CapturePersonPresentationCurrent(state)
+                : new OfficerInformationCurrent(rules,state,playerForceId).current);
         }
         internal DefinitionInformationPageSet Pages(InformationListKind kind,int[]? suppliedIds=null,bool selectInitial=true)
         {

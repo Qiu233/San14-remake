@@ -11,6 +11,7 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
     private IReadOnlyList<NarrationParagraphLine> lines = [];
     private IReadOnlyList<float> baselines = [];
     private IReadOnlyList<IReadOnlyList<uint?>> colours = [];
+    private IReadOnlyList<IReadOnlyList<San14.Data.MapTextPreset?>?> bodyPresets = [];
     private string? expanded;
     private Vector2 preparedSize;
 
@@ -51,13 +52,14 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
         while (allowedLf < 64 && (int)(unchecked((short)(nominal * (allowedLf + 2))) * original.ScaleY +
             original.VerticalSpace * allowedLf) <= (int)Size.Y) allowedLf++;
         string wrapped = DeploymentNarrationPlainParagraph.WrapKnownColourParagraph(
-            text, WrapWidth, (int)Size.X, allowedLf);
-        var preparedLines = DeploymentNarrationParagraphPlan.Runs(wrapped);
+            text, WrapWidth, (int)Size.X, allowedLf, allowPresetColours: true);
+        var preparedLines = DeploymentNarrationParagraphPlan.Runs(wrapped, allowPresetColours: true);
         string widest = preparedLines.MaxBy(line => font.Measure(line.VisibleText, original).Width)!.VisibleText;
         var profile = font.Source.FitToWidth(widest, original, Size.X) with { WidthFitMode = 0 };
         var presets = MapTextPresets.Create();
         var positions = new List<float>();
         var preparedColours = new List<IReadOnlyList<uint?>>();
+        var preparedPresets = new List<IReadOnlyList<San14.Data.MapTextPreset?>?>();
         int baseline = (int)(nominal * profile.ScaleY), totalAdvance = 0;
         foreach (var line in preparedLines)
         {
@@ -65,13 +67,25 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
             // is prepared at its explicit baseline without a second alignment.
             font.Prepare([line.VisibleText], profile.UsesFixedLineHeight ? profile with { RawAlign = 0, RawLineArrange = 1 } : profile);
             positions.Add(totalAdvance + baseline);
-            preparedColours.Add(line.Runs.SelectMany(run => Enumerable.Repeat<uint?>(run.Colour switch
+            if (line.Runs.Any(run => run.BodyPresetIndex.HasValue))
             {
-                NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
-                NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
-                NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
-                _ => null
-            }, run.Text.Length)).ToArray());
+                // Preserve all four source body corners in the same whole-line
+                // cache; splitting Draw calls would reorder shadow and stroke.
+                preparedPresets.Add(line.Runs.SelectMany(run => Enumerable.Repeat(
+                    run.SourcePresetIndex is int index ? presets[index] : null, run.Text.Length)).ToArray());
+                preparedColours.Add(Array.Empty<uint?>());
+            }
+            else
+            {
+                preparedPresets.Add(null);
+                preparedColours.Add(line.Runs.SelectMany(run => Enumerable.Repeat<uint?>(run.Colour switch
+                {
+                    NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
+                    NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
+                    NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
+                    _ => null
+                }, run.Text.Length)).ToArray());
+            }
             int advance = (int)(nominal * profile.ScaleY + profile.VerticalSpace);
             foreach (char code in profile.UsesFixedLineHeight ? "" : line.VisibleText)
             {
@@ -91,7 +105,7 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
             for (int index = 0; index < positions.Count; index++) positions[index] += offset;
         }
         WrappedText = wrapped; lines = preparedLines; fitted = profile;
-        baselines = positions; colours = preparedColours;
+        baselines = positions; colours = preparedColours; bodyPresets = preparedPresets;
         expanded = text; preparedSize = Size; QueueRedraw();
     }
 
@@ -106,7 +120,9 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
         if (lines.Count == 0) return;
         var owner = font.BeginDraw(this);
         for (int index = 0; index < lines.Count; index++)
-            font.Draw(this, lines[index].VisibleText, new(0, baselines[index]), fitted, glyphColours: colours[index]);
+            font.Draw(this, lines[index].VisibleText, new(0, baselines[index]), fitted,
+                glyphColours: bodyPresets[index] is null ? colours[index] : null,
+                glyphBodyPresets: bodyPresets[index]);
         owner.End();
     }
 

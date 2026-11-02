@@ -13,11 +13,11 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyGroupConstruc
         IssueArmiesFacilityConstructionOrder order, CommandContext context)
     {
         if (order.ForceId != force.Id || order.Armies is null ||
-            order.Armies.Count is < 1 or > 30 ||
+            order.Armies.Count < 1 ||
             !FacilityConstructionIntent.IsDefinitionKey(order.DefinitionKey) ||
             order.InitialHexId is < 0 or >= 48400 || order.FinalHexId is < 0 or >= 48400)
             return CommandResult.Reject("Select ordinary armies, a facility and its actual construction sites.", "structure.selection");
-        // Copy only the bounded command input. Each row owns its route.
+        // Copy only this selected command input. Each row owns its route.
         var rows = new List<ArmyFacilityConstructionSelection>(order.Armies.Count);
         var ids = new HashSet<int>();
         foreach (var row in order.Armies)

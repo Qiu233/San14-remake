@@ -2,12 +2,18 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-/// <summary>Owns one scene's terrain uploads, materials and adaptive geometry.
+/// <summary>Owns scene terrain geometry, optional Godot uploads and materials.
 /// Scene nodes borrow patches; detach them before committing or releasing geometry.</summary>
 internal sealed class MapTerrainResources : IDisposable
 {
     private TerrainMeshCache? _cache;
+    private readonly TerrainLodDrawPlanner lodPlanner;
+    private TerrainLodDrawPlan? cachedLodPlan, committedLodPlan;
+    private Vector3 cachedLodEye;
+    private System.Numerics.Matrix4x4 cachedLodClip;
+    private float cachedLodDistanceScale;
     public LoadedTerrainSceneResources Source { get; }
+    public MapStaticModelGroundHeightSource WorldGroundHeight { get; }
     public TerrainMeshResult? Meshes { get; private set; }
     public LoadedTerrainInitialHeightResources InitialHeight => Source.Height;
     public LoadedTerrainShaderResources Shader => Source.Material.Shader;
@@ -22,11 +28,14 @@ internal sealed class MapTerrainResources : IDisposable
     public int CachedPatchCount => _cache?.Count ?? 0;
 
     private MapTerrainResources(TerrainMeshResult meshes, LoadedTerrainSceneResources source,
-        G2ShaderTextureBases textureBases, TerrainGbiMapMaterial? gbi)
+        G2ShaderTextureBases textureBases, TerrainGbiMapMaterial? gbi,
+        MapStaticModelGroundHeightSource worldGroundHeight)
     {
         (Meshes, Source, TextureBases, Gbi) = (meshes, source, textureBases, gbi);
+        WorldGroundHeight = worldGroundHeight;
         ProjectionSource = source.Height.ControlBinding.Resource.Source;
         ActivePatches = meshes.Patches;
+        lodPlanner = new(source.Terrain.SpatialTree);
     }
 
     public static async Task<MapTerrainResources> PrepareAsync(MapTerrainSourcePreparation prepared,
@@ -35,7 +44,9 @@ internal sealed class MapTerrainResources : IDisposable
         LoadedTerrainSceneResources source = prepared.Terrain;
         G2ShaderTextureBases textureBases = prepared.TextureBases;
         // Playable scenes start with a root prototype, then use the camera's mixed-node plan.
-        TerrainMeshResult meshes = TerrainMesh.Build(source.Terrain, source.Height, depth);
+        TerrainMeshResult meshes = nativeMap
+            ? TerrainMesh.PrepareCpu(source.Terrain, source.Height, depth)
+            : TerrainMesh.Build(source.Terrain, source.Height, depth);
         TerrainGbiMapMaterial? gbi = null;
         try
         {
@@ -43,7 +54,7 @@ internal sealed class MapTerrainResources : IDisposable
                 gbi = await TerrainGbiMapMaterial.BuildAsync(meshes, source.Material);
         }
         catch { meshes.Dispose(); throw; }
-        return new(meshes, source, textureBases, gbi);
+        return new(meshes, source, textureBases, gbi, prepared.WorldGroundHeight);
     }
 
     public void InitializeAdaptiveGeometry()
@@ -56,13 +67,28 @@ internal sealed class MapTerrainResources : IDisposable
 
     public TerrainLodUpdate PrepareLod(Vector3 eye, System.Numerics.Matrix4x4 clip)
     {
-        TerrainLodDrawPlan plan = TerrainLodDrawPlanner.Build(Meshes!.Source.SpatialTree,
-            new(eye.X, eye.Y, eye.Z), LodDistanceScale, TerrainFrustumMath.Create(clip));
+        TerrainLodDrawPlan plan;
+        if (cachedLodPlan is { } cached && cachedLodEye == eye && cachedLodClip == clip &&
+            cachedLodDistanceScale == LodDistanceScale)
+            plan = cached;
+        else
+        {
+            plan = lodPlanner.Build(new(eye.X, eye.Y, eye.Z), LodDistanceScale, TerrainFrustumMath.Create(clip));
+            cachedLodPlan = plan;
+            cachedLodEye = eye;
+            cachedLodClip = clip;
+            cachedLodDistanceScale = LodDistanceScale;
+        }
+        if (ReferenceEquals(plan, committedLodPlan)) return new(plan, null, null);
         TerrainLodPatchSelection[] desired = plan.Rows.Select(row => row.Patch).ToArray();
         bool changed = desired.Length != ActivePatches.Count || desired.Where((row, i) =>
             row.Node.Index != ActivePatches[i].SourceNode.Index ||
-            row.EdgeFlags != (uint)ActivePatches[i].Mesh.GetMeta("source_patch_edge_flags").AsInt64()).Any();
-        if (!changed) return new(plan, null, null);
+            row.EdgeFlags != ActivePatches[i].EdgeFlags).Any();
+        if (!changed)
+        {
+            committedLodPlan = plan;
+            return new(plan, null, null);
+        }
         IReadOnlyList<TerrainPatch> next = _cache!.Get(desired);
         return new(plan, next, TerrainPicker.Build(next));
     }
@@ -71,6 +97,7 @@ internal sealed class MapTerrainResources : IDisposable
     {
         ActivePatches = update.Patches!;
         Picker = update.Picker;
+        committedLodPlan = update.Plan;
         _cache!.Trim(ActivePatches);
     }
 
@@ -85,6 +112,7 @@ internal sealed class MapTerrainResources : IDisposable
     {
         Picker = null;
         ActivePatches = [];
+        cachedLodPlan = committedLodPlan = null;
         _cache?.Dispose(); _cache = null;
         Meshes?.Dispose(); Meshes = null;
     }

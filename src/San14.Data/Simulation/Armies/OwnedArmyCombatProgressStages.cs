@@ -25,9 +25,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private sealed class OrdinaryArmyCombatStages(ArmyCampaignRuleAdapter package,
         IPlayableNativeArmyProgressStageRules remaining,
-        INormalArmyForceResultDefinitionQueries forceDefinitions) : ICampaignStageOperation
+        INormalArmyForceResultDefinitionQueries forceDefinitions, bool useMixedCombat = false) : ICampaignStageOperation
     {
         private NormalArmyCombatCurrentPhase? currentPhase;
+        private NativeArmyCombatCycleSampler? mixedCycleSampler;
         private readonly ArmyMapGroupingOwner mapGroups = package._mapArmyGrouping.Copy();
         private bool mapGroupsChanged;
         internal ArmyMapGroupingOwner CopyMapGroupsForTurn() => mapGroups.Copy();
@@ -48,9 +49,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.Boundary != NativeArmyProgressStageBoundary.StageEntry)
                 return remaining.AdvanceStage(state, moment);
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.DuelOpportunity)
+            {
+                if (state.DuelAftermathContinuation is not null)
+                    return new(package.ResumeDuelAftermathDuringArmyOperation(state, moment),
+                        "army.progress.duel-aftermath-resumed");
                 return moment.PreWriterThirdDate.Hour != 10
                     ? new(state, "army.progress.duel-not-due")
                     : new(package.AdvanceDuelOpportunity(state, moment), "army.progress.duel-opportunity");
+            }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.ArmyMoraleFatigue)
             {
                 var fatigue = package.TryAdvanceArmyMoraleFatigue(state, moment);
@@ -126,6 +132,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 if (moment.PreWriterThirdDate.Hour != 10)
                     return new(state, "army.progress.ordinary-combat-not-due");
+                if (useMixedCombat)
+                {
+                    var mixedCompleted = package.CompleteCurrentArmyCombatCut(state,
+                        package.CaptureWritableTransportRouteCurrent(state), moment.PreWriterThirdDate,
+                        moment.CalendarCycleOrdinal, out _, out mixedCycleSampler);
+                    return new(mixedCompleted, mixedCompleted.NormalCombatImmediateContinuation is not null
+                        ? "army.progress.mixed-combat-awaiting-input" : "army.progress.mixed-combat");
+                }
                 currentPhase = package.CaptureNormalArmyCombatPhase(state, moment);
                 return currentPhase?.TryCompleteOrdinaryPhase(state, forceDefinitions) is { } completed
                     ? new(completed, "army.progress.ordinary-combat") : null;
@@ -190,8 +204,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Defeat)
             {
+                var sampler = mixedCycleSampler?.Read(state) ?? currentPhase?.ReadOrdinaryCycleSampler(state);
+                if (useMixedCombat && sampler is null && moment.PreWriterThirdDate.Hour == 10)
+                {
+                    var season = state.NativeMapSeason ?? throw new InvalidDataException("army.progress.mixed-defeat-calendar");
+                    var cut = new NormalArmyCombatPhaseMoment(moment.CalendarCycleOrdinal, moment.PreWriterThirdDate,
+                        (byte)NativeArmyProgressStage.Combat, season.SourceScenarioUri, season.SourceScenarioSha256,
+                        season.SourceWorldSha256, NormalArmyCombatCalendarRuntime.Revision);
+                    mixedCycleSampler = NativeArmyCombatCycleSampler.Create(new(cut, state, NativeArmyProgressAtomicRuntime.Revision));
+                    sampler = mixedCycleSampler?.Read(state)
+                        ?? throw new InvalidDataException("army.progress.mixed-defeat-sampler");
+                }
                 var destroyed = new OwnedArmyDestructionStage(package).TryConsumeDeferredDefeatsWithGrouping(state,
-                    currentPhase?.ReadOrdinaryCycleSampler(state), moment.PreWriterThirdDate, mapGroups);
+                    sampler, moment.PreWriterThirdDate, mapGroups);
                 if (destroyed.State is not { } result) return null;
                 if (destroyed.CityReceipts.Length != 0 || destroyed.BaseReceipts.Length != 0) mapGroupsChanged = true;
                 var reports = destroyed.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
@@ -202,6 +227,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.ReleaseRetired)
             {
                 currentPhase = null;
+                mixedCycleSampler = null;
                 var reset = OwnedArmyLifecycleAuxiliaries.ConsumePending(state, package._definitions, physical =>
                 {
                     mapGroups.ResetReceiver(physical);
@@ -252,7 +278,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         public void RestoreCheckpoint(CampaignGroupingCheckpoint checkpoint)
         {
             if (remaining is not IStatelessNativeProgressStageRules) throw new InvalidDataException("Remaining provider has no saved continuation contract.");
-            mapGroups.Import(checkpoint.Roots); mapGroupsChanged = checkpoint.Changed; currentPhase = null;
+            mapGroups.Import(checkpoint.Roots); mapGroupsChanged = checkpoint.Changed;
+            currentPhase = null; mixedCycleSampler = null;
         }
         public IReadOnlyList<int>? ReadCompleteWaitingArmyOrder(GameState state, NativeArmyProgressStageMoment moment) =>
             package.ReadOrdinaryWaitingArmyOrder(state);

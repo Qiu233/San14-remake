@@ -13,6 +13,8 @@ public sealed record UnplacedMapObjectSourceFields(byte Kind, byte Faction, usho
 public sealed class MapObjectSourceState
 {
     private MapObjectSourceDirectory? _directory;
+    private readonly Lazy<IReadOnlyDictionary<MapObjectReceiverId,int>> _physicalIndex;
+    internal IReadOnlyDictionary<MapObjectReceiverId,int> PhysicalIndex => _physicalIndex.Value;
     internal MapObjectSourceDirectory Directory => LazyInitializer.EnsureInitialized(ref _directory, () => new(this));
     public IReadOnlyList<MapObjectReceiverId> PhysicalReceivers { get; }
     public IReadOnlyList<int?> LookupPhysicalSlots { get; }
@@ -32,6 +34,7 @@ public sealed class MapObjectSourceState
     {
         PhysicalReceivers = Array.AsReadOnly(physicalReceivers.ToArray());
         LookupPhysicalSlots = Array.AsReadOnly(lookupPhysicalSlots.ToArray());
+        _physicalIndex = new(() => PhysicalReceivers.Select((id, slot) => (id, slot)).ToDictionary(x => x.id, x => x.slot), LazyThreadSafetyMode.ExecutionAndPublication);
         UnmappedCoordinates = new ReadOnlyDictionary<int, ushort>(new Dictionary<int, ushort>(unmappedCoordinates));
         UnmappedFactions = new ReadOnlyDictionary<int, byte>(new Dictionary<int, byte>(unmappedFactions));
         UnmappedKinds = new ReadOnlyDictionary<int, byte>(new Dictionary<int, byte>(unmappedKinds));
@@ -57,6 +60,7 @@ public sealed class MapObjectSourceState
         Dictionary<int, ushort>? fields16 = null, Dictionary<int, ushort>? aliases = null)
     {
         PhysicalReceivers = source.PhysicalReceivers;
+        _physicalIndex = source._physicalIndex;
         LookupPhysicalSlots = source.LookupPhysicalSlots;
         UnmappedCoordinates = coordinates is null ? source.UnmappedCoordinates : new ReadOnlyDictionary<int, ushort>(coordinates);
         UnmappedFactions = factions is null ? source.UnmappedFactions : new ReadOnlyDictionary<int, byte>(factions);
@@ -135,9 +139,9 @@ public sealed class MapObjectSourceState
 public sealed class MapObjectSourceDirectory
 {
     private readonly MapObjectSourceState state;
-    private readonly Dictionary<MapObjectReceiverId, int> physical;
+    private readonly IReadOnlyDictionary<MapObjectReceiverId, int> physical;
     public MapObjectSourceDirectory(MapObjectSourceState state)
-    { this.state = state; physical = state.PhysicalReceivers.Select((id, slot) => (id, slot)).ToDictionary(x => x.id, x => x.slot); }
+    { this.state = state; physical = state.PhysicalIndex; }
     public MapObjectReceiverId ReceiverAtPhysical(int value) => (uint)value < state.PhysicalReceivers.Count
         ? state.PhysicalReceivers[value] : throw new InvalidDataException("Unknown object physical receiver.");
     public int PhysicalOf(MapObjectReceiverId value) => physical.TryGetValue(value, out int slot) ? slot

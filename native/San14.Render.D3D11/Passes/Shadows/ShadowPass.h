@@ -56,7 +56,7 @@ public:
             for(const auto& light:current->lights)
                 admission.lights.push_back({light.mask,light.firstCasterFlags,0,0,0});
         }
-        publishNativeCityAreaJointShadow(population_,*cityGate_,field,primary,cameras_,parameters_);
+        publishNativeCityAreaJointShadowAdmission(*cityGate_,field,primary,cameras_);
     }
     void prepareCamera(const source_camera::Frame& camera,const FieldDisplay& display,
         const NativeModelCollectionCaller& caller,std::span<const source_shadow_camera::ProceduralCaster> procedural) {
@@ -67,8 +67,9 @@ public:
         connectNativeJointPopulationShadowGeometry(population_,field,primaries);
     }
     void prepareGpu(ID3D11Device* device,ID3D11DeviceContext* context,const fs::path& source,
-        ground_details::GroundDetails& ground,TerrainPass& terrain) {
-        gpu_=prepareNativeShadowCameraGpu(device,parameters_[family_],cameras_[family_],population_.catalog,population_.allModels,source,raster_);
+        ground_details::GroundDetails& ground,TerrainPass& terrain,
+        std::shared_ptr<const NativePrimaryShadowGpuMedia> primaryMediaGpu={},bool requireResident=false) {
+        gpu_=prepareNativeShadowCameraGpu(device,parameters_[family_],cameras_[family_],population_.catalog,population_.allModels,source,raster_,primaryMediaGpu,requireResident);
         primaryCatalogBindingPending_=false; // Initial creation bound this exact catalog.
         plan_=source_shadow_gpu::preparePlan(gpu_.profile,frame_,population_.catalog);
         NativeSourceDepthState logical{};
@@ -82,7 +83,8 @@ public:
     }
     void updateAcceptedFrame(ID3D11DeviceContext* context,NativeSourceDepthState& logical,
         bool populationChanged,const source_current_season::Frame* season,const source_camera::Frame& camera,
-        ground_details::GroundDetails& ground,TerrainPass& terrain) {
+        ground_details::GroundDetails& ground,TerrainPass& terrain,
+        std::shared_ptr<const NativePrimaryShadowGpuMedia> primaryMediaGpu={},bool requireResident=false) {
         if(populationChanged||primaryCatalogBindingPending_) {
             source_shadow_gpu::bindCatalog(gpu_.profile,population_.catalog);
             primaryCatalogBindingPending_=false; // Clear only after successful binding.
@@ -114,8 +116,15 @@ public:
         contact_.execute(device,context,logical,viewport,input.settings,lens,activeGroups,
             hostClass,input.lights,commonPresent);
     }
-    void prepareReceiverResources(ID3D11Device* device,const fs::path& source) {
-        receiverResources_.prepare(device,source);
+    void prepareReceiverResources(ID3D11Device* device,const fs::path& bankSource,const fs::path& patternSource) {
+        receiverResources_.prepare(device,bankSource,patternSource);
+    }
+    NativeShadowReceiverResources::PatternResourceReplacement preparePatternResourceReplacement(
+        ID3D11Device* device,const fs::path& source) const {
+        return receiverResources_.preparePatternResourceReplacement(device,source);
+    }
+    void installPatternResourceReplacement(NativeShadowReceiverResources::PatternResourceReplacement prepared) noexcept {
+        receiverResources_.installPatternResourceReplacement(std::move(prepared));
     }
     void prepareGeometryReceiver(const source_camera::Frame& camera) {
         receiver_.emplace(receiverResources_,68);updateReceiver(*receiver_,camera);

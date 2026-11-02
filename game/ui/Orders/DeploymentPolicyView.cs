@@ -14,17 +14,21 @@ internal partial class DeploymentPolicyView : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Action<DeploymentPolicySetting,bool>? choose;
     private Action? saveDefaults;
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
-        Action<DeploymentPolicySetting,bool> selected,Action saveRequested,bool showSaveDefaults=true)
+        Action<DeploymentPolicySetting,bool> selected,Action saveRequested,bool showSaveDefaults=true,
+        AdministrationPageChrome.Resources? resources=null)
     {
         Name="DeploymentPolicies";MouseFilter=MouseFilterEnum.Stop;
         choose=selected;saveDefaults=saveRequested;
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
-        var source=new UiSourceLayout(repository,0x96B33F19);Size=source.Rectangle(0).Size;
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
+        var source=assets.SourceLayout(0x96B33F19);Size=source.Rectangle(0).Size;
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing deployment policy caption.");
         source.Blur(this,1,source.Rectangle(1));
@@ -104,5 +108,5 @@ internal partial class DeploymentPolicyView : Control
         foreach(var pair in pairs){pair.First.Disabled=true;pair.Second.Disabled=true;}
         if(save is not null)save.Disabled=true;
     }
-    public override void _ExitTree(){choose=null;saveDefaults=null;assets?.Dispose();font?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){choose=null;saveDefaults=null;if(ownsResources){assets?.Dispose();font?.Dispose();shader?.Dispose();}}
 }

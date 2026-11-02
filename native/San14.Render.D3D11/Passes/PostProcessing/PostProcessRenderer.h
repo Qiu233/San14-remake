@@ -6,6 +6,7 @@
 #include <sstream>
 #include <functional>
 #include "PostProcessPasses.h"
+#include "DofGpuFeedback.h"
 
 struct NormalPostSurface {
     ComPtr<ID3D11Texture2D> texture;
@@ -27,7 +28,7 @@ struct NativeNormalPost {
     std::map<std::string,std::vector<NormalPostSurface>> textureSides;
     std::map<std::string,std::vector<NormalPostBuffer>> bufferSides;
     std::map<std::string,UINT> selectors;
-    std::array<ComPtr<ID3D11Buffer>,2> spriteStaging;
+    San14::Render::DofGpuFeedback scatterFeedback;
     NormalPostSurface exposure;
     UINT width{},height{};
 };
@@ -88,7 +89,7 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     if(!sceneColor.texture||!mainDepthView)throw std::runtime_error("Normal post needs actual Main HDR target and GBuffer depth");
     NativeNormalPost state;state.width=width;state.height=height;
     auto& surfaces=state.surfaces;auto& buffers=state.buffers;
-    auto& externalViews=state.externalViews;auto& spriteStaging=state.spriteStaging;
+    auto& externalViews=state.externalViews;
     // Actual114AB40 paired declarations. Unused module parameters are not
     // fabricated as GPU owners; retain only bindings reached by this slice.
     std::map<UINT,UINT> pairedBuffers;
@@ -165,10 +166,9 @@ static NativeNormalPost prepareNormalPost(ID3D11Device* device,
     NativePreparedInputFile stagingRows(source/"dof-staging.txt");UINT stagingSide;
     if(!stagingRows)throw std::runtime_error("Normal post controller staging descriptors absent");
     while(stagingRows>>stagingSide>>bytes>>usage>>cpu>>bind>>misc>>stride) {
-        D3D11_BUFFER_DESC d{};d.ByteWidth=bytes;d.Usage=D3D11_USAGE(usage);d.CPUAccessFlags=cpu;
-        d.BindFlags=bind;d.MiscFlags=misc;d.StructureByteStride=stride;
-        check(device->CreateBuffer(&d,nullptr,&spriteStaging.at(stagingSide)),"normal post source controller staging");
+        state.scatterFeedback.createSide(device,stagingSide,bytes);
     }
+    state.scatterFeedback.prepare(device);
     UINT viewFormat,histElements;NativePreparedInputFile histogramRow(source/"histogram.txt");
     if(!(histogramRow>>bytes>>viewFormat>>histElements>>bind>>usage>>cpu>>misc>>stride))throw std::runtime_error("Normal post original histogram descriptor absent");
     D3D11_BUFFER_DESC hd{};hd.ByteWidth=bytes;hd.BindFlags=bind;hd.Usage=D3D11_USAGE(usage);hd.CPUAccessFlags=cpu;hd.MiscFlags=misc;hd.StructureByteStride=stride;
@@ -207,7 +207,7 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
     context->OMGetBlendState(&entryBlend,entryBlendFactor,&entrySampleMask);
     context->ClearState();
     auto& surfaces=state.surfaces;auto& buffers=state.buffers;auto& externalViews=state.externalViews;
-    auto& spriteStaging=state.spriteStaging;auto& exposure=state.exposure;
+    auto& exposure=state.exposure;
     const UINT width=state.width,height=state.height;
 
     auto srv=[&](const std::string& name,UINT mip)->ID3D11ShaderResourceView* {
@@ -229,10 +229,19 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
     };
 
     for(const auto& pass:passes) {
-        // Original Count0 reads selected controller staging here, after55
-        // and before current57/58 produce the new B5 indirect arguments.
-        if(pass.name=="057-dof"&&beforeScatter)beforeScatter();
         normalPostUnbind(context);context->GSSetShader(nullptr,nullptr,0);context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);
+        // Latch both decisions from the original old side after55, before
+        // current57/58 and either current scatter overwrite that side.
+        if(pass.name=="057-dof"&&beforeScatter)beforeScatter();
+        if(pass.scatterClear!=NormalPostScatterClear::Recipe) {
+            const UINT offset=pass.scatterClear==NormalPostScatterClear::GpuRear?0:16;
+            for(const auto& binding:pass.targets) {
+                const auto& surface=surfaces.at(binding.name);
+                state.scatterFeedback.clearTarget(context,surface.targets.at(binding.mip).Get(),
+                    std::max(1u,surface.width>>binding.mip),std::max(1u,surface.height>>binding.mip),offset);
+            }
+            normalPostUnbind(context);
+        }
         for(const auto& binding:pass.constants) {
             auto raw=binding.buffer.Get();
             if(binding.stage=="VS")context->VSSetConstantBuffers(binding.slot,1,&raw);
@@ -273,7 +282,7 @@ static ComPtr<ID3D11Texture2D> executeNormalPost(ID3D11Device* device,ID3D11Devi
             context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(pass.topology);
             if(pass.indirect) {
                 auto actual=buffers.at("Buffer"+std::to_string(pass.index)).buffer.Get();
-                context->CopyResource(spriteStaging.at(pass.stagingSide).Get(),actual);
+                context->CopyResource(state.scatterFeedback.sideBuffer(pass.stagingSide),actual);
                 context->DrawInstancedIndirect(actual,pass.offset);
             } else context->DrawInstanced(pass.vertexCount,pass.instanceCount,pass.startVertex,pass.startInstance);
         }

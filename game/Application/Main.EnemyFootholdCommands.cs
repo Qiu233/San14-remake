@@ -15,7 +15,7 @@ public partial class Main
         internal BaseKind Kind {get;}=kind;
         internal int Id {get;}=id;
         internal Vector2 Cursor {get;}=cursor;
-        internal EnemyFootholdCommandMenu? Menu {get;set;}
+        internal MapLocationCommandMenu? Menu {get;set;}
         internal Control? OwnedPage {get;set;}
         internal MapInformationListView? ResidentList {get;set;}
         internal OfficerDetailsView? ResidentDetail {get;set;}
@@ -68,10 +68,12 @@ public partial class Main
         if(partial is not null)EnemyFootholdUnavailable(partial);
         owner.ChildActive=false;
         owner.Menu?.Abandon();owner.Menu?.QueueFree();
-        var menu=new EnemyFootholdCommandMenu();owner.Menu=menu;AddChild(menu);
-        menu.Configure(_repository,_ui,owner.Cursor,page,()=>EnemyFootholdCurrent(owner)&&!owner.ChildActive,
+        var menu=new MapLocationCommandMenu{Name="EnemyFootholdCommandMenu"};owner.Menu=menu;AddChild(menu);
+        menu.Configure(_repository,_ui,owner.Cursor,page.Entries.Select(entry=>new MapLocationCommandMenuEntry(
+            entry.Command.ToString(),entry.Payload,entry.CaptionId,entry.SourcePresent,entry.SourceEnabled)).ToArray(),
+            ()=>EnemyFootholdCurrent(owner)&&!owner.ChildActive,
             payload=>RunUiAction(()=>AcceptEnemyFootholdCommand(owner,payload)),
-            ()=>RunUiAction(CloseEnemyFootholdCommands));
+            ()=>RunUiAction(CloseEnemyFootholdCommands), resources:TryBorrowApplicationUiResources(menu));
         owner.Map.CloseCityCommandMenu();owner.Map.SetDetailsOpen(true,keepMapVisible:true);
         SetMapFocus(true);HideDeploymentHud();return true;
     }

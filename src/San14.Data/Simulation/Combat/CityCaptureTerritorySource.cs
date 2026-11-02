@@ -52,6 +52,21 @@ public static partial class CityCaptureTerritorySource
     public static void ReleaseRelatedAreas(SourceWorldContext current, CityCaptureAreaScope scope)
         => current.ClearNearbyTemporary(scope.Areas, true);
 
+    /// <summary>26DA10's real26D2E0 resident and related-Gate assignment,
+    /// borrowing the capture operation. Its caller performs the old-District
+    /// primary update exactly once at the existing place.</summary>
+    internal static CityCaptureDistrictAssignment AssignCityDistrictCurrent(SourceWorldContext current,
+        BaseReference city, int newDistrictPhysical, ArmyReturnDistrictOperationQueries operation)
+    {
+        _ = CheckCity(current, city);
+        if (newDistrictPhysical is < 1 or > 51) throw Missing("branch.new_District_outside_ordinary_scope");
+        var district = current.ReadDistrictTableReference(newDistrictPhysical) ?? throw Missing("new_District_pointer");
+        int newForce = K(current.ReadDistrictForceSlot(district), "new_District10"); CheckForce(newForce);
+        var oldDistrict = current.ReadBaseDistrictReference(city) ?? throw Missing("saved_City_virtual80");
+        int[] gates = ArmyCampaignRuleAdapter.AssignDistrictAdministrationBaseCurrent(current, city, district, operation);
+        return new(newForce, oldDistrict, gates);
+    }
+
     public static CityCaptureDistrictAssignment AssignCityDistrict(SourceWorldContext current,
         BaseReference city, int newDistrictPhysical)
     {
@@ -143,7 +158,7 @@ public static partial class CityCaptureTerritorySource
     {
         _ = CheckCity(current, scope.City); CheckForce(scope.NewForcePhysical);
         var center = CurrentGateMapQueries.FindHex(scope.City, current);
-        var central = Rings(state, current, center, unchecked(K(BaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "radiusA7A8") + 1), scope.NewForcePhysical);
+        var central = Rings(state, current, center, unchecked(K(BaseCaptureResourceInputs.ReadCurrent(state, SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "radiusA7A8") + 1), scope.NewForcePhysical, operation: operation);
         var visited = central.VisitedHexes.ToList(); var changed = central.TransferredHexes.ToList();
         foreach (var hex in Footprint(current, scope.City)) { visited.Add(Physical(hex)); Raw(current, hex, scope.NewForcePhysical, changed); }
         central = central with { VisitedHexes = visited.ToArray(), TransferredHexes = changed.ToArray() };
@@ -172,7 +187,7 @@ public static partial class CityCaptureTerritorySource
                     K(current.ReadBaseForceSlot(originalCity), "transfer_original_City_B0") == scope.NewForcePhysical)
                     assignments.Add(current.AssignAreaCity(area, K(originalCity.PhysicalSlot, "transfer_original_City22DC80")));
                 GateCaptureHexTransfer? territory = scope.OldForcePhysical == 0 ? null :
-                    Rings(operation?.Latest() ?? state, current, AreaHex(current, area), areaRadius, scope.NewForcePhysical);
+                    Rings(operation?.Latest() ?? state, current, AreaHex(current, area), areaRadius, scope.NewForcePhysical, operation: operation);
                 receipts.Add(new(areaId, assignments.ToArray(), territory));
             }
             if (operation is not null) CompleteRelatedGateDistrictsCurrent(current, districts, operation);
@@ -278,6 +293,11 @@ public static partial class CityCaptureTerritorySource
     /// flags and personnel journey refreshes in this same current draft.</summary>
     public static CityCaptureStateTransition? RequireNoSpecialStateAdvantageTransition(GameState state,
         SourceWorldContext current, CityCaptureAreaScope scope)
+        => RequireNoSpecialStateAdvantageTransition(state, current, scope, null);
+
+    internal static CityCaptureStateTransition? RequireNoSpecialStateAdvantageTransition(GameState state,
+        SourceWorldContext current, CityCaptureAreaScope scope,
+        Func<DistrictReference, TransferPersonReference>? readAdviser)
     {
         _ = CheckCity(current, scope.City);
         int mode = G(PersonGrowthCurrentQueries.WorldMode40Key);
@@ -296,11 +316,11 @@ public static partial class CityCaptureTerritorySource
         int oldCount = Count(scope.OldForcePhysical, requireNativeValidity: false);
         bool gained = newCount == required, lost = unchecked(oldCount + 1) == required;
         var result = new CityCaptureStateTransition(stateId, advantageId, required, newCount, oldCount, gained, lost, effects);
-        if (gained) AdviceForForce(current, scope.NewForcePhysical);
+        if (gained) AdviceForForce(current, scope.NewForcePhysical, readAdviser);
         if (lost)
         {
             var old = current.ReadForceTableReference(scope.OldForcePhysical <= 51 ? scope.OldForcePhysical : 0) ?? throw Missing("State_old_Force_pointer");
-            if (K(current.ReadForceNativeValidity(old), "State_old_Force_validity")) AdviceForForce(current, scope.OldForcePhysical);
+            if (K(current.ReadForceNativeValidity(old), "State_old_Force_validity")) AdviceForForce(current, scope.OldForcePhysical, readAdviser);
         }
         ApplyStateAdvantageTransition(state, current, scope, result);
         return result;
@@ -352,13 +372,14 @@ public static partial class CityCaptureTerritorySource
     { if (denominator == 0 || numerator == int.MinValue && denominator == -1) throw Missing("source_IDIV"); return numerator / denominator; }
 
     private static GateCaptureHexTransfer Rings(GameState state, SourceWorldContext current,
-        HexReference center, int radius, int newForce, bool eagerAdvice = true)
+        HexReference center, int radius, int newForce, bool eagerAdvice = true,
+        ArmyReturnDistrictOperationQueries? operation = null)
     {
         var visited = new List<int>(); var cleared = new List<int>(); var changed = new List<int>(); var dirty = new List<int>();
         var temporary = current.CreateNearbyTemporary();
         try
         {
-            if (eagerAdvice) Advice(state, current); //Actual param6 gates this query.
+            if (eagerAdvice) Advice(state, current, operation); //Actual param6 gates this query.
             for (int distance = 0; distance <= radius; distance++)
             {
                 current.ClearNearbyTemporary(temporary, false);
@@ -409,13 +430,15 @@ public static partial class CityCaptureTerritorySource
     }
     private static void Raw(SourceWorldContext current, HexReference hex, int force, List<int> changed)
     { int before = K(current.ReadHexForceSlot(hex), "raw_Hex14"); current.AssignHexForce(hex, force); if (before != K(current.ReadHexForceSlot(hex), "written_Hex14")) changed.Add(Physical(hex)); }
-    private static void Advice(GameState state, SourceWorldContext current)
+    private static void Advice(GameState state, SourceWorldContext current, ArmyReturnDistrictOperationQueries? operation)
     {
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("advice_World3A");
         int force = K(current.ReadForcePhysicalSlot(player), "advice_Player_identity");
-        AdviceForForce(current, force);
+        AdviceForForce(current, force, operation is null ? null : district =>
+            (operation.Package ?? throw Missing("advice_operation_rules")).ReadCaptureAdviserCurrent(operation.Latest(), current, district));
     }
-    private static void AdviceForForce(SourceWorldContext current, int force)
+    private static void AdviceForForce(SourceWorldContext current, int force,
+        Func<DistrictReference, TransferPersonReference>? readAdviser = null)
     {
         var player = current.ReadForceTableReference(force <= 51 ? force : 0) ?? throw Missing("advice_Force_pointer");
         var primary = current.ReadDistrictTableReference(0) ?? throw Missing("advice_District0");
@@ -426,6 +449,7 @@ public static partial class CityCaptureTerritorySource
             if (K(current.ReadDistrictLeader(at), "advice_District12") == K(current.ReadForceRecord(force)?.RawRuler10, "advice_Force10") || K(current.ReadDistrictNumber(at), "advice_District11") == 1)
             { primary = district; break; }
         }
+        if (readAdviser is not null) { _ = readAdviser(primary); return; }
         if (!K(current.ReadDistrictNativeValidity(primary), "advice_District_validity") || !K(current.ReadForceNativeValidity(player), "advice_Player_validity")) return;
         int primaryId = K(primary.PhysicalSlot, "advice_primary_identity");
         int owner = K(current.ReadDistrictForceId(primaryId), "advice_primary_Force10"); if (owner != force) return;

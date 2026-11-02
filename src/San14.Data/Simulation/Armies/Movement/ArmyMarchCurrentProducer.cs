@@ -19,9 +19,20 @@ public sealed class ArmyMarchCurrentProducer : IArmyMarchCurrentQueries
         SourceWorldContext? operationCurrent = null)
     {
         package = ownedPackage; this.operationCurrent = operationCurrent;
-        eligibility = new(repository, package, map, eligibilityOwners ?? new SavedEligibilityOwners());
-        mobility = new(repository, package, map, ArmyMobilityParameterSeed.Load(repository, package.Seed.Language));
-        penalty = new(repository, package, map, ArmyMarchPenaltyParameterSeed.Load(repository, package.Seed.Language));
+        var owners = eligibilityOwners ?? new SavedEligibilityOwners();
+        if (operationCurrent is not null)
+        {
+            eligibility = package.CreateOwnedMovementEligibility(map, owners);
+            mobility = package.CreateOwnedMovementMobility(map);
+            penalty = package.CreateOwnedMovementPenalty(map);
+        }
+        else
+        {
+            //Standalone callers keep their explicit repository read boundary.
+            eligibility = new(repository, package, map, owners);
+            mobility = new(repository, package, map, ArmyMobilityParameterSeed.Load(repository, package.Seed.Language));
+            penalty = new(repository, package, map, ArmyMarchPenaltyParameterSeed.Load(repository, package.Seed.Language));
+        }
     }
 
     public IReadOnlyList<ArmyMovementManagerActor>? ReadCompleteCurrentManager60Chain(GameState state,

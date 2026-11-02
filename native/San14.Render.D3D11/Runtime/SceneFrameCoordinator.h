@@ -94,7 +94,9 @@ public:
         season_=season;cloudLights_={input.currentRawSunPosition,input.currentCloudGeometry40};
     }
     void acceptCamera(const RenderInput& input,ShadowPass& shadows) {
-        cameraRig_.accept(input);
+        // acceptRequest selected this request's retained season publication.
+        // Use its actual Main authority, including the Title Startup override.
+        cameraRig_.accept(input,season_?std::optional<uint32_t>{season_->mode}:std::nullopt);
         const int sceneMode=cameraRig_.display().mode.sceneMode;
         shadows.selectFamily(sceneMode);
         fieldDisplay_.capture(cameraRig_.display());
@@ -236,7 +238,7 @@ public:
         return {deferredFields_,*mapView_,viewPreparation_->definition(),viewPreparation_->cameraSettings(),
             season_,phaseFlags,commonClock,refraction,std::move(specular)};
     }
-    source_camera::Frame publishedEventCamera(const RenderInput& input)const {return cameraRig_.publishedEventCamera(input);}
+    const source_camera::Prefix& publishedEventCameraPrefix(const RenderInput& input)const noexcept {return cameraRig_.publishedEventCameraPrefix(input);}
     const source_camera::Frame& camera()const {return cameraRig_.frame();}
     const SceneEnvironment& environment()const {return environment_;}
     const MapViewDefinition& viewDefinition()const {return viewPreparation_->definition();}

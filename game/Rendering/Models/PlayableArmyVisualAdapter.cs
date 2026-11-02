@@ -104,7 +104,7 @@ public sealed class PlayableArmyVisualAdapter
     /// and descriptors. FormationId does not substitute for byte1B/1C. Water
     /// models and special effect context retain their separate producers.</summary>
     public PlayableArmyVisualPlan Resolve(GameState world,
-        PlayableArmyPoseProvider? poseProvider = null)
+        PlayableArmyPoseProvider? poseProvider = null, IReadOnlySet<int>? visibleUnitIds = null)
     {
         ValidateWorld(world);
         var selections = new Dictionary<int, PlayableArmySelection>();
@@ -112,6 +112,7 @@ public sealed class PlayableArmyVisualAdapter
         var lifecycle = world.ReadArmyLifecycle();
         foreach (var (id, unit) in world.Units.OrderBy(item => item.Key))
         {
+            if (visibleUnitIds is not null && !visibleUnitIds.Contains(id)) continue;
             if (unit is null || id != unit.Id || id < 0 ||
                 (uint)unit.HexId >= (uint)_map.Map.Cells.Length)
                 throw new InvalidDataException("Playable Army state has a mismatched unit identity or invalid source Hex.");

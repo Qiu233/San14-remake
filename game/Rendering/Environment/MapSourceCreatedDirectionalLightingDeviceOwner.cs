@@ -67,12 +67,33 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner : IAs
                 normalization.AdoptConstruction(construction);
                 return MapSourceCreatedDirectionalLightingSource.FromMainCamera(mainCamera, construction);
             }).ToArray();
+            RegisterReadySourceChildren(actual,sources,providers,normalization);
             return new(diffuse, sources, white) { Providers = providers, RetainedNormalization = normalization };
         }
         catch (Exception failure)
         {
             await RetireFailedConstructionAsync(failure, diffuse, white);
             throw;
+        }
+    }
+
+    private static void RegisterReadySourceChildren(MapSeasonDirectionalLightSourceSet declarations,
+        IReadOnlyList<MapSourceCreatedDirectionalLightingSource> roots,MapDirectionalLightProviderOwner providers,
+        DirectionalLightRetainedNormalization normalization)
+    {
+        for(int index=0;index<roots.Count;index++)
+        {
+            var root=roots[index].Construction;
+            foreach(var child in declarations.Roots[index].Children)
+            {
+                var required=DirectionalLightConstruction.RequiredResourceKeys(declarations,child.ObjectId,root.ContextFlags3E4,root.ResourceBindings);
+                var bindings=root.ResourceBindings.Where(binding=>required.Contains(binding.SourceObjectKey)).ToArray();
+                if(required.Count!=bindings.Length)
+                    throw new NotSupportedException("Directional child requires another actual ready GPU resource owner.");
+                var actor=normalization.ApplyConstructor(declarations,child.ObjectId,root.ContextFlags3E4,bindings);
+                DirectionalLightConstruction.RequireSharedPhysicalTextureSlots(root,actor);
+                providers.RegisterReadyChild(actor);
+            }
         }
     }
 

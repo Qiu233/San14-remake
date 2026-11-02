@@ -1,6 +1,7 @@
 using Godot;
 using San14.Data;
 using San14.Core;
+using San14.Client.Gameplay;
 
 public partial class MapSceneView
 {
@@ -24,6 +25,7 @@ public partial class MapSceneView
     private Func<GameState, SourceWorldContext?>? _d3d11CurrentWorldQueries;
     private Func<GameState, UnitState, ArmyGraphicsCurrentInputs?>? _d3d11ArmyMotionQueries;
     private Func<GameState, ArmyMapGroupingFrame?>? _d3d11ArmyGroupingQueries;
+    private Func<GameState, ArmyMapPresenceFrame?>? _d3d11ArmyPresenceQueries;
     private Func<GameState,MapStaticModelAssetCatalog,UnitGeometry,MapStaticModelGroundHeightSource,
         IReadOnlyList<FacilitySceneConnection>,FacilitySceneModelFrame>? _facilityModelQuery;
     private Func<GameState,IReadOnlyList<FacilitySceneConnection>>? _initialFacilityConnectionsQuery;
@@ -45,11 +47,13 @@ public partial class MapSceneView
     private bool D3D11MapInteractive => _d3d11Map is { IsClosed: false, LastError: null, LastReceipt: not null };
     public void SetD3D11CurrentWorldQueries(Func<GameState, SourceWorldContext?> capture,
         Func<GameState, UnitState, ArmyGraphicsCurrentInputs?>? armyMotion=null,
-        Func<GameState, ArmyMapGroupingFrame?>? armyGrouping=null)
+        Func<GameState, ArmyMapGroupingFrame?>? armyGrouping=null,
+        Func<GameState, ArmyMapPresenceFrame?>? armyPresence=null)
     {
         _d3d11CurrentWorldQueries = capture;
         _d3d11ArmyMotionQueries = armyMotion;
         _d3d11ArmyGroupingQueries = armyGrouping;
+        _d3d11ArmyPresenceQueries = armyPresence;
     }
 
     internal void SetFacilitySceneModelQuery(Func<GameState,MapStaticModelAssetCatalog,UnitGeometry,
@@ -83,22 +87,31 @@ public partial class MapSceneView
         return publisher.Combine(cities,publisher.Capture(world,_d3d11CommonFrustumMode,CaptureFacilitySceneConnections(world)));
     }
 
-    private async Task InitializeD3D11MapAsync(uint generation, CgQuality? quality = null)
+    private async Task InitializeD3D11MapAsync(uint generation, CgQuality? quality = null,
+        CampaignPeriodPlayback? periodQualityOwner = null)
     {
         if (_d3d11Map is not null || _d3d11Opening is not null || _sourceMainCameraFrame is not { } frame ||
             _sceneTerrain?.Source is not { } terrainSources) return;
+        if (periodQualityOwner is not null && !IsPeriodCgQualityInspectionCurrent(periodQualityOwner)) return;
         var scene = terrainSources.Scene;
         D3D11MapSurface? surface = null;
         D3D11MapCpuResources? cpu = null;
         D3D11MapInitialEnvironment? environment = null;
         D3D11MapInputDirectory? inputDirectory = null;
         bool adopted = false;
+        // CG replacement is ready only after its live-only publication has
+        // passed Next and real Canvas acceptance, after the base Create image.
+        var cgLiveAccepted = _cgQualityRebuilding
+            ? new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) : null;
+        D3D11MapInput? cgLiveInput = null;
+        bool cgLiveWaitStarted = false;
         var opening = new CancellationTokenSource();
         _d3d11Opening = opening;
         var token = opening.Token;
         bool IsCurrent() => ReferenceEquals(_d3d11Opening, opening) && !token.IsCancellationRequested &&
             generation == _sceneLoadGeneration && !_nativeMapClosing &&
-            GodotObject.IsInstanceValid(this) && IsInsideTree();
+            GodotObject.IsInstanceValid(this) && IsInsideTree() &&
+            (periodQualityOwner is null || IsPeriodCgQualityInspectionCurrent(periodQualityOwner));
         try
         {
             // Keep this opening's transition flag with the accepted camera
@@ -107,35 +120,32 @@ public partial class MapSceneView
             // Logical locations are built before the source camera owner.
             // Army screen offsets need that loaded owner's E940 anchors.
             if(!IsNewGameScenarioPreview)_d3d11Markers!.ConfigureArmyLabels(_repository, _sourceSnapshot!,
-                CaptureCurrentVisualWorld,ActiveSourceCameraParameters);
+                CaptureCurrentVisualWorld,ActiveSourceCameraParameters,CaptureCurrentArmyPresence);
             string source = Path.GetFullPath(ProjectSettings.GlobalizePath(ProjectSettings.GetSetting(
                 "san14/render/source_package",
                 $"user://render-cache/{_text.SourceLocale}/{scene.Scene.Source.DecodedSha256}/input").AsString()));
-            string libraryDefault = OS.HasFeature("editor")
-                ? "res://../native/San14.Render.D3D11/bin/x64/Release/San14.Render.D3D11.dll"
-                : Path.Combine(Path.GetDirectoryName(OS.GetExecutablePath())!, "native", "windows-x64", "San14.Render.D3D11.dll");
-            string librarySetting = System.Environment.GetEnvironmentVariable("SAN14_RENDER_NATIVE_LIBRARY")
-                ?? ProjectSettings.GetSetting("san14/render/native_library", libraryDefault).AsString();
-            string library = Path.GetFullPath(ProjectSettings.GlobalizePath(librarySetting));
+            string library = D3D11RenderSession.ResolveNativeLibraryPath();
             // Capture only CPU source data before either exclusive worker starts.
             // Each opening writes its own bank; a retired native session can
             // continue borrowing its previous files until its normal close.
             inputDirectory = new(source);
             source = inputDirectory.Source;
-            string sourceDirectory = _repository.SourceDirectory;
-            string? overrideDirectory = _repository.OverrideDirectory;
+            var staticScene = RequireLoadedStaticMapScene(terrainSources);
             string locale = _text.SourceLocale;
             string scenarioKey = _logicalWorld!.ScenarioKey;
             var previewSeason=_scenarioPreviewCalendar;
-            var ownedSeason=_logicalWorld.NativeMapSeason;
+            // The opening worker receives a captured season value, never the
+            // borrowed execution World. Native input retains the committed anchor.
+            var ownedSeason=periodQualityOwner is null ? _logicalWorld.NativeMapSeason
+                : periodQualityOwner.Candidate!.NativeMapSeason;
             if(previewSeason is null&&ownedSeason is null)
                 throw new InvalidDataException("Playable Main has no owned third-date season.");
             var cameraInputs = _sourceMainCameraInputs!;
             var currentField = _sourceMainCameraTerrain!.CurrentField;
             cpu = await Task.Run(() => previewSeason is {} preview
-                ? D3D11MapCpuResources.PrepareScenarioPreview(sourceDirectory,overrideDirectory,terrainSources,frame,
+                ? D3D11MapCpuResources.PrepareScenarioPreview(staticScene,frame,
                     preview,locale,source,D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight,scenarioKey,token)
-                : D3D11MapCpuResources.Prepare(sourceDirectory,overrideDirectory,terrainSources,frame,
+                : D3D11MapCpuResources.Prepare(staticScene,frame,
                     ownedSeason!,locale,source,D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight,scenarioKey,token),token);
             if (!IsCurrent()) return;
             var mapRepository = cpu.Repository;
@@ -181,6 +191,8 @@ public partial class MapSceneView
             LoadedObjects? pendingContextSeason = null;
             SkyAtmosphereResourceOwner.Replacement? pendingAtmosphere = null;
             string? pendingAtmosphereDirectory = null;
+            ShadowReceiverPatternResources? pendingReceiverPatterns = null;
+            string? pendingPatternDirectory = null;
             var atmosphereOwner = environment.AtmosphereOwner;
             var atmosphereResources = environment.AtmosphereResources;
             var skyResources = environment.SkyResources;
@@ -189,6 +201,8 @@ public partial class MapSceneView
             var cloudMedia = environment.CloudMedia;
             var cloudResources = environment.CloudResources;
             var receiverPatterns = environment.ReceiverPatterns;
+            _routeStaticResources = cpu.RouteMedia ?? throw new InvalidDataException(
+                "The product map opening has no loaded route media source.");
             _d3d11ResourceContext = resourceContext;
             string resourceContextDirectory = cpu.ResourceContextDirectory;
             _d3d11ResourceContextDirectory = resourceContextDirectory;
@@ -209,7 +223,8 @@ public partial class MapSceneView
                 _logicalWorld!.NewGameOptions!, CaptureCurrentVisualWorld,
                 cpu.PrimaryTemplates, cpu.CityAccessories);
             _d3d11CityGate = cityGatePublisher;
-            _facilityConnections = CaptureFacilitySceneConnections(_logicalWorld!);
+            if (periodQualityOwner is null)
+                _facilityConnections = CaptureFacilitySceneConnections(_logicalWorld!);
             _d3d11Facilities = new(mapRepository, scene, cpu.PrimaryTemplates, CaptureCurrentFacilityModels);
             _d3d11AreaCapital = new(mapRepository, scene, cpu.Scenario,
                 cityGatePublisher.PreparedBank,CaptureCurrentVisualWorld);
@@ -218,10 +233,20 @@ public partial class MapSceneView
             cpu.DetachResourceContext();
             _d3d11InputDirectory = inputDirectory;
             adopted = true;
-            surface = new D3D11MapSurface { Name = "OriginalD3D11WorldMap" };
+            surface = new D3D11MapSurface
+            {
+                Name = "OriginalD3D11WorldMap",
+                NativeDeviceOwner = RequireApplicationNativeMapDevice(),
+                TerrainPrograms = cpu.TerrainPrograms ?? throw new InvalidDataException(
+                    "The product map opening has no loaded Landscape program source.")
+            };
             _d3d11Map = surface;
             var parent = _sourceMainCameraAspect as Control ?? _surface.GetParent() as Control ?? this;
             parent.AddChild(surface); surface.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+            // Canvas Z order does not order GUI hit testing. Keep the map
+            // image before its strategic controls in this same input mount.
+            if (strategicMapOverlays is { } overlays && overlays.GetParent() == parent)
+                parent.MoveChild(surface, overlays.GetIndex());
             surface.FramePrepared += (input, receipt) =>
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
@@ -238,15 +263,27 @@ public partial class MapSceneView
                     pendingAtmosphere = null; pendingAtmosphereDirectory = null;
                     skyResources = atmosphereOwner!.MainSky;
                 }
+                if (input.PatternResourceDirectory is not null &&
+                    input.PatternResourceDirectory == pendingPatternDirectory)
+                {
+                    receiverPatterns = pendingReceiverPatterns!;
+                    pendingReceiverPatterns = null; pendingPatternDirectory = null;
+                }
                 if (input.CurrentSeason is { } current) season.AcceptCurrent(current);
                 if (input.CityGateWorld is { RequiredFlagMaterials.Count: > 0 } cityGate)
                     cityGatePublisher.PublishCompletedFlagMaterials(cityGate.RequiredFlagMaterials);
                 if (input.AreaCapitalWorld is { } areaCapital)
                     cityGatePublisher.PublishCompletedFlagMaterials(areaCapital.FlagMaterialKeys);
-                if (input.SourceFrame is { } camera)
-                    _d3d11Markers?.Present(camera, input.AreaCapitalWorld, input.CityGateWorld);
-                _d3d11Markers?.PresentArmy(input, receipt);
-                PresentInformationLayers(input);
+                var markerOwner = _d3d11Markers;
+                markerOwner?.BeginInformationPresentation();
+                try
+                {
+                    if (input.SourceFrame is { } camera)
+                        markerOwner?.Present(camera, input.AreaCapitalWorld, input.CityGateWorld);
+                    markerOwner?.PresentArmy(input, receipt);
+                    PresentInformationLayers(input);
+                }
+                finally { markerOwner?.EndInformationPresentation(); }
                 if(input.SourceFrame is {} hitFrame)_d3d11Markers?.PrepareInformationHits(hitFrame);
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Present(scenery,false);
                 SetMeta("native_map_army_label_unit_count", receipt.ArmyUnitPositions.Count);
@@ -285,23 +322,36 @@ public partial class MapSceneView
                 RemoveMeta("native_map_source_error");
                 RemoveMeta("native_map_source_error_detail");
                 AcceptScenarioMapRoleFrame(surface,input,receipt);
+                if (cgLiveInput is not null && ReferenceEquals(input, cgLiveInput))
+                    cgLiveAccepted!.TrySetResult(true);
             };
             surface.Failed += error =>
             {
+                if (cgLiveWaitStarted) cgLiveAccepted?.TrySetException(error);
                 _startedMapFrame?.TrySetException(error);
                 pendingResourceSeasonBatch?.Dispose();
                 pendingResourceSeasonBatch = null; pendingContextSeason = null;
                 pendingAtmosphere?.Dispose();
                 pendingAtmosphere = null; pendingAtmosphereDirectory = null;
+                pendingReceiverPatterns = null; pendingPatternDirectory = null;
                 if (_d3d11Map == surface && generation == _sceneLoadGeneration)
                     RecordD3D11MapFailure(error);
             };
+            if (periodQualityOwner is not null)
+            {
+                // All new capture publishers now exist. Capture synchronously
+                // while Main still owns this exact checkpoint; no extra motion tick.
+                if (!IsPeriodCgQualityInspectionCurrent(periodQualityOwner)) return;
+                CapturePeriodPlaybackFrame(periodQualityOwner.Candidate!);
+            }
             await surface.ConfigureAsync(source, library, CaptureD3D11Input(frame, 0,initialManagerUpdate:true,
-                    sceneryCameraStable:openingSceneryCameraStable), populationMask: 3,
+                    sceneryCameraStable:openingSceneryCameraStable,
+                    createBaseOnly:cgLiveAccepted is not null), populationMask: 3,
                 prepareCurrent: input =>
                 {
                     var geometry = input.SourceFrame!;
                     var firstPrepared = openingCurrent;
+                    bool initialCreate = firstPrepared is not null;
                     openingCurrent = null;
                     var currentMain = firstPrepared?.Mode.AcceptedMainFrame ?? geometry with
                     { Camera = geometry.Camera.CopyAcceptedSnapshotForOwnedFrame(
@@ -318,6 +368,7 @@ public partial class MapSceneView
                             ? season.PrepareCurrent(periodSeason,currentMain,(float)input.ElapsedSeconds)
                             : season.PrepareCurrent(input.WorldState!,currentMain,(float)input.ElapsedSeconds));
                     string? atmosphereDirectory = null;
+                    string? patternDirectory = null;
                     if (firstPrepared is null)
                     {
                         ambientResources!.RequireCurrent(current.Present);
@@ -366,9 +417,16 @@ public partial class MapSceneView
                     {
                         if (!ReferenceEquals(writtenSeasonResources, season.LoadedResources))
                         {
-                            receiverPatterns!.RequireCompatible(mapRepository,
+                            var replacementPatterns = receiverPatterns!.PrepareReplacement(mapRepository,
                                 current.Present.AcceptedSeasonCamera.Inputs.Source.Selection.FirstPackage,
                                 season.LoadedResources.PatternTextures);
+                            if (replacementPatterns is not null)
+                            {
+                                string root = Path.Combine(inputs, "pattern-replacements", Guid.NewGuid().ToString("N"));
+                                replacementPatterns.WriteNativeInputs(root);
+                                patternDirectory = Path.Combine(root, "normal-pattern-receiver-input");
+                                pendingReceiverPatterns = replacementPatterns; pendingPatternDirectory = patternDirectory;
+                            }
                             int loadedCount = seasonLibrary.LoadedInstallations.Count;
                             if (loadedCount != writtenSeasonCount)
                             {
@@ -400,9 +458,12 @@ public partial class MapSceneView
                             input.SceneryCameraStable??throw new InvalidDataException("Captured camera transition state is unavailable."),
                             new(D3D11MapSurface.OutputWidth,D3D11MapSurface.OutputHeight),
                             input.SceneryPresentation??throw new InvalidDataException("Captured map presentation is unavailable."));
-                        var preparedInput = input.WithCurrentSeason(current, hdr, atmosphereDirectory, resourceContext.Revision)
+                        var preparedInput = input.WithCurrentSeason(current, hdr, atmosphereDirectory,
+                            resourceContext.Revision, patternDirectory)
                             .WithSceneryWorld(scenery).WithRoutes(PrepareRouteResources(input.Routes));
-                        if (captureEffects.HasWork && _d3d11AnimationPacer is { } effectPacer)
+                        // Create accepts the base graph only. Existing live
+                        // effects join the following normal prepared scene.
+                        if (!initialCreate && captureEffects.HasWork && _d3d11AnimationPacer is { } effectPacer)
                         {
                             if (!ReferenceEquals(effectInputResources, season.LoadedResources))
                             {
@@ -427,6 +488,8 @@ public partial class MapSceneView
                                 input.ElapsedSeconds, effectPacer.FramesPerSecond(input.CommandMapFpsMode),
                                 current.Mode.EcB0Index, surface.EffectComputeDevice, storyFrame));
                         }
+                        if (!initialCreate && cgLiveAccepted is not null && cgLiveInput is null)
+                            cgLiveInput = preparedInput;
                         return preparedInput;
                     }
                     catch
@@ -435,11 +498,26 @@ public partial class MapSceneView
                         pendingResourceSeasonBatch = null; pendingContextSeason = null;
                         pendingAtmosphere?.Dispose();
                         pendingAtmosphere = null; pendingAtmosphereDirectory = null;
+                        pendingReceiverPatterns = null; pendingPatternDirectory = null;
                         throw;
                     }
                 });
             if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
             _d3d11AnimationPacer=new(Path.Combine(inputs,"animation-cadence-input","fps-source.bin"));
+            // The playable client targets 60 FPS. Apply the source manager's
+            // 60 FPS mode explicitly; its constructor starts in 30 FPS mode.
+            _d3d11AnimationPacer.ApplyLoadedOption31(D3D11AnimationPacer.SixtyFramesPerSecondMode);
+            if (cgLiveAccepted is not null)
+            {
+                if (!IsCurrent()) return;
+                cgLiveWaitStarted = true;
+                // Preserve all logical fields in the ordinary capture. Record
+                // runs the established PrepareScene/Copy path; no fake receipt.
+                surface.Record(CaptureD3D11Input(_sourceMainCameraFrame ?? frame, 0,
+                    sceneryCameraStable:openingSceneryCameraStable));
+                await cgLiveAccepted.Task.WaitAsync(token);
+                if (!IsCurrent()) return;
+            }
             surface.MouseFilter = MouseFilterEnum.Stop;
             surface.GuiInput += input => Run(() => OnInput(input));
             surface.Resized += () => _surface.Size = surface.Size;
@@ -472,6 +550,7 @@ public partial class MapSceneView
 
     private void RecordD3D11MapFailure(Exception error)
     {
+        StopPeriodProgressFrames(error);
         FailMapObjectRetirementPresentation(error.Message);
         if (uniqueDirectionOwner is not null) uniqueDirectionFailure?.Invoke(error);
         _d3d11PresentedInput = null;
@@ -491,7 +570,7 @@ public partial class MapSceneView
     }
 
     private D3D11MapInput CaptureD3D11Input(San14.Data.MainMapCameraFrame frame, double delta,
-        bool initialManagerUpdate=false, bool? sceneryCameraStable=null)
+        bool initialManagerUpdate=false, bool? sceneryCameraStable=null, bool createBaseOnly=false)
     {
         if(initialManagerUpdate&&!_periodMapActive)_d3d11Army?.AdvanceMotion(_logicalWorld!,0);
         var state = frame.ControllerState;
@@ -502,11 +581,14 @@ public partial class MapSceneView
             frame.ZoomSelection.Band1E0, frame.ZoomSelection.Fraction1E4, delta,
             paused:_periodMapActive&&_periodMapPaused, eligibleAnimationUpdate:initialManagerUpdate, sourceFrame: frame)
         {
+            MainModeOverride = _sourceMainMode?.CurrentOverride28C ?? -1,
             TerrainPicker = CurrentTerrainPicker,
             StoryEffectCamera = storyEffectCommonCamera?.Capture(),
             TerritoryOwnership = chronologyTerritory ?? GeographicTerritory(_logicalWorld!) ?? (_occupationTerritory ?? (_periodMapFrame is {} periodTerritory ? periodTerritory.Territory : _d3d11Ownership?.Capture(_logicalWorld!))),
-            CommandMap = CaptureMapDisplay(),
-            Routes = CaptureDeploymentRoutes(frame),
+            // Session.Create explicitly rejects these live-only fields. They
+            // remain owned by their logical publishers and are captured by Next.
+            CommandMap = createBaseOnly ? null : CaptureMapDisplay(),
+            Routes = createBaseOnly ? null : CaptureDeploymentRoutes(frame),
             InformationTerritoryStyle = InformationTerritoryStyle,
             InformationLayers = CaptureInformationLayers(_logicalWorld!),
             CommandMapFpsMode = _d3d11AnimationPacer?.FpsMode ?? 0,
@@ -567,16 +649,18 @@ public partial class MapSceneView
         if (_adoptingStartedCampaign || _d3d11Map is not { IsClosed: false, LastError: null } surface || _sourceMainCameraFrame is not { } frame) return;
         if(!_periodMapActive&&_d3d11AnimationDue&&_d3d11AnimationPacer is { } motionPacer)
             _d3d11Army?.AdvanceMotion(_logicalWorld!,motionPacer.FpsMode);
-        else if(_periodMapActive&&!_periodMapPaused&&_periodBorrowedCandidate is {} borrowed&&
-            _periodMapFrame is {} period&&_d3d11AnimationDue&&_d3d11AnimationPacer is {} periodPacer)
-            _periodMapFrame=period with{Army=_d3d11Army?.AdvanceMotion(borrowed,periodPacer.FpsMode)};
+        else if(_periodMapActive&&!_periodMapPaused&&_periodMapFrame is {} period&&
+            _d3d11AnimationDue&&_d3d11AnimationPacer is {} periodPacer)
+            _periodMapFrame=period with{Army=_d3d11Army?.AdvanceCapturedMotion(periodPacer.FpsMode)};
         var input=CaptureD3D11Input(frame,_d3d11Elapsed);
         if(_d3d11AnimationDue&&_d3d11AnimationPacer is { } pacer)surface.RecordAnimationUpdate(input,pacer.FpsMode);
         _d3d11AnimationDue=false;
         surface.Record(input); _d3d11Elapsed = 0;
     }
-    private void ReleaseD3D11Map()
+    private void ReleaseD3D11Map(bool preservePeriodPresentation = false)
     {
+        if (!preservePeriodPresentation)
+            StopPeriodProgressFrames(new OperationCanceledException("Period source-frame owner retired."));
         var sourcePreparation = _sceneSourcePreparation; _sceneSourcePreparation = null;
         sourcePreparation?.Cancel();
         var opening = _d3d11Opening; _d3d11Opening = null;
@@ -593,14 +677,22 @@ public partial class MapSceneView
         _traitRefreshWorld = null; _traitRefreshArmy = null; _traitPersonalities = null;
         EndCampaignTargetMapPick();
         ReleaseInformationLayers();
-        _periodMapActive=false;_periodMapFrame=null;_periodBorrowedCandidate=null;
-        _periodMapOwner=null;
-        _periodOriginalArmy?.Dispose();_periodOriginalArmy=null;
-        ReleaseFacilitySceneConnections();
+        _periodMapFrame=null;_periodBorrowedCandidate=null;
+        if (!preservePeriodPresentation)
+        {
+            _periodMapActive=false;_periodMapOwner=null;
+            _periodOriginalArmy?.Dispose();_periodOriginalArmy=null;
+            ReleaseFacilitySceneConnections();
+        }
+        // Keep period-owned logical paths, never their retired geometry or
+        // resource directory. The next capture rebuilds against the new graph.
+        var periodRoutePaths = preservePeriodPresentation ? _deploymentRoutePaths : null;
         ReleaseDeploymentRoutes();
+        if (periodRoutePaths is not null) _deploymentRoutePaths = periodRoutePaths;
         if (_d3d11Markers is not null) { _d3d11Markers.QueueFree(); _d3d11Markers = null; }
+        _scenarioPreviewMarkerSources=null;
         _d3d11Ownership = null;
-        _d3d11Army?.Dispose(); _d3d11Army = null;
+        if (!preservePeriodPresentation) { _d3d11Army?.Dispose(); _d3d11Army = null; }
         _d3d11ArmySources = null;
         _d3d11CityGate = null;
         _d3d11Facilities=null;
@@ -657,24 +749,38 @@ public partial class MapSceneView
 
     private void InitializeD3D11MapLocations()
     {
+        // Startup's real Foothold overlay consumes CityFlag source layouts.
+        // Ordinary strategy ink has no preview consumer and is created on
+        // campaign adoption, while this same map/native owner is retained.
+        if(IsNewGameScenarioPreview)
+        {
+            _scenarioPreviewMarkerSources??=CityGateMapMarkerSources.Load(_repository);
+            _locationSelection.Clear();
+            _locationSelection.Disabled=_focusLocation.Disabled=_showLocations.Disabled=true;
+        }
+        else InitializeD3D11CampaignMapLocations();
+        var scenario = _sourceSnapshot ?? throw new InvalidDataException("Native playable map requires its actual scenario snapshot.");
+        _d3d11Ownership = new(scenario, _repository.LoadCeMap(),
+            _repository.LoadTerrainTypes(scenario.FixedDataPath), _logicalWorld!,
+            ForcePalette ?? throw new InvalidDataException("Native playable map source palette is unavailable."));
+        SetMeta("map_projection_available", true);
+        SetMeta("map_projection_policy_id", _projection!.Policy.Id);
+        SetMeta("playable_unit_marker_count", 0);
+        SetMeta("playable_structure_marker_count", 0);
+    }
+
+    private void InitializeD3D11CampaignMapLocations()
+    {
         var markers = new D3D11MapMarkers { Name = "NativeMapLocations", ZIndex = 1, Visible = _showLocations.ButtonPressed };
         _d3d11Markers = markers;
         if(_facilityMapInfoQuery is {} facilityQuery)markers.SetFacilityMapInfoQuery(facilityQuery);
         var parent = StrategicMapOverlayParent();
         parent.AddChild(markers); markers.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         markers.Configure(_repository, _logicalWorld!, _projection!, TerrainMeshes!.Source, ForceMarkerColors,
-            _text.SourceLocale, _playerForceId, _sourceSnapshot!);
+            _text.SourceLocale, _playerForceId, _sourceSnapshot!, sharedCitySources:_scenarioPreviewMarkerSources);
         ApplyKeyboardMapInformation();
-        var scenario = _sourceSnapshot ?? throw new InvalidDataException("Native playable map requires its actual scenario snapshot.");
-        _d3d11Ownership = new(scenario, _repository.LoadCeMap(),
-            _repository.LoadTerrainTypes(scenario.FixedDataPath), _logicalWorld!,
-            ForcePalette ?? throw new InvalidDataException("Native playable map source palette is unavailable."));
         RefreshD3D11MapLocationSelection();
-        SetMeta("map_projection_available", true);
-        SetMeta("map_projection_policy_id", _projection!.Policy.Id);
         SetMeta("native_map_marker_backend", "canvas-source-main");
-        SetMeta("playable_unit_marker_count", 0);
-        SetMeta("playable_structure_marker_count", 0);
         InitializeInformationLayers();
     }
 

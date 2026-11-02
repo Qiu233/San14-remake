@@ -44,39 +44,53 @@ public sealed partial class SourceWorldContext
     {
         SkillTacticByteOffset(offset);
         int physical = MapPhysical(reference.PhysicalSlot, 201, "skill tactic raw receiver");
-        if (offset == 0x44) return _tacticFlags44.GetValueOrDefault(physical);
-        return _skillTacticDefinitionBytes.TryGetValue(physical, out var fields) ? fields[offset] : null;
+        if (offset == 0x44) return ReadSkillTacticSourceFlags(physical);
+        return _skillTacticDefinitionBytes.TryGetValue(physical, out var fields) ? fields[offset] :
+            _initialSkillDefinitions?.ReadTacticByte(physical, offset);
     }
     public void SetSkillTacticRawByte(int physical, int offset, byte? value)
     {
         Check(physical, 201, "skill tactic raw receiver"); SkillTacticByteOffset(offset);
         if (!_skillTacticDefinitionBytes.TryGetValue(physical, out var fields))
-            _skillTacticDefinitionBytes[physical] = fields = new byte?[0x89];
+            _skillTacticDefinitionBytes[physical] = fields = _initialSkillDefinitions?.CopyTacticRow(physical) ?? new byte?[0x89];
         fields[offset] = value;
         if (offset == 0x44) _tacticFlags44[physical] = value;
     }
     public IReadOnlyList<int>? ReadSkillTacticEncodedValues70(int physical)
     {
         Check(physical, 201, "skill tactic vector receiver");
-        if (!_tacticEncodedValues70.TryGetValue(physical, out var values) || values is null) return null;
+        var values = ReadSkillTacticCodes(physical);
+        if (values is null) return null;
         return values is List<int> list ? list.AsReadOnly() : Array.AsReadOnly(values.ToArray());
     }
     public int? ReadSkillTacticVectorCapacity(int physical)
-    { Check(physical, 201, "skill tactic vector receiver"); return _skillTacticVectorCapacities.TryGetValue(physical, out int value) ? value : null; }
+    { Check(physical, 201, "skill tactic vector receiver"); return ReadSkillTacticCapacity(physical); }
+
+    private IReadOnlyList<int>? ReadSkillTacticCodes(int physical) =>
+        _tacticEncodedValues70.TryGetValue(physical, out var values) ? values : _initialSkillDefinitions?.ReadCodes(physical);
+    private int? ReadSkillTacticCapacity(int physical) =>
+        _skillTacticVectorCapacities.TryGetValue(physical, out int value) ? value : _initialSkillDefinitions?.ReadCapacity(physical);
+    private byte? ReadSkillTacticSourceFlags(int physical) =>
+        _tacticFlags44.TryGetValue(physical, out var value) ? value : _initialSkillDefinitions?.ReadTacticByte(physical, 0x44);
+    private byte? ReadSkillGemSourceCode(int physical, int offset)
+    {
+        var fields = offset == 0x52 ? _gemTacticCodes52 : _gemValidityCodes53;
+        return fields.TryGetValue(physical, out var value) ? value : _initialSkillDefinitions?.ReadGemByte(physical, offset);
+    }
 
     public byte? ReadSkillGemRawByte(GemReference reference, int offset)
     {
         SkillGemByteOffset(offset);
         int physical = MapPhysical(reference.PhysicalSlot, S14GemReader.Count, "skill gem raw receiver");
-        if (offset == 0x52) return _gemTacticCodes52.GetValueOrDefault(physical);
-        if (offset == 0x53) return _gemValidityCodes53.GetValueOrDefault(physical);
-        return _skillGemDefinitionBytes.TryGetValue(physical, out var fields) ? fields[offset] : null;
+        if (offset is 0x52 or 0x53) return ReadSkillGemSourceCode(physical, offset);
+        return _skillGemDefinitionBytes.TryGetValue(physical, out var fields) ? fields[offset] :
+            _initialSkillDefinitions?.ReadGemByte(physical, offset);
     }
     private void SetSkillGemRawByte(int physical, int offset, byte? value)
     {
         Check(physical, S14GemReader.Count, "skill gem raw receiver"); SkillGemByteOffset(offset);
         if (!_skillGemDefinitionBytes.TryGetValue(physical, out var fields))
-            _skillGemDefinitionBytes[physical] = fields = new byte?[0x54];
+            _skillGemDefinitionBytes[physical] = fields = _initialSkillDefinitions?.CopyGemRow(physical) ?? new byte?[0x54];
         fields[offset] = value;
         if (offset == 0x52) _gemTacticCodes52[physical] = value;
         if (offset == 0x53) _gemValidityCodes53[physical] = value;
@@ -121,18 +135,19 @@ public sealed partial class SourceWorldContext
 
     private void AppendSkillTacticSourceCode(int physical, byte raw, int rotation)
     {
-        IReadOnlyList<int> values = _tacticEncodedValues70.GetValueOrDefault(physical)
+        IReadOnlyList<int> values = ReadSkillTacticCodes(physical)
             ?? throw new InvalidDataException("Current tactic70 vector is unknown; construction/reset must precede fixed loading.");
-        if (!_skillTacticVectorCapacities.TryGetValue(physical, out int capacity))
+        if (ReadSkillTacticCapacity(physical) is not int capacity)
             throw new InvalidDataException("Current tactic70 vector capacity is unknown.");
         if (values.Count > capacity) throw new InvalidDataException("Current tactic70 length exceeds its owned capacity.");
         if (values.Count == capacity)
             ReserveSkillTacticVector(physical, Math.Max(checked(values.Count + 1), checked(capacity + capacity / 2)));
-        values = _tacticEncodedValues70[physical]
+        values = ReadSkillTacticCodes(physical)
             ?? throw new InvalidDataException("Current tactic70 vector is unknown after reservation.");
         if (values is not List<int> mutable)
         {
-            mutable = new List<int>(_skillTacticVectorCapacities[physical]);
+            mutable = new List<int>(ReadSkillTacticCapacity(physical)
+                ?? throw new InvalidDataException("Current tactic70 vector capacity is unknown."));
             mutable.AddRange(values);
             _tacticEncodedValues70[physical] = mutable;
         }
@@ -142,7 +157,7 @@ public sealed partial class SourceWorldContext
     }
     private void ReserveSkillTacticVector(int physical, int capacity)
     {
-        IReadOnlyList<int> values = _tacticEncodedValues70.GetValueOrDefault(physical)
+        IReadOnlyList<int> values = ReadSkillTacticCodes(physical)
             ?? throw new InvalidDataException("Current tactic70 vector is unknown during reservation.");
         if (SkillTacticVectorReservation is not null && !(SkillTacticVectorReservation(physical, capacity)
             ?? throw new InvalidDataException("Current tactic70 vector reservation outcome is unknown.")))

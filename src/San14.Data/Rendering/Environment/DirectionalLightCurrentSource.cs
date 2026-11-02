@@ -57,13 +57,12 @@ public sealed class DirectionalLightCurrentSource
     private readonly bool mixThirdColor;
     private readonly Vector4 hemisphereQuaternion;
 
-    private DirectionalLightCurrentSource(DirectionalLightProviderTemporary temporary)
+    private DirectionalLightCurrentSource(ReadOnlySpan<byte> bytes,uint context)
     {
-        ReadOnlySpan<byte> bytes = temporary.Bytes.Span;
         var lighting = HdrLightEncoding.Read(bytes);
         Vector4 sun = Four(bytes, 0xFA0), moon = Four(bytes, 0xFB0);
         mode = bytes[0x10B0]; mixThirdColor = bytes[0x10B2] == 8;
-        contextFlags = temporary.Root.ContextFlags3E4;
+        contextFlags = context;
         hemisphereQuaternion = Four(bytes, 0xF0);
         initial = new(lighting, new(mode, bytes[0xFDC], new(sun.X, sun.Y, sun.Z)),
             ShadowReceiverBiasEncoding.ReadLight(bytes), PatternCurrentEncoding.ReadLight(bytes, lighting.Modifier.Present),
@@ -76,7 +75,16 @@ public sealed class DirectionalLightCurrentSource
     public static DirectionalLightCurrentSource FromTemporary(DirectionalLightProviderTemporary temporary)
     {
         ArgumentNullException.ThrowIfNull(temporary);
-        return new(temporary);
+        return new(temporary.Bytes.Span,temporary.Root.ContextFlags3E4);
+    }
+
+    public static DirectionalLightCurrentSource FromPreparedConstruction(
+        DirectionalLightConstructionPacket selected,ReadOnlySpan<byte> prepared)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        if(prepared.Length!=DirectionalLightConstruction.LightDataBytes)
+            throw new InvalidDataException("Selected actor requires its complete prepared light data.");
+        return new(prepared,selected.ContextFlags3E4);
     }
 
     public CurrentDirectionalLightState PrepareCamera(ReadOnlySpan<byte> preparedCamera)

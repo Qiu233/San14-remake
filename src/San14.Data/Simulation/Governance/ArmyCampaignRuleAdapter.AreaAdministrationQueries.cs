@@ -19,6 +19,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             PersonReturnCommands.BindCurrent(state, current);
             _personAssignmentPrecallInputs.BindAreaAdministrationScalars(state, current);
             current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
+            // The isolated draft keeps its existing Area/People owner. Bind
+            //the same already-loaded Scenery44 definitions and saved47 values
+            //used by the real map current; unknown saved flags remain unknown.
+            current.MaterializeFixedScenery(_landmarkDefinitions);
+            for (int physical = 0; physical < 101; physical++)
+                current.SetSceneryFlags47(physical, state.LandmarkInvestments?.GetValueOrDefault(physical)?.Flags);
             var card = new AreaAdministrationOfficerCardSource(state, current, _definitions, _scenario, Seed.Language, _baseCapacityInputs, _repository, _governorInputs,
                 ReadApplicationGameplay()?.UserSelectionServicePresent);
             var narration = new AreaAdministrationNarrationSource(state, current, _definitions, _scenario, Seed.Language, _repository, _baseCapacityInputs);

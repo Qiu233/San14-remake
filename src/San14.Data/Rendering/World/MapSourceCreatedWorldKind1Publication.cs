@@ -30,17 +30,18 @@ public sealed class MapWorldKind1SourceMetadata
 public sealed record MapWorldKind1CurrentRecordInput(long FrameNumber, string ViewIdentity, MapWorldKind1SourceMetadata Source,
     int CurrentQueueIndex, string RecordOwnerIdentity, uint CurrentMask78, int CurrentFirstCounterCapacity,
     byte? CurrentLightDataF20, bool? SourceGroupRetained, bool? SourceMaxPrimitiveNumRetained,
-    bool? SourceClassificationRetained, string CurrentProducerProvenance);
+    bool? SourceClassificationRetained, string CurrentProducerProvenance,DirectionalLightConstructionPacket? SelectedActor=null);
 
 public sealed class MapWorldKind1CurrentRecord
 {
     internal MapWorldKind1CurrentRecord(MapWorldKind1CurrentRecordInput input)
     {
-        Source = input.Source; CurrentQueueIndex = input.CurrentQueueIndex; RecordOwnerIdentity = input.RecordOwnerIdentity;
+        Source = input.Source;SelectedActor=input.SelectedActor; CurrentQueueIndex = input.CurrentQueueIndex; RecordOwnerIdentity = input.RecordOwnerIdentity;
         Mask78 = input.CurrentMask78; FirstCounterCapacity = input.CurrentFirstCounterCapacity;
         LightDataF20 = input.CurrentLightDataF20!.Value; ProducerProvenance = input.CurrentProducerProvenance;
     }
     public MapWorldKind1SourceMetadata Source { get; }
+    public DirectionalLightConstructionPacket? SelectedActor {get;}
     public int CurrentQueueIndex { get; }
     public string RecordOwnerIdentity { get; }
     public uint Mask78 { get; }
@@ -64,9 +65,9 @@ public sealed class MapWorldKind1CurrentQueue
     internal void ValidateSources()
     {
         foreach (var record in records)
-            if (record.Mask78 != record.Source.DeclaredGroupMask ||
-                record.FirstCounterCapacity != record.Source.MaxPrimitiveNum ||
-                record.LightDataF20 != record.Source.SourceLightDataF20)
+            if (record.Mask78 != (record.SelectedActor?.Metadata.SourceGroupMask ?? record.Source.DeclaredGroupMask) ||
+                record.FirstCounterCapacity != (record.SelectedActor is { } actor?checked((int)actor.Metadata.MaximumPrimitiveCount):record.Source.MaxPrimitiveNum) ||
+                record.LightDataF20 != (record.SelectedActor?.Metadata.SourceF20 ?? record.Source.SourceLightDataF20))
                 throw new InvalidDataException("Current world record differs from its retained source group/capacity/classification.");
     }
 }
@@ -137,13 +138,21 @@ public static class MapSourceCreatedWorldKind1Publication
         for (int i = 0; i < completeCurrentRecords.Count; i++)
         {
             var input = completeCurrentRecords[i]; var actual = canonical[i];
+            var actor=input.SelectedActor;
+            if(actor is not null&&(actor.SourceUri!=source.Source.ResourceUri||actor.SourceSha256!=source.Source.DecodedSha256||
+                actor.SourceObjectId!=actual.SourceObjectId&&!source.Roots[i].Children.Any(child=>child.ObjectId==actor.SourceObjectId)))
+                throw new InvalidDataException("Current record selected actor is outside its registered source family.");
+            uint mask=actor?.Metadata.SourceGroupMask??actual.DeclaredGroupMask;
+            int capacity=actor is null?actual.MaxPrimitiveNum:checked((int)actor.Metadata.MaximumPrimitiveCount);
+            byte classification=actor?.Metadata.SourceF20??actual.SourceLightDataF20;
             if (input.FrameNumber != frameNumber || input.ViewIdentity != currentBinding.ViewIdentity ||
                 input.Source.SourceDeclarationIdentity != actual.SourceDeclarationIdentity ||
                 input.CurrentQueueIndex < 0 || (i > 0 && input.CurrentQueueIndex <= completeCurrentRecords[i - 1].CurrentQueueIndex) ||
                 string.IsNullOrWhiteSpace(input.RecordOwnerIdentity) || string.IsNullOrWhiteSpace(input.CurrentProducerProvenance) ||
-                input.SourceGroupRetained != true || input.SourceMaxPrimitiveNumRetained != true || input.SourceClassificationRetained != true ||
-                input.CurrentMask78 != actual.DeclaredGroupMask || input.CurrentFirstCounterCapacity != actual.MaxPrimitiveNum ||
-                input.CurrentLightDataF20 != actual.SourceLightDataF20)
+                input.SourceGroupRetained != (mask==actual.DeclaredGroupMask) || input.SourceMaxPrimitiveNumRetained != (capacity==actual.MaxPrimitiveNum) ||
+                input.SourceClassificationRetained != (classification==actual.SourceLightDataF20) ||
+                input.CurrentMask78 != mask || input.CurrentFirstCounterCapacity != capacity ||
+                input.CurrentLightDataF20 != classification)
                 throw new InvalidDataException("World kind1 record requires exact current owner group/capacity/classification retention; unknown overrides cannot use the declaration as runtime state.");
         }
         return new(frameNumber, currentBinding, currentQueueOwnerIdentity,

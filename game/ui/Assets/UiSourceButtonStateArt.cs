@@ -11,9 +11,9 @@ internal sealed class UiSourceButtonStateArt
     internal Control[] States { get; }
 
     internal UiSourceButtonStateArt(Control owner,UiSourceLayout source,UiAssets assets,Shader shader,
-        IReadOnlyList<int[]> layers,string name)
+        IReadOnlyList<int[]> layers,string name,UiSourceButtonStateProfile? sourceProfile = null)
     {
-        profile=assets.ButtonStateProfile(source.Source);
+        profile=sourceProfile??assets.ButtonStateProfile(source.Source);
         if(layers.Count!=5)throw new ArgumentException("Button art requires five semantic states.",nameof(layers));
         States=new Control[layers.Count];
         for(int index=0;index<layers.Count;index++)

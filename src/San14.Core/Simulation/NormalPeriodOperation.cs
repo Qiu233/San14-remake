@@ -35,6 +35,16 @@ public sealed record NormalPeriodOperation(GameState Candidate)
         Candidate.PersonnelCommands?.Intelligences?.GetValueOrDefault(id)?.NarrationProgress?.Pending is
             { Phase: PersonnelIntelligenceNarrationPhase.ReadyToResume };
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ArmyReturnCaptiveBatchRequest? PendingArmyReturnCaptiveBatch => Candidate.ArmyReturnCaptiveContinuation?.PendingSelection;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ArmyReturnCaptiveExecutionConfirmation? PendingArmyReturnCaptiveExecution => Candidate.ArmyReturnCaptiveContinuation?.ExecutionConfirmation;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ArmyReturnCaptivePresentation? PendingArmyReturnCaptivePresentation => Candidate.ArmyReturnCaptiveContinuation?.PendingPresentation;
+    public bool RequiresAutomaticArmyReturnContinuation => Candidate.ArmyReturnCaptiveContinuation is { } returning &&
+        (returning.Phase == ArmyReturnCaptivePhase.ReadyToFinishReturn ||
+         returning.Phase == ArmyReturnCaptivePhase.AwaitingPersonDeath && Candidate.PersonDeathContinuation is null);
+
     public CapturedRulerTreatmentRequest? PendingCapturedRulerTreatment =>
         Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ?? Candidate.BaseCaptureContinuation?.PendingCapturedRulerTreatment;
 
@@ -128,6 +138,8 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             preparation.TacticReports is null || preparation.PossibleArrivalOfficers is null)
             throw new InvalidDataException("The normal period continuation is incomplete.");
         RulerDecisionContinuationValidation.Validate(Candidate);
+        ArmyReturnCaptiveContinuationValidation.Validate(Candidate);
+        NativeArmyMovementContinuationValidation.Validate(Candidate);
         if (Candidate.NativeNormalTurnContinuation is { } turn)
         {
             if (Candidate.NativePeriodContinuation.Cursor is not null || turn.NextAction is not (3 or 7 or 8 or 12 or 16 or 25 or 26 or 48 or 49) ||
@@ -153,7 +165,7 @@ public sealed record NormalPeriodOperation(GameState Candidate)
             return;
         }
         if (Candidate.NativePeriodContinuation.Cursor is not { } cursor ||
-            cursor.StageIndex is not (0 or 5 or 6 or 13 or 25) || cursor.CycleIndex is < 0 or > 2 ||
+            cursor.StageIndex is not (0 or 5 or 6 or 8 or 13 or 25) || cursor.CycleIndex is < 0 or > 2 ||
             cursor.StageIndex == 0 && (cursor.Date.Hour != (cursor.AwaitingCaravanTaskId is null ? 8 : 22) || cursor.PersonnelAfterSlot < 0 ||
                 (cursor.AwaitingIntelligenceTaskId is int intelligenceTask
                     ? !IsIntelligenceCursorValid(cursor, intelligenceTask)
@@ -165,11 +177,13 @@ public sealed record NormalPeriodOperation(GameState Candidate)
                             Candidate.PersonnelCommands?.Caravans?.GetValueOrDefault(cursor.AwaitingCaravanTaskId.Value) is not { NativeKind: 18 })) ||
             cursor.StageIndex != 0 && (cursor.AwaitingCaravanTaskId is not null || cursor.AwaitingStrategicTaskId is not null ||
                 cursor.AwaitingIntelligenceTaskId is not null) ||
-            cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null && Candidate.BaseCaptureContinuation is null && Candidate.CityCaptureEmperorTail is null && Candidate.BaseWinnerEmperorTail is null ||
+            cursor.StageIndex == 25 && Candidate.ArmyDefeatContinuation is null && Candidate.BaseCaptureContinuation is null && Candidate.CityCaptureEmperorTail is null && Candidate.BaseWinnerEmperorTail is null &&
+                Candidate.ArmyReturnCaptiveContinuation is not { Caller: ArmyReturnCaptiveCaller.BaseCapture, CaptureTail: not null } ||
             cursor.StageIndex == 5 && (Candidate.DuelAftermathContinuation is null || Candidate.ArmyDefeatContinuation is null) ||
             cursor.StageIndex == 6 && Candidate.ManualTacticIntervention is null ||
             cursor.StageIndex == 13 && (Candidate.NormalCombatImmediateContinuation is null ||
-                Candidate.ArmyDefeatContinuation is null && Candidate.BaseCaptureContinuation is null && Candidate.CityCaptureEmperorTail is null && Candidate.BaseWinnerEmperorTail is null) ||
+                Candidate.ArmyDefeatContinuation is null && Candidate.BaseCaptureContinuation is null && Candidate.CityCaptureEmperorTail is null && Candidate.BaseWinnerEmperorTail is null &&
+                Candidate.ArmyReturnCaptiveContinuation is not { Caller: ArmyReturnCaptiveCaller.BaseCapture, CaptureTail: not null }) ||
             Candidate.NativeMapSeason is not { } season ||
             cursor.Date != (season.ThirdDate with { Hour = (sbyte)(season.ThirdDate.Hour + 2 * cursor.CycleIndex) }) ||
             cursor.Grouping.Roots is not { Length: 1503 })
@@ -201,6 +215,7 @@ public sealed record NativePeriodCursor(int CycleIndex, byte StageIndex, NativeM
     public int? AwaitingCaravanTaskId { get; init; }
     public int? AwaitingIntelligenceTaskId { get; init; }
     public int? AwaitingStrategicTaskId { get; init; }
+    public NativeArmyMovementContinuation? MovementContinuation { get; init; }
 }
 
 public sealed record NormalPeriodContinuation(NormalPeriodPreparation Preparation, NativePeriodCursor? Cursor)

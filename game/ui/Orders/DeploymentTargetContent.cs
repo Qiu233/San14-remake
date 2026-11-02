@@ -29,15 +29,14 @@ internal static class DeploymentTargetContent
         // invalid receiver's name text is not supplied by a portrait fallback.
         string name=current.IsPersonValid==true&&world.Officers.TryGetValue(officer,out var person)
             ?format.Replace("%s",person.Name,StringComparison.Ordinal):unknown;
-        LoadedSprite? portrait=null;
-        var sprites=new LocalizedUiSpriteSource(repository);
+        (string Pack,string Name)? portrait=null;
         if(current.IsPersonValid==false)
         {
             var placeholder=ArmyMapUiSources.Create().PortraitNames(2198);
-            portrait=sprites.LoadTexturePackSprite(placeholder.ResourceName,placeholder.SpriteName);
+            portrait=(placeholder.ResourceName,placeholder.SpriteName);
         }
         else if(current.IsPersonValid==true&&portraitRoute is {Kind:OfficerPortraitRouteKind.StockNamed})
-            portrait=sprites.LoadTexturePackSprite(portraitRoute.ResourceName!,portraitRoute.SpriteName!);
+            portrait=(portraitRoute.ResourceName!,portraitRoute.SpriteName!);
         return new(officer,name,troops,current.FormationIcon,current.GrainPalette,
             portrait,estimatedDays,hasResolvedTarget)
         {

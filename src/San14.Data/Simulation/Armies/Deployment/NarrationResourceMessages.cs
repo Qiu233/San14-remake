@@ -447,6 +447,8 @@ internal sealed partial class NarrationResourceMessages
     internal string ResolvePersonnelAdministrationReport(INarrationCurrentContext people,
         Func<int, int> drawApp32, int root)
     {
+        if (PersonnelCreditEpisodeRoots.Contains(root))
+            return ResolvePersonnelCreditEpisodeReport(people, drawApp32, root);
         if (root is not (0x578C or 0x579C or 0x5C0D or 0x5C0E or 0x5C0F or 0x5C14 or 0x5C15 or 0x5C16 or
             0x585D or 0x5867 or 0x5868 or 0x5885 or 0x5886 or 0x5887 or
             0x588C or 0x5896 or 0x5888 or 0x5889 or 0x588A or 0x588B or 0x5C56 or
@@ -685,7 +687,7 @@ internal sealed partial class NarrationResourceMessages
         0x5A74, 0x5A75, 0x5A76,
         0x322E, 0x322F, 0x3230,
         0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x0606, 0x0607, 0x0608, 0x0609,
-        0x060A, 0x2A3B, 0x3225, 0x3228, 0x3229, 0x322D, 0x3231, 0x3232, 0x3239, 0x323A, 0x3452, 0x349D, 0x53D4,
+        0x060A, 0x2A3B, 0x2B3B, 0x3225, 0x3228, 0x3229, 0x322D, 0x3231, 0x3232, 0x3239, 0x323A, 0x3452, 0x349D, 0x53D4,
         0x53D5, 0x53D6, 0x53D7, 0x53D8, 0x53D9, 0x53DA, 0x5F58, 0x5F6A, 0x5F6D, 0x5F7B,
         0x5F7C, 0x5F7D, 0x5F80, 0xC356, 0xC357, 0xC358, 0xC359, 0xC35A, 0xC35B, 0xC35D, 0xC35E, 0xC360, 0xC96A,
         0xC96B, 0xC96C, 0xC96D, 0xC96E, 0xC96F,
@@ -753,7 +755,7 @@ internal sealed partial class NarrationResourceMessages
             0xC356 or 0xC357 or 0xC358 or 0xC359 or 0xC35A or 0xC35B or 0xC35D or 0xC35E or 0xC96F or 0xC360 or
             0x3222 or 0x3223 or 0x3224 or 0x3226 or 0x3227 or 0x322A or 0x322B or 0x322C or
             0x3228 or 0x3229 or 0x3225 or 0x322D or 0x3231 or 0x3232 or 0x3239 or 0x323A or
-            0x5F7B or 0x5F7C or 0x5F7D or 0x349D or 0x53D4 or 0x3452 or 0x2A3B))
+            0x5F7B or 0x5F7C or 0x5F7D or 0x349D or 0x53D4 or 0x3452 or 0x2A3B or 0x2B3B))
             throw Failure("history_report_root");
         _prefix = "campaign-history.text";
         bool previous = _report; _report = true;
@@ -1239,7 +1241,7 @@ internal sealed partial class NarrationResourceMessages
         var cache = _report ? _reportPrograms : _history ? _historyPrograms : _programs;
         if (cache.TryGetValue(id, out var program)) return program;
         var parser = new Parser(ReadRecord(id), _prefix, _appearance || _report || allowOpaqueEscapes,
-            fourPersonArguments: _history || _report, reportArguments: _report);
+            fourPersonArguments: _history || _report, reportArguments: _report, ignoreHelpH: _campaignHelpContent);
         program = parser.ReadProgram();
         if (_armyMapSpeech) RequireArmyMapSpeechRecordEnd(id, program, parser);
         else parser.RequireEnd();
@@ -1280,7 +1282,7 @@ internal sealed partial class NarrationResourceMessages
     private sealed record Condition(Comparison[] Terms, int[] Operators);
 
     private sealed class Parser(byte[] bytes, string prefix, bool allowOpaqueEscapes = false,
-        Func<int, int>? readInteger = null, bool fourPersonArguments = false, bool reportArguments = false)
+        Func<int, int>? readInteger = null, bool fourPersonArguments = false, bool reportArguments = false, bool ignoreHelpH = false)
     {
         private int _at;
         public Program ReadProgram()
@@ -1303,6 +1305,9 @@ internal sealed partial class NarrationResourceMessages
                 {
                     _at++;
                     int group = Read();
+                    // CMessageManager.v4 ignores this two-byte group. Only
+                    // the normal Help dialect admits the installed ESC H.
+                    if (ignoreHelpH && group == 'H') continue;
                     int colour = Read();
                     if (allowOpaqueEscapes && (group == 'C' && colour is 'J' or 'L' ||
                         group == 'E' && colour is 'K' or 'M'))

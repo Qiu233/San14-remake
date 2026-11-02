@@ -1,5 +1,6 @@
 using San14.Core;
 using San14.Data;
+using San14.Client.Gameplay;
 
 public partial class MapSceneView
 {
@@ -8,11 +9,13 @@ public partial class MapSceneView
     private ArmyMapPersonalitiesPublication? _traitPersonalities;
     private readonly HashSet<int> _traitPersonalityRefreshed=[];
 
-    internal bool TryRefreshArmyTraitView(GameState world, int armyId, out string? missing)
+    internal bool TryRefreshArmyTraitView(GameState world, int armyId, out string? missing, CampaignPeriodPlayback? playback = null)
     {
         missing = null;
         if (!IsPlayableMapReady || !UseD3D11Map || _d3d11Army is null || _d3d11Markers is null ||
-            _sourceMainCameraFrame is null || _periodMapActive || _d3d11Map is not { IsClosed: false, LastError: null })
+            _sourceMainCameraFrame is null ||
+            (playback is not null ? !OwnsPeriodArmyViewBorrow(playback, world) : _periodMapActive) ||
+            _d3d11Map is not { IsClosed: false, LastError: null })
         { missing = "army-trait-view.map_owner"; return false; }
         //Refresh the real Army model publication and Army label fields. The
         //City/Gate/Area marker refresh cannot consume this source command.
@@ -21,10 +24,10 @@ public partial class MapSceneView
         // batch only while the actual label publication still belongs to it.
         if (!ReferenceEquals(_traitRefreshWorld, world) || !_d3d11Markers.OwnsArmyTraitPublication(world))
         {
-            _traitRefreshArmy = _d3d11Army.Capture(world);
+            _traitRefreshArmy = playback is null ? _d3d11Army.Capture(world) : _d3d11Army.CapturePlaybackTargets(world);
             if (!_d3d11Markers.RefreshArmyTraitViews(world))
             { missing = "army-trait-view.label_owner"; return false; }
-            _logicalWorld = world;
+            if (playback is null) _logicalWorld = world;
             ScheduleD3D11MapFrame();
             _traitRefreshWorld = world;
             _traitPersonalityRefreshed.Clear();
@@ -33,6 +36,12 @@ public partial class MapSceneView
         if (publication.Unavailable.FirstOrDefault(row => row.UnitId == armyId) is { } unavailable)
         { missing = unavailable.Reason; return false; }
         if (!_d3d11Markers.HasRefreshedArmyTraitView(world, armyId, out missing)) return false;
+        if(CaptureCurrentArmyPresence(world)?.Armies.GetValueOrDefault(armyId)?.IsOnMap==false)
+        {
+            if(publication.UnitCenters.ContainsKey(armyId))
+            {missing="army-trait-view.hidden_Army_model";return false;}
+            return true;
+        }
         if(world.Units.ContainsKey(armyId)&&!_traitPersonalityRefreshed.Contains(armyId))
         {
             if(_armyPersonalityQuery is null){missing="army-personalities.source_query";return false;}

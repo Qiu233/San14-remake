@@ -17,7 +17,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public UnitSourceDetailsList QueryUnitSourceDetailsList(GameState state, IReadOnlyList<int> unitIds)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(unitIds);
-        if (unitIds.Count is < 1 or > 30 || unitIds.Distinct().Count() != unitIds.Count)
+        if (unitIds.Count < 1 || unitIds.Distinct().Count() != unitIds.Count)
             return new(Array.Empty<UnitSourceDetails>(), DetailMissing("list_selection").Message);
         var captured = CaptureUnitDetailsCurrent(state);
         var rows = unitIds.Select(id => ReadUnitSourceDetails(state, id, null,

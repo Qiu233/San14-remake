@@ -97,7 +97,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             var changed = new HashSet<int>();
             var stage = new OwnedArmyDestructionStage(this);
             var sampler = FSampler(value, moment);
-            bool allowPause = value.NativePeriodContinuation is not null;
+            //The real registered result, not a particular host's normal-period
+            //preparation, owns this stage5 aftermath. The same operation must
+            //retain that result before an immediate defeat can ask for input.
+            bool allowPause = moment is { SchedulerStageIndex: (byte)NativeArmyProgressStage.DuelOpportunity,
+                    Boundary: NativeArmyProgressStageBoundary.StageEntry } &&
+                value.CampaignDuelService is { Active: true, Busy: true, Registered: { } registered } &&
+                registered.Date == moment.PreWriterThirdDate && registered.CalendarCycleOrdinal == moment.CalendarCycleOrdinal;
             value = forcedCapture
                 ? stage.ApplyForcedDuelCaptureCurrent(value, current, pool, request, sampler,
                     moment.PreWriterThirdDate, effects, Refresh, person => changed.Add(person),

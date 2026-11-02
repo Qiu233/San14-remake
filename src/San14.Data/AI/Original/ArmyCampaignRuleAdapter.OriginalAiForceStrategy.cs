@@ -113,8 +113,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                     var route = OriginalAiTransportAreaRoute.Resolve(current, fromArea, toArea, false);
                     if (!route.Found || route.Cost > 6) continue;
                 }
-                if (!ArmyRouteSearch.OriginalAiEmergencyTransportCanReach(working, current, forceId,
-                    current.ReadBaseCurrentHexIndex(donor), current.ReadBaseCurrentHexIndex(target))) continue;
+                if (ArmyMarchSourceAdapter.ReadBaseMapDestination(working, current, donor) is not
+                        { Kind: ArmyMarchDestinationKind.Hex, HexId: int start } ||
+                    ArmyMarchSourceAdapter.ReadBaseMapDestination(working, current, target) is not
+                        { Kind: ArmyMarchDestinationKind.Hex, HexId: int goal } ||
+                    !ArmyRouteSearch.OriginalAiEmergencyTransportCanReach(working, current, forceId, start, goal)) continue;
                 var query = new OriginalTransportSelection(this, working, current, districtId);
                 var people = query.People(donor);
                 if (people.Count == 0) continue;

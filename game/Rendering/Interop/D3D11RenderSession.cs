@@ -18,6 +18,8 @@ public sealed class D3D11MapInput
     public bool Paused { get; }
     public bool EligibleAnimationUpdate { get; }
     public bool TerritoryDisplayEnabled { get; init; } = true;
+    // Captured App override; negative selects this capture's automatic zoom mode.
+    internal int MainModeOverride { get; init; } = -1;
     // Source 186340: ownership0/frontline1/neither2. Null keeps old callers.
     internal int? InformationTerritoryStyle { get; init; }
     internal MapInformationLayerSnapshot? InformationLayers { get; init; }
@@ -46,6 +48,7 @@ public sealed class D3D11MapInput
     public D3D11CurrentSeasonFrame? CurrentSeason { get; private init; }
     internal byte[]? CurrentSeasonBytes { get; private init; }
     internal string? AtmosphereResourceDirectory { get; private init; }
+    internal string? PatternResourceDirectory { get; private init; }
 
     public D3D11MapInput(ReadOnlySpan<byte> camera, ReadOnlySpan<double> controller,
         int band, int fraction, double elapsedSeconds, bool paused = false,
@@ -65,6 +68,7 @@ public sealed class D3D11MapInput
         Band = input.Band; Fraction = input.Fraction; ElapsedSeconds = elapsedSeconds;
         Paused = input.Paused; EligibleAnimationUpdate = input.EligibleAnimationUpdate;
         SourceFrame = input.SourceFrame;
+        MainModeOverride = input.MainModeOverride;
         TerrainPicker = input.TerrainPicker;
         TerritoryOwnership = input.TerritoryOwnership;
         CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
@@ -84,6 +88,7 @@ public sealed class D3D11MapInput
         SceneryCameraStable=input.SceneryCameraStable;
         CurrentSeason = input.CurrentSeason; CurrentSeasonBytes = input.CurrentSeasonBytes;
         AtmosphereResourceDirectory = input.AtmosphereResourceDirectory;
+        PatternResourceDirectory = input.PatternResourceDirectory;
         TerritoryDisplayEnabled = input.TerritoryDisplayEnabled;
         InformationTerritoryStyle = input.InformationTerritoryStyle;
         InformationLayers = input.InformationLayers;
@@ -108,14 +113,21 @@ public sealed class D3D11MapInput
         { ArmyWorld = this.ArmyWorld?.WithResourceContextGeneration(generation) };
     internal D3D11MapInput WithCurrentSeason(D3D11CurrentSeasonFrame frame,
         D3D11CurrentHdrCatalog hdr, string? atmosphereResourceDirectory = null,
-        ulong? resourceContextGeneration = null) => new(this, ElapsedSeconds)
-        { SourceFrame = frame.Mode.AcceptedMainFrame, CurrentSeason = frame,
+        ulong? resourceContextGeneration = null, string? patternResourceDirectory = null) => new(this, ElapsedSeconds)
+        { SourceFrame = frame.Mode.AcceptedMainFrame, CurrentSeason = frame, MainModeOverride = frame.Mode.Override28C,
             CurrentSeasonBytes = D3D11CurrentSeasonEncoding.WriteNative(frame, hdr),
             AtmosphereResourceDirectory = atmosphereResourceDirectory,
+            PatternResourceDirectory = patternResourceDirectory,
             ArmyWorld = resourceContextGeneration is { } generation
                 ? this.ArmyWorld?.WithResourceContextGeneration(generation) : this.ArmyWorld };
     internal D3D11RenderSession.NativeInput ToNative()
     {
+        // Native flags20..22:0 keeps automatic classification;1..5 carry
+        // this immutable capture's actual Main override0..4, including events
+        // that precede a draw's independent full CurrentSeason preparation.
+        uint mainModeFlags = MainModeOverride < 0 ? 0u : MainModeOverride <= 4
+            ? ((uint)MainModeOverride + 1u) << 20
+            : throw new InvalidDataException("Native Main override exceeds its prepared0..4 profile.");
         uint armyRoleFlags = ArmyPublicationRole switch
         {
             D3D11ArmyPublicationRole.Campaign => 0u,
@@ -129,12 +141,14 @@ public sealed class D3D11MapInput
             Camera = _camera, Controller = _controller, Band = Band, Fraction = Fraction,
             DeltaSeconds = (float)ElapsedSeconds,
             Flags = 1u | (Paused ? 2u : 0u) | (EligibleAnimationUpdate ? 4u : 0u) |
-                (TerritoryDisplayEnabled ? 0u : 8u) | armyRoleFlags |
+                (TerritoryDisplayEnabled ? 0u : 8u) | armyRoleFlags | mainModeFlags |
                 (InformationTerritoryStyle is int style ? 0x40000u | (uint)style << 16 : 0u),
             CurrentRawSunPosition = [sun.X, sun.Y, sun.Z, sun.W],
             CurrentCloudGeometry40 = CurrentSeason?.Atmosphere.ControllerGeometry40 ?? 0,
             AtmosphereResourceDirectory = AtmosphereResourceDirectory is { } atmosphere
-                ? D3D11RenderSession.NativeFileSystemPath(atmosphere) : null
+                ? D3D11RenderSession.NativeFileSystemPath(atmosphere) : null,
+            PatternResourceDirectory = PatternResourceDirectory is { } pattern
+                ? D3D11RenderSession.NativeFileSystemPath(pattern) : null
         };
     }
     private static void ValidateElapsed(double value)
@@ -189,6 +203,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         public IntPtr AreaCapitalWorld;
         public uint AreaCapitalWorldBytes;
         [MarshalAs(UnmanagedType.LPWStr)] public string? AtmosphereResourceDirectory;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? PatternResourceDirectory;
     }
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeCommandMapInputV1
@@ -261,6 +276,7 @@ public sealed partial class D3D11RenderSession : IDisposable
     private readonly ErrorCall _error;
     private readonly string _sourceDirectory;
     private readonly uint _populationMask;
+    private readonly D3D11TerrainPreparedPrograms? _terrainPrograms;
     private D3D11TerritoryPublication? _sentTerritory;
     private float[]? _sentMapColors;
     private D3D11ArmyPublication? _sentArmy;
@@ -273,14 +289,24 @@ public sealed partial class D3D11RenderSession : IDisposable
     private ulong _routeRequestRevision;
     private ulong _sentRouteResourceGeneration;
     private string? _sentRouteResourceDirectory;
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int OutputProtocolCall(IntPtr owner);
+    private OutputProtocolCall? _drainSubmittedOutput;
     private readonly bool _nativeWorker;
     private int _nativeJobThreadId;
 
     public D3D11RenderSession(string sourceDirectory, string nativeDLLPath, uint populationMask)
         : this(sourceDirectory,nativeDLLPath,populationMask,nativeWorker:false) { }
 
-    internal D3D11RenderSession(string sourceDirectory,string nativeDLLPath,uint populationMask,bool nativeWorker)
+    internal D3D11RenderSession(string sourceDirectory,string nativeDLLPath,uint populationMask,bool nativeWorker,
+        OutputQueueBridge? outputQueueBridge=null,D3D11TerrainPreparedPrograms? terrainPrograms=null)
     {
+        if(terrainPrograms is not null&&outputQueueBridge is null)
+            throw new ArgumentException("Resident Landscape programs require their actual application output bridge.",nameof(terrainPrograms));
+        _terrainPrograms=terrainPrograms;
+        if(outputQueueBridge is not null&&!nativeWorker)
+            throw new ArgumentException("An independent output queue belongs to the native worker.",nameof(outputQueueBridge));
+        _outputQueueBridge=outputQueueBridge;
         _nativeWorker=nativeWorker;
         if(!nativeWorker)RequireRenderThread();
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
@@ -315,11 +341,32 @@ public sealed partial class D3D11RenderSession : IDisposable
         NativeReceipt receipt;
         try
         {
-            _owner = _create(device, queue, output, _sourceDirectory, width, height,
-            _populationMask, in native, out receipt);
+            if(_outputQueueBridge is { } bridge)
+            {
+                if(_terrainPrograms is { } programs)
+                {
+                    _createResidentMapWorker??=Export<CreateResidentMapWorkerCall>("san14_render_create_map_worker_v2");
+                    _owner=_createResidentMapWorker(bridge.Handle,output,_sourceDirectory,width,height,
+                        _populationMask,programs.LogicalKey,programs.Identity,in native,out receipt);
+                }
+                else
+                {
+                    _createMapWorker??=Export<CreateMapWorkerCall>("san14_render_create_map_worker_v1");
+                    _owner=_createMapWorker(bridge.Handle,output,_sourceDirectory,width,height,
+                        _populationMask,in native,out receipt);
+                }
+            }
+            else _owner = _create(device, queue, output, _sourceDirectory, width, height,
+                _populationMask, in native, out receipt);
         }
         finally { pin.Dispose(); }
         if (_owner == IntPtr.Zero) throw NativeFailure();
+        // The bridge factory selects its independent queue before creating
+        // On12 and enables the two-output protocol before its first copy.
+        // Existing non-bridge workers retain their established opt-in.
+        if (_nativeWorker && _outputQueueBridge is null &&
+            Export<OutputProtocolCall>("san14_render_enable_double_buffered_output_v1")(_owner) != 0)
+            throw NativeFailure();
         _sentTerritory = input.TerritoryOwnership ?? _sentTerritory;
         _sentMapColors = input.TerritoryOwnership?.SourceMapColors ?? _sentMapColors;
         _sentArmy = input.ArmyWorld ?? _sentArmy;
@@ -337,6 +384,13 @@ public sealed partial class D3D11RenderSession : IDisposable
     // A new bounded output still has the actual RD clear/render-target use.
     // After its first real Canvas submission, later requests restore SRV.
     public D3D11MapReceipt Next(ulong output, D3D11MapInput input, bool outputHasCanvasSampling)
+        => RenderRequest(output,input,outputHasCanvasSampling,prepareSceneOnly:false);
+
+    internal D3D11MapReceipt PrepareScene(D3D11MapInput input)
+        => RenderRequest(0,input,false,prepareSceneOnly:true);
+
+    private D3D11MapReceipt RenderRequest(ulong output,D3D11MapInput input,
+        bool outputHasCanvasSampling,bool prepareSceneOnly)
     {
         uint outputUse = outputHasCanvasSampling ? 1u : 0u;
         RequireSubmissionThread(); ObjectDisposedException.ThrowIf(_module == IntPtr.Zero, this);
@@ -346,7 +400,9 @@ public sealed partial class D3D11RenderSession : IDisposable
         NativeReceipt receipt; int result;
         try
         {
-            if (input.Effects is { } effects)
+            if (prepareSceneOnly)
+                result = PrepareSceneNative(input,in native,ref pin,out receipt);
+            else if (input.Effects is { } effects)
                 result = NextWithEffects(output, input, in native, effects, ref pin, outputUse, out receipt);
             else if (input.Routes is { } routes)
             {
@@ -366,7 +422,7 @@ public sealed partial class D3D11RenderSession : IDisposable
             {
                 uint count = 0;
                 IntPtr membership = IntPtr.Zero, areas = IntPtr.Zero;
-                if (command.Data is { } data && !ReferenceEquals(data, _sentCommandMapData))
+                if (command.Data is { } data && NeedsCommandMapData(command))
                 {
                     count = D3D11CommandMapData.CellCount;
                     if(data.HasMembership)
@@ -446,6 +502,13 @@ public sealed partial class D3D11RenderSession : IDisposable
         _sentAreaCapital=input.AreaCapitalWorld??_sentAreaCapital;
     }
 
+    internal void DrainSubmittedOutputWork()
+    {
+        RequireSubmissionThread();ObjectDisposedException.ThrowIf(_module==IntPtr.Zero,this);
+        _drainSubmittedOutput ??= Export<OutputProtocolCall>("san14_render_drain_submitted_output_v1");
+        if (_drainSubmittedOutput(_owner)!=0) throw NativeFailure();
+    }
+
     public void Dispose()
     {
         lock (_directGate)
@@ -487,6 +550,13 @@ public sealed partial class D3D11RenderSession : IDisposable
             if (RouteCommand.IsAllocated) RouteCommand.Free();
         }
     }
+    // Pending camera requests may merge a close/reopen before submission.
+    // The same retained arrays then have a new binding revision, which the
+    // native receiver must receive before it can accept that publication.
+    private bool NeedsCommandMapData(D3D11CommandMapPublication command)
+        => !ReferenceEquals(command.Data, _sentCommandMapData) || _sentCommandMap is null ||
+            command.DataRevision != _sentCommandMap.DataRevision || command.DisplayKind != _sentCommandMap.DisplayKind;
+
     private NativeCommandMapInputV2 PinCommandMap(D3D11CommandMapPublication command, uint fpsMode, ref WorldPins pin)
     {
         var extension = new NativeCommandMapInputV2 {
@@ -495,7 +565,7 @@ public sealed partial class D3D11RenderSession : IDisposable
             ProviderGeneration = command.ProviderGeneration, DisplayKind = command.DisplayKind,
             HoverHex = command.HoverHex, FpsMode = fpsMode
         };
-        if (command.Data is { } data && !ReferenceEquals(data, _sentCommandMapData))
+        if (command.Data is { } data && NeedsCommandMapData(command))
         {
             extension.Count = D3D11CommandMapData.CellCount;
             if(data.HasMembership)

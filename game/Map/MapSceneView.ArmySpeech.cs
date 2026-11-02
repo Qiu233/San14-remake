@@ -22,6 +22,9 @@ public partial class MapSceneView
     private static bool OwnsSpeechLayout(ArmyMapSpeechEntry entry) =>
         entry.ActionCode is 11 or 14 or 15 or 16 || entry.BaseSpeakerAppearanceIndex is not null;
 
+    internal San14.Client.Gameplay.ArmyTraitSpeechViews.View? CaptureArmyTraitSpeechView(int armyId)
+        => IsPlayableMapReady && UseD3D11Map ? _d3d11Markers?.CaptureArmySpeechView(armyId) : null;
+
     internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureArmyTraitSpeechViews()
         => !IsPlayableMapReady ? null : UseD3D11Map ? _d3d11Markers?.CaptureArmySpeechViews()
             : San14.Client.Gameplay.ArmyTraitSpeechViews.WithoutController;
@@ -92,6 +95,7 @@ public partial class MapSceneView
             _map = map; _repository = repository;
             _assets = new(repository); _shader = UiSourceSprite.CreateShader(); _font = new(repository, locale);
             AddChild(_canvas);
+            _map.MapOverlayChanged += HandleMapOverlayChanged;
         }
 
         internal void Present(IReadOnlyList<ArmyMapSpeechDisplay> visible, ArmyMapSpeechState snapshot)
@@ -160,8 +164,11 @@ public partial class MapSceneView
             Update?.Invoke(delta);
             if (_visible.Count == 0 && _bubbles.Count == 0) return;
             _canvas.Scale = Size / new Vector2(1920, 1080);
-            foreach (var bubble in _bubbles.Values)
-                if (GodotObject.IsInstanceValid(bubble.View)) bubble.View.Hide();
+            HideBubbles();
+            // Keep source clocks and retained layouts alive while a modal
+            // owns the map. Its background must not show owned or borrowed
+            // balloons above the foreground compositor cuts.
+            if (_map._detailsOpen) return;
             foreach (var display in _visible)
             {
                 if (!_entries.TryGetValue(display.Sequence, out var entry) || !Prepare(entry)) continue;
@@ -177,8 +184,20 @@ public partial class MapSceneView
             }
         }
 
+        private void HideBubbles()
+        {
+            foreach (var bubble in _bubbles.Values)
+                if (GodotObject.IsInstanceValid(bubble.View)) bubble.View.Hide();
+        }
+
+        private void HandleMapOverlayChanged(bool open)
+        {
+            if (open) HideBubbles();
+        }
+
         public override void _ExitTree()
         {
+            if (_map is not null) _map.MapOverlayChanged -= HandleMapOverlayChanged;
             Update = null; BaseSpeaker = null;
             foreach (var bubble in _bubbles.Values) Release(bubble);
             _bubbles.Clear(); _font?.Dispose(); _shader?.Dispose(); _assets?.Dispose();

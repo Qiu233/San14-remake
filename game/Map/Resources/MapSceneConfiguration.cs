@@ -27,12 +27,19 @@ internal sealed class MapSceneConfiguration
     public bool TryGetProjection(uint scene, [NotNullWhen(true)] out MapWorldProjectionPolicy? policy) =>
         _projections.TryGetValue(scene, out policy);
 
-    public int InitialSceneIndex(bool playable)
+    public int InitialSceneIndex(bool playable, uint? declaredMainStageFileId = null)
     {
-        if (playable)
-            for (int i = 0; i < Scenes.Count; i++)
-                if (_projections.ContainsKey(Scenes[i].FileId)) return i;
-        return 0;
+        if (!playable) return 0;
+        if (declaredMainStageFileId is not uint selected)
+            throw new InvalidOperationException("The product map requires its loaded Common Main Stage selection.");
+        for (int i = 0; i < Scenes.Count; i++)
+            if (Scenes[i].FileId == selected)
+            {
+                if (!_projections.ContainsKey(selected))
+                    throw new InvalidDataException("The declared Main Stage has no configured map projection.");
+                return i;
+            }
+        throw new InvalidDataException($"The declared Common Main Stage scene {selected:X8} is not configured.");
     }
 
     public static MapSceneConfiguration Parse(string sceneJson, string projectionJson, bool embedded)

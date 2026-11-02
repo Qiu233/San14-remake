@@ -19,6 +19,8 @@ internal sealed class UiAudioFeedback : IDisposable
 {
     private readonly Node _host;
     private readonly SceneTree _tree;
+    private readonly GameResourceRepository _resourceSources;
+    private Task? _preparation;
     private readonly string _sourceDirectory;
     private readonly string? _overridesDirectory;
     private readonly Func<bool> _acceptPreparedClips;
@@ -63,11 +65,12 @@ internal sealed class UiAudioFeedback : IDisposable
         if (!_token.IsCancellationRequested) _service?.SetVolumes(volumes);
     }
 
-    public UiAudioFeedback(Node host, string sourceDirectory, string? overridesDirectory,
+    public UiAudioFeedback(Node host, GameResourceRepository resourceSources, string? overridesDirectory,
         Func<bool> acceptPreparedClips)
     {
+        _resourceSources = resourceSources ?? throw new ArgumentNullException(nameof(resourceSources));
         (_host, _tree, _sourceDirectory, _overridesDirectory, _acceptPreparedClips) =
-            (host, host.GetTree(), sourceDirectory, overridesDirectory, acceptPreparedClips);
+            (host, host.GetTree(), resourceSources.SourceDirectory, overridesDirectory, acceptPreparedClips);
         _token = _lifetime.Token;
     }
 
@@ -82,7 +85,16 @@ internal sealed class UiAudioFeedback : IDisposable
         _tree.NodeRemoved += ReleaseButton;
         _subscribed = true;
         HookSubtree(_host);
-        _ = PrepareAsync();
+        _preparation = PrepareAsync();
+    }
+
+    // Startup joins actual cue preparation and Godot resource installation.
+    internal async Task WaitUntilPreparedAsync()
+    {
+        await (_preparation ?? throw new InvalidOperationException("UI audio feedback has not started."));
+        _token.ThrowIfCancellationRequested();
+        if (Status.Availability != UiAudioAvailability.Ready)
+            throw new InvalidOperationException(Status.Reason ?? "Original UI audio preparation did not complete.");
     }
 
     private async Task PrepareAsync()
@@ -102,8 +114,9 @@ internal sealed class UiAudioFeedback : IDisposable
             service.Configure(audioRepository, decoder!);
             service.SetVolumes(_volumes);
             service.SetWindowFocused(_windowFocused);
-            // Separate source cache from map and scenario loading.
-            var source = new GameResourceRepository(_sourceDirectory, _overridesDirectory);
+            // This reader owns its ledger; immutable data belongs to the
+            // application generation shared by the UI and map readers.
+            var source = _resourceSources.CreateReadScope();
             var graphs = await Task.Run(() =>
             {
                 _token.ThrowIfCancellationRequested();
@@ -199,10 +212,12 @@ internal sealed class UiAudioFeedback : IDisposable
             _effectsPreview = clip;
         }
         catch (OperationCanceledException) when (_token.IsCancellationRequested) { clip?.Dispose(); }
-        catch (Exception error)
+        catch
         {
             clip?.Dispose();
-            if (!_token.IsCancellationRequested) GD.PushWarning("Original Effects preview unavailable: " + error.Message);
+            // This cue belongs to the declared startup closure. The outer
+            // preparation owner publishes its real failure as Unavailable.
+            throw;
         }
     }
 

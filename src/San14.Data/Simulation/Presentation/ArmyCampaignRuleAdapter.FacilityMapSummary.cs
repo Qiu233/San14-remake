@@ -42,9 +42,10 @@ public sealed partial class ArmyCampaignRuleAdapter
                     ?? throw FacilitySummaryMissing("Object_fields")).RawField12;
                 var background = FacilitiesInfoSource.IconNames(kind, false);
                 var outline = FacilitiesInfoSource.IconNames(kind, true);
-                nameImages.Add(new(6, background.Fill));
-                nameImages.Add(new(5, background.Outline));
-                nameImages.Add(new(4, outline.Outline));
+                string? texturePack = kind is 15 or 17 ? "texture_pk_common" : null;
+                nameImages.Add(new(6, background.Fill, texturePack));
+                nameImages.Add(new(5, background.Outline, texturePack));
+                nameImages.Add(new(4, outline.Outline, texturePack));
             });
             ForceReference Force()
             {

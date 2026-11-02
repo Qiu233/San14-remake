@@ -31,6 +31,16 @@ public sealed class OwnedArmyOrdinaryGateReturnStage(ArmyCampaignRuleAdapter pac
             var result = package.PrepareOwnedArmyReturnCurrent(state, new(physical),
                 new(BaseKind.Gate, gateId - 51), 0, world.Context, world.Pool,
                 new Queries(state, governorInputs), new(false, false));
+            if (result.Suspension is { } suspension)
+            {
+                var suspended = world.CommitSuspension(state, suspension);
+                var pending = suspended.ArmyReturnCaptiveContinuation
+                    ?? throw new InvalidDataException("Ordinary return suspension lost its captive owner.");
+                // The same Army remains active until the actual return suffix
+                // admits pending70; do not consume retirement during selection.
+                return new(suspended with { ArmyReturnCaptiveContinuation = pending with
+                    { Caller = ArmyReturnCaptiveCaller.OrdinaryEntry } }, [], null);
+            }
             if (result.Packet is not { } packet) return new(null, [], result.UnresolvedOwner);
             var returned = world.CommitPrepared(state, packet);
             if (returned is null) return new(null, packet.SourceEffectOrder, "current.ordinary_gate_return_publication");

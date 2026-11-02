@@ -29,7 +29,7 @@ public:
         clock_=prepareNativeCameraClock();
     }
 
-    void accept(const RenderInput& input) {
+    void accept(const RenderInput& input,std::optional<uint32_t> actualMainMode=std::nullopt) {
         if(input.contains(FrameInputFlag::PublishedCamera)) {
             motion_.camera.pose=input.controller;
             motion_.camera.zoom={input.band,input.fraction,
@@ -41,7 +41,7 @@ public:
         source_camera_motion::tick(profile_,motionProfile_,motion_,inertiaClock,animationClock,motionProfile_.inertiaTimeout,terrainQualifier_);
         frame_=source_camera::prepareCurrent(profile_,motion_.camera);
         }
-        display_=source_far_main::prepareCurrent(distantProfile_,distantOwner_,motion_.camera.zoom,frame_.prefix);
+        display_=source_far_main::prepareCurrent(distantProfile_,distantOwner_,motion_.camera.zoom,frame_.prefix,actualMainMode);
     }
 
     source_camera::Prefix prepareDirectPrefix() {
@@ -49,8 +49,10 @@ public:
             source_camera::prepareCurrentRenderMode(motion_.camera.zoom),frame_.prefix);
     }
 
-    source_camera::Frame publishedEventCamera(const RenderInput& input)const {
-        return source_camera::preparePublished(profile_,input.camera,input.controller);
+    // Animation admission consumes this event's captured prefix synchronously.
+    // It does not need a prepared draw camera or its terrain/LOD selection.
+    const source_camera::Prefix& publishedEventCameraPrefix(const RenderInput& input)const noexcept {
+        return input.camera;
     }
 
     // Read-only views are valid while the session lives; accept replaces their

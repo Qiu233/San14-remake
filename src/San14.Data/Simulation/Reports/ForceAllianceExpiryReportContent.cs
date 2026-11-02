@@ -36,6 +36,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
+        //Advice reuses selection with an explicit nonmutating text consumer.
+        private readonly Func<AllianceExpiryReportFormattingInputs,string>? textOnly;
         private readonly List<AllianceExpiryReportEntry> entries=[];
         private bool entered,completed;
         private AllianceExpiryReportFormattingInputs? formatting;
@@ -44,10 +46,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         public AllianceExpiryReportSnapshot Snapshot=>new(entries.ToImmutableArray(),completed,formatting,formattedText);
 
         internal ForceAllianceExpiryReportContentOperation(ArmyCampaignRuleAdapter package,GameState state,
-            SourceWorldContext current,WorldIndexContext pool)
+            SourceWorldContext current,WorldIndexContext pool, Func<AllianceExpiryReportFormattingInputs,string>? textOnly = null)
         {
             if(!ReferenceEquals(pool.ArmyReturnOwner,current)||!pool.OwnsArmyReturnProfile())throw Missing("same_current_pool");
-            this.package=package;State=state;this.current=current;this.pool=pool;
+            this.package=package;State=state;this.current=current;this.pool=pool; this.textOnly=textOnly;
         }
 
         public AllianceExpiryReportSnapshot Produce(TransferPersonReference speaker,ActionReportLocalRecords records,
@@ -95,7 +97,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         ushort person1=actorOrdinal==0?(ushort)5014:
                             K(current.ReadForceRecord(P(actor.PhysicalSlot,"message_actor"))?.RawRuler10,"message_ruler10");
                         formatting=new(person0,force0,counter,person1);
-                        string text=package.FormatActionAllianceExpiryReport(State,current,formatting,value=>State=value).Text;
+                        string text=textOnly is {} render ? render(formatting) : package.FormatActionAllianceExpiryReport(State,current,formatting,value=>State=value).Text;
                         formattedText=text;
                         ushort recordSpeaker=Identity(speaker);
                         var home=RulerHome(other);

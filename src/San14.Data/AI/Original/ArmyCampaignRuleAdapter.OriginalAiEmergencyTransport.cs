@@ -95,7 +95,7 @@ internal static partial class ArmyRouteSearch
     internal static bool OriginalAiEmergencyTransportCanReach(GameState state, SourceWorldContext current,
         int force, int sourceHex, int targetHex)
     {
-        if ((uint)sourceHex >= Count || (uint)targetHex >= Count) return false;
+        if (!current.ContainsMapHex(sourceHex) || !current.ContainsMapHex(targetHex)) return false;
         var query = new Queries(state, current, new CampaignMovement(force), sourceHex, targetHex,
             0, 0, null, 8, hasArmyDescriptor: false);
         try { return Search(query, out _, out _, hasArmyDescriptor: false).Length != 0; }

@@ -12,7 +12,6 @@ internal partial class MapCommanderGauge : Control
     private UiAssets assets=null!;
     private Shader shader=null!;
     private int portraitVersion=-1;
-    private readonly Dictionary<(string Pack,string Sprite),LoadedSprite> images=[];
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader)
     {
@@ -35,7 +34,7 @@ internal partial class MapCommanderGauge : Control
     {
         if(portraitVersion!=repository.PortraitResourceVersion)
         {
-            images.Clear();shownPortrait=null;portraitVersion=repository.PortraitResourceVersion;
+            shownPortrait=null;portraitVersion=repository.PortraitResourceVersion;
             if(portrait is not null){RemoveChild(portrait);portrait.QueueFree();portrait=null;}
         }
         for(int i=0;i<rings.Length;i++)
@@ -52,8 +51,7 @@ internal partial class MapCommanderGauge : Control
             shownPortrait=key;
             if(key is {} named)
             {
-                if(!images.TryGetValue(named,out var image))
-                {image=new LocalizedUiSpriteSource(repository).LoadTexturePackSprite(named.Pack,named.Sprite);images.Add(named,image);}
+                var image=assets.Portraits.RequireSource(named.Pack,named.Sprite);
                 Rect2 pane=source.Rectangle(13);
                 portrait=new UiSourcePortrait {Name="CommanderPortrait",Position=pane.Position,Size=pane.Size};AddChild(portrait);
                 portrait.ConfigureLayoutPane(repository,assets,shader,image,source,13);

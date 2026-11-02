@@ -20,7 +20,7 @@ public partial class Main
             rules.QueryDistrictInformation(world, districtId), _ui, Return, related,
             PrepareDetailSelection(rules, world, InformationListKind.Districts, districtId, selectionIds)
                 with { InitialNameSortAscending = initialNameSortAscending },
-            id => RunUiAction(() => view.Apply(rules.QueryDistrictInformation(world, id))));
+            id => RunInspectionUiAction(world, () => view.Apply(rules.QueryDistrictInformation(world, id))));
         void Return()
         {
             returnSelection?.Invoke(view.ReadSelectionReturn());
@@ -40,7 +40,7 @@ public partial class Main
             detail.Apply(rules.QueryDistrictInformation(next, detail.CurrentDistrictId));
         }
         browser.ShowDetail(detail, close => ConfigureCurrentDistrictDetail(detail, world, districtId, close,
-            preparedRules: rules, related: kind => RunUiAction(() =>
+            preparedRules: rules, related: kind => RunInspectionUiAction(world, () =>
                 OpenInformationDistrictRelated(browser, rules, world, detail.CurrentDistrictId, kind, Adopt)), selectionIds: selectionIds,
                 returnSelection: returnSelection, initialNameSortAscending: initialNameSortAscending,
                 adoptSpeechWorld: next =>
@@ -91,7 +91,7 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository, _ui, publication.Title, columns, Rows(publication),
-                () => IsInformationBrowserCurrent(browser), close, index => RunUiAction(() =>
+                () => IsInformationBrowserCurrent(browser), close, index => RunInspectionUiAction(world, () =>
                 {
                     if ((uint)index < (uint)publication.Rows.Length)
                         OpenInformationRecord(browser, rules, world, presented, publication.Rows[index], adoptWorld);

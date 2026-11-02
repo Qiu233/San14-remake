@@ -76,6 +76,14 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
         var sourceDate = captureWorld38Date ?? state.NativeMapSeason?.ThirdDate;
         if (state.PendingCombatSettlements is not { } queue)
             return new(null, receipts, "current.manager140_destruction_queue");
+        //450830's empty chain only clears that empty queue. With no borrowed
+        //writes or suspended business, the saved domain queue is already empty;
+        //there is no victim/current world to construct or publish for this pass.
+        if (borrowedCurrent is null && borrowedPool is null && queue.IsEmpty &&
+            state.ArmyDefeatContinuation is null && state.BaseCaptureContinuation is null &&
+            CaptureArmyReturnContinuationSource.Read(state) is null &&
+            !AutomaticEmperorCaptureLifecycle.HasCaptureTail(state) && state.AutomaticEmperorCapture is null)
+            return new(state, receipts, null) { SourceReports = [] };
         try
         {
             var world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(state)
@@ -96,8 +104,11 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
             }
             // Read the current queue after every callback. A callback can append
             // another request which must settle in this same phase.
-            OwnedArmyDestructionPhaseResult PauseEmperorCapture(int cursor)
+            OwnedArmyDestructionPhaseResult PauseCaptureTail(int cursor)
             {
+                if (CaptureArmyReturnContinuationSource.Read(working) is { CaptureTail: { } returnTail } captiveReturn)
+                    working = working with { ArmyReturnCaptiveContinuation = captiveReturn with
+                        { CaptureTail = returnTail with { SettlementIndex = cursor } } };
                 if (working.CityCaptureEmperorTail is { } cityTail)
                     working = working with { CityCaptureEmperorTail = cityTail with { SettlementIndex = cursor } };
                 if (working.BaseWinnerEmperorTail is { } winnerTail)
@@ -110,7 +121,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 return new(working, receipts, null) { BaseReceipts = captures.ToArray(), CityReceipts = cityCaptures.ToArray(),
                     SourceReports = reports.ToArray() };
             }
-            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? working.BaseCaptureContinuation?.SettlementIndex ?? working.CityCaptureEmperorTail?.SettlementIndex ?? working.BaseWinnerEmperorTail?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
+            for (int cursor = working.ArmyDefeatContinuation?.SettlementIndex ?? working.BaseCaptureContinuation?.SettlementIndex ?? CaptureArmyReturnContinuationSource.Read(working)?.CaptureTail?.SettlementIndex ?? working.CityCaptureEmperorTail?.SettlementIndex ?? working.BaseWinnerEmperorTail?.SettlementIndex ?? 0; cursor < queue.Requests.Count; cursor++)
             {
                 current.BindOwnedDestructionQueue(queue, working);
                 var request = queue.Requests[cursor];
@@ -118,7 +129,12 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                 if (request is BaseCaptureRequest capture)
                 {
                     var target = ArmyDestructionQueue.ResolveBaseReference(working, current, capture.Target);
-                    if (working.BaseCaptureContinuation is { } occupation)
+                    if (CaptureArmyReturnContinuationSource.Read(working) is { CaptureTail: { } returnTail })
+                    {
+                        if (returnTail.SettlementIndex != cursor || returnTail.Request != capture)
+                            throw Missing("Base_capture_return_settlement_cursor");
+                    }
+                    else if (working.BaseCaptureContinuation is { } occupation)
                     {
                         if (occupation.SettlementIndex != cursor || occupation.Operation.Request != capture)
                             throw Missing("Base_capture_settlement_cursor");
@@ -159,7 +175,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                         if (working.NativePlayableTerminal is not null || working.CampaignTurnStop is not null)
                             return CompleteCaptureTerminal(working);
                         if (AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
-                            return PauseEmperorCapture(cursor);
+                            return PauseCaptureTail(cursor);
                         world = borrowedCurrent is null ? package.CaptureOwnedArmyReturnWorld(working)
                             : package.BorrowOwnedArmyReturnWorld(working, borrowedCurrent, borrowedPool!);
                         current = world.Context;
@@ -172,7 +188,8 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                         var captured = new OwnedGateCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "Gate2851B0");
                         if (captured.NativeTerminal) return CompleteCaptureTerminal(working);
-                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working) &&
+                            CaptureArmyReturnContinuationSource.Read(working) is null)
                         {
                             var completedCapture = captured.Receipt ?? throw Missing("Gate_capture_completed_receipt");
                             captures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
@@ -183,14 +200,15 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                         var captured = new OwnedCityCaptureStage(package).TryApplyCurrent(working, current, capture, sourceDate, sampler, groups);
                         working = captured.State ?? throw Missing(captured.UnresolvedOwner ?? "City2851B0");
                         if (captured.NativeTerminal) return CompleteCaptureTerminal(working);
-                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                        if (working.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(working) &&
+                            CaptureArmyReturnContinuationSource.Read(working) is null)
                         {
                             var completedCapture = captured.Receipt ?? throw Missing("City_capture_completed_receipt");
                             cityCaptures.Add(completedCapture); reports.AddRange(completedCapture.Reports);
                         }
                     }
-                    if (AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
-                        return PauseEmperorCapture(cursor);
+                    if (CaptureArmyReturnContinuationSource.Read(working) is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                        return PauseCaptureTail(cursor);
                     if (working.BaseCaptureContinuation is { } pendingOccupation)
                     {
                         //The person prefix has released its temporary lists.
@@ -475,7 +493,7 @@ public sealed partial class OwnedArmyDestructionStage(ArmyCampaignRuleAdapter pa
                     var decision = RulerCaptureReleaseSource.Decide(state, current, commander, captured.WinnerForce, sampler);
                     if (decision.Decision == RulerCaptureDecision.PlayerDecisionRequired)
                     {
-                        if (!allowPlayerRulerPause || state.NativePeriodContinuation is null)
+                        if (!allowPlayerRulerPause)
                             throw Missing("player_ruler_treatment_deferred_stage25_owner");
                         var prepared = package.PrepareCapturedRulerTreatmentCurrent(state, current,
                             decision.Receipt ?? throw Missing("player_ruler_treatment_context"));

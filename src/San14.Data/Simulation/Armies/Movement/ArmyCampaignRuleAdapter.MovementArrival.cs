@@ -64,6 +64,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             var prepared = PrepareOwnedArmyReturnCurrent(state, new(armyPhysical), destination, 0,
                 current, pool, new MovementReturnGovernorQueries(state, _governorInputs), new(false, false),
                 army.NativeTacticRuntime?.Status10 == 2 ? army.NativeTacticRuntime.Flags26 : null, moment: moment);
+            if (prepared.Suspension is { } suspension)
+            {
+                if (moment is null) throw new InvalidDataException("current.movement_arrival.suspension_date");
+                returned = world.CommitSuspension(state, suspension);
+                var owner = returned.ArmyReturnCaptiveContinuation
+                    ?? throw new InvalidDataException("current.movement_arrival.suspension_owner");
+                returned = returned with { ArmyReturnCaptiveContinuation = owner with
+                {
+                    Caller = ArmyReturnCaptiveCaller.MovementArrival,
+                    ArrivalTail = new(action, goal, location, moment)
+                } };
+                return OwnedArmyLifecycleDetachedInputs.PublishCurrent(returned, current);
+            }
             if (prepared.Packet is not { } packet)
                 throw new InvalidDataException(prepared.UnresolvedOwner ?? "current.movement_arrival.return_packet");
             returned = world.CommitPrepared(state, packet)
@@ -76,6 +89,24 @@ public sealed partial class ArmyCampaignRuleAdapter
             _ => throw new InvalidDataException("current.movement_arrival.unused_campaign_day"));
         return AppendArmyCommandSpeech(returned, current, army, operation, CombatSpeechEvent.ArmyEnteredBase,
             new(goal, location));
+    }
+
+    internal GameState ResumeMovementReturnCaptivesCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool)
+    {
+        var pending = state.ArmyReturnCaptiveContinuation;
+        if (pending is not { Caller: ArmyReturnCaptiveCaller.MovementArrival, ArrivalTail: { } tail } ||
+            !state.Units.TryGetValue(pending.ArmyUnitId, out var army))
+            throw new InvalidDataException("current.movement_arrival.resume_owner");
+        //The actual returning image still exists before the suffix admits it
+        //to pending70. Retain it locally for the source arrival speech only.
+        var returned = ResumePlayerArmyReturnCurrent(state, current, pool);
+        if (returned.ArmyReturnCaptiveContinuation is not null || tail.Action is 11 or 12) return returned;
+        var operation = new FacilityOperation(() => tail.Moment.PreWriterThirdDate,
+            tail.Moment.CalendarCycleOrdinal,
+            _ => throw new InvalidDataException("current.movement_arrival.unused_campaign_day"));
+        return AppendArmyCommandSpeech(returned, current, army, operation, CombatSpeechEvent.ArmyEnteredBase,
+            new(tail.GoalHexId, tail.DestinationLocationId));
     }
 
     private sealed class MovementReturnGovernorQueries(GameState state, OwnedArmyGovernorComparatorInputs inputs)

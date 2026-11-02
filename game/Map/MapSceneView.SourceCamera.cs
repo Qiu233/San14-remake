@@ -66,7 +66,7 @@ public partial class MapSceneView
     }
 
     public MainMapCameraFrame? SourceMainCameraFrame => _sourceMainCameraFrame;
-    internal bool SourcePointerInputActive => _embedded&&!_detailsOpen&&IsVisibleInTree()&&_sourceMainCameraFrame is not null;
+    internal bool SourcePointerInputActive => _embedded&&!_detailsOpen&&!sourceCameraInputSuspended&&IsVisibleInTree()&&_sourceMainCameraFrame is not null;
     public MainMapCameraAdapter? SourceMainCameraOwner => _sourceMainCamera;
     public MainMapCameraTerrainSource? SourceMainCameraTerrain => _sourceMainCameraTerrain;
 
@@ -179,6 +179,16 @@ public partial class MapSceneView
         RemoveMeta("source_main_camera_owner");
         RemoveMeta("source_main_camera_ready");
         if(_sourceMainCameraNotice is not null)_sourceMainCameraNotice.Visible=false;
+    }
+
+    internal bool RequestNorthHeading()
+    {
+        if (!D3D11MapInteractive || _detailsOpen ||
+            _sourceMainCamera is not { } camera || _sourceMainCameraNorth is not { } north) return false;
+        // The toolbar owns only the source yaw request. The live controller
+        // retains focus, distance and pitch, including its normal busy rule.
+        camera.QueueTimedRequest(north.CreateNorthRequest(), unchecked((int)Time.GetTicksMsec()));
+        return true;
     }
 
     private bool ResetSourceCamera()
@@ -298,13 +308,14 @@ public partial class MapSceneView
         // intentionally rejects all details input and cannot drive this clock.
         try
         {
+            long sourceFrameStartedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!_periodMapActive || !_periodMapPaused) _sourceActiveMilliseconds += delta * 1000;
             int clock=unchecked((int)Time.GetTicksMsec());
             if(chronologyCamera is not null) { } // Dedicated source controller has no input override.
             else if(_sourceStartupCamera is {} startup)startup.Advance(clock);
             else
             {
-                if(storyPresentationOwner is null && uniqueDirectionOwner is null)ApplySourceCameraInputFrame(clock,input);
+                if(storyPresentationOwner is null && uniqueDirectionOwner is null && !sourceCameraInputSuspended)ApplySourceCameraInputFrame(clock,input);
                 _sourceMainCamera!.Tick(clock,clock,_sourceMainCamera.Parameters.SourceInertiaTimeoutMilliseconds,
                     input.CurrentMaximumYOverride,SourceCameraTerrainQualifier);
             }
@@ -312,7 +323,10 @@ public partial class MapSceneView
             if(_d3d11Map is not null)_d3d11Elapsed+=delta;
             // Normal interactive Map scope; original dialog/transition v30
             // mappings are still a separate UI-state task.
-            _d3d11AnimationDue=D3D11MapInteractive&&_d3d11AnimationPacer?.TryAccept()==true;
+            // Godot's application limiter admits this actual process
+            // frame. Polling a second wall-clock limiter here would discard
+            // real callbacks instead of waiting for the original App frame.
+            _d3d11AnimationDue=D3D11MapInteractive&&_d3d11AnimationPacer?.TryAcceptProcessFrame(Engine.GetProcessFrames())==true;
             if (_d3d11AnimationDue) SourceAnimationUpdateSequence++;
             bool tacticUpdateDue = _d3d11AnimationDue;
             if (_d3d11AnimationDue && _d3d11AnimationPacer is { } pacer)
@@ -325,6 +339,8 @@ public partial class MapSceneView
             AdvanceUniqueDirectionClock(delta, tacticUpdateDue);
             AdvanceStoryEffectClock(delta, tacticUpdateDue);
             if (tacticUpdateDue) ordinaryTacticUpdate?.Invoke();
+            if (tacticUpdateDue && _d3d11AnimationPacer is { } progressPacer)
+                _periodProgressFrameDriver?.OnSourceFrame(progressPacer.FramesPerSecond(progressPacer.FpsMode), sourceFrameStartedAt);
         }
         catch (Exception error) { HandleSceneError(error); }
     }
@@ -342,7 +358,7 @@ public partial class MapSceneView
             {
                 if(!_periodMapActive&&button.Pressed&&button.DoubleClick&&_commandTargetPicked is null&&_openCityDetails is not null)
                 {
-                    ResetSourceCameraInput();PickTerrain(button.Position);
+                    ResetSourceCameraInput();PickTerrain(button.Position,released:false);
                     if(_mapSelection.Current?.CityDetails?.Id is int cityId)_openCityDetails(cityId);
                     return true;
                 }
@@ -364,7 +380,7 @@ public partial class MapSceneView
                             _dragDistance<=4&&_pressPosition.DistanceTo(button.Position)<=4);
                     _sourceCameraLeftUiPressed=false;
                     bool manualTarget = _periodMapOwner?.ManualCommandSelectionOpen == true && _commandTargetPicked is not null;
-                    if((!_periodMapActive||manualTarget)&&click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    if((!_periodMapActive||manualTarget)&&click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position,released:true);
                     _commandTargetPressAllowed=false;
                 }
             }
@@ -505,7 +521,10 @@ public partial class MapSceneView
         var cursor=CanonicalSourceCursor(surfacePosition);
         if(ReadSourceCameraRay(cursor,out var camera,out var picker,out var ray)!=MapHoverRayStatus.Ready)return false;
         var o=ray.Origin;var d=ray.Direction;
-        if(!picker!.TryPick(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),camera!.Camera.Lens.Far,out hit))return false;
+        if(!MapCameraPickSegment.TryCreate(camera!.Camera.Geometry,ray,out var segment)||
+            !picker!.TryPick(new(segment.Origin.X,segment.Origin.Y,segment.Origin.Z),
+                new(segment.Direction.X,segment.Direction.Y,segment.Direction.Z),segment.MaximumDistance,out hit))return false;
+        hit=hit with {Distance=hit.Distance+segment.StartDistance};
         if(_projection?.Policy.SourceFormulaId==CeHexWorldCoordinates.FormulaId)
             return CeHexWorldCoordinates.TryPickTerrainHit(new(o.X,o.Y,o.Z),new(d.X,d.Y,d.Z),
                 new(hit.Position.X,hit.Position.Y,hit.Position.Z),out hex);

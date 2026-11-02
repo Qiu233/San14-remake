@@ -85,7 +85,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool owned = TalentForceIsPlayerCurrent(state, current, force);
         if (reason != TalentCancellation.Quiet && owned &&
             (TalentKnown(current.ReadWorldTransferServiceFlags(), "cancel_World16A8") & 0x100) == 0)
-            state = WriteTalentCancellationCurrent(state, current, task, district, force, reason, effects);
+            state = WriteTalentCancellationCurrent(state, current, task, district, force, reason, effects, task.SourceDistrictId);
         return ScheduleTalentCompletionReturnCurrent(state, current, task.Id, task.MemberIds, date,
             IsTalentPlayerPrimaryDistrict(state, current, district));
     }
@@ -104,9 +104,47 @@ public sealed partial class ArmyCampaignRuleAdapter
             ForcePrimaryDistrictSource.Resolve(current, player) == district;
     }
 
+    //1E6990 is a report-only leaf. Death then removes its own member through
+    //the common detacher; cancellation/return scheduling does not belong here.
+    private GameState ReportAssociatedTalentDeathCurrent(GameState state, SourceWorldContext current,
+        PersonLinkedEntityReference associated, List<CampaignEffectRequest> effects)
+    {
+        int receiver = TalentKnown(associated.Identity, "death_report_command_identity");
+        var task = current.ReadOwnedPersonCommandManager()?.Talents?.GetValueOrDefault(receiver)
+            ?? throw TalentCommandMissing("death_report_talent_owner");
+        if (task.Kind != TalentOrderKind.Recruit || task.IsRecruitWait)
+            throw TalentCommandMissing("death_report_command_type2");
+        var district = current.ReadDistrictTableReference(task.SourceDistrictId is >= 0 and < 52 ? task.SourceDistrictId : 0)
+            ?? throw TalentCommandMissing("death_report_command_District");
+        if (!TalentKnown(current.ReadDistrictNativeValidity(district), "death_report_District_validity")) return state;
+        if (!CommandIsPlayer()) return state;
+        if ((TalentKnown(current.ReadWorldTransferServiceFlags(), "death_report_World16A8") & 0x100) != 0) return state;
+        if (task.TargetOfficerId is null) throw TalentCommandMissing("death_report_target_Person");
+        //Cmd28 gates the command; Cmd2A's Base virtual80 independently owns
+        //the report recipient after any current district reassignment.
+        var home = BaseLookup.Find(task.SourceCityId, current);
+        int rawRecipient = TalentKnown(current.ReadBaseDistrictSlot(home), "death_report_Base_District");
+        var recipient = current.ReadDistrictTableReference(rawRecipient is >= 0 and < 52 ? rawRecipient : 0)
+            ?? throw TalentCommandMissing("death_report_recipient_District");
+        int recipientId = TalentKnown(current.ReadDistrictPhysicalSlot(recipient), "death_report_recipient_ordinal");
+        if (!CommandIsPlayer()) return state;
+        return WriteTalentCancellationCurrent(state, current, task, district, ReadTalentCommandForce(current, district),
+            TalentCancellation.SourceChanged, effects, recipientId);
+
+        bool CommandIsPlayer()
+        {
+            var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current)
+                ?? throw TalentCommandMissing("death_report_player_Force");
+            if (!TalentKnown(current.ReadForceNativeValidity(player), "death_report_player_validity")) return false;
+            var commandForce = ReadTalentCommandForce(current, district);
+            return TalentKnown(current.ReadForcePhysicalSlot(commandForce), "death_report_command_Force") ==
+                TalentKnown(current.ReadForcePhysicalSlot(player), "death_report_player_ordinal");
+        }
+    }
+
     private GameState WriteTalentCancellationCurrent(GameState state, SourceWorldContext current,
         PersonnelTalentTask task, DistrictReference district, ForceReference commandForce,
-        TalentCancellation reason, List<CampaignEffectRequest> effects)
+        TalentCancellation reason, List<CampaignEffectRequest> effects, int historyDistrictId)
     {
         int actor = task.MemberIds.Length == 0 ? 0 : current.ResolveOfficerSource(task.MemberIds[0])
             ?? throw TalentCommandMissing("cancel_actor_source");
@@ -164,7 +202,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.ReadPersonForce(actor) == current.ReadPersonForce(target))
             supplementalText = CampaignHistoryWriter.Supplemental(attachment.State);
         int day = (ReadArmyDestructionSampler(attachment.State, current) ?? throw TalentCommandMissing("cancel_history_day450")).Day450;
-        return WriteHistory(attachment.State, current, new(2, task.SourceDistrictId, 0, day,
+        return WriteHistory(attachment.State, current, new(2, historyDistrictId, 0, day,
             message.Text, supplementalText, historyOfficer, MarkBit0: reason == TalentCancellation.SourceChanged ? 1 : 0), effects);
     }
 }

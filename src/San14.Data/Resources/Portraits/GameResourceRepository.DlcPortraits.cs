@@ -130,11 +130,13 @@ public sealed partial class GameResourceRepository
 
     private AreaAdministrationQuery<PortraitLinkBin?> LoadPortraitLinkBin(DlcPortraitDescriptor descriptor)
     {
+        SynchronizeResidentInvalidation();
         if (_portraitLinkBins.TryGetValue(descriptor.Selector, out var cached)) return cached;
         AreaAdministrationQuery<PortraitLinkBin?> loaded;
         var id = GameResourceId.File(descriptor.RelativePath);
         string? replacement = _overrides.Find(id);
         string path = replacement ?? SourcePath(descriptor.RelativePath);
+        TrackPortraitSource(id, SourcePath(descriptor.RelativePath), replacement);
         try
         {
             //Native CLinkBinSeek uses an opened CFile and mode0's little-endian
@@ -165,6 +167,7 @@ public sealed partial class GameResourceRepository
 
     internal LoadedSprite LoadDlcPortraitSprite(string resourceName, string spriteName)
     {
+        SynchronizeResidentInvalidation();
         var descriptor = DlcPortraitDescriptor.ForResource(resourceName)
             ?? throw new InvalidDataException("officer.portrait.dlc_resource_identity");
         string[] parts = spriteName.Split('_');

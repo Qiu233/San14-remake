@@ -4,76 +4,37 @@
 // Reuse original geometry/shaders/views/states. Only instances and complete
 // original camera CBs become mutable; no device work or source reads per request.
 #include "../../Camera/CameraState.h"
+#include "../../Device/TerrainPrograms.h"
 
-struct NativeTerrainCameraConstant {
+struct NativeTerrainCameraConstant : San14::Render::NativeTerrainProgramConstantLayout {
     std::vector<char> bytes;
-    bool vertex=false;
-    UINT slot=0;
-    int worldToProjection=-1,worldToView=-1,eye=-1;
-    int detailTextureIndex=-1;
-    UINT detailTextureCapacity=0;
 };
 using NativeTerrainCameraConstants=std::array<NativeTerrainCameraConstant,4>;
 
 inline NativeTerrainCameraConstant prepareNativeTerrainCameraConstant(
-    const fs::path& source,const char* shaderFile,const char* constantFile,bool vertex) {
-    NativeTerrainCameraConstant result;result.vertex=vertex;result.bytes=load(source/constantFile);
-    const auto dxbc=load(source/shaderFile);ComPtr<ID3D11ShaderReflection> reflection;
-    check(D3DReflect(dxbc.data(),dxbc.size(),__uuidof(ID3D11ShaderReflection),
-        reinterpret_cast<void**>(reflection.GetAddressOf())),"Terrain source camera RDEF");
-    D3D11_SHADER_INPUT_BIND_DESC binding{};
-    check(reflection->GetResourceBindingDescByName("$Globals",&binding),"Terrain source Globals binding");
-    if(binding.Type!=D3D_SIT_CBUFFER||binding.BindPoint!=0||binding.BindCount!=1)
-        throw std::runtime_error("Terrain source Globals cb0 binding differs");
-    result.slot=binding.BindPoint;
-    auto globals=reflection->GetConstantBufferByName("$Globals");D3D11_SHADER_BUFFER_DESC bufferDesc{};
-    check(globals->GetDesc(&bufferDesc),"Terrain source Globals layout");
-    if(bufferDesc.Type!=D3D_CT_CBUFFER||!bufferDesc.Size||bufferDesc.Size%16||bufferDesc.Size>D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT*16u||
-        result.bytes.size()!=bufferDesc.Size)
-        throw std::runtime_error("Terrain source complete CB size differs");
-    auto lane=[&](ID3D11ShaderReflectionVariable* variable,UINT size,D3D_SHADER_VARIABLE_CLASS kind,
-        D3D_SHADER_VARIABLE_TYPE type,UINT rows,UINT columns,UINT elements) {
-        D3D11_SHADER_VARIABLE_DESC v{};D3D11_SHADER_TYPE_DESC t{};
-        check(variable->GetDesc(&v),"Terrain source camera lane");check(variable->GetType()->GetDesc(&t),"Terrain source camera lane type");
-        if(v.Size!=size||v.StartOffset>bufferDesc.Size||size>bufferDesc.Size-v.StartOffset||
-            t.Class!=kind||t.Type!=type||t.Rows!=rows||t.Columns!=columns||t.Elements!=elements||t.Members)
-            throw std::runtime_error("Terrain source camera lane layout differs");
-        return int(v.StartOffset);
-    };
-    std::vector<std::pair<UINT,UINT>> ranges;
-    for(UINT i=0;i<bufferDesc.Variables;++i) {
-        auto variable=globals->GetVariableByIndex(i);D3D11_SHADER_VARIABLE_DESC description{};
-        check(variable->GetDesc(&description),"Terrain source constant field");
-        if(!description.Name||!description.Size||description.StartOffset%4||description.StartOffset>bufferDesc.Size||
-            description.Size>bufferDesc.Size-description.StartOffset)
-            throw std::runtime_error("Terrain source constant field range differs");
-        ranges.emplace_back(description.StartOffset,description.StartOffset+description.Size);
-        auto capture=[&](int& offset,UINT size,D3D_SHADER_VARIABLE_CLASS kind,D3D_SHADER_VARIABLE_TYPE type,
-            UINT rows,UINT columns,UINT elements) {
-            if(offset>=0)throw std::runtime_error("Terrain source constant field duplicated");
-            offset=lane(variable,size,kind,type,rows,columns,elements);
-        };
-        if(vertex&&std::strcmp(description.Name,"mW2P")==0)
-            capture(result.worldToProjection,64,D3D_SVC_MATRIX_ROWS,D3D_SVT_FLOAT,4,4,0);
-        else if(!vertex&&std::strcmp(description.Name,"mWV")==0)
-            capture(result.worldToView,48,D3D_SVC_VECTOR,D3D_SVT_FLOAT,1,4,3);
-        else if(!vertex&&std::strcmp(description.Name,"vEye")==0)
-            capture(result.eye,16,D3D_SVC_VECTOR,D3D_SVT_FLOAT,1,4,0);
-        else if(!vertex&&std::strcmp(description.Name,"vDtlTexIdx")==0) {
-            D3D11_SHADER_TYPE_DESC type{};check(variable->GetType()->GetDesc(&type),"Terrain source palette type");
-            if(!type.Elements||type.Elements>255)throw std::runtime_error("Terrain source palette capacity differs");
-            capture(result.detailTextureIndex,(type.Elements-1)*16+4,D3D_SVC_SCALAR,D3D_SVT_INT,1,1,type.Elements);
-            result.detailTextureCapacity=type.Elements;
-        }
-    }
-    std::sort(ranges.begin(),ranges.end());
-    for(size_t i=1;i<ranges.size();++i)if(ranges[i-1].second>ranges[i].first)
-        throw std::runtime_error("Terrain source constant fields overlap");
-    if(vertex?result.worldToProjection<0:result.worldToView<0)
-        throw std::runtime_error("Terrain source camera matrix absent");
+    const fs::path& source,const San14::Render::NativeTerrainProgramConstantLayout& layout,const char* constantFile) {
+    NativeTerrainCameraConstant result;
+    static_cast<San14::Render::NativeTerrainProgramConstantLayout&>(result)=layout;
+    result.bytes=load(source/constantFile);
+    if(result.bytes.size()!=layout.bufferBytes)throw std::runtime_error("Terrain source complete CB size differs");
     return result;
 }
-inline NativeTerrainCameraConstants prepareNativeTerrainCameraConstants(const fs::path& source) {
+// Explicit standalone compatibility: no application GPU-bank borrow exists.
+inline NativeTerrainCameraConstant prepareNativeTerrainCameraConstant(
+    const fs::path& source,const char* shaderFile,const char* constantFile,bool vertex) {
+    const auto code=load(source/shaderFile);
+    return prepareNativeTerrainCameraConstant(source,
+        San14::Render::readNativeTerrainProgramConstantLayout({code.data(),code.size()},vertex),constantFile);
+}
+inline NativeTerrainCameraConstants prepareNativeTerrainCameraConstants(const fs::path& source,
+        const San14::Render::NativeTerrainPrograms* programs=nullptr) {
+    if(programs) {
+        const auto& layouts=programs->constants;
+        return {prepareNativeTerrainCameraConstant(source,layouts[0],"near-vs-b0.bin"),
+            prepareNativeTerrainCameraConstant(source,layouts[1],"near-ps-b0.bin"),
+            prepareNativeTerrainCameraConstant(source,layouts[2],"coarse-vs-b0.bin"),
+            prepareNativeTerrainCameraConstant(source,layouts[3],"coarse-ps-b0.bin")};
+    }
     return {prepareNativeTerrainCameraConstant(source,"near-vs.dxbc","near-vs-b0.bin",true),
         prepareNativeTerrainCameraConstant(source,"near-ps.dxbc","near-ps-b0.bin",false),
         prepareNativeTerrainCameraConstant(source,"coarse-vs.dxbc","coarse-vs-b0.bin",true),
@@ -114,10 +75,10 @@ inline ComPtr<ID3D11Buffer> terrainCameraDefaultBuffer(ID3D11Device* device,
 inline NativeTerrainCameraGpu prepareNativeTerrainCameraGpu(ID3D11Device* device,
     const fs::path& source,ID3D11InputLayout* layout,ID3D11Buffer* positions,ID3D11Buffer* indices,
     ID3D11VertexShader* fineVs,ID3D11PixelShader* finePs,ID3D11VertexShader* coarseVs,ID3D11PixelShader* coarsePs,
-    UINT indexCount) {
+    UINT indexCount,const San14::Render::NativeTerrainPrograms* programs=nullptr) {
     NativeTerrainCameraGpu owner;owner.layout=layout;owner.positions=positions;owner.indices=indices;owner.indexCount=indexCount;
     owner.vertexShaders[0]=fineVs;owner.vertexShaders[1]=coarseVs;owner.pixelShaders[0]=finePs;owner.pixelShaders[1]=coarsePs;
-    owner.constants=prepareNativeTerrainCameraConstants(source);
+    owner.constants=prepareNativeTerrainCameraConstants(source,programs);
     for(UINT i=0;i<4;i++){const auto& bytes=owner.constants[i].bytes;
         owner.buffers[i]=terrainCameraDefaultBuffer(device,bytes.data(),UINT(bytes.size()),D3D11_BIND_CONSTANT_BUFFER);}
     const auto initial=load(source/"instances.bin");
@@ -127,7 +88,14 @@ inline NativeTerrainCameraGpu prepareNativeTerrainCameraGpu(ID3D11Device* device
     // The original primary producer also caps at1024. No current64-row restriction.
     std::vector<char> allocation(owner.instanceCapacity*sizeof(source_camera::Instance),0);
     std::copy(initial.begin(),initial.end(),allocation.begin());
-    owner.instances=terrainCameraDefaultBuffer(device,allocation.data(),UINT(allocation.size()),D3D11_BIND_VERTEX_BUFFER);
+    // The instance stream is rewritten once before the current Shadow/Main
+    // consumers. DISCARD lets D3D11 retain an in-flight frame's backing while
+    // this owner supplies the next complete live instance set.
+    D3D11_BUFFER_DESC stream{};stream.ByteWidth=UINT(allocation.size());
+    stream.Usage=D3D11_USAGE_DYNAMIC;stream.BindFlags=D3D11_BIND_VERTEX_BUFFER;
+    stream.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
+    D3D11_SUBRESOURCE_DATA initialStream{};initialStream.pSysMem=allocation.data();
+    check(device->CreateBuffer(&stream,&initialStream,&owner.instances),"Terrain dynamic instance stream");
     owner.instanceCount=UINT(initial.size()/sizeof(source_camera::Instance));
     NativePreparedInputFile input(source/"batches.txt");source_camera::Batch row;
     while(input>>row.group>>row.start>>row.count>>row.coarse)owner.batches.push_back(row);
@@ -141,9 +109,14 @@ inline void updateNativeTerrainCameraGpu(ID3D11DeviceContext* context,NativeTerr
     applyNativeTerrainCameraConstants(owner.constants,current.prefix);
     for(UINT i=0;i<4;i++)context->UpdateSubresource(owner.buffers[i].Get(),0,nullptr,owner.constants[i].bytes.data(),0,0);
     if(owner.instanceCount){
-        // Buffer box is byte-addressed: upload actual live rows, not the stale capacity tail.
-        D3D11_BOX box{0,0,0,owner.instanceCount*UINT(sizeof(source_camera::Instance)),1,1};
-        context->UpdateSubresource(owner.instances.Get(),0,&box,current.instances.data(),0,0);
+        // Every current live row is supplied after DISCARD. The unused capacity
+        // tail has no consumer: both passes draw only the current batch ranges.
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        check(context->Map(owner.instances.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped),
+            "Terrain current instance stream discard");
+        std::memcpy(mapped.pData,current.instances.data(),
+            size_t(owner.instanceCount)*sizeof(source_camera::Instance));
+        context->Unmap(owner.instances.Get(),0);
     }
 }
 struct NativeTerrainCameraDrawBindings {

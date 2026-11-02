@@ -36,16 +36,18 @@ internal static class NormalCombatImmediateContinuationValidation
 {
     //Collection shape/ranges are admitted once by the save decoder. Normal
     //lifecycle checks only inspect the retained cursor and current position.
-    internal static void Validate(GameState state)
+    internal static void Validate(GameState state, CampaignOperationWorldContext? operationContext = null)
     {
         if (state.NormalCombatImmediateContinuation is not { } value)
         {
-            if (state.NativePeriodContinuation?.Cursor is { StageIndex: 13 })
+            if (state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } || operationContext?.Moment is { SchedulerStageIndex: 13 })
                 throw new InvalidDataException("The immediate combat phase has no retained snapshot.");
             return;
         }
-        if (state.NativePeriodContinuation?.Cursor is not { StageIndex: 13 } ||
-            state.ArmyDefeatContinuation is not { SettlementIndex: -1 } && state.BaseCaptureContinuation is not { SettlementIndex: -1 } ||
+        if (state.NativePeriodContinuation?.Cursor is not { StageIndex: 13 } && operationContext?.Moment is not { SchedulerStageIndex: 13 } ||
+            state.ArmyDefeatContinuation is not { SettlementIndex: -1 } && state.BaseCaptureContinuation is not { SettlementIndex: -1 } &&
+            state.ArmyReturnCaptiveContinuation is not { Caller: ArmyReturnCaptiveCaller.BaseCapture, CaptureTail.SettlementIndex: -1 } &&
+            state.CityCaptureEmperorTail is not { SettlementIndex: -1 } && state.BaseWinnerEmperorTail is not { SettlementIndex: -1 } ||
             value.Actors.IsDefault || value.OrderedPairs.IsDefaultOrEmpty || value.ArmyDescriptors is null ||
             value.PairIndex < 0 || value.PairIndex >= value.OrderedPairs.Length)
             throw new InvalidDataException("The immediate combat continuation has no matching phase or current pair.");
@@ -53,7 +55,9 @@ internal static class NormalCombatImmediateContinuationValidation
             throw new InvalidDataException("A combat instruction cannot have both an Army and a Base caster.");
         if (value.PendingAutomaticFatalFeedback && (value.AutomaticExecution is not null || value.BaseAutomaticExecution is not null ||
             value.OrderedPairs[value.PairIndex] is not { Actor.Kind: 27, Target.Kind: 5 or 6 } ||
-            state.BaseCaptureContinuation is not { SettlementIndex: -1 }))
+            state.BaseCaptureContinuation is not { SettlementIndex: -1 } &&
+            state.ArmyReturnCaptiveContinuation is not { Caller: ArmyReturnCaptiveCaller.BaseCapture, CaptureTail.SettlementIndex: -1 } &&
+            state.CityCaptureEmperorTail is not { SettlementIndex: -1 }))
             throw new InvalidDataException("The pending fatal feedback has no matching ordinary Army-to-Base occupation.");
         if (value.BaseAutomaticExecution is { } baseAutomatic)
         {

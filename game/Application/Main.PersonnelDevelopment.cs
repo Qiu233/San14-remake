@@ -44,7 +44,8 @@ public partial class Main
             BeginPersonnelAdministration(view, session, world, map, () =>
             {
                 view.Configure(_repository, _ui, () => IsPersonnelAdministrationCurrent(view), RequestPersonnelAdministrationBack,
-                    keepOpen => RunPlayAction(() => Submit(view, draft.BuildOrder(), keepOpen)), ChooseCity, ChoosePeople);
+                    keepOpen => RunPlayAction(() => Submit(view, draft.BuildOrder(), keepOpen)), ChooseCity, ChoosePeople,
+                    TryBorrowApplicationUiResources(view));
                 Refresh();
             }, view.Abandon, ClosePersonnelAdministration);
 
@@ -254,7 +255,7 @@ public partial class Main
                 {
                     if (!IsPersonnelAdministrationCurrent(parent) || _personnelDevelopmentPeople != selector) return;
                     ClosePersonnelAdministrationPeople(); busy(false); selected(result);
-                }), CurrentListScrollSpeed);
+                }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(selector));
         }
         catch { ClosePersonnelAdministrationPeople(); busy(false); throw; }
     }

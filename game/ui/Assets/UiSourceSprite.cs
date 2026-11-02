@@ -1,12 +1,13 @@
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 
 /// <summary>Original linear UI blending over the preceding Canvas RGB.
 /// Clipped buttons reproduce the mask and both base draws locally, because
 /// Canvas screen copies do not preserve the destination alpha channel.</summary>
 internal partial class UiSourceSprite : Control, IUiSourceDrawing
 {
-    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask, UniqueRulerPortrait, TranslatedAlphaMask, PoemScroll }
+    internal enum Blend { Ordinary, ClippedButton, ThreeTexturePortrait, TwoTexturePortrait, SourceAlphaDestinationAlpha, GaugeUvMask, Additive, AlphaMask, UniqueRulerPortrait, TranslatedAlphaMask, PoemScroll, DestinationAlphaAdditive }
     private Rid _copy, _draw;
     private ShaderMaterial? _material;
     private Texture2D? _texture;
@@ -16,6 +17,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
     private bool _flipU, _flipV;
     private Rect2? _samplingRectangle;
     private bool _addressedSampling;
+    private bool _nativePortrait, _portraitWrapU, _portraitWrapV;
     private uint? _drawingVisibilityLayer;
 
     // A prefix capture needs structural ancestors in several layers, while
@@ -76,6 +78,14 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             clip.Position.Y, clip.Size.X, clip.Size.Y));
     }
 
+    internal void SetEncodedPortraitSampling(San14.Data.Formats.G1TextureImage image)
+    {
+        var sampler=G1TextureSamplerReader.ReadRetainedSource(image);
+        _nativePortrait=true;_portraitWrapU=sampler.AddressU==1;_portraitWrapV=sampler.AddressV==1;
+        _material!.SetShaderParameter("native_portrait",true);
+        _material.SetShaderParameter("portrait_wrap",new Vector2(_portraitWrapU?1:0,_portraitWrapV?1:0));
+    }
+
     internal void SetSamplingRectangle(Rect2 rectangle)
     {
         if(!float.IsFinite(rectangle.Position.X)||!float.IsFinite(rectangle.Position.Y)||
@@ -108,6 +118,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         SetNotifyTransform(true);
         _material = new ShaderMaterial { Shader = shader };
         _addressedSampling=false;
+        _nativePortrait=_portraitWrapU=_portraitWrapV=false;
         _materialColorScale = 0x00FFFFFF;
         _materialColorOffset = 0;
         _material.SetShaderParameter("material_color_scale", Vector3.One);
@@ -122,6 +133,49 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         _texture = texture;
         _colors = colors;
         QueueRedraw();
+    }
+
+    // Both fresh Art and retained button artwork consume the same resolved
+    // parts. Shader programs and blending arithmetic remain unchanged.
+    internal void ConfigureArtwork(Shader shader, UiSourceArtPart part)
+    {
+        Configure(shader, part.Texture, part.Blend, part.Colors);
+        if (part.Material is { } material)
+        {
+            SetMaterialColorScale(material.ColorScale);
+            SetMaterialColorOffset(material.ColorOffset);
+            SetMaterialSaturation(material.Saturation);
+            SetSourceAlpha(material.Alpha);
+        }
+        ApplyArtworkSampling(part);
+    }
+
+    internal void ApplyArtwork(UiSourceArtPart part)
+    {
+        SetSource(part.Texture, part.Colors);
+        _material!.SetShaderParameter("blend_kind", (int)part.Blend);
+        SetMaterialColorScale(part.Material?.ColorScale ?? 0x00FFFFFF);
+        SetMaterialColorOffset(part.Material?.ColorOffset ?? 0);
+        SetMaterialSaturation(part.Material?.Saturation ?? 1f);
+        SetSourceAlpha(part.Material?.Alpha ?? 255);
+        // Clear the previous state's addressing and constant-UV branch before
+        // applying this part. A normal source part cannot inherit either.
+        _samplingRectangle = null;
+        _addressedSampling = false;
+        _material.SetShaderParameter("addressed_sampling", false);
+        ApplyArtworkSampling(part);
+        // State changes can occur in the button's Canvas redraw callback,
+        // after ordinary redraw scheduling. Record pure drawing commands now
+        // so the existing render frame sees the new state immediately.
+        if (IsInsideTree()) RecordDrawing();
+    }
+
+    private void ApplyArtworkSampling(UiSourceArtPart part)
+    {
+        if (part.AddressedRectangle is { } addressed)
+            SetAddressedSampling(addressed, part.Addressing.AddressU, part.Addressing.AddressV);
+        if (part.SamplingRectangle is { } sample) SetSamplingRectangle(sample);
+        SetUvFlip(part.FlipU, part.FlipV);
     }
 
     //The layout material has a separate RGB scale, independent of the
@@ -200,7 +254,9 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         if (what == NotificationTransformChanged || what == NotificationResized) QueueRedraw();
     }
 
-    public override void _Draw()
+    public override void _Draw() => RecordDrawing();
+
+    private void RecordDrawing()
     {
         if (_texture is null || _material is null) return;
         if (!_draw.IsValid)
@@ -216,6 +272,8 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             RenderingServer.CanvasItemSetDefaultTextureFilter(_draw, RenderingServer.CanvasItemTextureFilter.Linear);
         }
         Rect2 rectangle = new(Vector2.Zero, Size);
+        if(_nativePortrait)RenderingServer.CanvasItemSetDefaultTextureRepeat(_draw,(_portraitWrapU||_portraitWrapV)
+            ?RenderingServer.CanvasItemTextureRepeat.Enabled:RenderingServer.CanvasItemTextureRepeat.Disabled);
         _material.SetShaderParameter("draw_size", Size);
         UiSourceBackBufferCopy.Configure(this, _copy, rectangle.Grow(1));
         Texture2D texture = _texture;
@@ -270,6 +328,8 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
         uniform float pane_alpha = 1.0;
         uniform vec4 component_rotation = vec4(1.0, 0.0, 0.0, 1.0);
         uniform bool has_component_rotation = false;
+        uniform bool native_portrait = false;
+        uniform vec2 portrait_wrap = vec2(0.0);
         uniform bool addressed_sampling = false;
         uniform vec4 source_region;
         uniform vec4 sampling_uv;
@@ -296,6 +356,15 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                 local=vec2(address_local(local.x,source_address.x),address_local(local.y,source_address.y));
                 image_uv=source_region.xy+source_region.zw*local;
             }
+            if(native_portrait && any(greaterThan(portrait_wrap,vec2(0.5)))) {
+                // The canvas repeat sampler wraps both axes. A clamped axis
+                // is bounded at its edge texel centres before that sampler,
+                // preserving the source's independent U/V address modes.
+                vec2 edge=vec2(0.5)/vec2(textureSize(TEXTURE,0));
+                image_uv=mix(clamp(image_uv,edge,vec2(1.0)-edge),image_uv,portrait_wrap);
+            }
+            // Portraits retain their original typed sRGB/UNORM view. Hardware
+            // performs texel decode, coordinate addressing and linear filtering.
             vec4 sample_color = texture(TEXTURE, image_uv);
             // The source image was decoded per texel before bilinear sampling.
             // These sprite nodes use compare=7: even alpha zero must write.
@@ -306,7 +375,7 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                 // PS13/20 add black using the original pre-white endpoint C.
                 src.rgb += (vec3(1.0) - base_rgb) * material_color_offset;
             }
-            if (material_saturation != 1.0) {
+            if (material_saturation != 1.0 && blend_kind != 2 && blend_kind != 3) {
                 float gray = dot(src.rgb, vec3(0.298910, 0.586610, 0.114480));
                 src.rgb = material_saturation * (src.rgb - vec3(gray)) + vec3(gray);
             }
@@ -328,6 +397,18 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             } else if (blend_kind == 7) {
                 // Source nine-slice 00011000: RGB ZERO/ONE, A ONE/ZERO.
                 alpha = src.a;
+            } else if (blend_kind == 11) {
+                // Domestic 00114800: RGB DEST_ALPHA/ONE, A SRC_ALPHA/ONE.
+                // Reconstruct the preceding alpha-only pane inside its
+                //actual rectangle, rather than relying on a canvas copy there.
+                vec2 point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
+                float destination_alpha = dst.a;
+                if (all(greaterThanEqual(point, vec2(0.0))) && all(lessThanEqual(point, vec2(1.0)))) {
+                    destination_alpha = texture(mask_image, mask_uv.xy + point * mask_uv.zw).a * sprite_tint.a;
+                    destination_alpha = floor(clamp(destination_alpha, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+                }
+                rgb += src.rgb * destination_alpha;
+                alpha = src.a * src.a + destination_alpha;
             } else if (blend_kind == 1) {
                 vec2 mask_point = (local_position - mask_rectangle.xy) / mask_rectangle.zw;
                 float coverage = texture(mask_image, mask_uv.xy + mask_point * mask_uv.zw).a;
@@ -366,6 +447,12 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
                     vec4 second_mask = texture(second_mask_image, second_mask_uv.xy + second_point * second_mask_uv.zw);
                     portrait_rgb *= second_mask.rgb;
                     portrait_alpha = max(portrait_alpha, second_mask.a);
+                }
+                // PS19 applies the group saturation after the mask RGB
+                // product. Desaturating the portrait alone changes colours.
+                if (material_saturation != 1.0) {
+                    float gray = dot(portrait_rgb, vec3(0.298910, 0.586610, 0.114480));
+                    portrait_rgb = material_saturation * (portrait_rgb - vec3(gray)) + vec3(gray);
                 }
                 portrait_alpha *= sprite_tint.a;
                 rgb = portrait_rgb * portrait_alpha + rgb * (1.0 - portrait_alpha);

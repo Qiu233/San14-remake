@@ -19,10 +19,12 @@ public sealed class DirectionalLightCurrentCameraPacket
     private readonly byte[] bytes;
     internal DirectionalLightCurrentCameraPacket(DirectionalLightConstructionPacket source,
         CameraDirectionalLightDataPacket result)
-    {Construction=source;bytes=result.Bytes;Applied=result.Applied;}
+    {Construction=source;bytes=result.Bytes;Applied=result.Applied;SourceHighBitSwappedRows=result.SourceHighBitSwappedRows;}
     public DirectionalLightConstructionPacket Construction { get; }
     public ReadOnlyMemory<byte> Bytes=>bytes.ToArray();
     public bool Applied { get; }
+    public bool SourceHighBitSwappedRows {get;}
+    internal ReadOnlySpan<byte> PreparedBytes => bytes;
 }
 
 /// <summary>Independently owned complete source-constructor and null-Camera
@@ -79,6 +81,23 @@ public sealed class DirectionalLightConstructionPacket
 /// directly in C# and have no original executable or instruction dependency.</summary>
 public static partial class DirectionalLightConstruction
 {
+    /// <summary>The opening borrows one physical texture owner per root slot.
+    /// Admit a mode child only when its actual resolved texture bindings share
+    /// those same owners. The CPU provider-list slot is independently selected.</summary>
+    public static void RequireSharedPhysicalTextureSlots(DirectionalLightConstructionPacket root,
+        DirectionalLightConstructionPacket child)
+    {
+        ArgumentNullException.ThrowIfNull(root);ArgumentNullException.ThrowIfNull(child);
+        if(!ReferenceEquals(root.Source,child.Source))
+            throw new InvalidDataException("Mode child texture slots belong to another source generation.");
+        foreach(var slot in root.ResourceSlots.Where(slot=>slot.RequiredInterfaceClassId==StaticTextureResources.TextureInterfaceClassId))
+        {
+            var selected=child.ResourceSlots[slot.Slot];
+            if(selected.RequiredInterfaceClassId!=slot.RequiredInterfaceClassId||selected.EffectiveDataHandle!=slot.EffectiveDataHandle||
+                selected.ResolvedObjectKey!=slot.ResolvedObjectKey)
+                throw new NotSupportedException("Mode child changes a physical Directional texture slot and requires actual bank selection.");
+        }
+    }
     public const int LightDataBytes=0x10C0;
 
     public static DirectionalLightConstructionPacket Apply(MapSeasonDirectionalLightSourceSet source,

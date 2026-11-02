@@ -56,7 +56,8 @@ public sealed partial class CampaignComposition
         PersonnelGroupMoveDestinations? retainedPersonnelGroupMoveDestinations = null,
         Func<LoadedScenario,LoadedScenario>? loadedScenarioTransform = null,
         Func<PlayableRuleSet, int, ICommandPlanner>? commandPlannerFactory = null,
-        OriginalAiStrategyHostConfiguration? originalAiStrategy = null)
+        OriginalAiStrategyHostConfiguration? originalAiStrategy = null,
+        CampaignArmyProgressOperation? restoredArmyProgress = null)
     {
         RequireUnambiguousPlanner(originalAiStrategy, commandPlannerFactory);
         LoadedScenario scenario = repository.LoadScenario(selection);
@@ -73,7 +74,7 @@ public sealed partial class CampaignComposition
         if (restoredPlayerForceId.HasValue && restored is null)
             throw new InvalidDataException("Restoring a local player requires the saved campaign world.");
         if (restored is not null) composition.ValidateRestoredContent(restored, initial);
-        if ((restoredProgress is not null || restoredManualTactic is not null || restoredNormalPeriod is not null) && (!restoredPlayerForceId.HasValue || restored is null))
+        if ((restoredProgress is not null || restoredManualTactic is not null || restoredNormalPeriod is not null || restoredArmyProgress is not null) && (!restoredPlayerForceId.HasValue || restored is null))
             throw new InvalidDataException("A pending operation requires its actual restored player session.");
         GameState world = restored ?? initial;
         if (restoredPlayerForceId is int player)
@@ -88,7 +89,7 @@ public sealed partial class CampaignComposition
                     new(CampaignEntryKind.RestoreCampaign, null, null, null)));
             GameplaySession session = GameplaySession.Restore(world, player,
                 prepared.Rules, Calendar(prepared.Army), composition._saveCodec, restoredProgress, lastStorySequence, restoredManualTactic,
-                restoredNormalPeriod, commandPlannerFactory);
+                restoredNormalPeriod, commandPlannerFactory, restoredArmyProgress);
             composition._army = prepared.Army;
             return new(composition, territory, session, prepared.Presentation);
         }

@@ -51,8 +51,7 @@ public sealed class AudioRepository
         string archiveName = "RRPreview")
     {
         _ = GameResourceId.Rdb(archiveName, 0);
-        _sourceDirectory = Path.GetFullPath(sourceDirectory ?? Environment.GetEnvironmentVariable("SAN14_SOURCE_DIR")
-            ?? GameResourceRepository.DefaultSource);
+        _sourceDirectory = Path.GetFullPath(GameResourceRepository.ResolveConfiguredSourceDirectory(sourceDirectory));
         _archiveName = archiveName;
         _rdbPath = Path.Combine(_sourceDirectory, "0002", archiveName + ".rdb");
         _overrides = new ResourceOverrides(overridesDirectory ?? Environment.GetEnvironmentVariable("SAN14_OVERRIDE_DIR"));

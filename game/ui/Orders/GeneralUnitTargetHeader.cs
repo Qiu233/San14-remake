@@ -10,19 +10,24 @@ internal partial class GeneralUnitTargetHeaderView : Control
     private UiAssets assets=null!;
     private Shader shader=null!;
     private MapFont font=null!;
+    private bool ownsResources;
     private readonly Dictionary<int,UiSourceText> values=[];
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
-        GeneralUnitTargetHeader publication)
+        GeneralUnitTargetHeader publication, AdministrationPageChrome.Resources? resources = null)
     {
         Name="GeneralUnitTargetDispatchHeader";MouseFilter=MouseFilterEnum.Ignore;
-        var root=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,GeneralUnitTargetHeaderSources.LayoutName));
-        var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,GeneralUnitTargetHeaderSources.ContentLayoutName));
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
+        font=resources?.Font??new(repository,text.SourceLocale);
+        var root=assets.SourceLayout(GeneralUnitTargetHeaderSources.LayoutName);
+        var source=assets.SourceLayout(GeneralUnitTargetHeaderSources.ContentLayoutName);
         Size=root.Rectangle(0).Size;
         //7D3200 replaces root node1; its authored descendants are not drawn a
         //second time. Root node19 (advice) is explicitly hidden by that caller.
         Vector2 mount=root.Rectangle(GeneralUnitTargetHeaderSources.ContentMountNode).Position;
-        assets=new(repository);shader=UiSourceSprite.CreateShader();font=new(repository,text.SourceLocale);
+        // The header borrows the containing target page's static resources.
         foreach(var node in source.Nodes)
         {
             if(node.Type is 1 or 3)source.Art(this,node.Index,source.Rectangle(node.Index,mount),assets,shader);
@@ -53,5 +58,5 @@ internal partial class GeneralUnitTargetHeaderView : Control
     }
 
     private static string Number(int value)=>value.ToString(CultureInfo.InvariantCulture);
-    public override void _ExitTree(){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 }

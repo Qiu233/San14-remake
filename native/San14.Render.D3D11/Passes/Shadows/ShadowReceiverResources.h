@@ -24,7 +24,7 @@ struct PatternSampling {
 };
 class NativeShadowReceiverResources {
 public:
-    void prepare(ID3D11Device* device,const fs::path& root) {
+    void prepare(ID3D11Device* device,const fs::path& root,const fs::path& patternRoot) {
         auto nodes=Interop::readShadowReceiverNodes(root/"nodes.tsv");
         NativePreparedInputFile atlasDeclaration(root/"shadow-atlas-object.txt");
         std::uint32_t atlasObject{};std::string extra;
@@ -63,19 +63,38 @@ public:
             }
             providers.emplace(id,std::move(provider));
         }
-        auto textures=ambientTextures(device,root/"fallback","texture.tsv",1);
-        if(textures.front().program!="Lit"||textures.front().slot!=0)
-            throw std::runtime_error("Receiver fallback requires the declared Lit image");
+        // Program banks and samplers are application-static. Pattern images
+        // belong to this opening's current season and remain independently replaceable.
+        auto pattern=preparePatternResourceReplacement(device,patternRoot);
         auto shadowSampler=ambientSampler(device,root/"shadow-sampler-desc.bin");
         auto pointSampler=ambientSampler(device,root/"point-sampler-desc.bin");
         auto defaultSampler=ambientSampler(device,root/"default-sampler-desc.bin");
+        nodes_=std::move(nodes);providers_=std::move(providers);
+        shadowSampler_=std::move(shadowSampler);pointSampler_=std::move(pointSampler);
+        defaultSampler_=std::move(defaultSampler);
+        installPatternResourceReplacement(std::move(pattern));
+    }
+    struct PatternResourceReplacement {
+        AmbientNativeTextureBinding fallback;
+        std::optional<AmbientNativeTextureBinding> merged;
+        std::map<std::uint32_t,std::optional<AmbientNativeTextureBinding>> locals;
+    };
+    PatternResourceReplacement preparePatternResourceReplacement(ID3D11Device* device,const fs::path& root) const {
+        // Identical image and sampler identities keep their existing physical
+        // owner. A changed generation is fully prepared before installation.
+        std::vector<AmbientNativeTextureBinding> reusable;
+        if(fallback_.resource&&fallback_.view&&fallback_.sampler)reusable.push_back(fallback_);
+        if(merged_)reusable.push_back(*merged_);
+        for(const auto& [light,texture]:locals_)if(texture)reusable.push_back(*texture);
         auto readLit=[&](const fs::path& directory) {
-            auto values=ambientTextures(device,directory,"texture.tsv",1);
+            auto values=ambientTextures(device,directory,"texture.tsv",1,false,&reusable);
             if(values.front().program!="Lit"||values.front().slot!=0)
                 throw std::runtime_error("Ordinary Pattern requires its actual Lit image");
+            reusable.push_back(values.front());
             return std::move(values.front());
         };
         const auto textureInputs=Interop::readOrdinaryPatternTextureInputs(root);
+        auto fallback=readLit(root/"fallback");
         std::optional<AmbientNativeTextureBinding> merged;
         if(textureInputs.mergedPresent)merged=readLit(root/"merged");
         std::map<std::uint32_t,std::optional<AmbientNativeTextureBinding>> locals;
@@ -84,9 +103,11 @@ public:
             if(input.present)texture=readLit(root/input.directory);
             locals.emplace(input.lightObject,std::move(texture));
         }
-        nodes_=std::move(nodes);providers_=std::move(providers);
-        fallback_=std::move(textures.front());shadowSampler_=std::move(shadowSampler);pointSampler_=std::move(pointSampler);
-        merged_=std::move(merged);locals_=std::move(locals);defaultSampler_=std::move(defaultSampler);
+        return {std::move(fallback),std::move(merged),std::move(locals)};
+    }
+    void installPatternResourceReplacement(PatternResourceReplacement prepared) noexcept {
+        fallback_=std::move(prepared.fallback);
+        merged_=std::move(prepared.merged);locals_=std::move(prepared.locals);
     }
     const ShadowReceiverNode& node(std::uint32_t index) const{return nodes_.at(index);}
     const NativeShadowReceiverProvider& provider(std::uint32_t id) const{return providers_.at(id);}

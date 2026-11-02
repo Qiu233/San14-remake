@@ -105,6 +105,8 @@ public sealed partial class MapSourceCreatedLightingPacket
     {
         if (directionalConstruction is null)
             throw new NotSupportedException("This finite record producer requires the accepted Directional actor.");
+        if(selectedDirectionalProviderFrame is { } selected)
+            return DeferredEarlyShadowRecordProducer.FromSourceRetainedProvider(actualRecord,selected);
         return directionalProviderFrame is { } provider
             ? DeferredEarlyShadowRecordProducer.FromFreshZeroPairTemporary(actualRecord, provider)
             : DeferredEarlyShadowRecordProducer.FromDirectSourceRetainedActor(actualRecord, directionalConstruction);

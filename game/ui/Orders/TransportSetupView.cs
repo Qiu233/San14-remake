@@ -25,6 +25,7 @@ internal partial class TransportSetupView : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Control canvas = null!, body = null!;
     internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
     private UiSourceHeader header = null!;
@@ -45,13 +46,14 @@ internal partial class TransportSetupView : Control
     private string unknown = "";
 
     internal bool HasCalculator => calculator is not null;
+    internal AdministrationPageChrome.Resources SourceResources => new(assets!,font!,shader!);
     internal void RequestBack() { if (Admitted()) returned?.Invoke(); }
     internal void ApplyHint(string value) { if (!abandoned) hint.Text = value; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         TransportSetupPresentation initial, Action chooseOfficer,
         Action<TransportSetupQuantity, int> amountChanged, Action accepted,
-        Action returned, Func<bool> inputAdmitted)
+        Action returned, Func<bool> inputAdmitted, AdministrationPageChrome.Resources? resources=null)
     {
         if (configured || assets is not null) throw new InvalidOperationException("Transport Make is configured once.");
         ArgumentNullException.ThrowIfNull(initial);
@@ -62,14 +64,15 @@ internal partial class TransportSetupView : Control
         Name = "TransportSetup"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         unknown = text.Get("detail_unknown");
-        assets = new(repository); font = new(repository, text.SourceLocale);
-        shader = UiSourceSprite.CreateShader();
-        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository,assets.SourceLayout(0xAEF1609E));
         canvas = new Control { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         // The exact installed geometry is consumed, never an ordinary-Make
         // substitute. The first actual load is still a separate verification.
-        var page = new UiSourceLayout(TransportSetupLayoutSource.Load(repository));
+        var page = assets.SourceLayout(TransportSetupLayoutSource.Load(repository).Source.FileId);
         body = new Control { Name = "TransportPage", Position = new(460, 230),
             Size = page.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Pass };
         canvas.AddChild(body);
@@ -236,7 +239,7 @@ internal partial class TransportSetupView : Control
                 if (result is int selected && Admitted() &&
                     amounts.GetValueOrDefault(kind) is { Enabled: true, ValueKnown: true, ProfileKnown: true })
                     amountChanged?.Invoke(kind, selected);
-            }, body.Position + new Vector2(412, 106));
+            }, body.Position + new Vector2(412, 106),resources:SourceResources);
         }
         catch { calculator = null; dialog.Abandon(); dialog.QueueFree(); RefreshInput(); throw; }
     }
@@ -272,5 +275,5 @@ internal partial class TransportSetupView : Control
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - canvas.Size * scale) / 2;
     }
     public override void _ExitTree()
-    { Abandon(); CommonBackdrop = null!; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    { Abandon(); CommonBackdrop = null!; if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();} }
 }

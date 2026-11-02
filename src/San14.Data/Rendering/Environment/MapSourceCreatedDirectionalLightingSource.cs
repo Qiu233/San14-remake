@@ -44,6 +44,10 @@ public sealed class MapSourceCreatedDirectionalLightingSource
         DirectionalProviderCallerCurrentFrame providerFrame)
         =>PrepareFrameCore(input,providerFrame??throw new ArgumentNullException(nameof(providerFrame)));
 
+    public MapSourceCreatedLightingPacket PrepareFrame(MapSourceCreatedLightingFrameInputs input,
+        DirectionalProviderCurrentFrame selected)
+        =>MapSourceCreatedLighting.PrepareDirectional(this,input,selected);
+
     private MapSourceCreatedLightingPacket PrepareFrameCore(MapSourceCreatedLightingFrameInputs input,
         DirectionalProviderCallerCurrentFrame? providerFrame)
     {

@@ -21,18 +21,19 @@ public partial class SceneAudioSession
     }
 
     private readonly Dictionary<string, ArmySpeechVoice> _armySpeechVoices = [];
-    private readonly Dictionary<NarrationVoiceLanguage, Task<(AudioSelectionBank Bank, LoadedRdbAsset Categories)>> _armySpeechBanks = [];
+    private readonly Dictionary<uint, Task<(AudioSelectionBank Bank, LoadedRdbAsset Categories)>> _armySpeechBanks = [];
     private OriginalSpatialOutput? _armySpeechOutput;
     private long _armySpeechVoiceSequence;
 
     //Loading is asynchronous and precedes the formatting transaction. A pending
     //bank leaves the source entry untouched; it does not draw App or reject a voice.
-    internal bool PrepareArmySpeechBank(NarrationVoiceLanguage language)
+    internal bool PrepareArmySpeechBank(NarrationVoiceLanguage language, int voiceId = 3)
     {
         RequireEngineThread();
         if (_repository is null || _sceneCancellation is null || _streams is null || _service is null)
             throw new InvalidOperationException("Army speech needs an active audio scene.");
-        if (!_armySpeechBanks.TryGetValue(language, out var pending))
+        uint bankId = NarrationVoiceSelection.Bank(language, voiceId).SelectionBankId;
+        if (!_armySpeechBanks.TryGetValue(bankId, out var pending))
         {
             var repository = _repository;
             var token = _sceneCancellation.Token;
@@ -41,11 +42,11 @@ public partial class SceneAudioSession
                 lock (repository)
                 {
                     token.ThrowIfCancellationRequested();
-                    return (AudioSelectionResources.Load(repository, NarrationVoiceSelection.Bank(language, 3).SelectionBankId),
+                    return (AudioSelectionResources.Load(repository, bankId),
                         repository.LoadRdbAsset("RRPreview", NarrationVoiceSelection.OutputResourceId));
                 }
             }, token);
-            _armySpeechBanks.Add(language, pending);
+            _armySpeechBanks.Add(bankId, pending);
         }
         if (!pending.IsCompleted) return false;
         _ = pending.GetAwaiter().GetResult();
@@ -82,7 +83,8 @@ public partial class SceneAudioSession
                 PersonnelVoiceLanguage.Chinese => NarrationVoiceLanguage.Chinese,
                 _ => throw new InvalidDataException("Unknown Army speech voice language.")
             };
-            if (!owner._armySpeechBanks.TryGetValue(language, out var pending) || !pending.IsCompletedSuccessfully)
+            uint bankId = NarrationVoiceSelection.Bank(language, request.Voice.VoiceId).SelectionBankId;
+            if (!owner._armySpeechBanks.TryGetValue(bankId, out var pending) || !pending.IsCompletedSuccessfully)
                 throw new InvalidDataException("Army speech voice bank is not prepared.");
             var voice = request.Voice;
             var playback = NarrationVoiceSelection.ReadSpatialPlayback(new(voice.SpeakerId, voice.VoiceType, voice.VoiceId,

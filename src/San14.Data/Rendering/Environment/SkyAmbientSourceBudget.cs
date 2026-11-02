@@ -152,7 +152,7 @@ public sealed class SkyAmbientSourceEnableInputs
         SkyAmbientSourceBudgetOwner.RequireAcceptedRgb(camera);
         common.ValidateFrame(camera.Inputs.FrameNumber,common.CommonTableOwnerIdentity,currentSelectedViewIdentity);
         if(camera.Inputs.MainFrame.Camera.Source.Camera.ObjectId!=0x38D04576||
-            !camera.Inputs.Source.UsesSourceCreatedEmptyAxes)
+            !camera.Inputs.Source.UsesSourceDatabaseReset)
             throw new NotSupportedException("Sky source enable requires the owned direct Main source present-table producer.");
         byte? value=common.SkyEnableFlags;
         if(common.AuxiliaryPresent&&value is null)

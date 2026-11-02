@@ -11,19 +11,19 @@ public sealed partial class SourceWorldContext : IHexOwnershipState, IAreaOwners
     public Func<SceneryLayoutReference?>? SceneryLayoutReader { get; set; }
     public Action<SceneryLayoutReference,int>? SceneryLayoutDirtyWriter { get; set; }
     public void SetHexSurfaceCode(int physicalSlot, byte? value)
-    { Check(physicalSlot, 48400, "hex physical slot"); _hexSurfaceCodes[physicalSlot] = value; }
+    { Check(physicalSlot, MapTileCount, "hex physical slot"); _hexSurfaceCodes[physicalSlot] = value; }
     public byte? ReadHexSurfaceCode(HexReference hex)
     {
-        int physical = MapPhysical(hex.PhysicalSlot, 48400, "hex");
+        int physical = MapPhysical(hex.PhysicalSlot, MapTileCount, "hex");
         return _hexSurfaceCodes.TryGetValue(physical, out byte? surface) ? surface :
             _hexTerrainDefinitions is not null ? (byte)_hexTerrainDefinitions.Tile(physical).TerrainTypeId : null;
     }
     public void WriteHexForceSlot(HexReference hex, byte force) =>
-        SetHexForceSlot(MapPhysical(hex.PhysicalSlot, 48400, "hex"), force);
+        SetHexForceSlot(MapPhysical(hex.PhysicalSlot, MapTileCount, "hex"), force);
     public void SetHexScenerySlot(int physicalSlot, byte? value)
-    { Check(physicalSlot, 48400, "hex physical slot"); _hexScenerySlots[physicalSlot] = value; }
+    { Check(physicalSlot, MapTileCount, "hex physical slot"); _hexScenerySlots[physicalSlot] = value; }
     public byte? ReadHexScenerySlot(HexReference hex) =>
-        _hexScenerySlots.TryGetValue(MapPhysical(hex.PhysicalSlot, 48400, "hex"), out byte? value)
+        _hexScenerySlots.TryGetValue(MapPhysical(hex.PhysicalSlot, MapTileCount, "hex"), out byte? value)
             ? value : _constructionSceneryLinksKnown ? (byte)0 : null;
     public void SetSceneryTablePointer(int slot, int? physicalSlot) =>
         SetPointer(_sceneryPointers, slot, 101, physicalSlot, 101);

@@ -8,6 +8,8 @@ internal partial class CollectionMoviesView : Control
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private CollectionMovieCatalog catalog = null!;
+    private bool ownsResources;
+    private AdministrationPageChrome.Resources? resources;
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
@@ -31,7 +33,7 @@ internal partial class CollectionMoviesView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionMovieCatalog catalog, string nativeLibrary, Func<bool> admitted,
         Action returned, Func<int> scrollSpeed, Action<Action> runUiAction,
-        Func<float> movieVolume, Action movieEntered, Action<bool> movieLeft, Func<bool?> moviePlaybackEnabled)
+        Func<float> movieVolume, Action movieEntered, Action<bool> movieLeft, Func<bool?> moviePlaybackEnabled, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog; this.nativeLibrary = nativeLibrary;
         this.admitted = admitted; this.returned = returned; this.runUiAction = runUiAction;
@@ -39,16 +41,19 @@ internal partial class CollectionMoviesView : Control
         this.moviePlaybackEnabled = moviePlaybackEnabled;
         Name = "CollectionMovies"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        this.resources = resources; ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, catalog.LayoutName));
+        var source = assets.SourceLayout(catalog.LayoutName);
         source.Blur(canvas, 2, source.Rectangle(2));
         source.Art(canvas, 3, source.Rectangle(3), assets, shader);
-        var headerSource = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_header_re_new"));
+        var headerSource = assets.SourceLayout("cmn_header_re_new");
         headerSource.Art(canvas, 1, headerSource.Rectangle(1), assets, shader);
         headerSource.Text(canvas, 2, default, catalog.Title, font, MapTextPresets.Create()[56]);
-        var counts = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_header_offset_00"));
+        var counts = assets.SourceLayout("cmn_header_offset_00");
         var countHost = new Control { Name = "MovieUnlockCount", Position = headerSource.Rectangle(18).Position,
             Size = counts.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Ignore };
         canvas.AddChild(countHost);
@@ -68,7 +73,7 @@ internal partial class CollectionMoviesView : Control
         scrollbar.Configure(repository, assets, shader, Math.Max(0, ((catalog.Rows.Count + 3) / 4) * 280 - (int)area.Size.Y),
             scrollSpeed(), _ => PositionCells(), currentScrollSpeed: scrollSpeed);
         grid.GuiInput += input => { if (GridAdmission()) scrollbar.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CollectionMoviesReturn",
             Position = footer.Rectangle(1, new(0, 904)).Position, InputAdmission = GridAdmission };
         canvas.AddChild(back);
@@ -133,7 +138,7 @@ internal partial class CollectionMoviesView : Control
             view.Configure(repository, text, publication, nativeLibrary,
                 () => ReadAdmission() && playback == view, movieVolume,
                 () => runUiAction(() => CloseMovie(true)),
-                error => runUiAction(() => { CloseMovie(true); throw error; }));
+                error => runUiAction(() => { CloseMovie(true); throw error; }), resources: resources);
         }
         catch { CloseMovie(true); throw; }
     }
@@ -175,5 +180,6 @@ internal partial class CollectionMoviesView : Control
         float factor = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * factor; canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    { Abandon(); if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); } resources = null; }
 }

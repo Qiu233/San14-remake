@@ -8,11 +8,11 @@ internal partial class AreaInformationListView : PagedInformationListView
     internal AreaInformationPageSet Pages => pages;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         AreaInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed)
+        Action<int> inspect, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.pages = pages;
         ConfigureList(repository, text, new AreaInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "AreaInformationList", "area_information_group");
+            close, inspect, scrollSpeed, "AreaInformationList", "area_information_group", resources: resources);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

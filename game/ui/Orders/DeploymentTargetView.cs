@@ -10,6 +10,7 @@ internal partial class DeploymentTargetView : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Control canvas=null!;
     private UiSourceHeader sourceHeader=null!;
     private DeploymentResourceHeader? resourceHeader;
@@ -23,17 +24,21 @@ internal partial class DeploymentTargetView : Control
     private UiSourceText hintText=null!;
     private string defaultHint="";
     private UnitWaypointMarkerLayer? sourceRoute;
+    internal AdministrationPageChrome.Resources SourceResources => new(assets!,font!,shader!);
     internal IReadOnlyList<int> SelectedOfficers=>selection.SelectedOfficers;
     internal void RequestBack()=>back?.Invoke();
 
     internal void Configure(GameResourceRepository repository,PreviewText text,CityState? city,long availableTroops,
         long? availableBooks,IReadOnlyList<DeploymentTargetGroup> groups,IEnumerable<int> selectedOfficers,
         int scrollSpeedSetting,Action<IReadOnlyList<int>> selectionChanged,Action chooseFacility,Action requestedBack,
-        Func<int>? currentScrollSpeed=null, bool transportMode=false, GeneralUnitTargetHeader? generalHeader=null)
+        Func<int>? currentScrollSpeed=null, bool transportMode=false, GeneralUnitTargetHeader? generalHeader=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         Name="DeploymentTarget";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);back=requestedBack;
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing target-page message.");
@@ -47,7 +52,7 @@ internal partial class DeploymentTargetView : Control
             resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=new(487,12)};
             canvas.AddChild(resourceHeader);resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,availableBooks);
         }
-        var footer=new UiSourceLayout(repository,0xD8913AB2);Vector2 footerMount=new(0,904);
+        var footer=assets.SourceLayout(0xD8913AB2);Vector2 footerMount=new(0,904);
         MenuFooterTop=(int)footer.Rectangle(19,footerMount).Position.Y;
         confirm=Round("ConfirmTarget",5,"000_cmn_txt_decision_kettei",()=>{if(!confirm.Disabled)decide?.Invoke();});
         confirm.Disabled=true;
@@ -61,7 +66,7 @@ internal partial class DeploymentTargetView : Control
         facility.Disabled=selection.SelectedOfficers.Count==0;
         selectionBlocker=new Control {Name="FacilitySelectionInputOwner",MouseFilter=MouseFilterEnum.Stop,Visible=false};
         selection.AddChild(selectionBlocker);selectionBlocker.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var hint=new UiSourceLayout(repository,0xAB6ADAA7);Vector2 hintMount=footer.Rectangle(19,footerMount).Position;
+        var hint=assets.SourceLayout(0xAB6ADAA7);Vector2 hintMount=footer.Rectangle(19,footerMount).Position;
         foreach(var node in hint.Nodes.Where(node=>node.Type is 1 or 3))
             hint.Art(canvas,node.Index,hint.Rectangle(node.Index,hintMount),assets,shader);
         // Global Game message5696 maps to section2/0876. It is a static
@@ -126,5 +131,5 @@ internal partial class DeploymentTargetView : Control
         float factor=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*factor;
         canvas.Position=(Size-new Vector2(1920,1080)*factor)/2;
     }
-    public override void _ExitTree(){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 }

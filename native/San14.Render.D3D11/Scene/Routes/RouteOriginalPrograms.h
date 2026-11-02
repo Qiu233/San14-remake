@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <memory>
 
 namespace San14::Render {
 struct RouteAcceptedInputs {
@@ -37,7 +38,8 @@ struct RouteOriginalFrame {
     ID3D11SamplerState* exposureSampler{};
 };
 
-class RouteOriginalPrograms {
+class RouteOriginalProgramMedia {
+    friend class RouteOriginalPrograms;
     enum class Semantic {Diffuse,DiffuseSource,TextureIndex,WorldToProjection,LocalToWorld,
         ClipPlanes,Eye,StageCount,SamplerMapping,HeightType,HeightColor,HeightParameter,
         HeightFluctuation,AlphaTest,ToneMap,Fog,FogColor,FogParameter1,FogParameter2,
@@ -46,8 +48,6 @@ class RouteOriginalPrograms {
     struct Constant {
         unsigned slot{},bytes{};
         std::vector<Write> writes;
-        std::vector<char> values;
-        ComPtr<ID3D11Buffer> buffer;
     };
     struct Stage {
         unsigned kind{};
@@ -81,15 +81,6 @@ class RouteOriginalPrograms {
         auto found=names.find(name);
         if(found==names.end())throw std::runtime_error("Route used shader constant has no producer: "+name);
         return found->second;
-    }
-    template<class T> static const T& need(const std::optional<T>& value,const char* name) {
-        if(!value)throw std::runtime_error(name);return *value;
-    }
-    static void copy(Constant& constant,const Write& write,const void* source,unsigned bytes) {
-        std::memcpy(constant.values.data()+write.offset,source,bytes);
-    }
-    template<class T,std::size_t N> static void scalarArray(Constant& constant,const Write& write,const std::array<T,N>& values) {
-        for(std::size_t i=0;i<N;++i)std::memcpy(constant.values.data()+write.offset+i*16,&values[i],sizeof(T));
     }
     static void admitWrite(const Write& write,unsigned type,unsigned base,unsigned rows,unsigned columns) {
         unsigned expected=16;
@@ -134,40 +125,13 @@ class RouteOriginalPrograms {
                 throw std::runtime_error("Route vector import packing");
         }
     }
-    static void update(Constant& constant,const RouteOriginalFrame& frame,const std::array<float,4>& tint,
-        const std::array<source_camera::V4,3>& localToWorld) {
-        // These are the actual unmodulated packet/category19 values, not
-        // defaults for missing current material or a fabricated COLOR stream.
-        const std::array<float,4> diffuseSource{0,0,1,1},textureIndex{0,0,0,0},samplerMapping{1,1,0,0};
-        const float stageCount=1,alphaTest=source_camera::D(1.f,255.f);
-        for(const auto& write:constant.writes) switch(write.semantic) {
-            case Semantic::Diffuse:copy(constant,write,tint.data(),16);break;
-            case Semantic::DiffuseSource:copy(constant,write,diffuseSource.data(),16);break;
-            case Semantic::TextureIndex:copy(constant,write,textureIndex.data(),16);break;
-            case Semantic::WorldToProjection:copy(constant,write,frame.worldToClip.data(),64);break;
-            case Semantic::LocalToWorld:copy(constant,write,localToWorld.data(),48);break;
-            case Semantic::ClipPlanes:copy(constant,write,frame.clipPlanes.data(),96);break;
-            case Semantic::Eye:copy(constant,write,&frame.eye,16);break;
-            case Semantic::StageCount:copy(constant,write,&stageCount,4);break;
-            case Semantic::SamplerMapping:copy(constant,write,samplerMapping.data(),16);break;
-            case Semantic::HeightType:scalarArray(constant,write,frame.heightFog.types);break;
-            case Semantic::HeightColor:copy(constant,write,frame.heightFog.colors.data(),48);break;
-            case Semantic::HeightParameter:copy(constant,write,frame.heightFog.parameters.data(),48);break;
-            case Semantic::HeightFluctuation:scalarArray(constant,write,frame.heightFog.fluctuations);break;
-            case Semantic::AlphaTest:copy(constant,write,&alphaTest,4);break;
-            case Semantic::ToneMap:copy(constant,write,frame.toneMap.data(),8);break;
-            case Semantic::Fog:copy(constant,write,&need(frame.fog,"Route current fog is absent"),16);break;
-            case Semantic::FogColor:copy(constant,write,&need(frame.fogColor,"Route current fog color is absent"),16);break;
-            case Semantic::FogParameter1:copy(constant,write,&need(frame.fogParameter1,"Route current vertex fog parameter is absent"),16);break;
-            case Semantic::FogParameter2:copy(constant,write,&need(frame.fogParameter2,"Route current pixel fog parameter is absent"),16);break;
-            case Semantic::LightDirection:copy(constant,write,&need(frame.lightDirection,"Route current light direction is absent"),16);break;
-            case Semantic::Scattering:copy(constant,write,need(frame.scattering,"Route current scattering is absent").data(),64);break;
-            case Semantic::Skin:throw std::runtime_error("Route rigid primitive selected a skinned matrix class");
-        }
-    }
 public:
+    static std::shared_ptr<const RouteOriginalProgramMedia> load(ID3D11Device* device,const fs::path& directory) {
+        auto result=std::make_shared<RouteOriginalProgramMedia>();result->prepare(device,directory);return result;
+    }
+private:
     void prepare(ID3D11Device* device,const fs::path& directory) {
-        RouteOriginalPrograms next;
+        RouteOriginalProgramMedia next;
         std::string prefix;NativePreparedInputFile kindSource(directory/"route-program-kind.txt");
         std::getline(kindSource,prefix);
         // D362B0's actual CNS-HfTm branch erases all twelve feature words.
@@ -182,7 +146,7 @@ public:
         NativePreparedInputFile programs(directory/"programs.txt");
         if(!programs)throw std::runtime_error("Route original program media is absent");
         while(programs>>id>>kind>>file) {
-            Stage stage;stage.kind=kind;stage.bytecode=load(directory/file);
+            Stage stage;stage.kind=kind;stage.bytecode=::load(directory/file);
             if(kind!=0&&kind!=1)throw std::runtime_error("Route source shader stage requires its actual consumer");
             if(!next.stages_.emplace(id,std::move(stage)).second)throw std::runtime_error("Duplicate route source program");
         }
@@ -276,20 +240,91 @@ public:
         bool instanced=false;vertex.layout=loadNativeModelLayout(device,directory,vertex.bytecode,instanced);
         if(instanced)throw std::runtime_error("Route rigid input layout became instanced");
         check(device->CreatePixelShader(pixel.bytecode.data(),pixel.bytecode.size(),nullptr,&pixel.pixel),"Route selected original PS");
-        for(auto* stage:{&vertex,&pixel})for(auto& [binding,constant]:stage->constants) {
-            constant.values.resize(constant.bytes); // Padding and genuinely unused variables only.
-            D3D11_BUFFER_DESC desc{};desc.ByteWidth=constant.bytes;desc.Usage=D3D11_USAGE_DYNAMIC;
-            desc.BindFlags=D3D11_BIND_CONSTANT_BUFFER;desc.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
-            check(device->CreateBuffer(&desc,nullptr,&constant.buffer),"Route original constant buffer");
-        }
         *this=std::move(next);
     }
 
+};
+
+// Constants, current numeric staging and their buffers belong to one actual
+// View. They are never stored in the application media generation.
+class RouteOriginalPrograms {
+    using Semantic=RouteOriginalProgramMedia::Semantic;
+    using Write=RouteOriginalProgramMedia::Write;
+    using Stage=RouteOriginalProgramMedia::Stage;
+    struct Constant {
+        const RouteOriginalProgramMedia::Constant* layout{};
+        std::vector<char> values;
+        ComPtr<ID3D11Buffer> buffer;
+    };
+    std::shared_ptr<const RouteOriginalProgramMedia> media_;
+    std::map<unsigned,std::map<unsigned,Constant>> constants_;
+    template<class T> static const T& need(const std::optional<T>& value,const char* name) {
+        if(!value)throw std::runtime_error(name);return *value;
+    }
+    static void copy(Constant& constant,const Write& write,const void* source,unsigned bytes) {
+        std::memcpy(constant.values.data()+write.offset,source,bytes);
+    }
+    template<class T,std::size_t N> static void scalarArray(Constant& constant,const Write& write,const std::array<T,N>& values) {
+        for(std::size_t i=0;i<N;++i)std::memcpy(constant.values.data()+write.offset+i*16,&values[i],sizeof(T));
+    }
+    static void update(Constant& constant,const RouteOriginalFrame& frame,const std::array<float,4>& tint,
+        const std::array<source_camera::V4,3>& localToWorld) {
+        // These are the actual unmodulated packet/category19 values, not
+        // defaults for missing current material or a fabricated COLOR stream.
+        const std::array<float,4> diffuseSource{0,0,1,1},textureIndex{0,0,0,0},samplerMapping{1,1,0,0};
+        const float stageCount=1,alphaTest=source_camera::D(1.f,255.f);
+        for(const auto& write:constant.layout->writes) switch(write.semantic) {
+            case Semantic::Diffuse:copy(constant,write,tint.data(),16);break;
+            case Semantic::DiffuseSource:copy(constant,write,diffuseSource.data(),16);break;
+            case Semantic::TextureIndex:copy(constant,write,textureIndex.data(),16);break;
+            case Semantic::WorldToProjection:copy(constant,write,frame.worldToClip.data(),64);break;
+            case Semantic::LocalToWorld:copy(constant,write,localToWorld.data(),48);break;
+            case Semantic::ClipPlanes:copy(constant,write,frame.clipPlanes.data(),96);break;
+            case Semantic::Eye:copy(constant,write,&frame.eye,16);break;
+            case Semantic::StageCount:copy(constant,write,&stageCount,4);break;
+            case Semantic::SamplerMapping:copy(constant,write,samplerMapping.data(),16);break;
+            case Semantic::HeightType:scalarArray(constant,write,frame.heightFog.types);break;
+            case Semantic::HeightColor:copy(constant,write,frame.heightFog.colors.data(),48);break;
+            case Semantic::HeightParameter:copy(constant,write,frame.heightFog.parameters.data(),48);break;
+            case Semantic::HeightFluctuation:scalarArray(constant,write,frame.heightFog.fluctuations);break;
+            case Semantic::AlphaTest:copy(constant,write,&alphaTest,4);break;
+            case Semantic::ToneMap:copy(constant,write,frame.toneMap.data(),8);break;
+            case Semantic::Fog:copy(constant,write,&need(frame.fog,"Route current fog is absent"),16);break;
+            case Semantic::FogColor:copy(constant,write,&need(frame.fogColor,"Route current fog color is absent"),16);break;
+            case Semantic::FogParameter1:copy(constant,write,&need(frame.fogParameter1,"Route current vertex fog parameter is absent"),16);break;
+            case Semantic::FogParameter2:copy(constant,write,&need(frame.fogParameter2,"Route current pixel fog parameter is absent"),16);break;
+            case Semantic::LightDirection:copy(constant,write,&need(frame.lightDirection,"Route current light direction is absent"),16);break;
+            case Semantic::Scattering:copy(constant,write,need(frame.scattering,"Route current scattering is absent").data(),64);break;
+            case Semantic::Skin:throw std::runtime_error("Route rigid primitive selected a skinned matrix class");
+        }
+    }
+
+public:
+    void borrow(ID3D11Device* device,std::shared_ptr<const RouteOriginalProgramMedia> media) {
+        if(!media)throw std::runtime_error("Route original program generation is absent");
+        RouteOriginalPrograms next;next.media_=std::move(media);
+        for(unsigned id:{next.media_->selected_.vertex,next.media_->selected_.pixel}) {
+            auto& constants=next.constants_[id];
+            for(const auto& [slot,layout]:next.media_->stages_.at(id).constants) {
+                Constant current;current.layout=&layout;current.values.resize(layout.bytes);
+                D3D11_BUFFER_DESC desc{};desc.ByteWidth=layout.bytes;desc.Usage=D3D11_USAGE_DYNAMIC;
+                desc.BindFlags=D3D11_BIND_CONSTANT_BUFFER;desc.CPUAccessFlags=D3D11_CPU_ACCESS_WRITE;
+                check(device->CreateBuffer(&desc,nullptr,&current.buffer),"Route View original constant buffer");
+                constants.emplace(slot,std::move(current));
+            }
+        }
+        *this=std::move(next);
+    }
+    void prepare(ID3D11Device* device,const fs::path& directory) {
+        borrow(device,RouteOriginalProgramMedia::load(device,directory));
+    }
     void bind(ID3D11DeviceContext* context,const RouteOriginalFrame& frame,const std::array<float,4>& tint) {
-        auto& vertex=stages_.at(selected_.vertex);auto& pixel=stages_.at(selected_.pixel);
-        auto publish=[&](Stage& stage) {
-            for(auto& [slot,constant]:stage.constants) {
-                update(constant,frame,tint,localToWorld_);
+        if(!media_)throw std::runtime_error("Route View has no borrowed program generation");
+        const auto& vertex=media_->stages_.at(media_->selected_.vertex);
+        const auto& pixel=media_->stages_.at(media_->selected_.pixel);
+        auto publish=[&](unsigned id,const Stage& stage) {
+            for(auto& [slot,constant]:constants_.at(id)) {
+                update(constant,frame,tint,media_->localToWorld_);
                 D3D11_MAPPED_SUBRESOURCE mapped{};
                 check(context->Map(constant.buffer.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped),"Route original current constants");
                 std::memcpy(mapped.pData,constant.values.data(),constant.values.size());context->Unmap(constant.buffer.Get(),0);
@@ -297,21 +332,21 @@ public:
                 if(stage.kind==1)context->VSSetConstantBuffers(slot,1,&buffer);else context->PSSetConstantBuffers(slot,1,&buffer);
             }
         };
-        publish(vertex);publish(pixel);
+        publish(media_->selected_.vertex,vertex);publish(media_->selected_.pixel,pixel);
         context->IASetInputLayout(vertex.layout.Get());
         context->VSSetShader(vertex.vertex.Get(),nullptr,0);context->PSSetShader(pixel.pixel.Get(),nullptr,0);
         context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
         if(!frame.exposure||!frame.exposureSampler)throw std::runtime_error("Route same-frame exposure provider is absent");
-        for(const auto& [slot,name]:textures_)if(name=="sExposure")context->PSSetShaderResources(slot,1,&frame.exposure);
-        for(const auto& [slot,name]:samplers_)if(name=="__smpsExposure")context->PSSetSamplers(slot,1,&frame.exposureSampler);
+        for(const auto& [slot,name]:media_->textures_)if(name=="sExposure")context->PSSetShaderResources(slot,1,&frame.exposure);
+        for(const auto& [slot,name]:media_->samplers_)if(name=="__smpsExposure")context->PSSetSamplers(slot,1,&frame.exposureSampler);
     }
     void bindImage(ID3D11DeviceContext* context,ID3D11ShaderResourceView* image,ID3D11SamplerState* sampler)const {
-        for(const auto& [slot,name]:textures_)if(name=="sStage0")context->PSSetShaderResources(slot,1,&image);
-        for(const auto& [slot,name]:samplers_)if(name=="__smpsStage0")context->PSSetSamplers(slot,1,&sampler);
+        for(const auto& [slot,name]:media_->textures_)if(name=="sStage0")context->PSSetShaderResources(slot,1,&image);
+        for(const auto& [slot,name]:media_->samplers_)if(name=="__smpsStage0")context->PSSetSamplers(slot,1,&sampler);
     }
     void clearImages(ID3D11DeviceContext* context)const {
         ID3D11ShaderResourceView* empty=nullptr;
-        for(const auto& [slot,name]:textures_)context->PSSetShaderResources(slot,1,&empty);
+        for(const auto& [slot,name]:media_->textures_)context->PSSetShaderResources(slot,1,&empty);
     }
 };
 } // namespace San14::Render

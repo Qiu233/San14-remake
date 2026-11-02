@@ -8,6 +8,17 @@ using San14.Data.Formats;
 /// immutable resource program is parsed once per page and locale.</summary>
 internal sealed class UnitTargetMenuMessages(GameResourceRepository repository, string locale)
 {
+    //7E5180 reads editor captions through30D050/Data1, but action names
+    //through30AE60/Data0. The option's index belongs to that actual bank.
+    internal static string Caption(GameResourceRepository repository,string locale,UnitTargetMenuOption option)
+    {
+        int section=option.ActionKey is "build" or "repair" or "demolish" or "occupy" or "fire" or "capture"?0:1;
+        string? value=repository.LoadMessages(locale,MessageKind.Data).Messages.Sections[section]
+            .Records[option.CaptionDataIndex].Text;
+        return !string.IsNullOrEmpty(value)?value:
+            throw new InvalidDataException($"Missing unit command caption: {option.ActionKey}, Data{section}/{option.CaptionDataIndex:X4}.");
+    }
+
     private readonly MessageDocument messages = repository.LoadMessages(locale, MessageKind.Game).Messages;
     private string?[]? fireParts;
     private string?[]? falseReportParts;

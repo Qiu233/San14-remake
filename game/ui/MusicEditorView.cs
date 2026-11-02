@@ -29,7 +29,7 @@ internal partial class MusicEditorView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text, IReadOnlyList<string> groups,
         Func<int, IReadOnlyList<MusicEditorRow>> readRows, Func<bool> admitted,
         Action returned, Action accepted, Action reset, Action<int> choose, Func<int>? currentScrollSpeed = null,
-        Func<bool>? canInitializeDefaults = null)
+        Func<bool>? canInitializeDefaults = null, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.readRows = readRows; this.admitted = admitted;
         this.returned = returned; this.accepted = accepted; this.reset = reset; this.choose = choose;
@@ -39,8 +39,8 @@ internal partial class MusicEditorView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, 0x02DF, RequestBack,
-            () => { if (CanEdit()) this.accepted?.Invoke(); });
-        var source = new UiSourceLayout(MusicEditLayoutSource.LoadEditor(repository));
+            () => { if (CanEdit()) this.accepted?.Invoke(); }, resources: resources);
+        var source = chrome.Assets.SourceLayout("02_12_00_BGM_edit");
         source.Blur(chrome.Canvas, 2, source.Rectangle(2));
         source.Art(chrome.Canvas, 3, source.Rectangle(3), chrome.Assets, chrome.SpriteShader);
         for (int index = 0; index < groups.Count; index++)
@@ -62,7 +62,7 @@ internal partial class MusicEditorView : Control
         rowSize = source.Rectangle(24).Size;
         scrollRectangle = source.Rectangle(14);
         list.GuiInput += input => { if (CanEdit()) scroll?.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = chrome.Assets.SourceLayout(0xD8913AB2);
         var captions = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         defaults = new UiSourceBottomButton { Name = "InitializeMusic", Position = footer.Rectangle(14, new(0, 904)).Position };
         chrome.Canvas.AddChild(defaults);

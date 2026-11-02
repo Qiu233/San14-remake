@@ -5,14 +5,14 @@ using San14.Data;
 
 public sealed partial class RemakeArmySceneVisuals
 {
-    private RemakeArmyVisualFrame PublishNavalMotionFrame(UnitState unit,OwnedMotion owned)
+    private RemakeArmyVisualFrame PublishNavalMotionFrame(OwnedMotion owned)
     {
-        return PublishNavalCurrentFrame(unit, owned.SelectedFormation1C, owned.Motion.UnitPosition10,
+        return PublishNavalCurrentFrame(owned.Unit, owned.SelectedFormation1C, owned.Motion.UnitPosition10,
             owned.Motion.UnitHeading744, owned.Initialization, owned.Motion.CaptureRecords(), owned.Motion.GraphicsAction60,
-            unit.NativeTacticRuntime?.Status10 == 2 ? owned.SelectedFormation1B : unit.FormationId!.Value);
+            owned.Unit.NavalUsesSelectedLandFormation ? owned.SelectedFormation1B : owned.Unit.FormationSlot!.Value);
     }
 
-    private RemakeArmyVisualFrame PublishNavalCurrentFrame(UnitState unit, byte naval,
+    private RemakeArmyVisualFrame PublishNavalCurrentFrame(RemakeArmyVisualUnit unit, byte naval,
         Vector3 current, float heading, RemakeArmyInitialization initialization,
         ArmyInstancePoseSnapshot records, int graphicsAction, int formationSlot)
     {
@@ -33,7 +33,7 @@ public sealed partial class RemakeArmySceneVisuals
                 "source mode1 CE1CCA80; current Unit P/Q; no ocean-height or scale writer"));
         }
         // An unmatched1C clears818. The Unit, motion and common7F0 survive.
-        return new(unit.Id,unit.HexId,formationSlot,initialization,records,
+        return new(unit.UnitId,unit.HexId,formationSlot,initialization,records,
             new(writes,[],records.CallerSource,records.CodeSource),
             ArmyInstancePose.WriteFlags(records,1,[],[]),
             new ReadOnlyDictionary<RemakeArmyComponentKey,RemakeArmyPosePublication>(publications))

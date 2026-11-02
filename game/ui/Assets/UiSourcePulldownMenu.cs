@@ -11,6 +11,7 @@ internal partial class UiSourcePulldownMenu : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private readonly List<UiSourcePulldownButton> buttons=[];
     private Action<int?>? selected;
     private Action<Control,string?>? hint;
@@ -22,11 +23,14 @@ internal partial class UiSourcePulldownMenu : Control
 
     internal void Configure(GameResourceRepository repository,string locale,Rect2 rectangle,
         IReadOnlyList<UiSourcePulldownItem> items,UiSourcePulldownOutsideClick outsideClick,
-        Action<int?> selected,Action<Control,string?>? hintChanged=null)
+        Action<int?> selected,Action<Control,string?>? hintChanged=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         Position=rectangle.Position;Size=rectangle.Size;MouseFilter=MouseFilterEnum.Stop;
         this.outsideClick=outsideClick;this.selected=selected;hint=hintChanged;
-        assets=new(repository);font=new(repository,locale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,locale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         for(int index=0;index<items.Count;index++)
         {
             int action=index;var item=items[index];
@@ -98,6 +102,6 @@ internal partial class UiSourcePulldownMenu : Control
         return false;
     }
     public override void _ExitTree()
-    {selected=null;ClearHint();hint=null;assets?.Dispose();font?.Dispose();shader?.Dispose();}
+    {selected=null;ClearHint();hint=null;if(ownsResources){assets?.Dispose();font?.Dispose();shader?.Dispose();}}
     private void ClearHint(){if(hintOwner is {} owner){hintOwner=null;hint?.Invoke(owner,null);}}
 }

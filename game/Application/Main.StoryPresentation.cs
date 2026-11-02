@@ -118,7 +118,8 @@ public partial class Main
 
     private void RestoreStoryScene(StoryPresentationBinding binding)
     {
-        var story = StoryPlayback(binding.Session)!.Story;
+        var story = StoryPlayback(binding.Session)?.Story ?? PendingCampaignStory(binding.Session) ??
+            throw new InvalidDataException("story.scene.restore_owner");
         var scene = story.Scene;
         binding.View.SetBackground(scene.Background?.IllustrationId ?? 0, scene.Background?.ResourceKind ?? 15);
         binding.View.SetIllustration(scene.Illustration?.IllustrationId ?? 0);

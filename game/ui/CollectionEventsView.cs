@@ -9,6 +9,8 @@ internal partial class CollectionEventsView : Control
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private CollectionEventCatalog catalog = null!;
+    private bool ownsResources;
+    private AdministrationPageChrome.Resources? resources;
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
@@ -39,23 +41,26 @@ internal partial class CollectionEventsView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionEventCatalog catalog, Func<bool> admitted, Action returned,
         Func<int> scrollSpeed, Action<Action> runUiAction, Action<int>? playbackRequested = null,
-        Action<int, long>? conditionsRequested = null)
+        Action<int, long>? conditionsRequested = null, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog; this.admitted = admitted;
         this.returned = returned; this.scrollSpeed = scrollSpeed; this.runUiAction = runUiAction;
         this.playbackRequested = playbackRequested; this.conditionsRequested = conditionsRequested;
         Name = "CollectionEvents"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        this.resources = resources; ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, catalog.LayoutName));
+        source = assets.SourceLayout(catalog.LayoutName);
         foreach (int node in new[] { 3, 61, 63, 64, 66, 68, 78, 105, 57 })
         {
             if (source.Nodes[node].Type == 6) source.Blur(canvas, node, source.Rectangle(node));
             else source.Art(canvas, node, source.Rectangle(node), assets, shader);
         }
-        var header = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_header_re_new"));
+        var header = assets.SourceLayout("cmn_header_re_new");
         header.Art(canvas, 1, header.Rectangle(1), assets, shader);
         header.Text(canvas, 2, default, catalog.Title, font, MapTextPresets.Create()[56]);
         int[] tabNodes = [4, 6, 8, 12, 14];
@@ -91,7 +96,7 @@ internal partial class CollectionEventsView : Control
             Size = new(first.Size.X, last.End.Y - first.Position.Y), ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
         canvas.AddChild(contentHost);
         contentHost.GuiInput += input => { if (ReadAdmission()) contentScrollbar?.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CollectionEventsReturn",
             Position = footer.Rectangle(4, new(0, 904)).Position, InputAdmission = ReadAdmission };
         canvas.AddChild(back);
@@ -246,7 +251,7 @@ internal partial class CollectionEventsView : Control
             (preparedConditions is null ? detail.ConditionsUnresolvedOwner : null)) is { } missing)
             contentHost.SetMeta("unresolved_owner", missing);
         else contentHost.RemoveMeta("unresolved_owner");
-        var rowSource = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "09_01_01_event_list_offset_02"));
+        var rowSource = assets.SourceLayout("09_01_01_event_list_offset_02");
         var contentRows = new Control { Name = "EventDescriptionRows", Size = contentHost.Size, MouseFilter = MouseFilterEnum.Ignore };
         contentHost.AddChild(contentRows);
         int count;
@@ -301,5 +306,6 @@ internal partial class CollectionEventsView : Control
         float factor = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * factor; canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    { Abandon(); if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); } resources = null; }
 }

@@ -2,6 +2,18 @@ namespace San14.Core;
 
 public sealed partial class GameSimulation
 {
+    private GameState SourcePresentationOwner => _normalPeriod?.Candidate ??
+        _progress?.ManualTactic?.Candidate ?? _progress?.ArmyProgress?.Candidate ?? _progress?.Story?.Candidate ?? State;
+
+    private void PublishSourcePresentationOwner(GameState completed, NormalPeriodOperation? pending)
+    {
+        if (pending is not null) _normalPeriod = pending with { Candidate = completed };
+        else if (_progress?.ManualTactic is { } manual) _progress = new(null, manual with { Candidate = completed });
+        else if (_progress?.ArmyProgress is { } movement) _progress = new(null, null, movement with { Candidate = completed });
+        else if (_progress?.Story is { } story) _progress = new(story with { Candidate = completed }, null);
+        else State = completed;
+    }
+
     /// <summary>Records actual acceptance by the music host, preserving source order.</summary>
     public bool TryCompleteMapMusicIntent(GameState expectedOwner, CampaignEffectSource expectedSource,
         long batchSequence, int requestIndex)
@@ -18,14 +30,11 @@ public sealed partial class GameSimulation
     /// A newer selection or a replaced world invalidates an earlier receipt.</summary>
     public bool TryCompletePendingMapMusicIntent(GameState expectedOwner, MapMusicIntent expectedIntent)
     {
-        if (_progress is not null) return false;
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
-        if (!ReferenceEquals(owner, expectedOwner) || expectedIntent is null ||
-            !ReferenceEquals(owner.PendingMapMusicIntent, expectedIntent)) return false;
-        var completed = owner with { PendingMapMusicIntent = null };
-        if (pending is not null) _normalPeriod = pending with { Candidate = completed };
-        else State = completed;
+        var owner = SourcePresentationOwner;
+        if (!MapMusicIntentCompletion.TryComplete(owner, expectedOwner, expectedIntent,
+            out var completed)) return false;
+        PublishSourcePresentationOwner(completed, pending);
         return true;
     }
 
@@ -120,11 +129,11 @@ public sealed partial class GameSimulation
         out CampaignEffectRequests effects, out int batchIndex, out CampaignEffectRequest request)
     {
         pending = _normalPeriod;
-        owner = pending?.Candidate ?? State;
+        owner = SourcePresentationOwner;
         effects = owner.CampaignEffectRequests!;
         batchIndex = -1;
         request = null!;
-        if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || effects is null) return false;
+        if (!ReferenceEquals(owner, expectedOwner) || effects is null) return false;
         // History has already been written. Leave its notification untouched;
         // every other earlier same-source request, including an unknown kind,
         // blocks this receipt until its actual consumer has completed it.
@@ -166,7 +175,8 @@ public sealed partial class GameSimulation
         }
         var completed = owner with { CampaignEffectRequests = effects with { PendingBatches = batches },
             ActiveMonthlyScene = scene, CoalitionCameraPresentation = camera };
-        if (pending is not null) _normalPeriod = pending with { Candidate = completed };
-        else State = completed;
+        // Source-head identity was checked before the synchronous formatter.
+        // Its returned state is a new value, not the original owner reference.
+        PublishSourcePresentationOwner(completed, pending);
     }
 }

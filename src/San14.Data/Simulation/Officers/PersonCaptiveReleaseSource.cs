@@ -48,124 +48,131 @@ public sealed partial class ArmyCampaignRuleAdapter
         WorldIndexContext Pool() => current.ReadOwnedCurrentListPool()
             ?? throw Missing("freedom_current_pool");
 
-        //231D90: unknown E4 is not an empty holder. Known tagFF/Area really
-        //leave both retained pointers null, independently of table slot0.
-        ArmyUnitReference holderArmy = new(null);
-        BaseReference holderBase = new(BaseKind.City, null);
-        DistrictReference holderDistrict = new(null);
-        var holder = PersonPositionRepair.DecodeSecondLocation(Need(current.ReadPersonSecondLocation(personPhysical), "holder_E4"));
-        switch (holder.Kind)
+        var previousRefresh = current.TransferServiceRefresher;
+        current.TransferServiceRefresher = (a, b, c) =>
+            working = RefreshPersonnelMilestoneCurrent(working, current, a, b, c);
+        try
         {
-            case 27:
-                holderArmy = current.ReadArmyUnitTableReference(holder.Index < 501 ? holder.Index : 0)
-                    ?? throw Missing("holder_Army_lookup");
-                break;
-            case 5:
-                holderBase = current.ReadCityTableReference(holder.Index < 52 ? holder.Index : 0)
-                    ?? throw Missing("holder_City_lookup");
-                break;
-            case 6:
-                holderBase = current.ReadGateTableReference(holder.Index < 11 ? holder.Index : 0)
-                    ?? throw Missing("holder_Gate_lookup");
-                break;
-        }
-        if (Need(current.ReadArmyUnitNativeValidity(holderArmy), "holder_Army_validity"))
-        {
-            var commander = Person(Need(current.ReadArmyUnitCommanderId(holderArmy), "holder_Army12"));
-            byte district = commander.PhysicalSlot is int commanderPhysical &&
-                Need(current.ReadPersonNativeValidity(commanderPhysical), "holder_Commander_validity")
-                ? Need(current.ReadPersonDistrictSlot(commanderPhysical), "holder_Commander_E0") : (byte)0;
-            holderDistrict = District(district);
-        }
-        else if (Need(current.ReadBaseNativeValidity(holderBase), "holder_Base_validity"))
-            holderDistrict = current.ReadBaseDistrictReference(holderBase) ?? throw Missing("holder_Base_virtual80");
-        if (reportRelease)
-            ApplyCaptiveReleaseReports(current, () => working, value => working = value,
-                personPhysical, holderArmy, holderBase, holderDistrict, day450, sink);
+            //231D90: unknown E4 is not an empty holder. Known tagFF/Area really
+            //leave both retained pointers null, independently of table slot0.
+            ArmyUnitReference holderArmy = new(null);
+            BaseReference holderBase = new(BaseKind.City, null);
+            DistrictReference holderDistrict = new(null);
+            var holder = PersonPositionRepair.DecodeSecondLocation(Need(current.ReadPersonSecondLocation(personPhysical), "holder_E4"));
+            switch (holder.Kind)
+            {
+                case 27:
+                    holderArmy = current.ReadArmyUnitTableReference(holder.Index < 501 ? holder.Index : 0)
+                        ?? throw Missing("holder_Army_lookup");
+                    break;
+                case 5:
+                    holderBase = current.ReadCityTableReference(holder.Index < 52 ? holder.Index : 0)
+                        ?? throw Missing("holder_City_lookup");
+                    break;
+                case 6:
+                    holderBase = current.ReadGateTableReference(holder.Index < 11 ? holder.Index : 0)
+                        ?? throw Missing("holder_Gate_lookup");
+                    break;
+            }
+            if (Need(current.ReadArmyUnitNativeValidity(holderArmy), "holder_Army_validity"))
+            {
+                var commander = Person(Need(current.ReadArmyUnitCommanderId(holderArmy), "holder_Army12"));
+                byte district = commander.PhysicalSlot is int commanderPhysical &&
+                    Need(current.ReadPersonNativeValidity(commanderPhysical), "holder_Commander_validity")
+                    ? Need(current.ReadPersonDistrictSlot(commanderPhysical), "holder_Commander_E0") : (byte)0;
+                holderDistrict = District(district);
+            }
+            else if (Need(current.ReadBaseNativeValidity(holderBase), "holder_Base_validity"))
+                holderDistrict = current.ReadBaseDistrictReference(holderBase) ?? throw Missing("holder_Base_virtual80");
+            if (reportRelease)
+                ApplyCaptiveReleaseReports(current, () => working, value => working = value,
+                    personPhysical, holderArmy, holderBase, holderDistrict, day450, sink);
 
-        //The original force is reread after both actual scratch messages and
-        //history.22EA10 reads the ruler's E2 without a ruler validity gate.
-        var originalForce = current.ReadPersonForce(personPhysical) ?? throw Missing("original_Force22CB40");
-        BaseReference homeCity = new(BaseKind.City, null);
-        if (Need(current.ReadForceNativeValidity(originalForce), "original_Force_validity"))
-        {
-            int force = Need(originalForce.PhysicalSlot, "original_Force_pointer");
-            var ruler = Person(Need(current.ReadForceRecord(force)?.RawRuler10, "original_Force_ruler10"));
-            int rulerPhysical = Need(ruler.PhysicalSlot, "ruler_pointer_for_E2");
-            var rulerHome = BaseLookup.Find(Need(current.ReadPersonFirstLocation(rulerPhysical), "ruler_E2"), current);
-            homeCity = CurrentGateMapQueries.FindCity(rulerHome, current);
-        }
-        if (!Need(current.ReadBaseNativeValidity(homeCity), "origin_City_validity"))
-            return ApplyCaptiveNoHomeFreedomCurrent(working, current, Pool(), personPhysical, sourceDate, day450, Sampler, sink);
+            //The original force is reread after both actual scratch messages and
+            //history.22EA10 reads the ruler's E2 without a ruler validity gate.
+            var originalForce = current.ReadPersonForce(personPhysical) ?? throw Missing("original_Force22CB40");
+            BaseReference homeCity = new(BaseKind.City, null);
+            if (Need(current.ReadForceNativeValidity(originalForce), "original_Force_validity"))
+            {
+                int force = Need(originalForce.PhysicalSlot, "original_Force_pointer");
+                var ruler = Person(Need(current.ReadForceRecord(force)?.RawRuler10, "original_Force_ruler10"));
+                int rulerPhysical = Need(ruler.PhysicalSlot, "ruler_pointer_for_E2");
+                var rulerHome = BaseLookup.Find(Need(current.ReadPersonFirstLocation(rulerPhysical), "ruler_E2"), current);
+                homeCity = CurrentGateMapQueries.FindCity(rulerHome, current);
+            }
+            if (!Need(current.ReadBaseNativeValidity(homeCity), "origin_City_validity"))
+                return ApplyCaptiveNoHomeFreedomCurrent(working, current, Pool(), personPhysical, sourceDate, day450, Sampler, sink);
 
-        current.WritePersonFirstLocation(personPhysical,
-            Math.Min(Need(current.ReadBaseObjectLink(homeCity), "origin_City4E"), (ushort)61));
-        current.WritePersonStatus(personPhysical, 4);
-        var primary = ForcePrimaryDistrictSource.Resolve(current, originalForce);
-        int targetDistrict = Need(current.ReadDistrictPhysicalSlot(primary), "primary_District22DD20");
-        var associations = new List<PersonAssignmentPrecallResult>();
-        var transfer = ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations, result =>
-        {
-            //2783B0's actual3452 history belongs before240DB0 writesE0.
-            //Adopt its formatter/history State in this same current operation.
-            working = ApplyPersonAssociationRemovalReports(working, current, personPhysical, result, day450, sink);
-        });
-        PersonDistrictTransfer.Apply(personPhysical, targetDistrict, transfer);
-        if (associations.Count != 0)
-            working = PersonAssignmentPrecallInputs.PublishDeathTouched(working, current, personPhysical, associations);
-        current.WriteFormerForceKnowledge(personPhysical, 0);
+            current.WritePersonFirstLocation(personPhysical,
+                Math.Min(Need(current.ReadBaseObjectLink(homeCity), "origin_City4E"), (ushort)61));
+            current.WritePersonStatus(personPhysical, 4);
+            var primary = ForcePrimaryDistrictSource.Resolve(current, originalForce);
+            int targetDistrict = Need(current.ReadDistrictPhysicalSlot(primary), "primary_District22DD20");
+            var associations = new List<PersonAssignmentPrecallResult>();
+            var transfer = ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, associations, result =>
+            {
+                //2783B0's actual3452 history belongs before240DB0 writesE0.
+                //Adopt its formatter/history State in this same current operation.
+                working = ApplyPersonAssociationRemovalReports(working, current, personPhysical, result, day450, sink);
+            });
+            PersonDistrictTransfer.Apply(personPhysical, targetDistrict, transfer);
+            if (associations.Count != 0)
+                working = PersonAssignmentPrecallInputs.PublishDeathTouched(working, current, personPhysical, associations);
+            current.WriteFormerForceKnowledge(personPhysical, 0);
 
-        //2EA9A0 repeats Force/Home ownership after the actual status/E0/165
-        //writes. A failed owner takes265250 without the no-origin resentment
-        //prefix; the retained original Force's service tail still follows.
-        var currentForce = current.ReadPersonForce(personPhysical) ?? throw Missing("return_Force22CB40");
-        bool freedomRequired = !Need(current.ReadForceNativeValidity(currentForce), "return_Force_validity");
-        BaseReference returnHome = new(BaseKind.City, null);
-        if (!freedomRequired)
-        {
-            returnHome = BaseLookup.Find(Need(current.ReadPersonFirstLocation(personPhysical), "return_E2"), current);
-            freedomRequired = !Need(current.ReadBaseNativeValidity(returnHome), "return_Home_validity");
+            //2EA9A0 repeats Force/Home ownership after the actual status/E0/165
+            //writes. A failed owner takes265250 without the no-origin resentment
+            //prefix; the retained original Force's service tail still follows.
+            var currentForce = current.ReadPersonForce(personPhysical) ?? throw Missing("return_Force22CB40");
+            bool freedomRequired = !Need(current.ReadForceNativeValidity(currentForce), "return_Force_validity");
+            BaseReference returnHome = new(BaseKind.City, null);
             if (!freedomRequired)
-                freedomRequired = Need(current.ReadBaseForceSlot(returnHome), "return_Home_virtualB0") !=
-                    Need(current.ReadPersonOldForceSlot(personPhysical), "return_Person22CF60");
-        }
-        if (freedomRequired)
-            working = ApplyCaptiveFreedomCurrent(working, current, Pool(), personPhysical, sourceDate, day450, Sampler, sink);
-        else
-        {
-            var position = PersonReturnCommands.ResolvePersonPosition(working, current, personPhysical, Date);
-            //A current journey position query may initialize its real deadline.
-            //Adopt that latest manager before preparing the next command.
-            if (current.ReadOwnedPersonCommandManager() is { } positionedOwner)
-                working = working with { PersonnelCommands = positionedOwner };
-            int positionHex = Need(position.PhysicalSlot, "return_position22DEF0");
-            if (positionHex == current.ReadBaseCurrentHexIndex(returnHome))
-                current.WritePersonSecondLocation(personPhysical,
-                    Math.Min(Need(current.ReadBaseObjectLink(returnHome), "return_same_Home4E"), (ushort)1061));
+            {
+                returnHome = BaseLookup.Find(Need(current.ReadPersonFirstLocation(personPhysical), "return_E2"), current);
+                freedomRequired = !Need(current.ReadBaseNativeValidity(returnHome), "return_Home_validity");
+                if (!freedomRequired)
+                    freedomRequired = Need(current.ReadBaseForceSlot(returnHome), "return_Home_virtualB0") !=
+                        Need(current.ReadPersonOldForceSlot(personPhysical), "return_Person22CF60");
+            }
+            if (freedomRequired)
+                working = ApplyCaptiveFreedomCurrent(working, current, Pool(), personPhysical, sourceDate, day450, Sampler, sink);
             else
             {
-                //2EA9A0/1F24F0 really creates a new receiver even when22D6C0
-                //finds an earlier associated command.1F68B0 keeps that old
-                //member chain, reads its current position before appending the
-                //new member, and leaves normal command retirement to its owner.
-                var prepared = PersonReturnCommands.Prepare(working, current, personPhysical, Date());
-                var packet = prepared.Packet ?? throw Missing(prepared.UnresolvedOwner ?? "return_Prepare");
-                var applied = PersonReturnCommands.Apply(working, current, packet);
-                working = applied.State ?? throw Missing(applied.UnresolvedOwner ?? "return_Apply");
-                if (applied.CommandId.HasValue)
+                var position = PersonReturnCommands.ResolvePersonPosition(working, current, personPhysical, Date);
+                //A current journey position query may initialize its real deadline.
+                //Adopt that latest manager before preparing the next command.
+                if (current.ReadOwnedPersonCommandManager() is { } positionedOwner)
+                    working = working with { PersonnelCommands = positionedOwner };
+                int positionHex = Need(position.PhysicalSlot, "return_position22DEF0");
+                if (positionHex == current.ReadBaseCurrentHexIndex(returnHome))
+                    current.WritePersonSecondLocation(personPhysical,
+                        Math.Min(Need(current.ReadBaseObjectLink(returnHome), "return_same_Home4E"), (ushort)1061));
+                else
                 {
-                    var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("return_current_pool");
-                    var lifecycle = working.ReadArmyLifecycle() ?? throw Missing("return_saved_lifecycle");
-                    working = working.WithArmyLifecycle(lifecycle with { Indexes = pool.ProjectOwnedRoles() });
+                    //2EA9A0/1F24F0 really creates a new receiver even when22D6C0
+                    //finds an earlier associated command.1F68B0 keeps that old
+                    //member chain, reads its current position before appending the
+                    //new member, and leaves normal command retirement to its owner.
+                    var prepared = PersonReturnCommands.Prepare(working, current, personPhysical, Date());
+                    var packet = prepared.Packet ?? throw Missing(prepared.UnresolvedOwner ?? "return_Prepare");
+                    var applied = PersonReturnCommands.Apply(working, current, packet);
+                    working = applied.State ?? throw Missing(applied.UnresolvedOwner ?? "return_Apply");
+                    if (applied.CommandId.HasValue)
+                    {
+                        var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("return_current_pool");
+                        var lifecycle = working.ReadArmyLifecycle() ?? throw Missing("return_saved_lifecycle");
+                        working = working.WithArmyLifecycle(lifecycle with { Indexes = pool.ProjectOwnedRoles() });
+                    }
                 }
+                working = PublishPerson(working);
+                working = current.PublishOfficerAftermath(working, Need(current.ReadPersonIdentity(personPhysical), "Person10"));
             }
-            working = PublishPerson(working);
-            working = current.PublishOfficerAftermath(working, Need(current.ReadPersonIdentity(personPhysical), "Person10"));
+            //This is the retained original Force's separate3E7DF0(1,1,0), not
+            //the earlier240DB0 service eligibility call.
+            if (IsPlayer(originalForce)) transfer.RefreshTransferService(1, 1, 0);
+            return working;
         }
-        //This is the retained original Force's separate3E7DF0(1,1,0), not
-        //the earlier240DB0 service eligibility call.
-        if (IsPlayer(originalForce)) transfer.RefreshTransferService(1, 1, 0);
-        return working;
+        finally { current.TransferServiceRefresher = previousRefresh; }
 
         GameState PublishPerson(GameState state)
         {

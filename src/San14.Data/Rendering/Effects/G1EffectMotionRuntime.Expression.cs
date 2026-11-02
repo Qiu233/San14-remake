@@ -115,27 +115,7 @@ public sealed partial class G1EffectMotionRuntime
             case 31:
             {
                 float value = ExpressionScalar(bytes, ref cursor, generic, particle, source);
-                int table = cursor, count = Word(bytes, ref cursor);
-                if (count < 1) throw new InvalidDataException("Particle cubic curve has no intervals.");
-                int length = checked((5 * count + 3) * 4);
-                Require(bytes.Length, table, length);
-                cursor = checked(table + length);
-                float start = F(bytes, table + 4);
-                if (value < start) return F(bytes, table + 12);
-                for (int index = 0; index < count; index++)
-                {
-                    int at = checked(table + 8 + index * 20);
-                    float end = F(bytes, at);
-                    if (value < end)
-                    {
-                        float time = value - start, square = time * time;
-                        float linear = F(bytes, at + 4) + time * F(bytes, at + 8);
-                        float cubic = (square * F(bytes, at + 16)) * time;
-                        return (square * F(bytes, at + 12) + linear) + cubic;
-                    }
-                    start = end;
-                }
-                return F(bytes, checked(table + 8 + count * 20));
+                return G1EffectScalarCurves.Cubic(bytes, ref cursor, value);
             }
             case 39:
             {

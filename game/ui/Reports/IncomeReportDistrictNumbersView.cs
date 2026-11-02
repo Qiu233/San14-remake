@@ -63,7 +63,14 @@ internal partial class IncomeReportDistrictNumbersView : Control
             tab.Pressed += () => { if (ReadAdmission() && !tab.Disabled) Run(() => SelectTab(ordinal)); };
         }
         numericBackground = side.Art(this, 13, side.Rectangle(13), assets, shader);
-        numbers = new IncomeReportNumbersView { Name = "IncomeNumbers", Position = side.Rectangle(14).Position + new Vector2(0, 30) };
+        // The original getter truncates the centred native position before
+        // adding the 1920x1080 screen centre. Node14 is left/top anchored;
+        // its caller then subtracts thirty in screen coordinates.
+        Vector2 screenCentre = new(960, 540);
+        Vector2 centredPosition = side.Rectangle(14).Position - screenCentre;
+        Vector2 numericMount = new(screenCentre.X + (int)centredPosition.X,
+            screenCentre.Y - (int)(-centredPosition.Y) - 30);
+        numbers = new IncomeReportNumbersView { Name = "IncomeNumbers", Position = numericMount };
         AddChild(numbers);
         numbers.Configure(repository, assets, shader, font, locale);
         SetMeta("source_layout", source.Source.Source.ResourceUri);

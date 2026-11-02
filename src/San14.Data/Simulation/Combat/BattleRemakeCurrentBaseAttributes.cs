@@ -54,9 +54,12 @@ public sealed class BattleRemakeCurrentBaseAttributes
         if (finalDescriptorDivisor14 == 0) return null;
         //The Base branch of2A9180 uses its actual virtualB0 Force. Unlike
         //the Army commander's region shortcut, it has no ordinary-ID gate.
-        if (definitions.ReadBaseForceSlot(actualCity) is not int forceSlot || forceSlot is < 1 or > 51 ||
+        //2A9180's Base branch reads virtualB0 even for a neutral receiver.
+        //Its invalid Force0 skips the later policy modifier;2B0B90 supplies
+        //the existing raw-force0 region early return, not a guessed factor.
+        if (definitions.ReadBaseForceSlot(actualCity) is not int forceSlot || forceSlot is < 0 or > 51 ||
             definitions.ReadForceTableReference(forceSlot) is not { } force ||
-            definitions.ReadForceNativeValidity(force) != true ||
+            forceSlot != 0 && definitions.ReadForceNativeValidity(force) != true ||
             definitions.ReadArmyReturnBaseGovernor2E(actualCity) is not ushort governor ||
             (governor <= 6000 ? definitions.ReadPersonLookupReference(governor)
                 : definitions.ReadTransferPersonTableReference(0))?.PhysicalSlot is not int person ||

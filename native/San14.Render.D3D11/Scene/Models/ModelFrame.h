@@ -189,15 +189,21 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
     // Original D4B7E0: each enabled field is an ascending stable 8-byte radix;
     // the last field pass is most significant. Exact ties retain publication.
     auto sorted=[&](std::vector<NativeModelContinuousDraw>& rows,const std::vector<unsigned>& fields) {
-        std::vector<NativeModelContinuousDraw> scratch(rows.size());
+        // The radix only permutes draw identities. Keep each complete CB/
+        // extended-vertex payload in place until all stable key passes finish.
+        std::vector<std::size_t> order(rows.size()),scratch(rows.size());
+        std::iota(order.begin(),order.end(),std::size_t{0});
         for(unsigned field:fields)for(unsigned shift=0;shift<64;shift+=8) {
             if(field!=14&&field!=3)throw std::runtime_error("Normal Model source sort key is unclosed");
             std::array<std::size_t,256> counts{};
-            for(const auto& draw:rows){auto key=field==14?draw.distanceKey:draw.tableOwner;++counts[(key>>shift)&255];}
+            for(auto index:order){const auto& draw=rows[index];auto key=field==14?draw.distanceKey:draw.tableOwner;++counts[(key>>shift)&255];}
             std::size_t sum=0;for(auto& count:counts){auto n=count;count=sum;sum+=n;}
-            for(const auto& draw:rows){auto key=field==14?draw.distanceKey:draw.tableOwner;scratch[counts[(key>>shift)&255]++]=draw;}
-            rows.swap(scratch);
+            for(auto index:order){const auto& draw=rows[index];auto key=field==14?draw.distanceKey:draw.tableOwner;scratch[counts[(key>>shift)&255]++]=index;}
+            order.swap(scratch);
         }
+        std::vector<NativeModelContinuousDraw> ordered;ordered.reserve(rows.size());
+        for(auto index:order)ordered.push_back(std::move(rows[index]));
+        rows=std::move(ordered);
     };
     std::vector<NativeModelContinuousDraw> alpha;
     auto out=plan.draws.begin();
@@ -243,16 +249,20 @@ inline NativeModelInputs prepareNativeModelContinuousGpu(ID3D11Device* device,co
     }
     return result;
 }
-inline NativeModelInputs updateSelectNativeModelContinuous(ID3D11DeviceContext* context,const NativeModelContinuousPlan& plan,
+inline void uploadNativeModelContinuousConstants(ID3D11DeviceContext* context,const NativeModelContinuousPlan& plan,
     const NativeModelInputs& allModels) {
     if(!plan.visibleUnsupportedInstances.empty())throw std::runtime_error("Current view contains explicitly unclosed static Model profiles");
-    NativeModelInputs result;result.blend=allModels.blend;result.draws.reserve(plan.draws.size());
     for(const auto& selected:plan.draws) {
         const auto& draw=allModels.draws.at(selected.primitiveIndex);
         context->UpdateSubresource(draw.vsConstants.Get(),0,nullptr,
             selected.extendedVertex.empty()?selected.vertex.data():selected.extendedVertex.data(),0,0);
         context->UpdateSubresource(draw.psConstants.Get(),0,nullptr,selected.pixel.data(),0,0);
-        result.draws.push_back(draw);
     }
-    return result; // Submit immediately with the existing drawNativeModels.
+}
+inline NativeModelInputs updateSelectNativeModelContinuous(ID3D11DeviceContext* context,const NativeModelContinuousPlan& plan,
+    const NativeModelInputs& allModels) {
+    uploadNativeModelContinuousConstants(context,plan,allModels);
+    NativeModelInputs result;result.blend=allModels.blend;result.draws.reserve(plan.draws.size());
+    for(const auto& selected:plan.draws)result.draws.push_back(allModels.draws.at(selected.primitiveIndex));
+    return result; // Owning callers retain their existing stencil/resource copies.
 }

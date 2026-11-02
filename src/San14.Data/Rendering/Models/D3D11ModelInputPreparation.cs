@@ -97,26 +97,28 @@ public sealed class D3D11ModelInputPreparation
         ScenePlacements placements,MapCameraConstructionPacket initialCamera,
         Func<ScenePlacement,MapStaticModelPublication?> freshPublication)
     {
-        ArgumentNullException.ThrowIfNull(repo);ArgumentNullException.ThrowIfNull(scene);
-        ArgumentNullException.ThrowIfNull(placements);ArgumentNullException.ThrowIfNull(initialCamera);
-        ArgumentNullException.ThrowIfNull(freshPublication);
-        if(placements.Scene.Scene.Source.ResourceUri!=scene.Scene.Source.ResourceUri||
-            placements.Scene.Scene.Source.DecodedSha256!=scene.Scene.Source.DecodedSha256)
-            throw new InvalidDataException("Model placements differ from the selected source scene.");
-        var sdfDeclarations = D3D11SdfModelDeclarationPreparation.Load(repo, initialCamera.ExecutableLocale);
-        var assets=new MapStaticModelAssetCatalog(repo,scene,sdfDeclarations);
+        ArgumentNullException.ThrowIfNull(initialCamera);
+        return PrepareOpening(repo, D3D11ModelInputSources.Load(repo, scene, placements,
+            initialCamera.ExecutableLocale), initialCamera, freshPublication);
+    }
+
+    /// <summary>Uses already loaded geometry/declarations, then constructs the
+    /// actual fresh publications, SDF lifetimes and accepted-camera constants.</summary>
+    public static D3D11ModelInputPreparation PrepareOpening(GameResourceRepository repo,
+        D3D11ModelInputSources sources, MapCameraConstructionPacket initialCamera,
+        Func<ScenePlacement,MapStaticModelPublication?> freshPublication)
+    {
+        ArgumentNullException.ThrowIfNull(repo); ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(initialCamera); ArgumentNullException.ThrowIfNull(freshPublication);
+        if (sources.Locale != initialCamera.ExecutableLocale)
+            throw new InvalidDataException("Field model sources differ from the accepted camera locale.");
+        var scene = sources.Scene; var placements = sources.Placements;
+        var sdfDeclarations = D3D11SdfModelDeclarationPreparation.Load(repo, sources.Locale);
+        var assets = MapStaticModelAssetCatalog.CreateFromSources(repo, sources, sdfDeclarations);
         var initial=new{Camera=initialCamera};
-        var graph=repo.LoadRenderGraph("system",0x024496EE);
-        var queue54=ModelRendererStateSourceReader.ReadQueue(graph,54);
-        var queue55=ModelRendererStateSourceReader.ReadQueue(graph,55);
-        var shaderObjects=repo.LoadObjects("system",0x718CCB8B);
-        var order=WorldPrimitiveOrderSource.LoadDefaultView0(repo);
-        var fields=WorldPrimitiveSortDescriptor.ReadActualFields(order.Descriptor(WorldPrimitiveSortFamily.Opaque).ToArray());
-        var alphaFields=WorldPrimitiveSortDescriptor.ReadActualFields(order.Descriptor(WorldPrimitiveSortFamily.Alpha).ToArray());
-        if(!alphaFields.SequenceEqual(new[]{14}))throw new NotSupportedException("Current Model alpha sort is outside source distance14.");
-        if(!fields.SequenceEqual(new[]{14,3}))throw new NotSupportedException("Current Model first-bank sort is outside opaque14->3.");
-        var common=MapModelNativeVisibilitySources.ReadCommonViewTemplate(
-            repo.LoadObjects("KIDSSystemResource",CommonRenderResources.SourceFileId),CommonRenderResources.SourceObjectId);
+        var queue54=sources.Queue54; var queue55=sources.Queue55;
+        var shaderObjects=sources.ShaderObjects; var order=sources.Order;
+        var fields=sources.Fields; var alphaFields=sources.AlphaFields; var common=sources.Common;
         const string output=".";
         var files=new Dictionary<string,byte[]>(StringComparer.Ordinal);
         var profiles=new Dictionary<string,List<Profile>>();

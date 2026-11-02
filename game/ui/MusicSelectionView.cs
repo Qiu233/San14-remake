@@ -19,17 +19,17 @@ internal partial class MusicSelectionView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<MusicSelectionRow> candidates, int initial,
         Func<bool> admitted, Action<int?> completed, Action<int?>? preview = null,
-        Func<int>? currentScrollSpeed = null)
-        => ConfigurePage(repository, text, candidates, initial, admitted, completed, preview, currentScrollSpeed, false);
+        Func<int>? currentScrollSpeed = null, AdministrationPageChrome.Resources? resources = null)
+        => ConfigurePage(repository, text, candidates, initial, admitted, completed, preview, currentScrollSpeed, false, resources);
 
     internal void ConfigureCollection(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<MusicSelectionRow> candidates, Func<bool> admitted, Action returned,
-        Action<int?> preview, Func<int>? currentScrollSpeed = null)
-        => ConfigurePage(repository, text, candidates, -1, admitted, _ => returned(), preview, currentScrollSpeed, true);
+        Action<int?> preview, Func<int>? currentScrollSpeed = null, AdministrationPageChrome.Resources? resources = null)
+        => ConfigurePage(repository, text, candidates, -1, admitted, _ => returned(), preview, currentScrollSpeed, true, resources);
 
     private void ConfigurePage(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<MusicSelectionRow> candidates, int initial, Func<bool> admitted,
-        Action<int?> completed, Action<int?>? preview, Func<int>? currentScrollSpeed, bool collection)
+        Action<int?> completed, Action<int?>? preview, Func<int>? currentScrollSpeed, bool collection, AdministrationPageChrome.Resources? resources)
     {
         this.admitted = admitted; this.completed = completed; this.preview = preview;
         collectionMode = collection;
@@ -37,8 +37,8 @@ internal partial class MusicSelectionView : Control
         Name = collection ? "CollectionMusic" : "MusicSelection"; ZIndex = 6; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, collection ? 0x6E : 0x02DF, RequestBack, () => Finish(current), returnOnly: collection);
-        var source = new UiSourceLayout(MusicEditLayoutSource.LoadSelection(repository));
+        chrome.Configure(repository, text, collection ? 0x6E : 0x02DF, RequestBack, () => Finish(current), returnOnly: collection, resources: resources);
+        var source = chrome.Assets.SourceLayout("02_07_04_BGM");
         source.Blur(chrome.Canvas, 2, source.Rectangle(2));
         source.Art(chrome.Canvas, 3, source.Rectangle(3), chrome.Assets, chrome.SpriteShader);
         var rectangle = source.Rectangle(12);

@@ -35,7 +35,8 @@ internal partial class TalentRecruitExecutorSelectionView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         TalentRecruitPersonSelection model,
-        Func<bool> admitted, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed)
+        Func<bool> admitted, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.model = model; pages = model.Pages;
         this.admitted = admitted; this.closed = closed; maximum = model.MaximumSelected;
@@ -46,7 +47,7 @@ internal partial class TalentRecruitExecutorSelectionView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, RequestApply);
+        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, RequestApply, resources: resources);
         var narrator = new AdministrationMessages(repository, text.SourceLocale);
         defaultHint = model.GuideText;
         chrome.ApplyDefaultHint(defaultHint); chrome.ApplyReturnHint(narrator.Format(0x2733));

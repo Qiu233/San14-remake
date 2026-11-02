@@ -282,20 +282,37 @@ public static class PersonArmyCaptureSource
     }
     internal static bool Threatens(GameState state, SourceWorldContext current, int candidateHex, int center)
     {
-        var hex = current.ReadHexTableReference(candidateHex) ?? throw Missing("current.threat_Hex_pointer");
+        var hex = ThreatHex(current, candidateHex);
+        if (hex.PhysicalSlot is null) return false;
         ushort link = Need(current.ReadHexObjectLink(hex), "current.threat_Hex1A");
-        if (link is >= 1 and <= 61)
+        if (link != 0)
         {
-            var baseThreat = CaptureBaseThreatSource.Evaluate(state, current, candidateHex, center);
-            return Need(baseThreat.Threatens, baseThreat.UnresolvedOwner ?? "current.2CA7B0_Base_threat");
+            var obj = current.ReadObjectTableReference(link <= 3000 ? link : 0) ?? throw Missing("current.threat_Object_pointer");
+            if (Need(obj.PhysicalSlot, "current.threat_Object_physical") is >= 1 and <= 61)
+            {
+                var baseThreat = CaptureBaseThreatSource.Evaluate(state, current, candidateHex, center);
+                return Need(baseThreat.Threatens, baseThreat.UnresolvedOwner ?? "current.2CA7B0_Base_threat");
+            }
         }
         //Non-City/Gate objects fall through to the same Army branch.
         int slot = unchecked((short)Need(current.ReadHexRaw1C(hex), "current.threat_Hex1C"));
-        var army = current.ReadArmyUnitTableReference(slot <= 500 ? slot : 0) ?? throw Missing("current.threat_Army_pointer");
+        //2C6D20 tests the signed occupancy range, not Army native validity.
+        if (slot is < 1 or > 500) return false;
+        var army = current.ReadArmyUnitTableReference(slot) ?? throw Missing("current.threat_Army_pointer");
         var image = ArmyImage(state, army);
         var runtime = image.NativeTacticRuntime ?? throw Missing("current.threat_Army_abnormal_fields");
         if (runtime.Abnormal23 != 0) return false;
-        if (runtime.Abnormal25 != 0) throw Missing("branch.2CA7B0_Army_forced_target3C3E");
+        if (runtime.Abnormal25 != 0)
+        {
+            var forced = ArmyOverrideTargetSourceAdapter.Read(state, image);
+            //The original16EB20 classifies the query Hex, while distance
+            //below still uses the caller's un-clamped original operands.
+            int query = unchecked((uint)center) < 48400 ? center : 0;
+            var selected = FieldHexOccupantSource.ReadCurrent(state, current, query);
+            var receipt = selected.Receipt ?? throw Missing(selected.UnresolvedOwner ?? "current.threat_forced_16EB20");
+            if (Need(forced.Kind3C, "current.threat_override3C") != receipt.NativeKind) return false;
+            if (Need(forced.Identity3E, "current.threat_override3E") != receipt.NativePhysicalSlot) return false;
+        }
         int formation = EffectiveFormation(state, current, army);
         int definition = formation <= 20 ? formation : 0;
         byte extended = Need(TacticRemakeCurrentFormations.ReadParameter(state, definition, 0xA6), "current.threat_Formation_A6");
@@ -305,24 +322,42 @@ public static class PersonArmyCaptureSource
         byte flags = Need(state.NativeArmySimulation?.Forces.GetValueOrDefault(attacker)?.Flags193, "current.threat_Force193");
         if (flags >= 128 && definition == 10) radius = 2;
         int quantity = Need(current.ReadArmyReturnResourceFields(army)?.Ready16, "current.threat_Army_ready16");
-        var target = current.ReadHexTableReference(center) ?? throw Missing("current.threat_target_Hex_pointer");
-        ushort targetLink = Need(current.ReadHexObjectLink(target), "current.threat_target_Hex1A");
+        var target = ThreatHex(current, center);
         int otherForce, targetHex = center;
-        if (targetLink is >= 1 and <= 61) {
-            var obj = current.ReadObjectTableReference(targetLink) ?? throw Missing("current.threat_target_Object_pointer");
-            otherForce = Need(current.ReadObjectForceSlot13(obj), "current.threat_target_Object13");
-            targetHex = Need(current.ReadObjectHexIndex(obj), "current.threat_target_Object10");
-            if (targetLink <= 51) radius++;
-        }
-        else {
-            if (targetLink != 0) throw Missing("branch.2CA7B0_nonbase_Object_target_definition");
+        if (!TryReadThreatObjectTarget(current, target, ref radius, out otherForce, out int objectHex)) {
             int targetSlot = unchecked((short)Need(current.ReadHexRaw1C(target), "current.threat_target_Hex1C"));
             if (targetSlot is < 1 or > 500) return false;
             var targetArmy = current.ReadArmyUnitTableReference(targetSlot) ?? throw Missing("current.threat_target_Army_pointer");
             otherForce = current.ReadArmyUnitRawForceSlot(targetArmy);
         }
+        else targetHex = objectHex;
         return Distance(candidateHex, targetHex) <= radius && quantity > 0 && Need(
             ArmyLogisticsPreparation.ReadNativeRelationGate(state, attacker, otherForce), "current.threat_relation2CA650");
+    }
+    private static HexReference ThreatHex(SourceWorldContext current, int raw) =>
+        current.ReadHexTableReference(unchecked((uint)raw) < 48400 ? raw : 0)
+            ?? throw Missing("current.threat_Hex_pointer");
+
+    private static bool TryReadThreatObjectTarget(SourceWorldContext current, HexReference target,
+        ref int radius, out int force, out int hex)
+    {
+        force = hex = 0;
+        ushort link = Need(current.ReadHexObjectLink(target), "current.threat_target_Hex1A");
+        if (link == 0) return false;
+        var obj = current.ReadObjectTableReference(link <= 3000 ? link : 0) ?? throw Missing("current.threat_target_Object_pointer");
+        int physical = Need(obj.PhysicalSlot, "current.threat_target_Object_physical");
+        if (physical is >= 1 and <= 51) radius++;
+        else if (physical is not (>= 52 and <= 61))
+        {
+            var fields = current.ReadPhysicalObject(physical) ?? throw Missing("current.threat_target_Object_definition_fields");
+            var definition = current.ReadObjectDefinitionReference(fields.RawField12 <= 30 ? fields.RawField12 : 0)
+                ?? throw Missing("current.threat_target_Object_definition_pointer");
+            if (!Need(current.ReadObjectDefinitionValidity(definition), "current.threat_target_Object_definition_validity")) return false;
+            if (Need(current.ReadObjectDefinitionRaw2C(definition), "current.threat_target_Object_definition2C") is not (2 or 3)) return false;
+        }
+        force = Need(current.ReadObjectForceSlot13(obj), "current.threat_target_Object13");
+        hex = Need(current.ReadObjectHexIndex(obj), "current.threat_target_Object10");
+        return true;
     }
     private static bool Player(GameState state, SourceWorldContext current, ForceReference force)
     {

@@ -144,6 +144,13 @@ internal partial class UiSourceScrollbar : Control
         _dragging = true; _pressedMouseY = mouseY; _pressedThumbY = ThumbY;
         _thumb.Selected = true; SetProcessInput(true);
     }
+    internal void CancelDrag()
+    {
+        _dragging = false;
+        if (_thumb is not null) _thumb.Selected = false;
+        SetProcessInput(false);
+    }
+
     public override void _Input(InputEvent input)
     {
         if (!_dragging) return;

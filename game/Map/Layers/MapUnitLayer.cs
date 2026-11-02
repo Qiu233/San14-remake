@@ -22,7 +22,7 @@ public partial class MapUnitLayer : Node3D
 
     internal void Build(MapWorldProjection projection, TerrainMeshResult terrain,
         GameState world, int playerForceId, UiAssets assets, LoadedLayout layout,
-        IReadOnlyDictionary<int, Color>? forceColorCandidates = null)
+        IReadOnlyDictionary<int, Color>? forceColorCandidates = null, IReadOnlySet<int>? visibleUnitIds = null)
     {
         if (_units.Count != 0) throw new InvalidOperationException("Map unit layer already contains markers.");
         Name = "PlayableMapUnits";
@@ -39,6 +39,7 @@ public partial class MapUnitLayer : Node3D
             throw new InvalidDataException("Original unit sign sprites differ from the verified source atlas.");
         foreach (UnitState unit in world.Units.Values.OrderBy(unit => unit.Id))
         {
+            if (visibleUnitIds is not null && !visibleUnitIds.Contains(unit.Id)) continue;
             if (!world.Officers.TryGetValue(unit.OfficerId, out OfficerState? officer))
                 throw new InvalidDataException($"Map unit {unit.Id} has no officer.");
             ProjectedMapPoint point = projection.Project(unit.HexId);

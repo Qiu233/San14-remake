@@ -72,7 +72,8 @@ public partial class AudioPlaybackService : Node
             voice.Player.VolumeLinear = voice.SourceGain * Mathf.DbToLinear(voice.BaseVolumeDb);
         else voice.Player.VolumeDb = voice.BaseVolumeDb;
         if (_mapMusic.Values.FirstOrDefault(music => music.Player == voice.Player) is { } music)
-            voice.Player.VolumeLinear *= music.Gain * music.PauseGain;
+            // The source attack/release is applied once by the player's mixer DSP.
+            voice.Player.VolumeLinear *= music.PauseGain;
         if (voice.Effect is { } effect) voice.Player.VolumeLinear *=
             voice.Player.HasSourceEnvelope ? effect.ScriptVolume : effect.ControlGain;
         if (voice.Group == AudioVolumeGroup.Voice && !_voiceEnabled) voice.Player.VolumeLinear = 0;
@@ -123,53 +124,52 @@ public partial class AudioPlaybackService : Node
     public Task<AudioClip> PrepareInputAsync(AudioDecodeInput input,
         bool enableSourceLoop = false, CancellationToken cancellationToken = default)
     {
-        IAudioDecoder decoder = _decoder ?? throw new InvalidOperationException("Configure the attached audio service first.");
-        return PrepareDecodedAsync(token => decoder.DecodeInputAsync(input, token), enableSourceLoop, cancellationToken);
+        if (_decoder is null) throw new InvalidOperationException("Configure the attached audio service first.");
+        return PrepareDecodedAsync(token => DecodeResidentAsync(input, token), enableSourceLoop, cancellationToken);
     }
 
     public Task<AudioClip> PrepareLoadedStreamAsync(LoadedAudioStream source,
         bool enableSourceLoop = false, CancellationToken cancellationToken = default)
     {
-        IAudioDecoder decoder = _decoder ?? throw new InvalidOperationException("Configure the attached audio service first.");
-        return PrepareDecodedAsync(token => decoder.DecodeAsync(source, token), enableSourceLoop, cancellationToken);
+        if (_decoder is null) throw new InvalidOperationException("Configure the attached audio service first.");
+        return PrepareDecodedAsync(token => DecodeResidentAsync(source, token), enableSourceLoop, cancellationToken);
     }
 
     public Task<AudioClip> PrepareInputAsync(AudioDecodeInput input,
         AudioLoopPolicy loopPolicy, CancellationToken cancellationToken = default)
     {
-        IAudioDecoder decoder = _decoder ?? throw new InvalidOperationException("Configure the attached audio service first.");
-        return PrepareDecodedAsync(token => decoder.DecodeInputAsync(input, token), loopPolicy, cancellationToken);
+        if (_decoder is null) throw new InvalidOperationException("Configure the attached audio service first.");
+        return PrepareDecodedAsync(token => DecodeResidentAsync(input, token), loopPolicy, cancellationToken);
     }
 
     public Task<AudioClip> PrepareLoadedStreamAsync(LoadedAudioStream source,
         AudioLoopPolicy loopPolicy, CancellationToken cancellationToken = default)
     {
-        IAudioDecoder decoder = _decoder ?? throw new InvalidOperationException("Configure the attached audio service first.");
-        return PrepareDecodedAsync(token => decoder.DecodeAsync(source, token), loopPolicy, cancellationToken);
+        if (_decoder is null) throw new InvalidOperationException("Configure the attached audio service first.");
+        return PrepareDecodedAsync(token => DecodeResidentAsync(source, token), loopPolicy, cancellationToken);
     }
 
     private Task<AudioClip> PrepareSelectedAsync(Func<LoadedAudioStream> loadSelected,
         bool enableSourceLoop, CancellationToken cancellationToken)
     {
-        IAudioDecoder decoder = _decoder!;
         return PrepareDecodedAsync(async token =>
         {
             LoadedAudioStream source = await Task.Run(loadSelected, token).ConfigureAwait(false);
-            return await decoder.DecodeAsync(source, token).ConfigureAwait(false);
+            return await DecodeResidentAsync(source, token).ConfigureAwait(false);
         }, enableSourceLoop, cancellationToken);
     }
 
-    private async Task<AudioClip> PrepareDecodedAsync(Func<CancellationToken, Task<DecodedAudio>> decode,
+    private async Task<AudioClip> PrepareDecodedAsync(Func<CancellationToken, Task<ResidentDecodedAudio>> decode,
         bool enableSourceLoop, CancellationToken cancellationToken)
         => await PrepareDecodedAsync(decode, enableSourceLoop ? AudioLoopPolicy.RequireSource :
             AudioLoopPolicy.Disabled, cancellationToken).ConfigureAwait(false);
 
-    private async Task<AudioClip> PrepareDecodedAsync(Func<CancellationToken, Task<DecodedAudio>> decode,
+    private async Task<AudioClip> PrepareDecodedAsync(Func<CancellationToken, Task<ResidentDecodedAudio>> decode,
         AudioLoopPolicy loopPolicy, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        DecodedAudio audio = await decode(linked.Token).ConfigureAwait(false);
-        return await InvokeOnEngineThreadAsync(() => AudioStreamFactory.Create(audio, loopPolicy),
+        ResidentDecodedAudio decoded = await decode(linked.Token).ConfigureAwait(false);
+        return await InvokeOnEngineThreadAsync(() => BorrowResidentPlainStream(decoded, loopPolicy),
             linked.Token, clip => clip.Dispose()).ConfigureAwait(false);
     }
 
@@ -291,6 +291,7 @@ public partial class AudioPlaybackService : Node
         AudioServer.Lock();
         try { _musicClock?.Dispose(); _musicClock = null; _originalOutputs?.Dispose(); _originalOutputs = null; }
         finally { AudioServer.Unlock(); }
+        RetireResidentAudio();
         lock (_postGate) while (_engineActions.TryDequeue(out _)) { }
         _engineThread = 0;
     }

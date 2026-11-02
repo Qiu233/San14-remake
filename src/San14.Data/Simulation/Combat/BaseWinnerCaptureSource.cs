@@ -78,7 +78,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (target.Kind == BaseKind.City)
                 {
                     var scope = ownedScope = CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce);
-                    var assignment = CityCaptureTerritorySource.AssignCityDistrict(current, target, districtId);
+                    var assignment = CityCaptureTerritorySource.AssignCityDistrictCurrent(current, target, districtId, queries);
                     Primary(assignment.CapturedOldDistrict);
                     if (IsTerminal()) return CompleteTerminal();
                     current.SetObjectForceSlot13(location, (byte)newForce);
@@ -131,8 +131,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 }
                 else
                 {
-                    var assignment = GateCaptureTerritorySource.AssignGateCity(current, target, districtId, person0);
-                    Primary(assignment.CapturedOldDistrict);
+                    var capturedOldDistrict = GateCaptureTerritorySource.AssignGateCityCurrent(current, target,
+                        districtId, person0, queries);
+                    Primary(capturedOldDistrict);
                     if (IsTerminal()) return CompleteTerminal();
                     current.SetObjectForceSlot13(location, (byte)newForce);
                     current.CurrentSceneryLayout = new(null);
@@ -147,13 +148,14 @@ public sealed partial class ArmyCampaignRuleAdapter
                         var removal = PersonAssignmentPrecallSource.Apply2E01E0AreaRemoval(current, areaId, assigned);
                         if (removal.UnresolvedOwner is not null) throw BaseWinnerMissing(removal.UnresolvedOwner);
                     }
-                    Primary(assignment.CapturedOldDistrict);
+                    Primary(capturedOldDistrict);
                     if (IsTerminal()) return CompleteTerminal();
                     Primary(district);
                     if (IsTerminal()) return CompleteTerminal();
                     HomeArmyAndForce();
                     _ = GateCaptureTerritorySource.ApplyTerritoryAfterResources(working, current, target, newForce,
-                        assignment.CapturedOldDistrict.PhysicalSlot ?? 0, districtId);
+                        capturedOldDistrict.PhysicalSlot ?? 0, districtId,
+                        readAdviser: adviceDistrict => ReadCaptureAdviserCurrent(working, current, adviceDistrict));
                     ClearThreat();
                     _ = GateCaptureRoutingSource.ClearTargetRouting(current, target);
                 }
@@ -216,7 +218,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             int cap = K(ArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "counter_bound");
             byte zero = unchecked((byte)Math.Min(cap, 0));
-            current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
+            var threatFields = current.ReadCaptureBaseThreatFields(target)
+                ?? throw BaseWinnerMissing("threat_current_fields");
+            current.SetCaptureBaseThreatFields(target, threatFields with
+                { Byte49 = zero, Byte4B = zero, Byte62 = 255, Word64 = 0 });
         }
         static T K<T>(T? value, string name) where T : struct => value ?? throw BaseWinnerMissing(name);
     }

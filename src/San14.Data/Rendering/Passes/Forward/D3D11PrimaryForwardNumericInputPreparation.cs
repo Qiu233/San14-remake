@@ -42,14 +42,16 @@ public sealed record D3D11PrimaryForwardNumericPacket(byte[] Vertex, byte[] Pixe
 /// Unknown optional Sub rows and array padding are not uploaded.</summary>
 public sealed class D3D11PrimaryForwardNumericInputPreparation
 {
-    private readonly DxbcResourceDefinitions vertexDefinitions, pixelDefinitions;
+    private readonly DxbcResourceDefinitions pixelDefinitions;
+    private readonly Projection vertexProjection, pixelProjection;
     private readonly int clusterSize, clusterZCount;
     private readonly bool clusterScalingEnabled, clusterFadeEnabled;
     private readonly uint pointSoftShadowType, spotSoftShadowType;
     private D3D11PrimaryForwardNumericInputPreparation(LoadedShaderContainer shader)
     {
-        vertexDefinitions = shader.ReadResourceDefinitions(0);
+        vertexProjection = CompileProjection(shader.ReadResourceDefinitions(0), false);
         pixelDefinitions = shader.ReadResourceDefinitions(11);
+        pixelProjection = CompileProjection(pixelDefinitions, true);
         var modules = shader.ReadConfigurations().Records;
         var cluster = modules.Single(record => record.Name == "ClusterLightList");
         clusterSize = checked((int)Parameter(cluster, "ClusterSize"));
@@ -64,6 +66,17 @@ public sealed class D3D11PrimaryForwardNumericInputPreparation
     {
         ArgumentNullException.ThrowIfNull(repository);
         return new(repository.LoadShaderContainer("system", 0x8F6C9FB9));
+    }
+
+    internal static D3D11PrimaryForwardNumericInputPreparation FromShader(LoadedShaderContainer shader) => new(shader);
+
+    /// <summary>Resource-only retained upload lanes. Actual numeric bytes are
+    /// still constructed independently for each current opening.</summary>
+    public void WriteNativeRetainedRanges(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        File.WriteAllLines(Path.Combine(directory,"vs-defined-ranges.txt"), vertexProjection.Writes.Select(w => $"{w.Offset} {w.ByteCount}"));
+        File.WriteAllLines(Path.Combine(directory,"ps-defined-ranges.txt"), pixelProjection.Writes.Select(w => $"{w.Offset} {w.ByteCount}"));
     }
 
     /// <summary>The source class18 constructor's affine identity. A later
@@ -141,8 +154,8 @@ public sealed class D3D11PrimaryForwardNumericInputPreparation
         Floats("fAmbMapsDORate", ambient.MapsDirectionalOcclusionRate);
         Vectors("mW2E", current.AmbientTransformRows);
         Vector("vAmbDifScl", ambient.DiffuseScale); Vector("vAmbSpcScl", ambient.SpecularScale);
-        var vertex = Project(vertexDefinitions, values, false);
-        var pixel = Project(pixelDefinitions, values, true);
+        var vertex = Project(vertexProjection, values);
+        var pixel = Project(pixelProjection, values);
         return new(vertex.Bytes, pixel.Bytes, vertex.Writes, pixel.Writes);
     }
 
@@ -190,9 +203,9 @@ public sealed class D3D11PrimaryForwardNumericInputPreparation
         Vectors("Scat", fog.Scattering); Floats("fAmbMapsDORate", ambient.MapsDirectionalOcclusionRate);
         Vectors("mW2E", current.AmbientTransformRows);
         Vector("vAmbDifScl", ambient.DiffuseScale); Vector("vAmbSpcScl", ambient.SpecularScale);
-        var vertex = Project(vertexDefinitions, values, false,
+        var vertex = Project(vertexProjection, values,
             new HashSet<string>(["mW2P", "mL2WT", "mL2W", "mW2Pt", "mW2S"], StringComparer.Ordinal));
-        var pixel = Project(pixelDefinitions, values, true,
+        var pixel = Project(pixelProjection, values,
             new HashSet<string>(["cSpec", "vATest", "fPtn", "vSMOf", "vS2VZ", "vSMDF", "scSM", "nSSLoop", "vLPlane", "sdplane"], StringComparer.Ordinal));
         return new(vertex.Bytes, pixel.Bytes, vertex.Writes, pixel.Writes);
     }
@@ -267,32 +280,44 @@ public sealed class D3D11PrimaryForwardNumericInputPreparation
             ?? throw new InvalidDataException("Forward module property is absent: " + module.Name + "." + name);
     }
 
-    private static (byte[] Bytes, IReadOnlyList<D3D11PrimaryForwardWrite> Writes) Project(
-        DxbcResourceDefinitions definitions, IReadOnlyDictionary<string, uint[]> values, bool optionalSubAbsent,
-        IReadOnlySet<string>? liveFields = null)
+    private sealed record ProjectionField(string Name,int Offset,int Count,int Width,int Stride);
+    private sealed record Projection(int Bytes,IReadOnlyList<ProjectionField> Fields,
+        IReadOnlyList<D3D11PrimaryForwardWrite> Writes);
+
+    private static Projection CompileProjection(DxbcResourceDefinitions definitions,bool optionalSubAbsent)
     {
-        var buffer = definitions.Buffers.Single(b => b.Name.Text == "$Globals");
-        byte[] bytes = new byte[buffer.ByteSize]; var writes = new List<D3D11PrimaryForwardWrite>();
-        foreach (var variable in buffer.Variables)
+        var buffer=definitions.Buffers.Single(b=>b.Name.Text=="$Globals");
+        var fields=new List<ProjectionField>();var writes=new List<D3D11PrimaryForwardWrite>();
+        foreach(var variable in buffer.Variables)
         {
-            if (optionalSubAbsent && variable.Name.Text is ("mSubW2S" or "vSubLPlane")) continue;
-            bool live = liveFields?.Contains(variable.Name.Text) == true;
-            if (!values.TryGetValue(variable.Name.Text, out var words) && !live)
-                throw new NotSupportedException("Current Forward numeric producer is absent: " + variable.Name.Text);
-            var type = definitions.Types.Single(t => t.Offset == variable.TypeOffset);
-            int count = Math.Max(1, (int)type.Elements), width = type.Rows * type.Columns;
-            int stride = type.Elements == 0 ? width * 4 : Math.Max(16, width * 4);
-            if ((!live && words!.Length != count * width) || variable.ByteSize != (count - 1) * stride + width * 4)
-                throw new InvalidDataException("Forward numeric field has an unsupported resource shape: " + variable.Name.Text);
-            for (int i = 0; i < count; i++)
-            {
-                int at = variable.StartOffset + i * stride;
-                if (!live) for (int j = 0; j < width; j++)
-                    BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at + j * 4, 4), words![i * width + j]);
-                writes.Add(new(at, width * 4));
-            }
+            if(optionalSubAbsent&&variable.Name.Text is ("mSubW2S" or "vSubLPlane"))continue;
+            var type=definitions.Types.Single(t=>t.Offset==variable.TypeOffset);
+            int count=Math.Max(1,(int)type.Elements),width=type.Rows*type.Columns;
+            int stride=type.Elements==0?width*4:Math.Max(16,width*4);
+            if(variable.ByteSize!=(count-1)*stride+width*4)
+                throw new InvalidDataException("Forward numeric field has an unsupported resource shape: "+variable.Name.Text);
+            fields.Add(new(variable.Name.Text,variable.StartOffset,count,width,stride));
+            for(int i=0;i<count;i++)writes.Add(new(variable.StartOffset+i*stride,width*4));
         }
-        return (bytes, writes.AsReadOnly());
+        return new(buffer.ByteSize,fields.AsReadOnly(),writes.AsReadOnly());
+    }
+
+    private static (byte[] Bytes,IReadOnlyList<D3D11PrimaryForwardWrite> Writes) Project(
+        Projection projection,IReadOnlyDictionary<string,uint[]> values,IReadOnlySet<string>? liveFields=null)
+    {
+        byte[] bytes=new byte[projection.Bytes];
+        foreach(var field in projection.Fields)
+        {
+            bool live=liveFields?.Contains(field.Name)==true;
+            if(!values.TryGetValue(field.Name,out var words)&&!live)
+                throw new NotSupportedException("Current Forward numeric producer is absent: "+field.Name);
+            if(!live&&words!.Length!=field.Count*field.Width)
+                throw new InvalidDataException("Forward numeric field has an unsupported resource shape: "+field.Name);
+            if(live)continue;
+            for(int i=0;i<field.Count;i++)for(int j=0;j<field.Width;j++)
+                BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(field.Offset+i*field.Stride+j*4,4),words![i*field.Width+j]);
+        }
+        return(bytes,projection.Writes);
     }
 
     private static float[] Components(Vector4 v) => [v.X, v.Y, v.Z, v.W];

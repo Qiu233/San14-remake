@@ -27,6 +27,8 @@ public static partial class PersonReturnCommands
                 owner.Disappearances?.TryGetValue(taskId, out var absence) == true ? absence.MemberIds :
                 owner.Talents?.TryGetValue(taskId, out var talent) == true ? talent.MemberIds :
                 owner.Diplomacies?.TryGetValue(taskId, out var diplomacy) == true ? diplomacy.MemberIds :
+                owner.Strategies?.TryGetValue(taskId, out var strategic) == true ? strategic.MemberIds :
+                owner.Independences?.TryGetValue(taskId, out var independence) == true ? independence.MemberIds :
                 owner.Caravans?.TryGetValue(taskId, out var caravan) == true ? caravan.MemberIds :
                 owner.Intelligences?.TryGetValue(taskId, out var intelligence) == true ? intelligence.MemberIds :
                 throw Missing("associated personnel command member owner");
@@ -42,6 +44,10 @@ public static partial class PersonReturnCommands
                 ? owner with { Talents = new(owner.Talents) { [taskId] = talent with { MemberIds = remaining } } }
                 : owner.Diplomacies?.TryGetValue(taskId, out diplomacy) == true
                 ? owner with { Diplomacies = new(owner.Diplomacies) { [taskId] = diplomacy with { MemberIds = remaining } } }
+                : owner.Strategies?.TryGetValue(taskId, out strategic) == true
+                ? owner with { Strategies = new(owner.Strategies) { [taskId] = strategic with { MemberIds = remaining } } }
+                : owner.Independences?.TryGetValue(taskId, out independence) == true
+                ? owner with { Independences = new(owner.Independences) { [taskId] = independence with { MemberIds = remaining } } }
                 : owner.Caravans?.TryGetValue(taskId, out caravan) == true
                 ? owner with { Caravans = new(owner.Caravans) { [taskId] = caravan with { MemberIds = remaining } } }
                 : owner.Intelligences?.TryGetValue(taskId, out intelligence) == true

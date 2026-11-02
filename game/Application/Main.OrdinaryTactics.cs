@@ -1,4 +1,4 @@
-﻿using Godot;
+using Godot;
 using San14.Core;
 using San14.Data;
 using San14.Client.Gameplay;
@@ -16,7 +16,7 @@ public partial class Main
 
     private GameState OrdinaryTacticOwner(GameplaySession session) => _advancingPeriod
         ? _periodPlayback?.Candidate ?? throw new InvalidOperationException("tactic.playback.closed_period_borrow")
-        : session.PendingManualTacticCandidate ?? session.PendingNormalPeriod?.Candidate ?? session.World;
+        : session.PendingManualTacticCandidate ?? session.PendingArmyProgressCandidate ?? session.PendingNormalPeriod?.Candidate ?? session.World;
 
     private bool BeginOrdinaryTactic(GameplaySession session, GameState owner,
         ManualTacticInterventionState manager, long sequence, GameState? preparedState) => _advancingPeriod
@@ -133,7 +133,12 @@ public partial class Main
                 ordinaryTacticFailures.Add(request.Sequence); GD.PushWarning(error.Message);
             }
         }
-        if (retiredAny && !_advancingPeriod) RefreshCurrentPlayWorld();
+        if (retiredAny && !_advancingPeriod)
+        {
+            RefreshCurrentPlayWorld();
+            if (session.PendingManualTacticCandidate is not null)
+                TryContinueLegacyManualProgress(session, composition);
+        }
     }
 
     private bool TryStartOrdinaryTactic(GameplaySession session, CampaignComposition composition,
@@ -155,8 +160,14 @@ public partial class Main
         if (playback is null)
         {
             composition.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
-            if (_preferences.Voice.Enabled && source.Actors.Any(actor => actor.CasterSpatialVoiceId is not null) &&
-                !audio.PrepareTacticSpatialVoiceBank(_preferences.Voice.Language)) return false;
+            if (_preferences.Voice.Enabled)
+            {
+                bool banksReady = true;
+                foreach (var actor in source.Actors)
+                    if (actor.CasterSpatialVoiceId is int voiceId)
+                        banksReady &= audio.PrepareTacticSpatialVoiceBank(_preferences.Voice.Language, voiceId);
+                if (!banksReady) return false;
+            }
             using var batch = audio.BeginTacticSpatialAudio(map.CaptureArmySpeechAudioContext(), _preferences.Voice.Enabled);
             rules.ConfigureArmyMapSpeechSpatialVoice(batch.TryReserve, map.SourceMainCameraTerrain);
             OrdinaryTacticAudioPreparation prepared;
@@ -188,6 +199,7 @@ public partial class Main
 
     private void CloseOrdinaryTactics()
     {
+        _automaticLegacyProgressAttempt = null;
         CloseUniqueDirection(); uniqueDirectionFailures.Clear();
         if (ordinaryTacticMap is { } directionMap && GodotObject.IsInstanceValid(directionMap)) directionMap.SetUniqueDirectionDriver(null);
         if (ordinaryTacticMap is { } map && GodotObject.IsInstanceValid(map)) map.SetOrdinaryTacticDriver(null);

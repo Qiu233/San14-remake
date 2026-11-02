@@ -13,7 +13,7 @@ internal partial class TitleEditMenuView : Control
     private bool abandoned, busy;
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted, Action returned, Action music,
         Action? registered = null, Action? historicalOfficers = null,
-        Action? historicalItems = null, Action? newItems = null, Action? personalities = null, Action? events = null)
+        Action? historicalItems = null, Action? newItems = null, Action? personalities = null, Action? events = null, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.returned = returned;
         actions[0] = registered; actions[1] = historicalOfficers; actions[2] = music;
@@ -21,8 +21,8 @@ internal partial class TitleEditMenuView : Control
         Name = "TitleEditMenu"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x0066, RequestBack, () => { }, returnOnly: true);
-        var source = new UiSourceLayout(MusicEditLayoutSource.LoadMenuButtons(repository));
+        chrome.Configure(repository, text, 0x0066, RequestBack, () => { }, returnOnly: true, resources: resources);
+        var source = chrome.Assets.SourceLayout("02_04_00_btn_set_offset_00_new");
         foreach (int index in new[] { 1, 2 })
             source.Art(chrome.Canvas, index, source.Rectangle(index), chrome.Assets, chrome.SpriteShader);
         int[] captions = [0x0030, 0x0067, 0x02DF, 0x02E7, 0x072C, 0x07CD, 0x07F5];

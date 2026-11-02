@@ -103,6 +103,12 @@ public sealed class ResourceOverrides
 
     public string? Find(GameResourceId id)
     {
+        string? path = CandidatePath(id);
+        return path is not null && System.IO.File.Exists(path) ? path : null;
+    }
+
+    internal string? CandidatePath(GameResourceId id)
+    {
         if (DirectoryPath is null) return null;
         string path = Path.GetFullPath(Path.Combine(DirectoryPath,
             id.OverrideRelativePath.Replace('/', Path.DirectorySeparatorChar)));
@@ -111,6 +117,6 @@ public sealed class ResourceOverrides
         if (!path.StartsWith(prefix,
                 StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"Override path escapes its root: {id}");
-        return System.IO.File.Exists(path) ? path : null;
+        return path;
     }
 }

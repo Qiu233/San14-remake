@@ -92,7 +92,7 @@ public static class DokReader
         }
         if (offset!=data.Length)
             throw new InvalidDataException("DOK object chain does not cover the complete file.");
-        return new(10,U32(data,20),objects,data[..28].ToArray());
+        return new(10,U32(data,20),objects.AsReadOnly(),data[..28].ToArray());
     }
 
     private static uint U32(ReadOnlySpan<byte> data,int offset) =>

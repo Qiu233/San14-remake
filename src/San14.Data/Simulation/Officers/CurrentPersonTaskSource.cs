@@ -20,6 +20,20 @@ internal sealed class CurrentPersonTaskSource(GameState state, SourceWorldContex
     private sealed record OfficerDetailTask(int Identity, int Kind, NativeMapSeasonDate Start,
         NativeMapSeasonDate Due, bool ClampElapsed, Func<string?> Target);
 
+    // The right dispatch rail uses linked commands even when the Person also
+    // has a commander Army. It does not initialize/mutate a return deadline.
+    internal (int Kind, int Remaining, string? Target)? ReadDispatchTask()
+    {
+        var task = InformationLinkedTask();
+        if (task is null) return null;
+        var today = state.NativeMapSeason?.ThirdDate ?? throw Missing("dispatch_date");
+        int start = PersonReturnCommands.CalendarOrdinal(task.Start);
+        int total = unchecked(PersonReturnCommands.CalendarOrdinal(task.Due) - start);
+        int elapsed = unchecked(PersonReturnCommands.CalendarOrdinal(today) - start);
+        if (task.ClampElapsed) elapsed = Math.Max(0, elapsed);
+        return (task.Kind, unchecked(total - elapsed), task.Target());
+    }
+
     internal int? ReadCaptionId()
     {
         var army = DetailCommanderArmy();

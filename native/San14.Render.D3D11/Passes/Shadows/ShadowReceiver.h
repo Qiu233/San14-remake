@@ -1,6 +1,7 @@
 #pragma once
 #include "ShadowReceiverResources.h"
 #include "ShadowReceiverOperation.h"
+#include "ShadowReceiverParameterWrites.h"
 #include "../Environment/SkyPatternPalette.h"
 #include "../../Device/DepthState.h"
 
@@ -176,6 +177,9 @@ inline void executeSourceShadowReceiver(ID3D11Device* device,ID3D11DeviceContext
         installShadowReceiverRecord(receiver.material,light,current.shadowReceiver);
         request.installRecordBias(light.receiverBias.scale);
         const auto feature=prepareShadowReceiverFeature(light,current,view);
+        // Generic receives the requested shadow type, before bank matching.
+        if(receiver.material.shadow)
+            installReceiverShadowMode(*receiver.material.shadow,feature.shadowMode);
         const auto sampling=special?PatternSampling{
             palette.selected?palette.selected->view.Get():resources.fallback().view.Get(),
             palette.selected?palette.selected->sampler.Get():resources.fallback().sampler.Get()}:

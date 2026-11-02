@@ -60,7 +60,8 @@ public partial class Main
                         destination => accept(action with { FalseReportDestinationHexId = destination })))
                         GeneralUnitTargetUnavailable("general_unit_target.false_report_destination");
                 },
-                routePreviewChanged: map.SetDeploymentRoutePreviews);
+                routePreviewChanged: map.SetDeploymentRoutePreviews,
+                uiResources: TryBorrowApplicationUiResources(view));
             view.RegisterHeader(_sourceHeaders);
             SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(false, keepMapVisible: true);
             BindGeneralUnitTargetMap(owner); HideDeploymentHud();

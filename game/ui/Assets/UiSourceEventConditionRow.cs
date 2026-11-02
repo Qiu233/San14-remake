@@ -5,6 +5,7 @@ using San14.Data;
 /// Its producer supplies indentation and each mark's actual visibility.</summary>
 internal partial class UiSourceEventConditionRow : Control
 {
+    private UiSourceText label = null!;
     internal void Configure(UiSourceLayout authored, UiAssets assets, Shader shader,
         MapFont font, string value, int indentPixels, bool showBox, bool showCheck, int textPreset)
     {
@@ -17,9 +18,11 @@ internal partial class UiSourceEventConditionRow : Control
         Size = source.Rectangle(0).Size;
         if (showBox) source.Art(this, 20, source.Rectangle(20), assets, shader);
         if (showCheck) source.Art(this, 21, source.Rectangle(21), assets, shader);
-        var label = source.Text(this, 22, default, "", font, MapTextPresets.Create()[textPreset]);
-        label.SetKnownColourLine(value);
+        label = source.Text(this, 22, default, "", font, MapTextPresets.Create()[textPreset]);
+        Apply(value);
         SetMeta("source_layout", authored.Source.Source.ResourceUri);
         SetMeta("indent_pixels", indentPixels); SetMeta("box_visible", showBox); SetMeta("check_visible", showCheck);
     }
+
+    internal void Apply(string value) => label.SetKnownColourLine(value);
 }

@@ -51,6 +51,8 @@ public partial class Main
         internal readonly ScenarioSelectionView? Scenarios=scenarios;
         internal readonly NewGameSetupView? Setup=setup;
         internal readonly NewGamePreparationView View=view;
+        // Borrowed from this loading view's existing application resource lease.
+        internal UiAssets.PortraitImages PortraitImages=null!;
         internal readonly CancellationTokenSource Lifetime=new();
         internal bool Retired, WorkerFinished;
     }
@@ -79,6 +81,18 @@ public partial class Main
                 ? ItemEditorScenario.Apply(repository,current,Items,ItemSelection,Seed) : current;
         }
     }
+    // Called on Main before a preparation waits or enters a worker. Prefer
+    // the current reader's application facts, not a possibly older root facade.
+    // The returned template has no query/session/World state and each worker
+    // creates its own reader from it.
+    private GameResourceRepository CaptureCampaignResourceSources()
+    {
+        var current = _repository ?? throw new InvalidOperationException("Campaign resource reader is absent.");
+        if (_applicationUiResourceRepository is { } root && !current.SharesResidentSourcesWith(root))
+            throw new InvalidOperationException("The current resource reader does not share the application's static resource owner.");
+        return current.CreateReadScope();
+    }
+
     private CampaignNewGameInputs CaptureNewGamePreparationInputs(EffectiveScenario selection, NewGameOptions options)
     {
         var key=(selection.Number,selection.Edition);
@@ -97,7 +111,8 @@ public partial class Main
             historical||registered?GetRegisteredOfficerStore().Current:null);
         return new(_repository!.SourceDirectory,_repository.OverrideDirectory,selection,options,
             CampaignComposition.CaptureNewGamePersonnelMoveDestinations(_personnelGroupMoveDestinations),
-            _preferences.Voice.Capture(),edits.Apply) { PresentationOptions=_preferences.Presentation };
+            _preferences.Voice.Capture(),edits.Apply)
+            { PresentationOptions=_preferences.Presentation, ResourceSources=CaptureCampaignResourceSources() };
     }
     private NewGamePreparationWorkspace BeginNewGamePreparation(int index)
     {
@@ -107,7 +122,12 @@ public partial class Main
         var workspace=new NewGamePreparationWorkspace(index,_ui.SourceLocale,selection,_session,_world,
             _scenarioSelection,_newGameSetup,view);
         _newGamePreparation=workspace;workspace.Setup?.SetBusy(true);
-        try { view.Configure(_repository!,_ui,CancelNewGamePreparation); }
+        try
+        {
+            var resources=TryBorrowApplicationUiResources(view);
+            workspace.PortraitImages=resources.Assets.Portraits;
+            view.Configure(_repository!,_ui,CancelNewGamePreparation,resources);
+        }
         catch { CancelNewGamePreparation();FinishNewGamePreparationWorker(workspace);throw; }
         return workspace;
     }
@@ -140,8 +160,13 @@ public partial class Main
         if(_failed||_shuttingDown||_repository is null||index<0||index>=_shownScenarios.Count||_playerForceId.HasValue)return;
         var timing=NewGamePreparationTiming.Begin("scenario");timing?.Mark("input-capture-begin");
         var inputs=CaptureNewGamePreparationInputs(_shownScenarios[index].Selection,_newGameOptions);
+        var selectedMetadata=_repository.ScenarioDocuments.Single(document =>
+            string.Equals(document.SourcePath, inputs.Selection.SourcePath, StringComparison.OrdinalIgnoreCase)).SelectionMetadata
+            ?? throw new InvalidDataException("Selected scenario header metadata is missing.");
+        bool? completedMark=GetApplicationProfile().Current.ReadScenarioCompleted(selectedMetadata.NativeId);
         timing?.Mark("input-capture-end");
         var owner=BeginNewGamePreparation(index);var token=owner.Lifetime.Token;
+        var portraitImages=owner.PortraitImages;
         timing?.Mark("loading-view-configured");
         _=Prepare();
         async Task Prepare()
@@ -159,7 +184,7 @@ public partial class Main
                     var composition=prepared.Campaign.Composition;var world=prepared.Campaign.Session.World;
                     var queries=composition.PrepareArmyQueries(world);
                     var content=new NewGameForcePageContent(prepared.Repository,queries,
-                        world,prepared.ForceSelection,token);
+                        world,prepared.ForceSelection,portraitImages,token);
                     content.PrepareRulers(prepared.ForceSelection.Rows,token);
                     timing?.Mark("force-rulers-prepared");
                     var messages=prepared.Repository.LoadMessages(inputs.Selection.Locale,MessageKind.Data).Messages.Sections[1].Records;
@@ -167,11 +192,16 @@ public partial class Main
                     string month=messages[0x2AC].Text??throw new InvalidDataException("Scenario month suffix is missing.");
                     var header=new NewGameForcePageHeader(string.Format(CultureInfo.InvariantCulture,"{0,3}{1}",world.Date.Year,year),
                         string.Format(CultureInfo.InvariantCulture,"{0,2}{1}",world.Date.Month,month),
-                        composition.Scenario.Metadata.Title??throw new InvalidDataException("Scenario title is missing."),new Dictionary<int,string>());
+                        composition.Scenario.Metadata.Title??throw new InvalidDataException("Scenario title is missing."),
+                        ScenarioSelectionCatalog.LoadEditionBadge(new LocalizedUiSpriteSource(prepared.Repository), inputs.Selection.Locale,
+                            selectedMetadata.EditionCode ?? (inputs.Selection.Edition switch { "CE" => 2, "PK" => 1, _ => 0 }),
+                            selectedMetadata.NativeId), selectedMetadata.ScenarioKindCode != 0, completedMark);
                     token.ThrowIfCancellationRequested();
-                    var map=new NewGameForceMapContent(MapSeasonRuntime.PrepareScenarioPreviewFrame(
-                        prepared.Repository.LoadScenarioWorld(inputs.Selection.SourcePath,inputs.Selection.Locale),1),
-                        queries.CaptureNewGameStaticVisualDefinitions(world),queries.CaptureNewGameFootholdVisualMarkers(world),
+                    var calendar=MapSeasonRuntime.PrepareScenarioPreviewFrame(
+                        prepared.Repository.LoadScenarioWorld(inputs.Selection.SourcePath,inputs.Selection.Locale),1);
+                    var visualCurrent=queries.CaptureNewGameStaticVisualDefinitions(world);
+                    var map=new NewGameForceMapContent(calendar,
+                        visualCurrent,queries.ReadNewGameFootholdVisualMarkers(visualCurrent),
                         composition.Snapshot.Forces.ToDictionary(force=>force.Slot));
                     var page=new PreparedNewGamePage(prepared,content,header,map);
                     timing?.Mark("worker-end");

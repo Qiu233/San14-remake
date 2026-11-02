@@ -72,7 +72,7 @@ public partial class OfficerDetailsView
             var rectangle = page.Rectangle(node);
             var portrait = new UiSourcePortrait { Name = "RelatedOfficer" + node, Position = rectangle.Position, Size = rectangle.Size };
             body.AddChild(portrait); body.MoveChild(portrait, 1);
-            portrait.Configure(currentRepository, CurrentAssets, CurrentShader, DetailSprite(pack, name));
+            portrait.Configure(currentRepository, CurrentAssets, CurrentShader, CurrentAssets.Portraits.RequireSource(pack, name));
         }
     }
 }

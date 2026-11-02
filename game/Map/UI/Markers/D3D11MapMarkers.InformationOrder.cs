@@ -19,8 +19,25 @@ internal partial class D3D11MapMarkers
     private readonly Dictionary<MapDiplomacyCardView,InformationControl> diplomacyInformationInk=[];
     private readonly Dictionary<MapDiplomacyCardView,List<InformationControl>> diplomacyParts=[];
     private readonly List<InformationControl> informationOrder=[];
+    private UiChildOrder<InformationControl>? informationChildren;
+    private UiChildOrder<InformationControl> InformationChildren=>informationChildren??=
+        new((entry,index)=>markerCanvas.MoveChild(entry.Ink,index));
     private long informationOrdinal;
     private int? informationPlayer;
+    private int informationPresentationDepth;
+    private bool informationOrderPending;
+
+    // A prepared map frame changes marker positions and diplomacy cards
+    // together. Publish their final order before preparing that frame's hits.
+    internal void BeginInformationPresentation() => informationPresentationDepth++;
+    internal void EndInformationPresentation()
+    {
+        if (--informationPresentationDepth == 0 && informationOrderPending)
+        {
+            informationOrderPending = false;
+            RefreshInformationOrder();
+        }
+    }
 
     // Base ink needs the actual current-player reference for its source order,
     // including command-map modes that hide the ordinary information panels.
@@ -46,7 +63,8 @@ internal partial class D3D11MapMarkers
     {
         var mount=new Node2D{Name=card.Name+"SourceInk",Scale=Size/CanonicalSize};
         markerCanvas.AddChild(mount);mount.AddChild(card);
-        diplomacyInformationInk.Add(card,new(mount,informationOrdinal++,card:card));
+        var entry=new InformationControl(mount,informationOrdinal++,card:card);
+        diplomacyInformationInk.Add(card,entry);InformationChildren.Add(entry);
         diplomacyParts.Add(card,[]);
         card.SourceHitAdmitted=cursor=>ReferenceEquals(InformationHitAt(cursor,_frame)?.Card,card);
         card.SourceOrderChanged+=RefreshInformationOrder;
@@ -59,7 +77,8 @@ internal partial class D3D11MapMarkers
             var mount=new Node2D{Name=part.Ink.Name+"SourceInk",Scale=Size/CanonicalSize};
             markerCanvas.AddChild(mount);
             part.Ink.GetParent().RemoveChild(part.Ink);mount.AddChild(part.Ink);
-            diplomacyParts[card].Add(new(mount,informationOrdinal++,card:card,keyOffset:part.KeyOffset));
+            var entry=new InformationControl(mount,informationOrdinal++,card:card,keyOffset:part.KeyOffset);
+            diplomacyParts[card].Add(entry);InformationChildren.Add(entry);
         }
     }
 
@@ -76,21 +95,32 @@ internal partial class D3D11MapMarkers
         card.SourceHitAdmitted=null;
         if(!diplomacyInformationInk.Remove(card,out var entry))return;
         foreach(var part in diplomacyParts[card])
-        {informationOrder.Remove(part);markerCanvas.RemoveChild(part.Ink);part.Ink.Free();}
+        {informationOrder.Remove(part);InformationChildren.Remove(part);markerCanvas.RemoveChild(part.Ink);part.Ink.Free();}
         diplomacyParts.Remove(card);
         informationOrder.Remove(entry);
+        InformationChildren.Remove(entry);
         markerCanvas.RemoveChild(entry.Ink);entry.Ink.Free();
     }
 
     internal void RefreshInformationOrder()
     {
+        if (informationPresentationDepth > 0)
+        {
+            informationOrderPending = true;
+            return;
+        }
+        // All base ink has identity local transforms inside this bucket.
+        // Track the two actual inputs to MapFont's viewport backbuffer copy
+        // once per owner; Font retains its original late read inside _Draw.
+        MarkerPaintPlacement? paintPlacement=_frame is not null&&_font is not null&&markerCanvas.IsInsideTree()
+            ?new(markerCanvas.GetGlobalTransformWithCanvas(),GetViewport().GetVisibleRect()):null;
         // Current marker references are retained objects. Deletion retires
         // only their ink owner and its MapFont RID slots.
         var live=new HashSet<Marker>(_markers.Values);
         foreach(var marker in baseInformationInk.Keys.Where(marker=>!live.Contains(marker)).ToArray())
         {
             var old=baseInformationInk[marker];baseInformationInk.Remove(marker);
-            informationOrder.Remove(old);markerCanvas.RemoveChild(old.Ink);old.Ink.QueueFree();
+            informationOrder.Remove(old);InformationChildren.Remove(old);markerCanvas.RemoveChild(old.Ink);old.Ink.QueueFree();
         }
         foreach(var marker in _markers.Values)
         {
@@ -99,9 +129,11 @@ internal partial class D3D11MapMarkers
                 var ink=new MarkerInk(this,marker){Name=$"{marker.Kind}{marker.Id}SourceInk"};
                 markerCanvas.AddChild(ink);
                 entry=new(ink,informationOrdinal++,marker);baseInformationInk.Add(marker,entry);
+                InformationChildren.Add(entry);
             }
             bool known=_frame is not null&&informationPlayer is not null&&marker.PositionReady&&marker.SourceSortForce is not null;
-            entry.Ink.Visible=known&&TargetMarkerVisible(marker);
+            bool visible=known&&TargetMarkerVisible(marker);
+            entry.Ink.Visible=visible;
             if(known)
             {
                 var p=marker.Kind==Kind.Area?marker.AreaUnitPosition:marker.CityUnitPosition;
@@ -109,7 +141,7 @@ internal partial class D3D11MapMarkers
                     informationPlayer!=0&&marker.SourceSortForce==informationPlayer,
                     _hoveredHex==marker.Hex,_pressedHex==marker.Hex||campaignSelectedHexes?.Contains(marker.Hex)==true);
             }
-            entry.Ink.QueueRedraw();
+            ((MarkerInk)entry.Ink).RefreshPaint(visible,paintPlacement);
         }
         informationOrder.Clear();informationOrder.AddRange(baseInformationInk.Values);
         foreach(var entry in diplomacyInformationInk.Values)
@@ -129,11 +161,7 @@ internal partial class D3D11MapMarkers
             uint x=a.Key|(a.Card?.SourceInteractionFlags??0),y=b.Key|(b.Card?.SourceInteractionFlags??0);
             int order=x.CompareTo(y);return order!=0?order:a.Ordinal.CompareTo(b.Ordinal);
         });
-        for(int index=0;index<informationOrder.Count;index++)
-        {
-            var control=informationOrder[index];
-            if(control.Ink.GetIndex()!=index)markerCanvas.MoveChild(control.Ink,index);
-        }
+        InformationChildren.Apply(informationOrder);
     }
 
     private InformationControl? InformationHitAt(Vector2 cursor,MainMapCameraFrame? frame)

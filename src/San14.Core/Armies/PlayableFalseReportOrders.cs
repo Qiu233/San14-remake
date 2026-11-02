@@ -21,7 +21,7 @@ internal sealed class PlayableFalseReportOrders(IOrderRules next, IPlayableArmyF
         { ids = many.UnitIds; waypoints = many.WaypointHexIds; targetId = many.TargetUnitId; destination = many.DestinationHexId; }
         else return next.Apply(state, force, order, context);
         long size = (long)state.MapWidth * state.MapHeight;
-        if (ids is null || ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count ||
+        if (ids is null || ids.Count < 1 || ids.Distinct().Count() != ids.Count ||
             waypoints is null || waypoints.Count > PlayableWaypointMarch.MaximumWaypoints ||
             waypoints.Any(hex => hex < 0 || hex >= size) || destination < 0 || destination >= size ||
             ids.Contains(targetId) || !state.Units.TryGetValue(targetId, out var target))

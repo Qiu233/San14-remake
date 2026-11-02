@@ -41,6 +41,14 @@ public sealed class OwnedArmyReturnWorld
     /// <summary>Publishes this world's prepared return. The active unit becomes
     /// an independent pending receiver image; deferred retirement still runs
     /// through the campaign lifecycle operation.</summary>
+    internal GameState CommitSuspension(GameState current, ArmyOrdinaryReturnSuspension suspension)
+    {
+        if (!ReferenceEquals(current, _input) || !ReferenceEquals(suspension.Owner, Context) ||
+            !ReferenceEquals(suspension.Pool, Pool) || suspension.State.ArmyReturnCaptiveContinuation is null)
+            throw new InvalidDataException("Return suspension does not belong to this actual operation.");
+        return ArmyOrdinaryReturnRuntime.CommitSuspension(suspension, _borrowed);
+    }
+
     public GameState? CommitPrepared(GameState current, ArmyOrdinaryReturnPacket packet)
     {
         ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(packet);

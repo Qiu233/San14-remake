@@ -158,8 +158,14 @@ public static partial class CityCaptureTerritorySource
                     { ServiceStatus = service, Role = OfficerServiceRules.PublishedRole(service, officer.Role) } } });
             }
             int destination = K(current.ReadBaseDistrictSlot(targetCity()), "related_Gate_person_target78");
-            PersonDistrictTransfer.Apply(person, destination,
-                ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, [], result => operation.Assignment(person, result)));
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = operation.RefreshPersonnelMilestoneCurrent;
+            try
+            {
+                PersonDistrictTransfer.Apply(person, destination,
+                    ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, [], result => operation.Assignment(person, result)));
+            }
+            finally { current.TransferServiceRefresher = previousRefresh; }
         }
 
         void AddDistrict(DistrictReference district)

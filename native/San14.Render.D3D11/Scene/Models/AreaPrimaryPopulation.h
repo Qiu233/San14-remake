@@ -66,7 +66,8 @@ struct NativeCityAreaPrimary {
     NativeCityPopulationSource source;
     NativeModelInputs currentModels;
 };
-inline void appendNativeSharedPrimary(NativeCityAreaPrimary& out,const NativeCityPopulation& population) {
+inline void appendNativeSharedPrimary(NativeCityAreaPrimary& out,const NativeCityPopulation& population,
+        bool physicalBindingsChanged=true) {
     const auto ownerBase=unsigned(out.source.catalog.instances.size());
     const auto primitiveBase=unsigned(out.source.catalog.primitives.size());
     if(population.source.catalog.templateCount!=out.source.catalog.templateCount)
@@ -82,24 +83,36 @@ inline void appendNativeSharedPrimary(NativeCityAreaPrimary& out,const NativeCit
     auto append=[](auto& target,const auto& rows){target.insert(target.end(),rows.begin(),rows.end());};
     append(out.source.worlds,population.source.worlds);append(out.source.currentAssets,population.source.currentAssets);
     append(out.source.present,population.source.present);append(out.source.identities,population.source.identities);
-    append(out.currentModels.draws,population.currentModels.draws);
+    if(physicalBindingsChanged)append(out.currentModels.draws,population.currentModels.draws);
 }
 inline void publishNativeCityAreaPrimary(NativeCityAreaPrimary& out,
         const NativeCityPopulation& cities,const NativeCityPopulation& areas,
-        const NativeCityPopulation* facilities=nullptr) {
+        const NativeCityPopulation* facilities=nullptr,bool physicalBindingsChanged=true) {
     if(cities.source.catalog.instances.size()!=61)throw std::runtime_error("City/Gate complete source61 population differs");
     out.source=cities.source;
-    out.currentModels.blend=cities.currentModels.blend;out.currentModels.draws=cities.currentModels.draws;
-    appendNativeSharedPrimary(out,areas);
-    if(facilities)appendNativeSharedPrimary(out,*facilities);
-}
-inline NativeCityModelQueues updateSelectNativeCityAreaPrimary(ID3D11DeviceContext* context,
-        const NativeCityAreaPrimary& owner,const NativeCityPopulationPlan& plan) {
-    auto selected=updateSelectNativeModelContinuous(context,plan.models,owner.currentModels);
-    NativeCityModelQueues out;out.ordinary54.blend=out.alpha55.blend=selected.blend;
-    for(std::size_t i=0;i<selected.draws.size();++i) {
-        const auto& p=owner.source.catalog.primitives[plan.models.draws[i].primitiveIndex];
-        (owner.source.templates[p.templateIndex].queue==54?out.ordinary54:out.alpha55).draws.push_back(std::move(selected.draws[i]));
+    // Keep the joined physical owners until a producer actually reconnects.
+    // Its current source catalog and all World/CB payloads still update above
+    // and in append on every publication, including animation-only updates.
+    if(physicalBindingsChanged) {
+        out.currentModels.blend=cities.currentModels.blend;out.currentModels.draws=cities.currentModels.draws;
     }
-    return out;
+    appendNativeSharedPrimary(out,areas,physicalBindingsChanged);
+    if(facilities)appendNativeSharedPrimary(out,*facilities,physicalBindingsChanged);
+}
+inline void uploadNativeCityAreaPrimaryConstants(ID3D11DeviceContext* context,
+        const NativeCityAreaPrimary& owner,const NativeCityPopulationPlan& plan) {
+    uploadNativeModelContinuousConstants(context,plan.models,owner.currentModels);
+}
+inline NativeCityModelReferenceQueues mergeNativeCityAreaPrimaryDrawReferences(
+        const NativeModelContinuousPlan& fieldPlan,const NativeModelInputs& fieldModels,
+        const NativeCityAreaPrimary& owner,const NativeCityPopulationPlan& plan,
+        const NativeModelConstantSubmission* constants=nullptr) {
+    return mergeNativeModelDrawReferencesWithField54(fieldPlan,fieldModels,plan.models,
+        [&](const NativeModelContinuousDraw& key,std::size_t selectedIndex) {
+            const auto& primitive=owner.source.catalog.primitives.at(key.primitiveIndex);
+            const auto queue=owner.source.templates.at(primitive.templateIndex).queue;
+            const auto draw=constants?constants->draws->at(selectedIndex):
+                NativeModelDrawReference{&owner.currentModels.draws.at(key.primitiveIndex)};
+            return std::pair{queue,draw};
+        },owner.currentModels.blend.Get(),constants);
 }

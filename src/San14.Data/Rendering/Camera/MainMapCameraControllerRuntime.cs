@@ -42,6 +42,37 @@ public static partial class MapCameraController
         return new(pose,parameters.Bounds(selection,currentMaximumYOverride),selection);
     }
 
+    /// <summary>013B00 changes the existing controller's farthest zoom band.
+    /// The source V10 gate keeps busy requests and resets idle inertia. The
+    /// same bounds constrain immediate requests, wheel input and timed ticks.</summary>
+    public static MainMapCameraControllerRuntimeState SetMaximumZoomBand(
+        MainMapCameraControllerRuntimeState retained,MainMapCameraControllerParameters parameters,
+        int maximumBand,bool currentMaximumYOverride,
+        Func<MainMapCameraTerrainPitchInput,MainMapCameraTerrainPitchResult>? lowBandTerrainQualifier=null)
+    {
+        double maximum=parameters.ZoomAnchor(maximumBand);
+        var bounds=retained.Bounds;
+        // The source first compares the binary32 lower bound with its table
+        // anchor. An inverted interval leaves the existing controller alone.
+        if(!((float)bounds.MinimumDistance98<=maximum))return retained;
+        double distance=retained.Pose.Distance90;
+        if(bounds.MinimumDistance98>=0&&maximum>=0)
+            distance=distance<maximum?(bounds.MinimumDistance98<=distance?distance:bounds.MinimumDistance98):maximum;
+        int band=ClassifyZoom(parameters,distance).Band1E0;
+        double pitch=retained.BandPitch.TryGetValue(band,out double cachedPitch)?
+            cachedPitch:parameters.ZoomBandPitch(band);
+        var bounded=retained with {Bounds=bounds with {MaximumDistanceA0=maximum},
+            Pose=retained.Pose with {Distance90=distance},DirtyCountdownD8=2};
+        // The source materializes the local request before its actual V10
+        // consumer. Busy motion keeps its request; idle V10 performs the normal
+        // velocity/metadata reset before applying the qualified local target.
+        var request=new MainMapCameraControllerRequest(0,Vector4.Zero,distance,NativeYawSentinel,pitch,0);
+        var normalized=MaterializeRequest(bounded,parameters,request,
+            currentMaximumYOverride,lowBandTerrainQualifier);
+        return ApplyImmediate(bounded,parameters,normalized,
+            currentMaximumYOverride,lowBandTerrainQualifier).State;
+    }
+
     /// <summary>142A0/AB70. Rejection keeps the prior pose/bounds while retaining
     /// the earlier velocity/timestamp reset and live zoom selection stores.</summary>
     public static MainMapCameraControllerApplyResult ApplyImmediate(

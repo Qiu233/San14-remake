@@ -28,6 +28,7 @@ internal partial class D3D11ArmyMapLabels : Control
     private UiAssets _assets = null!;
     private MapFont _font = null!;
     private MapFontProfile _numberFont = null!;
+    private MapFontProfile[] _interactionNumberFonts = null!;
     private ArmyMapMarkerSources _source = null!;
     private ArmyMapUiSources _ui = null!;
     private ArmyMapUiCurrentSource _currentSource = null!;
@@ -46,6 +47,7 @@ internal partial class D3D11ArmyMapLabels : Control
     private IReadOnlyList<LcskSpriteNodePart> _portraitParts = null!;
     private IReadOnlyList<LcskSpriteNodePart> _groupPortraitParts = null!;
     private Func<GameState, SourceWorldContext?>? _queries;
+    private Func<GameState, ArmyMapPresenceFrame?>? _presenceQueries;
     private float _nearDistance, _distanceRange;
     private GameState? _capturedWorld;
     private D3D11ArmyLabelPublication? _capturedLabelPublication;
@@ -82,6 +84,15 @@ internal partial class D3D11ArmyMapLabels : Control
             ? card.SpeechLayout : null;
     internal bool HasSpeechLayout(int unitId) => SpeechLayout(unitId) is not null;
 
+    internal San14.Client.Gameplay.ArmyTraitSpeechViews.View? CaptureSpeechView(int unitId)
+    {
+        if (_capturedWorld is not { } source || _fields is null) return null;
+        bool? available = _rows.TryGetValue(unitId, out var row)
+            ? row.ArmyValid is bool valid ? valid && HasSpeechLayout(unitId) : null
+            : _fields.Unavailable.Any(item => item.UnitId == unitId) ? null : false;
+        return San14.Client.Gameplay.ArmyTraitSpeechViews.CaptureView(source, unitId, available);
+    }
+
     internal San14.Client.Gameplay.ArmyTraitSpeechViews? CaptureSpeechViews() => _capturedWorld is not null && _fields is not null
         ? San14.Client.Gameplay.ArmyTraitSpeechViews.Capture(_capturedWorld, id =>
             _rows.TryGetValue(id, out var row) && row.ArmyValid is bool valid ? valid && HasSpeechLayout(id) : null)
@@ -92,12 +103,13 @@ internal partial class D3D11ArmyMapLabels : Control
         AreaMapMarkerSources colors, MapSpritePalettes palettes,
         CityGateMapMarkerSources bars, MapMarkerSlices barPanel,
         Func<GameState, SourceWorldContext?>? queries,
-        MainMapCameraControllerParameters cameraParameters)
+        MainMapCameraControllerParameters cameraParameters,Func<GameState,ArmyMapPresenceFrame?>? presenceQueries=null)
     {
         MouseFilter = MouseFilterEnum.Ignore;
         ClipContents = true;
         AddChild(_root);
         _repository = repository; _assets = assets; _font = font; _queries = queries;
+        _presenceQueries=presenceQueries;
         _portraitSource = new(repository);
         _colors = colors; _palettes = palettes; _bars = bars; _barPanel = barPanel;
         _source = ArmyMapMarkerSources.Load(repository);
@@ -113,6 +125,7 @@ internal partial class D3D11ArmyMapLabels : Control
         _distanceRange = cameraParameters.ZoomAnchor(4);
         _numberFont = MapFontProfile.FromNode(_source.Normal.Nodes[0x32],
             _source.Normal.Source.ResourceUri).WithPreset(presets[0]);
+        _interactionNumberFonts = new[] { 0, 4, 5 }.Select(id => _numberFont.WithPreset(presets[id])).ToArray();
         _font.Prepare(["0123456789"], _numberFont);
         _numberPanel = MapMarkerSlices.Load(_source.Normal, 0x29, assets);
         _faceBase = Sprite(_source.Face, 4);
@@ -159,6 +172,10 @@ internal partial class D3D11ArmyMapLabels : Control
         var fields = current is not null ? _currentSource.Capture(world, current) :
             new ArmyMapUiCurrentFrame([], world.Units.Keys.Select(id =>
                 new ArmyMapUiCurrentUnavailable(id, "current.World_query_owner")).ToArray());
+        if(_presenceQueries?.Invoke(world) is { } presence)
+            fields=new(fields.Rows.Where(row=>presence.VisibleUnitIds.Contains(row.UnitId)).ToArray(),
+                fields.Unavailable.Where(row=>presence.VisibleUnitIds.Contains(row.UnitId))
+                    .Concat(presence.Unavailable.Select(row=>new ArmyMapUiCurrentUnavailable(row.UnitId,row.Field))).ToArray());
         var styles = new Dictionary<int, ArmySimpleOutlineResult>();
         foreach (var row in fields.Rows)
         {
@@ -175,6 +192,13 @@ internal partial class D3D11ArmyMapLabels : Control
             .Where(entry => entry.ActiveUnitId is int id && world.Units.ContainsKey(id))
             .ToDictionary(entry => entry.ReceiverId.Value, entry => entry.ActiveUnitId!.Value);
         return new(fields, styles, unitsByReceiver);
+    }
+
+    internal void ReleaseBorrowedWorld()
+    {
+        // Pure rows/cards survive; the worker-owned state does not. The next
+        //accepted period publication already supplies their copied fields.
+        _capturedWorld = null;
     }
 
     internal void RefreshTraitViews(GameState world)
@@ -220,6 +244,8 @@ internal partial class D3D11ArmyMapLabels : Control
         if (!ReferenceEquals(_capturedWorld, world))
         { missing = "army-trait-view.label_owner"; return false; }
         if (!world.Units.ContainsKey(unitId)) return !_rows.ContainsKey(unitId) && !_cards.ContainsKey(unitId);
+        if(_presenceQueries?.Invoke(world)?.Armies.GetValueOrDefault(unitId)?.IsOnMap==false)
+            return !_rows.ContainsKey(unitId)&&!_cards.ContainsKey(unitId);
         if (_rows.TryGetValue(unitId, out var row) && row.ArmyValid == true) return true;
         missing = _fields?.Unavailable.FirstOrDefault(row => row.UnitId == unitId)?.Field
             ?? "army-trait-view.current_label";
@@ -508,9 +534,11 @@ internal partial class D3D11ArmyMapLabels : Control
             }
             QueueRedraw(); _details.QueueRedraw();
             UpdatePersonalityVisibility();
+            RefreshInteractionInk();
         }
         public override void _Draw()
         {
+            if (InteractionState != 0) return;
             if (IsSimple)
             {
                 Rect2 flag = Rectangle(ArmyMapMarkerSources.SimpleGeometry(IsGroup).Flag);
@@ -541,14 +569,14 @@ internal partial class D3D11ArmyMapLabels : Control
                         Alpha(CanvasColor(owner._palettes[choice.Palette].LT), alpha));
                 if (card.Presentation.Display == 0)
                 {
-                    owner._numberPanel.Draw(this, Rectangle(owner._geometry.NumberPanel),
+                    if (card.InteractionState == 0) owner._numberPanel.Draw(this, Rectangle(owner._geometry.NumberPanel),
                         Alpha(CanvasColor(owner._palettes[4].LT), alpha));
                     if (card.Fields.Ready16 is ushort ready)
                     {
                         Rect2 cell = Rectangle(owner._geometry.NumberCell);
                         owner._font.Draw(this, ready.ToString(CultureInfo.InvariantCulture), cell.Position +
-                            new Vector2(0, owner._font.CellBaselineY(owner._numberFont, cell.Size.Y)),
-                            owner._numberFont, HorizontalAlignment.Right, cell.Size.X, Alpha(Colors.White, alpha));
+                            new Vector2(0, owner._font.CellBaselineY(owner._interactionNumberFonts[card.InteractionState], cell.Size.Y)),
+                            owner._interactionNumberFonts[card.InteractionState], HorizontalAlignment.Right, cell.Size.X, Alpha(Colors.White, alpha));
                     }
                 }
                 if (card.Fields.EffectiveMorale is int morale && card.Fields.MoraleCapacity is int cap)

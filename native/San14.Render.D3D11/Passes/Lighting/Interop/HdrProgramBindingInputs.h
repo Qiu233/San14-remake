@@ -32,8 +32,7 @@ inline const std::string& selectHdrSpecularKey(const HdrTextureRecipe& texture,u
     return texture.keys[side];
 }
 namespace Interop {
-inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(const std::filesystem::path& path) {
-    NativePreparedInputFile input(path);
+inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(std::istream& input) {
     if (!input) throw std::runtime_error("HDR selected texture declarations are absent");
     std::vector<HdrTextureRecipe> result;std::string line;
     while (std::getline(input,line)) {
@@ -49,8 +48,11 @@ inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(const std::filesystem
     }
     return result;
 }
-inline std::vector<HdrSamplerFiles> readHdrSamplerFiles(const std::filesystem::path& path) {
+inline std::vector<HdrTextureRecipe> readHdrTextureRecipes(const std::filesystem::path& path) {
     NativePreparedInputFile input(path);
+    return readHdrTextureRecipes(input);
+}
+inline std::vector<HdrSamplerFiles> readHdrSamplerFiles(std::istream& input) {
     if (!input) throw std::runtime_error("HDR selected sampler declarations are absent");
     std::vector<HdrSamplerFiles> result;std::string line;
     while (std::getline(input,line)) {
@@ -64,6 +66,10 @@ inline std::vector<HdrSamplerFiles> readHdrSamplerFiles(const std::filesystem::p
         result.push_back(std::move(sampler));
     }
     return result;
+}
+inline std::vector<HdrSamplerFiles> readHdrSamplerFiles(const std::filesystem::path& path) {
+    NativePreparedInputFile input(path);
+    return readHdrSamplerFiles(input);
 }
 } // namespace Interop
 } // namespace San14::Render

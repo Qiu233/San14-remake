@@ -34,6 +34,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = state with { CampaignEffectRequests = (state.CampaignEffectRequests
                 ?? throw DuelMissing("resume_effect_owner")).Append(CampaignEffectSource.ArmyBattleDefeat,
                     moment.CalendarCycleOrdinal, effects) };
+        //The actual destruction callback can retain its own next input cut.
+        //Keep the registered duel and its original unapplied tail until that
+        //same child operation has genuinely completed.
+        if (state.ArmyDefeatContinuation is not null)
+            return state.WithArmyLifecycle(state.ReadArmyLifecycle()! with { Indexes = pool.ExportOwnedState() });
 
         //Only the saved loser tail and rewards remain. Registration, winner
         //aftermath, result history and the opportunity/duel draws are complete.

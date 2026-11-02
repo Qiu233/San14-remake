@@ -91,6 +91,11 @@ public sealed class OwnedPersonRelationInputs
             { Parameters = simulation.Parameters with { Int32Values = values } } };
     }
 
+    internal ushort? ReadNormalLoadRelation(int physical, int field) =>
+        (uint)physical >= _people.Length ? null : field switch
+        { 0xB4 => _people[physical].B4, 0xB6 => _people[physical].B6,
+          0xBA => _people[physical].BA, 0xBC => _people[physical].BC, _ => null };
+
     public void BindCurrent(GameState state, SourceWorldContext current)
     {
         current.DestructionRelationTier2A6EE0Reader = (target, a, b, mode) => ComputeCurrent(state, target, a, b, mode).Tier;

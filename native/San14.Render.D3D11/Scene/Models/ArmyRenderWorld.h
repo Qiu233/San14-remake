@@ -174,7 +174,7 @@ public:
 
     void updateAnimation(ID3D11Device* device,ID3D11DeviceContext* context,
         const std::optional<ArmyWorldPublication>& world,const RenderInput& input,
-        const source_camera::Frame& eventCamera,const source_camera::CurrentRenderMode& mode,
+        const source_camera::Prefix& eventCameraPrefix,const source_camera::CurrentRenderMode& mode,
         const source_animation_cadence::Profile& animationFps,unsigned fpsMode,
         NativeCityAccessoryGpu& cityAccessories,NativeCityAccessoryGpu& areaAccessories,AnimationState& state) {
         resetNativeArmyAnimationGroups(armyAnimationGroups); // one manager, including an empty Army
@@ -193,7 +193,7 @@ public:
                 auto& height=armyUnitHeights[id];height.observeMotion(world->unitMotionRevisions.at(id));
                 auto currentCenter=center;currentCenter[1]=height.y14;
                 auto gate=std::floor(mode.zoomLevel)<4?source_accessory_population::unitAdmission(currentCenter,
-                    reinterpret_cast<const char*>(eventCamera.prefix.data()),reinterpret_cast<const char*>(eventCamera.prefix.data()),
+                    reinterpret_cast<const char*>(eventCameraPrefix.data()),reinterpret_cast<const char*>(eventCameraPrefix.data()),
                     mode.sceneMode,mode.zoomLevel,input.controller.distance):source_accessory_population::UnitAdmission{};
                 const bool reached=gate.visible||armyPriorVisible[id];armyPriorVisible[id]=gate.visible;
                 unsigned resolved=0;
@@ -286,13 +286,13 @@ public:
         if(sourceAccessoryVisuals) {
             const auto& action=armyGraphicsActions->rows.at({2,0});
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedAreaAccessories,areaAccessories,
-                GraphicsModelFamily::AreaCapital,eventCamera,mode.sceneMode,mode.zoomLevel,
+                GraphicsModelFamily::AreaCapital,eventCameraPrefix,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::City,eventCamera,mode.sceneMode,mode.zoomLevel,
+                GraphicsModelFamily::City,eventCameraPrefix,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
             updateNativeSharedAccessoryFamily(device,*armyModelPool,sharedCityAccessories,cityAccessories,
-                GraphicsModelFamily::Gate,eventCamera,mode.sceneMode,mode.zoomLevel,
+                GraphicsModelFamily::Gate,eventCameraPrefix,mode.sceneMode,mode.zoomLevel,
                 input.controller.distance,action,accessoryResources->pose,animationFps.fps,fpsMode,armyAnimationGroups);
         }
         ++state.updates;state.fpsMode=fpsMode;

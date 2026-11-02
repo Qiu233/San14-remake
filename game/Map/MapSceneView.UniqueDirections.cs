@@ -18,7 +18,7 @@ public partial class MapSceneView
     {
         if (uniqueDirectionOwner is not null || storyPresentationOwner is not null)
             throw new InvalidOperationException("unique.camera.controller_already_owned");
-        uniqueDirectionOwner = owner; ResetSourceCameraInput(); CloseCityCommandMenu();
+        uniqueDirectionOwner = owner; ResetSourceCameraInput(); CloseCityCommandMenu(); CloseAreaHexCommandMenu();
         uniqueCameraPriorInputs = _sourceMainCameraInputs;
         if (_sourceMainCameraInputs is { } input) _sourceMainCameraInputs = input with { CurrentMaximumYOverride = true };
         uniqueSuppressedTargets = request.Actors.SelectMany(actor => actor.InstructionResults ?? [])

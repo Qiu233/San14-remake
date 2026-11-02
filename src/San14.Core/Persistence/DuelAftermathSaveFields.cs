@@ -11,12 +11,15 @@ internal static class DuelAftermathSaveFields
             throw new InvalidDataException("Legacy save contains a future duel aftermath continuation.");
     }
 
-    internal static void Migrate(JsonObject state, int version)
+    internal static void Migrate(JsonObject state, int version, CampaignOperationWorldContext? operationContext = null)
     {
         const string key = "DuelAftermathContinuation";
         if (version < 178) { state[key] = null; return; }
         if (!state.ContainsKey(key)) throw Invalid();
-        bool stage5 = Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5);
+        bool normalStage5 = Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5);
+        var external = state["NativePeriodContinuation"] is null && operationContext?.Moment is { SchedulerStageIndex: 5 }
+            ? operationContext.Moment : null;
+        bool stage5 = normalStage5 || external is not null;
         if (state[key] is not JsonNode saved)
         {
             if (stage5) throw Invalid();
@@ -36,8 +39,16 @@ internal static class DuelAftermathSaveFields
                 ? !Integer(result["Aftermath"], (int)CampaignDuelAftermath.Death, (int)CampaignDuelAftermath.Capture)
                 : !Integer(result["Aftermath"], (int)CampaignDuelAftermath.None, (int)CampaignDuelAftermath.None)) ||
             registered["Date"] is not JsonObject ||
-            !JsonNode.DeepEquals(registered["Date"], state["NativePeriodContinuation"]?["Cursor"]?["Date"])) throw Invalid();
+            (normalStage5
+                ? !JsonNode.DeepEquals(registered["Date"], state["NativePeriodContinuation"]?["Cursor"]?["Date"])
+                : external is null || !Date(registered["Date"], external.PreWriterThirdDate) ||
+                    registered["CalendarCycleOrdinal"] is not JsonValue ordinalValue ||
+                    !ordinalValue.TryGetValue<long>(out long ordinal) || ordinal != external.CalendarCycleOrdinal)) throw Invalid();
     }
+
+    private static bool Date(JsonNode? node, NativeMapSeasonDate expected) => node is JsonObject value && value.Count == 4 &&
+        Integer(value["Year"], expected.Year, expected.Year) && Integer(value["Month"], expected.Month, expected.Month) &&
+        Integer(value["Day"], expected.Day, expected.Day) && Integer(value["Hour"], expected.Hour, expected.Hour);
 
     private static bool Injury(JsonNode? node) => node is JsonObject value &&
         Integer(value["OfficerId"], 0, 6000) && Integer(value["BeforeHealthStateId"], 0, 3) &&

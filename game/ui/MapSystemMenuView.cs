@@ -29,7 +29,8 @@ internal partial class MapSystemMenuView : Control
     internal bool ContentSuspended => contentSuspended;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, int titleMessage,
-        Action returned, Action<MapSystemCommand> selected, bool scenarioSettingsSupported = false, bool currentWorldEditSupported = false, MapSystemMenuPreparedResources? prepared = null, Action? releasePrepared = null)
+        Action returned, Action<MapSystemCommand> selected, bool scenarioSettingsSupported = false, bool currentWorldEditSupported = false, MapSystemMenuPreparedResources? prepared = null, Action? releasePrepared = null,
+        bool saveSupported = true, bool loadSupported = true)
     {
         preparedResources = prepared; // Ownership transfers before any Godot construction.
         releasePreparedResources = releasePrepared;
@@ -62,13 +63,15 @@ internal partial class MapSystemMenuView : Control
                 34 when currentWorldEditSupported => MapSystemCommand.Edit,
                 27 when UiSourceOnlineManual.ForLocale(text.SourceLocale) is not null => MapSystemCommand.Manual,
                 31 => MapSystemCommand.ReturnToTitle, 32 => MapSystemCommand.Exit, _ => null };
+            bool supported = command is not null && (command != MapSystemCommand.Save || saveSupported) &&
+                (command != MapSystemCommand.Load || loadSupported);
             var box = source.Rectangle(node, mount);
             var button = new UiSourceCommandButton { Name = command is { } namedCommand ? "System" + namedCommand : "SystemCommand" + node,
-                Position = box.Position, Size = box.Size, Disabled = command is null };
-            body.AddChild(button); buttons.Add((button, command is not null));
+                Position = box.Position, Size = box.Size, Disabled = !supported };
+            body.AddChild(button); buttons.Add((button, supported));
             button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font,
                 messages.Records[binding.Item2].Text ?? throw new InvalidDataException("Missing map system command caption."),
-                () => { if (!abandoned && !busy && !contentSuspended && command is { } selectedCommand) this.selected?.Invoke(selectedCommand); });
+                () => { if (!abandoned && !busy && !contentSuspended && supported && !button.Disabled && command is { } selectedCommand) this.selected?.Invoke(selectedCommand); });
             button.SetMeta("source_node_index", node);
         }
         SetMeta("source_layout", source.Source.Source.ResourceUri);

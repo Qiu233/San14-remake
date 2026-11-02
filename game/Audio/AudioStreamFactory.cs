@@ -6,21 +6,50 @@ public sealed record AudioClip(AudioStream Stream, AudioDecodeProvenance Provena
     int SampleRate, int Channels, int SampleFrames, bool UsesSourceLoop) : IDisposable
 {
     // Record copies attach cue metadata but retain the same resource lifetime.
-    private readonly StreamResources resources = new(Stream);
-    private sealed class StreamResources(AudioStream stream)
+    private StreamResources resources = new(Stream);
+    private sealed class StreamResources
     {
-        internal readonly List<AudioStream> Children = [];
-        private bool disposed;
+        private sealed class Shared(AudioStream stream)
+        {
+            internal readonly AudioStream Stream = stream;
+            internal readonly List<AudioStream> Children = [];
+            internal int Users = 1;
+        }
+        private readonly Shared shared;
+        private int released;
+        internal List<AudioStream> Children => shared.Children;
+        internal StreamResources(AudioStream stream) => shared = new(stream);
+        private StreamResources(Shared shared) => this.shared = shared;
+        internal StreamResources Borrow()
+        {
+            if (Volatile.Read(ref released) != 0) throw new ObjectDisposedException(nameof(AudioClip));
+            int users;
+            do
+            {
+                users = Volatile.Read(ref shared.Users);
+                if (users <= 0) throw new ObjectDisposedException(nameof(AudioClip));
+            }
+            while (Interlocked.CompareExchange(ref shared.Users, checked(users + 1), users) != users);
+            return new(shared);
+        }
         internal void Dispose()
         {
-            if (disposed) return;
-            disposed = true;
-            stream.Dispose();
-            foreach (var child in Children) child.Dispose();
-            Children.Clear();
+            if (Interlocked.Exchange(ref released, 1) != 0 || Interlocked.Decrement(ref shared.Users) != 0) return;
+            shared.Stream.Dispose();
+            foreach (var child in shared.Children) child.Dispose();
+            shared.Children.Clear();
         }
     }
     internal void OwnChild(AudioStream stream) => resources.Children.Add(stream);
+
+    // A process-owned immutable stream creates independent playback state in
+    // each player. The scene owns this handle and its metadata, not the stream.
+    internal AudioClip BorrowStaticResources()
+    {
+        var borrowed = this with { };
+        borrowed.resources = resources.Borrow();
+        return borrowed;
+    }
     public int? LoopBegin { get; init; }
     public int? LoopEnd { get; init; }
     public int OutputChannels { get; init; } = Channels;
@@ -159,62 +188,39 @@ public static partial class AudioStreamFactory
     /// Each nonzero matrix term is an unchanged PCM stem with a float mixer gain;
     /// no integer pre-sum, clipping or peak normalization is applied.</summary>
     public static AudioClip CreateStereoRouted(DecodedAudio decoded, StereoAudioRoute route,
-        AudioLoopPolicy loopPolicy)
+        AudioLoopPolicy loopPolicy) =>
+        CreateStereoRouted(PreparedStereoAudio.Prepare(decoded, route, loopPolicy));
+
+    internal static AudioClip CreateStereoRouted(PreparedStereoAudio prepared)
     {
-        ArgumentNullException.ThrowIfNull(decoded);
-        ArgumentNullException.ThrowIfNull(route);
-        if (!Enum.IsDefined(loopPolicy)) throw new ArgumentOutOfRangeException(nameof(loopPolicy));
+        var decoded = prepared.Source;
         var wave = decoded.Wave;
-        if (wave.Channels != 6 || wave.SampleRate is < 1 or > 192000 ||
-            wave.Pcm16.Length == 0 || wave.Pcm16.Length % 12 != 0)
-            throw new InvalidDataException("Explicit six-channel routing requires complete source PCM16 frames.");
-        bool loop = loopPolicy == AudioLoopPolicy.RequireSource ||
-            (loopPolicy == AudioLoopPolicy.SourceIfPresent &&
-             (decoded.LoopStartSample is not null || decoded.LoopEndSample is not null));
-        if (loop && (decoded.LoopStartSample is null || decoded.LoopEndSample is null ||
-            decoded.LoopStartSample < 0 || decoded.LoopStartSample >= decoded.LoopEndSample ||
-            decoded.LoopEndSample > wave.SampleFrames))
-            throw new InvalidDataException("Selected audio has no valid original loop interval.");
-        var terms = new List<(int Input, int Output, float Gain)>();
-        for (int output = 0; output < 2; output++)
-            for (int input = 0; input < 6; input++)
-                if (route.Gain(input, output) is > 0 and var gain) terms.Add((input, output, gain));
-        // A zero matrix still has the selected source's duration and loop clock.
-        if (terms.Count == 0) terms.Add((0, 0, 0));
-        var synchronized = new AudioStreamSynchronized { StreamCount = terms.Count };
-        var clip = new AudioClip(synchronized, decoded.Provenance, wave.SampleRate, 6, wave.SampleFrames, loop)
+        var synchronized = new AudioStreamSynchronized { StreamCount = prepared.Terms.Count };
+        var clip = new AudioClip(synchronized, decoded.Provenance, wave.SampleRate, 6, wave.SampleFrames, prepared.UsesSourceLoop)
         {
-            OutputChannels = 2,
-            LoopBegin = loop ? checked((int)decoded.LoopStartSample!.Value) : null,
-            LoopEnd = loop ? checked((int)decoded.LoopEndSample!.Value) : null
+            OutputChannels = 2, LoopBegin = prepared.LoopBegin, LoopEnd = prepared.LoopEnd
         };
         try
         {
-            for (int term = 0; term < terms.Count; term++)
+            for (int term = 0; term < prepared.Terms.Count; term++)
             {
-                var (input, output, gain) = terms[term];
-                var pcm = new byte[checked(wave.SampleFrames * 4)];
-                if (gain != 0)
-                    for (int frame = 0; frame < wave.SampleFrames; frame++)
-                    {
-                        int source = frame * 12 + input * 2, target = frame * 4 + output * 2;
-                        pcm[target] = wave.Pcm16[source]; pcm[target + 1] = wave.Pcm16[source + 1];
-                    }
+                var source = prepared.Terms[term];
                 var stem = new AudioStreamWav
                 {
                     Format = AudioStreamWav.FormatEnum.Format16Bits,
-                    MixRate = wave.SampleRate, Stereo = true, Data = pcm,
-                    LoopMode = loop ? AudioStreamWav.LoopModeEnum.Forward : AudioStreamWav.LoopModeEnum.Disabled,
-                    LoopBegin = clip.LoopBegin ?? 0, LoopEnd = clip.LoopEnd ?? 0
+                    MixRate = wave.SampleRate, Stereo = true, Data = source.Pcm16,
+                    LoopMode = prepared.UsesSourceLoop ? AudioStreamWav.LoopModeEnum.Forward : AudioStreamWav.LoopModeEnum.Disabled,
+                    LoopBegin = prepared.LoopBegin ?? 0, LoopEnd = prepared.LoopEnd ?? 0
                 };
                 clip.OwnChild(stem);
                 synchronized.SetSyncStream(term, stem);
-                synchronized.SetSyncStreamVolume(term, gain == 0 ? 0 : Mathf.LinearToDb(gain));
+                synchronized.SetSyncStreamVolume(term, source.Gain == 0 ? 0 : Mathf.LinearToDb(source.Gain));
             }
             return clip;
         }
         catch { clip.Dispose(); throw; }
     }
+
 }
 
 /// <summary>A snapshot of a caller's two-output matrix, indexed by the actual
@@ -222,6 +228,9 @@ public static partial class AudioStreamFactory
 public sealed class StereoAudioRoute
 {
     private readonly float[] coefficients;
+    // Only this class's finite Windows declaration factory can mark a route
+    // resident. Arbitrary public matrices retain ordinary per-request lifetime.
+    internal ResidentStereoOutputProfile? ResidentProfile { get; private init; }
     public StereoAudioRoute(IReadOnlyList<float> left, IReadOnlyList<float> right)
     {
         ArgumentNullException.ThrowIfNull(left); ArgumentNullException.ThrowIfNull(right);
@@ -229,6 +238,18 @@ public sealed class StereoAudioRoute
         coefficients = left.Concat(right).ToArray();
         if (coefficients.Any(value => !float.IsFinite(value) || value is < 0 or > 1))
             throw new ArgumentOutOfRangeException(nameof(left), "This matrix supports finite coefficients from zero through one.");
+    }
+
+    internal static StereoAudioRoute WindowsDevice(float lfeGain)
+    {
+        if (lfeGain is not (0 or 1))
+            throw new NotSupportedException("Original stereo output needs its actual LFE configuration.");
+        float lfe = .7071f * lfeGain;
+        return new([1, 0, .7071f, lfe, .7071f, 0], [0, 1, .7071f, lfe, 0, .7071f])
+        {
+            ResidentProfile = lfeGain == 0 ? ResidentStereoOutputProfile.WindowsWithoutLfe :
+                ResidentStereoOutputProfile.WindowsWithLfe
+        };
     }
     public float Gain(int input, int output)
     {

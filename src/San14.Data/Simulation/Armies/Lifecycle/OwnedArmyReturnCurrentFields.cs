@@ -239,6 +239,7 @@ public sealed partial class SourceWorldContext
         var ownedPeople = new HashSet<int>();
         var receivers = OfficerLocationSourceAdapter.Receivers(state) ?? freshReceivers;
         var residues = state.ResourceState as CampaignSourceKnowledge;
+        ResetOwnedPersonSkillProjection();
         foreach (var person in state.Officers.Values)
         {
             int physical = ResolveOfficerSource(person.Id)
@@ -276,13 +277,13 @@ public sealed partial class SourceWorldContext
         //The full manager may contain receivers outside the playable projection.
         //Their mutable fields are unknown until an independent current owner is
         //saved. Static scenario status/second/flags must not masquerade as current.
+        var unprojectedPeople = new HashSet<int>();
         foreach (int physical in _persons.Keys.Where(x => x != 0 && !ownedPeople.Contains(x)).ToArray())
         {
-            SetPersonFormationMask164(physical, null);
-            for (int index = 0; index < 9; index++) SetPersonTraitSlot150(physical, index, null);
-            for (int index = 0; index < 10; index++) SetPersonTacticSlot168(physical, index, null);
+            unprojectedPeople.Add(physical);
             _persons[physical] = _persons[physical] with { Status=null, Behavior=OfficerBehaviorSourceAdapter.WithSourceFlags(_persons[physical].Behavior, null), Location=null };
         }
+        BindUnprojectedPersonSkillReceivers(unprojectedPeople);
         BindOfficerLocations(state, receivers);
         foreach (var city in state.Cities.Values)
         {

@@ -38,6 +38,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             target.Troops is < 0 or > ushort.MaxValue)
             return Missing("normal.Base_origin.actual_target_Army");
 
+        //A Base-only cut need not create an Army-pair phase. Its target
+        //Common still consumes the actual commander's current relations.
+        _personRelationInputs.BindCurrent(state, current);
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario,
             Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
         var context = new TacticRemakeCurrentContext(current, _catalog, _map,

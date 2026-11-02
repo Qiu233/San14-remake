@@ -14,6 +14,7 @@ internal partial class TransportPersonSelectionView : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Control canvas=null!,body=null!,headings=null!;
     private UiSourceHeader title=null!;
     private UiSourceScrollbar scroll=null!;
@@ -34,13 +35,16 @@ internal partial class TransportPersonSelectionView : Control
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,TransportPersonSelection model,
-        Func<bool> admitted,Action<int?> complete,Func<int> scrollSpeed)
+        Func<bool> admitted,Action<int?> complete,Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources? resources=null)
     {
         this.text=text;this.model=model;this.admitted=admitted;this.complete=complete;
         Name="TransportPersonSelection";ZIndex=5;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var backdrop=new UiSourceCommonBlur();AddChild(backdrop);backdrop.Configure(repository);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        var backdrop=new UiSourceCommonBlur();AddChild(backdrop);backdrop.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new(){Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
         title=new(){Name="TransportPersonTitle"};canvas.AddChild(title);
         title.Configure(repository,assets,shader,font,model.Pages.Title);
@@ -144,5 +148,5 @@ internal partial class TransportPersonSelectionView : Control
     {if(abandoned)return;abandoned=true;complete=null;admitted=null;foreach(var row in rows){row.Button.InputAdmission=null;row.Button.Disabled=true;}Hide();}
     private void Fit()
     {float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*scale;canvas.Position=(Size-canvas.Size*scale)/2;}
-    public override void _ExitTree(){Abandon();font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){Abandon();if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 }

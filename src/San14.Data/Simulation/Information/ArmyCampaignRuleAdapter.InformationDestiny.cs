@@ -126,7 +126,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             [0x34E9, 0, 0x34EA, 0x34EB]
         ];
         var channels = ImmutableArray.CreateBuilder<InformationDestinyExplanationChannel>();
-        var formatter = new NarrationResourceMessages(_repository.LoadMessages(Seed.Language, MessageKind.Game).Messages);
+        var explanationsResource = new InformationDestinyExplanations(_repository.LoadMessages(Seed.Language, MessageKind.Game));
         for (int channel = 0; channel < messagesByChannel.Length; channel++)
         {
             var explanations = ImmutableArray.CreateBuilder<InformationDestinyExplanationRow>();
@@ -134,7 +134,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 int message = messagesByChannel[channel][index];
                 if (message == 0) { explanations.Add(new(index, null, "", null)); continue; }
-                try { explanations.Add(new(index, message, formatter.ResolveInformationExplanation(message), null)); }
+                try { explanations.Add(new(index, message, explanationsResource.Read(message), null)); }
                 catch (InvalidDataException error)
                 { issues.Add(error.Message); explanations.Add(new(index, message, null, error.Message)); }
             }

@@ -33,10 +33,10 @@ public static partial class TransportArmyRouteSource
             if (K(OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical), "second233560"))
                 return Done(goal, [], null, null, 0, "301DD0.second_excluded");
             ushort start = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, army), "Army2A");
-            if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
+            if (!current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) throw Missing("route_endpoint");
             int[] path = ArmyRouteSearch.Search(state, current, army, start, goal, kind, identity, null, out int expanded);
-            ushort? next = path.Length > 1 ? (ushort)Math.Clamp(path[1], 0, Count) : null;
-            ushort future = path.Length > 4 ? unchecked((ushort)path[4]) : (ushort)Count;
+            ushort? next = path.Length > 1 ? ArmyMarchSourceAdapter.EncodeRouteHex(path[1]) : null;
+            ushort future = path.Length > 4 ? ArmyMarchSourceAdapter.EncodeRouteHex(path[4]) : (ushort)Count;
             return Done(goal, path, next, future, expanded, path.Length == 0 ?
                 "301DD0.mode1_no_path" : "301DD0.mode1_source_path");
 
@@ -53,7 +53,7 @@ public static partial class TransportArmyRouteSource
     {
         var (goal, kind, identity) = ReadTransportGoal(state, current, army);
         ushort start = K(ArmyMarchSourceAdapter.ReadCurrentHex(state, army), "Army2A");
-        if (start >= Count || goal is < 0 or >= Count) throw Missing("route_endpoint");
+        if (!current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) throw Missing("route_endpoint");
         int[] path = ArmyRouteSearch.Search(state, current, army, start, goal, kind, identity,
             army.NativeArmyOrigin?.NativeSlotIndex, out int expanded);
         return (goal, path, expanded);

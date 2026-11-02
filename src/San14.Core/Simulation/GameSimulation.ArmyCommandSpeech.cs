@@ -28,7 +28,7 @@ public sealed partial class GameSimulation
         if (!result.Handled || result.UnresolvedOwner is not null) return false;
         CompleteSourcePresentationHead(result.State, pending, effects, batch, requestIndex,
             result.State.ActiveMonthlyScene, result.State.CoalitionCameraPresentation);
-        result = result with { State = _normalPeriod?.Candidate ?? State };
+        result = result with { State = SourcePresentationOwner };
         return true;
     }
 }

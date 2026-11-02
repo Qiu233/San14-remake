@@ -5,10 +5,12 @@
 #include "../../Runtime/PreparedFileInput.h"
 #include "ShadowCameraFrame.h"
 #include "ShadowReceiverMaterial.h"
+#include "ShadowReceiverParameterWrites.h"
 #include <array>
 #include <span>
 #include <cstdint>
 #include <fstream>
+#include <sstream>
 #include <vector>
 namespace source_shadow_gpu {
 struct Template {
@@ -193,6 +195,8 @@ inline San14::Render::ShadowReceiverMaterial receiverMaterial(const Profile &p, 
     values.splitEnds=shadow.relativeEnds;
     V4 scales{D(1, float(cpu.width)), D(1, float(cpu.height)), float(cpu.width), float(cpu.height)};
     values.atlasScale=scales;
+    // Compact single-atlas writer uses the same current target dimensions.
+    values.secondaryAtlasScale=San14::Render::prepareReceiverSecondaryAtlasScale(scales);
     values.sampleLoopCount=static_cast<std::int32_t>(p.loops);
     for (unsigned i = 0; i < unsigned(shadow.passCount); i++) {
         auto b = transform(p.basisB, textures[i]), c = transform(p.basisC, textures[i]);
@@ -224,7 +228,9 @@ inline San14::Render::ShadowReceiverMaterial receiverMaterial(const Profile &p, 
 } // namespace source_shadow_gpu
 
 #ifndef SHADOW_CAMERA_GPU_CPU_ONLY
+#include "../../Device/PrimaryShadowGpuMedia.h"
 #include "ShadowRaster.h"
+#include "ShadowConstantArena.h"
 struct NativeShadowCameraGpuTemplate {
     ComPtr<ID3D11VertexShader> vertex;
     ComPtr<ID3D11InputLayout> layout;
@@ -240,12 +246,18 @@ struct NativeShadowCameraGpu {
     std::vector<NativeShadowCameraGpuTemplate> templates;
     ComPtr<ID3D11DepthStencilState> depth;
     D3D11_DEPTH_STENCIL_DESC depthDescription{};
+    NativeShadowConstantArena constantArena;
 };
+template<class CompleteModels>
 inline NativeShadowCameraGpu
 prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile profile,
                              const source_shadow_camera::Profile &cpu, const NativeModelContinuous &catalog,
-                             const NativeModelInputs &completeModels, const fs::path &input,
-                             std::array<NativeShadowRasterSource, 2> rasterSource) {
+                             const CompleteModels &completeModels, const fs::path &input,
+                             std::array<NativeShadowRasterSource, 2> rasterSource,
+                             std::shared_ptr<const San14::Render::NativePrimaryShadowGpuMedia> primaryMediaGpu={},
+                             bool requireResident=false) {
+    if(requireResident&&!primaryMediaGpu)
+        throw std::runtime_error("Shared scenes require Primary shadow GPU media loaded at startup");
     NativeShadowCameraGpu out;
     out.raster = prepareNativeShadowRasterGpu(device, std::move(rasterSource));
     source_shadow_gpu::bindCatalog(profile, catalog);
@@ -279,27 +291,59 @@ prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile pr
         D3D11_STENCIL_OP_KEEP;
     ds.BackFace = ds.FrontFace;
     check(device->CreateDepthStencilState(&ds, &out.depth), "actual RenderType2 reached depth compare");
+    // Only primary immutable media is borrowed. The actual global profile,
+    // current camera/World/admission and mutable GPU constants stay local.
+    fs::path primaryMedia;
+    unsigned fieldTemplateCount=0,primaryTemplateCount=0;
+    NativePreparedInputFile primaryReference(input/"primary-shadow-media.ref");
+    if(primaryReference) {
+        std::string signature,counts,root;
+        if(!std::getline(primaryReference,signature)||!std::getline(primaryReference,counts)||
+            !std::getline(primaryReference,root))
+            throw std::runtime_error("Primary shadow media reference is incomplete");
+        if(!signature.empty()&&signature.back()=='\r')signature.pop_back();
+        if(!root.empty()&&root.back()=='\r')root.pop_back();
+        std::istringstream fields(counts);
+        if(signature!="SAN14_PRIMARY_SHADOW_MEDIA 1"||root.empty()||
+            !(fields>>fieldTemplateCount>>primaryTemplateCount)||
+            static_cast<std::size_t>(fieldTemplateCount)+primaryTemplateCount!=out.profile.templates.size())
+            throw std::runtime_error("Primary shadow media reference differs from the actual template catalog");
+        auto path=fs::u8path(root);
+        primaryMedia=nativePreparedFilePath(path.is_absolute()?path:input/path);
+    }
+    if(primaryMediaGpu&&(primaryMedia.empty()||primaryMediaGpu->templates.size()!=primaryTemplateCount))
+        throw std::runtime_error("Resident Primary shadow catalog requires its actual Field/primary mapping");
     for (auto &source : out.profile.templates) {
         auto &t = out.templates.at(source.modelTemplate);
         auto directory = input / ("template-" + std::to_string(source.modelTemplate));
-        auto v = load(directory / "vs.dxbc");
-        check(device->CreateVertexShader(v.data(), v.size(), nullptr, &t.vertex),
-              "source-selected static caster VS");
-        struct Element {
-            std::string name;
-            UINT index, format, slot, offset;
-        };
-        std::vector<Element> elements;
-        Element e;
-        NativePreparedInputFile rows(directory / "layout.txt");
-        while (rows >> e.name >> e.index >> e.format >> e.slot >> e.offset)
-            elements.push_back(e);
-        std::vector<D3D11_INPUT_ELEMENT_DESC> layout;
-        for (auto &a : elements)
-            layout.push_back({a.name.c_str(), a.index, DXGI_FORMAT(a.format), a.slot, a.offset,
-                              D3D11_INPUT_PER_VERTEX_DATA, 0});
-        check(device->CreateInputLayout(layout.data(), UINT(layout.size()), v.data(), v.size(), &t.layout),
-              "actual caster ISGN input layout");
+        if(!primaryMedia.empty()&&source.modelTemplate>=fieldTemplateCount)
+            directory=primaryMedia/("template-"+std::to_string(source.modelTemplate-fieldTemplateCount));
+        const bool sharedPrimary=primaryMediaGpu&&source.modelTemplate>=fieldTemplateCount;
+        if(sharedPrimary) {
+            if(source.pixelProgram>=0)
+                throw std::runtime_error("Primary shadow alpha requires its separate material owner");
+            const auto& immutable=primaryMediaGpu->templates.at(source.modelTemplate-fieldTemplateCount);
+            t.vertex=immutable.vertex;t.layout=immutable.layout;
+        } else {
+            auto v = load(directory / "vs.dxbc");
+            check(device->CreateVertexShader(v.data(), v.size(), nullptr, &t.vertex),
+                  "source-selected static caster VS");
+            struct Element {
+                std::string name;
+                UINT index, format, slot, offset;
+            };
+            std::vector<Element> elements;
+            Element e;
+            NativePreparedInputFile rows(directory / "layout.txt");
+            while (rows >> e.name >> e.index >> e.format >> e.slot >> e.offset)
+                elements.push_back(e);
+            std::vector<D3D11_INPUT_ELEMENT_DESC> layout;
+            for (auto &a : elements)
+                layout.push_back({a.name.c_str(), a.index, DXGI_FORMAT(a.format), a.slot, a.offset,
+                                  D3D11_INPUT_PER_VERTEX_DATA, 0});
+            check(device->CreateInputLayout(layout.data(), UINT(layout.size()), v.data(), v.size(), &t.layout),
+                  "actual caster ISGN input layout");
+        }
         D3D11_BUFFER_DESC cb{};
         cb.ByteWidth = source.bytes;
         cb.Usage = D3D11_USAGE_DEFAULT;
@@ -319,12 +363,12 @@ prepareNativeShadowCameraGpu(ID3D11Device *device, source_shadow_gpu::Profile pr
     }
     return out;
 }
-template <class LogicalDepth, class CurrentTree2Wind, class AdditionalCasters>
+template <class LogicalDepth, class CurrentTree2Wind, class AdditionalCasters, class CompleteModels>
 inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDepth &logical,
                                          NativeShadowCameraGpu &gpu, const source_shadow_camera::Frame &frame,
                                          const source_shadow_gpu::Plan &plan,
                                          const NativeModelContinuous &catalog,
-                                         const NativeModelInputs &completeModels, unsigned renderMode,
+                                         const CompleteModels &completeModels, unsigned renderMode,
                                          const CurrentTree2Wind& currentTree2Wind,
                                          AdditionalCasters&& additionalCasters) {
     retainNativeShadowRasterExit(context, gpu.raster);
@@ -338,10 +382,26 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
     context->GSSetShader(nullptr, nullptr, 0);
     context->PSSetShader(nullptr, nullptr, 0);
     gpu.map.draws = 0;
+    const auto* windows=gpu.constantArena.upload(context,plan.draws.size(),[&](std::size_t index) {
+        const auto& row=plan.draws[index];
+        const auto& primitive=catalog.primitives.at(row.primitiveIndex);
+        const auto& t=gpu.templates.at(primitive.templateIndex);
+        NativeShadowConstantPacket packet;packet.vertex=row.constants;packet.vertexBytes=row.bytes;
+        if(row.bytes==272)currentTree2Wind.writeCurrentTree2Vs(std::span<uint8_t>(
+            reinterpret_cast<uint8_t*>(packet.vertex.data()),row.bytes),primitive.groupFlags);
+        if(t.pixel) {
+            packet.pixel=t.pixelBytes;packet.pixelBytes=UINT(packet.pixel.size());
+            const auto& raster=gpu.raster.source.at(renderMode);
+            const float bias[2]{raster.scale*.5f,raster.bias.at(raster.selector==0?0:row.pass)};
+            std::memcpy(packet.pixel.data(),bias,sizeof(bias));
+        }
+        return packet;
+    });
     unsigned currentPass = ~0u, currentTemplate = ~0u;
+    std::size_t constantIndex=0;
     for (auto &row : plan.draws) {
         auto &primitive = catalog.primitives.at(row.primitiveIndex);
-        auto &geometry = completeModels.draws.at(row.primitiveIndex);
+        const auto &geometry = nativeModelResource(completeModels.draws.at(row.primitiveIndex));
         auto &t = gpu.templates.at(primitive.templateIndex);
         if (currentPass != row.pass) {
             auto &a = frame.atlas.at(row.pass);
@@ -357,11 +417,13 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
         if (currentTemplate != primitive.templateIndex) {
             context->VSSetShader(t.vertex.Get(), nullptr, 0);
             context->IASetInputLayout(t.layout.Get());
-            auto cb = t.constants.Get();
-            context->VSSetConstantBuffers(0, 1, &cb);
+            if(!windows) {
+                auto cb=t.constants.Get();context->VSSetConstantBuffers(0,1,&cb);
+            }
             context->PSSetShader(t.pixel.Get(), nullptr, 0);
-            auto pixelBuffer = t.pixelConstants.Get();
-            context->PSSetConstantBuffers(0, 1, &pixelBuffer);
+            if(!windows||!t.pixel) {
+                auto pixelBuffer=t.pixelConstants.Get();context->PSSetConstantBuffers(0,1,&pixelBuffer);
+            }
             currentTemplate = primitive.templateIndex;
         }
         std::vector<ID3D11Buffer *> streams;
@@ -379,7 +441,7 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
         if (row.bytes == 272) {
             // Shadow runs before ordinary Model submission. Borrow this frame's
             // real wind owner directly rather than last frame's model draws.
-            currentTree2Wind.writeCurrentTree2Vs(std::span<uint8_t>(
+            if(!windows)currentTree2Wind.writeCurrentTree2Vs(std::span<uint8_t>(
                 reinterpret_cast<uint8_t*>(constants.data()), row.bytes), primitive.groupFlags);
             NativeModelDraw borrowed;
             currentTree2Wind.attachCurrentTree2Resources(borrowed, primitive.groupFlags);
@@ -396,13 +458,23 @@ inline void executeNativeShadowCameraGpu(ID3D11DeviceContext *context, LogicalDe
             throw std::runtime_error("Tree2 shadow alpha needs its actual retained primary texture and sampler");
         context->PSSetShaderResources(0,1,&primary);
         context->PSSetSamplers(0,1,&primarySampler);
-        if(t.pixel) {
+        if(!windows&&t.pixel) {
             const auto& raster=gpu.raster.source.at(renderMode);
             const float bias[2]{raster.scale*.5f,raster.bias.at(raster.selector==0?0:row.pass)};
             std::memcpy(t.pixelBytes.data(),bias,sizeof(bias));
             context->UpdateSubresource(t.pixelConstants.Get(),0,nullptr,t.pixelBytes.data(),0,0);
         }
-        context->UpdateSubresource(t.constants.Get(), 0, nullptr, constants.data(), 0, 0);
+        if(windows) {
+            const auto& current=windows->at(constantIndex);
+            auto* ranged=gpu.constantArena.context();
+            auto vertexBuffer=current.vertex.buffer;
+            ranged->VSSetConstantBuffers1(0,1,&vertexBuffer,&current.vertex.firstConstant,&current.vertex.constantCount);
+            if(current.pixel.buffer) {
+                auto pixelBuffer=current.pixel.buffer;
+                ranged->PSSetConstantBuffers1(0,1,&pixelBuffer,&current.pixel.firstConstant,&current.pixel.constantCount);
+            }
+        } else context->UpdateSubresource(t.constants.Get(), 0, nullptr, constants.data(), 0, 0);
+        ++constantIndex;
         context->DrawIndexed(geometry.indexCount, geometry.indexStart, geometry.baseVertex);
         ++gpu.map.draws;
     }

@@ -7,7 +7,7 @@ public partial class Main
 
     private void BeginUiAudio()
     {
-        var feedback = new UiAudioFeedback(this, _repository!.SourceDirectory, _overrides.DirectoryPath,
+        var feedback = new UiAudioFeedback(this, _repository!, _overrides.DirectoryPath,
             () => IsInsideTree() && !_failed);
         feedback.Changed += UiAudioFeedbackChanged;
         feedback.ServiceReady += AttachSceneAudioSession;
@@ -16,6 +16,12 @@ public partial class Main
         feedback.SetVolumes(_preferences.Audio);
         if (_preferences.SpeakerLayout is { } layout) feedback.SetInitialSpeakerLayout(layout);
         feedback.Start();
+    }
+
+    private async Task PrepareApplicationAudioResourcesAsync()
+    {
+        var feedback = _uiAudioFeedback ?? throw new InvalidOperationException("Application audio has not started.");
+        await feedback.WaitUntilPreparedAsync();
     }
 
     private void UiAudioFeedbackChanged(UiAudioFeedbackStatus status)
@@ -80,5 +86,9 @@ public partial class Main
         LeaveSceneAudioContext();
         _sceneAudioBinding?.Dispose();
         _uiAudioFeedback?.Dispose();
+        _ = ObserveApplicationNativeMapDeviceRetirementAsync();
+        StopApplicationMapResourcePreparation();
+        RetireMapSystemResourcePreparation();
+        StopApplicationResourceChanges();
     }
 }

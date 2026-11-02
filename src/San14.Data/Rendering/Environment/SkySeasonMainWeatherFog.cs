@@ -57,11 +57,11 @@ public static class SkySeasonMainWeatherFog
     {
         ArgumentNullException.ThrowIfNull(camera);ArgumentNullException.ThrowIfNull(power);
         var source=camera.Inputs.Source;source.Selection.Validate();
-        if(!source.UsesSourceCreatedEmptyAxes||source.Selection.SecondPackage is not null||
-            source.Selection.FirstPackage.Camera.ObjectId!=MapSeasonCameraApplication.RootCameraObjectId||
+        if(!source.UsesSourceDatabaseReset||source.Selection.SecondPackage is not null||
+            (source.SuccessfulMainModeSelection is null&&source.Selection.FirstPackage.Camera.ObjectId!=MapSeasonCameraApplication.RootCameraObjectId)||
 
             power.Locale!=camera.Inputs.MainFrame.Camera.ExecutableLocale)
-            throw new NotSupportedException("Source-created Main weather/Fog requires the actual fresh database reset, Root package, native6500 and matched executable; later edited/interpolated weather is explicit.");
+            throw new NotSupportedException("Source-created Main weather/Fog requires the actual fresh database reset, direct database package, native6500 and matched executable; later edited/interpolated weather is explicit.");
         if(dispatch!=NativeCameraTangentDispatch.Sse)
             throw new NotSupportedException("Current Main weather/Fog implements the actual SSE power dispatch only.");
         var profile=source.WeatherProfile;
@@ -119,7 +119,7 @@ public static class SkySeasonMainWeatherFog
             M(S(1,M(strength,F(0x3E99999A))),profile.Anisotropy),M(profile.FogPivot,100),
             A(M(profile.FogBlend,profile.FogBlendScale),S(1,profile.FogBlend))));
         return new(camera,fog,sun,moon,current640,saturation,camera.SourceProvenance+";"+power.SourceProvenance+
-            ";same-Main-V418-Root-source-database-reset-weather;computed-saturation-Main22C-write;actual72-semantic-writes;"+
+            ";same-Main-V418-direct-selected-source-database-reset-weather;computed-saturation-Main22C-write;actual72-semantic-writes;"+
             "Fog48..5F-retained-unknown;unrelated-V418-weather-outputs-not-published");
     }
     private static float F(uint bits)=>BitConverter.UInt32BitsToSingle(bits);

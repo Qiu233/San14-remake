@@ -9,7 +9,10 @@ namespace San14.Data;
 public sealed record NewGameForceOfficersPreview(int ForceId, bool? ForceValid,
     bool MembershipComplete, IReadOnlyList<NewGameForceOfficerPreview> Rows,
     IReadOnlyList<NewGameForceOfficerPreview>? NativeSortedRows,
-    string? SortUnresolvedInput, IReadOnlyList<string> UnresolvedInputs);
+    string? SortUnresolvedInput, IReadOnlyList<string> UnresolvedInputs)
+{
+    public OfficerInformationPageSet? Pages { get; init; }
+}
 
 public sealed record NewGameOfficerAbilityFigures(int? Leadership, int? Strength,
     int? Intelligence, int? Politics, int? Charm)

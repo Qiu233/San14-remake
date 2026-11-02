@@ -95,7 +95,10 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private string? BasicResponsibility(Person person)
         {
-            var result = DeploymentPersonResponsibilityDisplaySource.Read(state, current, person.PhysicalSlot);
+            var result = prestartListInputs is null
+                ? DeploymentPersonResponsibilityDisplaySource.Read(state, current, person.PhysicalSlot)
+                : DeploymentPersonResponsibilityDisplaySource.Read(state,current,person.PhysicalSlot,
+                    prestartListInputs.AssignmentCount,prestartListInputs.AssignmentEntry);
             return result.Kind switch
             {
                 DeploymentPersonResponsibilityKind.NotApplicable => Data(1, 0x353),

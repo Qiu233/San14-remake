@@ -8,9 +8,11 @@
 #include <optional>
 #include <stdexcept>
 #include <functional>
+#include <memory>
 #include <d3d11.h>
 #include "../Camera/CameraState.h"
 #include "../Interop/RouteOverlayInput.h"
+#include "../Device/RouteGpuReferences.h"
 #include "../Interop/CurrentEffectInput.h"
 #include "../Scene/Terrain/TerritoryOwnership.h"
 #include "../Scene/Terrain/CommandMap.h"
@@ -23,6 +25,9 @@
 #include "../Passes/Environment/SeasonFrame.h"
 
 namespace San14::Render {
+struct NativeTerrainPrograms;
+struct NativePrimaryModelGpuMedia;
+struct NativePrimaryPassGpuMedia;
 enum class FrameInputFlag : unsigned {
     PublishedCamera=1,
     Paused=2,
@@ -53,6 +58,14 @@ struct RenderInput {
     const std::uint8_t* areaCapitalWorld{};
     std::uint32_t areaCapitalWorldBytes{};
     const wchar_t* atmosphereResourceDirectory{};
+    const wchar_t* patternResourceDirectory{};
+    // Stable interop flags20..22:0 auto;1..5 actual Main override0..4.
+    // The independent animation queue carries its own captured override.
+    std::optional<std::uint32_t> mainModeOverride() const {
+        const auto code=(flags>>20)&7u;
+        if(code>5u)throw std::runtime_error("Native Main override flag domain");
+        return code?std::optional<std::uint32_t>{code-1u}:std::nullopt;
+    }
     bool contains(FrameInputFlag flag) const noexcept {
         return (flags & static_cast<unsigned>(flag))!=0;
     }
@@ -72,6 +85,12 @@ struct RenderHost {
     MainRenderPhaseState mainPhase;
     ID3D11Device* device{};
     ID3D11DeviceContext* context{};
+    std::shared_ptr<const NativeTerrainPrograms> terrainPrograms; // borrowed startup generation
+    std::shared_ptr<const NativePrimaryModelGpuMedia> primaryGpuMedia;
+    std::shared_ptr<const NativePrimaryPassGpuMedia> primaryPassGpu;
+    bool requirePrimaryGpuMedia{};
+    std::vector<NativeRouteGpuBorrowed> routeGpuMedia;
+    bool requireRouteGpuMedia{};
     RenderInput input;
     TerritoryOwnershipPublication territoryOwnership;
     source_command_map::Publication commandMap;
@@ -81,7 +100,10 @@ struct RenderHost {
     std::optional<AreaCapitalWorldPublication> areaCapitalWorld;
     // Actual paced manager callbacks are separate from Main/Canvas requests.
     std::function<void(unsigned)> animationUpdate;
-    std::function<void(const std::filesystem::path&)> replaceAtmosphereResources;
+    // Continuous Map presentation may submit the completed geometry prefix
+    // while Main's remaining passes are still being recorded.
+    std::function<void()> submitScenePrefix;
+    std::function<void(const std::filesystem::path&,const std::filesystem::path&)> replaceSeasonResources;
     std::function<void(const San14RouteOverlayInputV1&)> replaceRoutes;
     std::function<void(const San14CurrentEffectInputV1&)> replaceCurrentEffects;
     std::function<void(std::uint64_t)> retireEffectOwner;
@@ -102,8 +124,9 @@ public:
     explicit RenderCallbackScope(RenderHost& host) noexcept : host(host) {}
     ~RenderCallbackScope() {
         host.animationUpdate={};
+        host.submitScenePrefix={};
         host.armyUnitPositions={};
-        host.replaceAtmosphereResources={};
+        host.replaceSeasonResources={};
         host.replaceRoutes={};
         host.replaceCurrentEffects={};host.retireEffectOwner={};
         host.createDirectEffect={};host.submitDirectEffect={};host.directEffectLive={};host.releaseDirectEffect={};

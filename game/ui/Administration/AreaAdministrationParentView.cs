@@ -31,14 +31,14 @@ internal partial class AreaAdministrationParentView : Control
     internal void Configure(GameResourceRepository repository,PreviewText text,IReadOnlyList<AreaAdministrationListEntry> entries,
         int scrollSpeedSetting,Action<int> regionRequested,Action returned,Action accepted,Action<bool> modeChanged,
         Func<IReadOnlyList<int>,int,bool,AreaAdministrationListOrder>? order=null,Action<string>? unavailable=null,
-        Action? autoRequested=null,Action? dismissRequested=null,Func<int>? currentScrollSpeed=null)
+        Action? autoRequested=null,Action? dismissRequested=null,Func<int>? currentScrollSpeed=null, AdministrationPageChrome.Resources? resources=null)
     {
         this.regionRequested=regionRequested;this.returned=returned;this.accepted=accepted;this.modeChanged=modeChanged;
         this.order=order;this.unavailable=unavailable;this.autoRequested=autoRequested;this.dismissRequested=dismissRequested;
         Name="AreaAdministrationParent";ZIndex=3;MouseFilter=MouseFilterEnum.Ignore;SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        listBackdrop=new UiSourceCommonBlur();AddChild(listBackdrop);listBackdrop.Configure(repository);
+        listBackdrop=new UiSourceCommonBlur();AddChild(listBackdrop);listBackdrop.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
         chrome=new AdministrationPageChrome {Name="DomesticChrome"};AddChild(chrome);
-        chrome.Configure(repository,text,0x04B7,RequestBack,()=>{if(Active)this.accepted?.Invoke();});
+        chrome.Configure(repository,text,0x04B7,RequestBack,()=>{if(Active)this.accepted?.Invoke();},resources:resources);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException("Missing Domestic caption.");
         mapTitle=Message(0x04B7);listTitle=Message(0x05AF);mapCaption=Message(0x005D);listCaption=Message(0x0061);

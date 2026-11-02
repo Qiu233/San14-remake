@@ -1,12 +1,14 @@
 using System.Buffers.Binary;
 using Godot;
 using San14.Data;
+using San14.Data.Formats;
 
 internal partial class UiSourceStandingPortrait
 {
     private StandingPortraitFrameAnimation? frameAnimation;
     private UiSourceSprite? animatedImage;
-    private IReadOnlyList<LoadedSprite>? animationFrames;
+    private Func<int,string>? frameName;
+    private Action<UiSourceSprite,int>? frameSampling;
     private Func<int, Texture2D>? frameTexture;
     private int animatedSpriteIndex = -1;
     private bool animateFrames = true;
@@ -26,12 +28,12 @@ internal partial class UiSourceStandingPortrait
     internal int? AnimatedSpriteIndex => frameAnimation is null ? null : animatedSpriteIndex;
 
     private void ConfigureAnimated(GameResourceRepository repository, UiAssets assets, Shader shader,
-        IReadOnlyList<LoadedSprite> frames)
+        int frameCount,Func<int,LcskUvQuad,Texture2D> textureAt,Func<int,string> spriteName,Action<UiSourceSprite,int> configureSampling)
     {
-        if (frames.Count != StandingPortraitFrameAnimation.FrameCount)
+        if (frameCount != StandingPortraitFrameAnimation.FrameCount)
             throw new InvalidDataException("Animated standing portrait requires all thirty published bank12 frames.");
         MouseFilter = MouseFilterEnum.Ignore;
-        var layout = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_ani_chara_sprite_cn"));
+        var layout = assets.SourceLayout("cmn_ani_chara_sprite_cn");
         storyLayout = layout.Source.Layout;
         Size = layout.Rectangle(0).Size;
         var node = layout.Nodes.Single(node => node.Name == "stand_000");
@@ -42,16 +44,12 @@ internal partial class UiSourceStandingPortrait
             source.RawTintBytes.Any(value => value != 255))
             throw new InvalidDataException("Animated standing portrait source composition differs.");
         var uv = source.Groups[0].Parts[0].Uv;
-        var loadedFrames = frames.ToArray();
-        animationFrames = loadedFrames;
-        var textures = new Texture2D?[frames.Count];
+        frameName=spriteName;frameSampling=configureSampling;
+        var textures = new Texture2D?[frameCount];
         frameTexture = index =>
         {
             if (textures[index] is { } cached) return cached;
-            var sprite = loadedFrames[index];
-            return textures[index] = MapPortraitQuad.UsesSrgbView(repository, assets, sprite.Definition.Name, sprite)
-                ? assets.SrgbSpritePart(sprite.Definition.Name, uv, sprite)
-                : assets.SpritePart(sprite.Definition.Name, uv, sprite);
+            return textures[index] = textureAt(index,uv);
         };
         frameAnimation = StandingPortraitFrameAnimation.Read(storyLayout, node.Index);
         animatedSpriteIndex = frameAnimation.SpriteIndex;
@@ -59,9 +57,10 @@ internal partial class UiSourceStandingPortrait
         animatedImage = new UiSourceSprite { Name = "StandingFrame0", Position = rectangle.Position, Size = rectangle.Size };
         AddChild(animatedImage);
         animatedImage.Configure(shader, frameTexture(animatedSpriteIndex), UiSourceSprite.Blend.Ordinary);
+        configureSampling(animatedImage,animatedSpriteIndex);
         ConfigureMaterial(animatedImage, node);
         storyLayers.Add((node.Index, animatedImage));
-        animatedImage.SetMeta("portrait_sprite", frames[animatedSpriteIndex].Definition.Name);
+        animatedImage.SetMeta("portrait_sprite", spriteName(animatedSpriteIndex));
         animatedImage.SetMeta("source_node_index", node.Index);
         SetMeta("source_layout", layout.Source.Source.ResourceUri);
         SetMeta("portrait_kind", "animated_frames");
@@ -77,7 +76,8 @@ internal partial class UiSourceStandingPortrait
             if (next != animatedSpriteIndex)
             {
                 animatedImage!.SetSource(frameTexture!(next));
-                animatedImage.SetMeta("portrait_sprite", animationFrames![next].Definition.Name);
+                frameSampling!(animatedImage,next);
+                animatedImage.SetMeta("portrait_sprite", frameName!(next));
                 animatedSpriteIndex = next;
             }
             // Native layout applies this dirty sample before advancing.
@@ -90,7 +90,7 @@ internal partial class UiSourceStandingPortrait
     public override void _ExitTree()
     {
         SetProcess(false);
-        frameAnimation = null; animatedImage = null; frameTexture = null; animationFrames = null;
+        frameAnimation = null; animatedImage = null; frameTexture = null; frameName = null; frameSampling = null;
         // Textures belong to the caller's UiAssets. Retiring this borrower
         // releases its frame list and delegates without disposing shared assets.
         storyLayers.Clear(); motionLayers.Clear(); motion = null;

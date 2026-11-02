@@ -9,7 +9,7 @@ internal static partial class ArmyRouteSearch
     //the special actor's Force. Reuse the actual default route tree/kernel.
     internal static int[] SpecialForceRaidPath(GameState state, SourceWorldContext current, int from, int to)
     {
-        if ((uint)from >= Count || (uint)to >= Count) return [];
+        if (!current.ContainsMapHex(from) || !current.ContainsMapHex(to)) return [];
         var fields = state.NativeBaseCaptureCurrent ?? throw new InvalidDataException("original_ai.special.route.Hex16_owner");
         ushort? Word(int slot) => (uint)slot < (uint)fields.HexWords16.Length ? fields.HexWords16[slot]
             : throw new InvalidDataException("original_ai.special.route.Hex16_index");

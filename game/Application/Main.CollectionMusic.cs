@@ -25,7 +25,7 @@ public partial class Main
                     audio.BeginCollectionMusic(_ui.SourceLocale, _preferences.MusicSelection);
                     audio.PlayCollectionMusic(index);
                     UpdateCollectionMusicStatus();
-                }), CurrentListScrollSpeed);
+                }), CurrentListScrollSpeed, resources: TryBorrowApplicationUiResources(view));
             _sceneAudioBinding?.BeginCollectionMusic(_ui.SourceLocale, _preferences.MusicSelection);
             UpdateCollectionMusicStatus();
         }

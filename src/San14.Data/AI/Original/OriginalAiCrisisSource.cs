@@ -45,7 +45,7 @@ internal static partial class ArmyRouteSearch
     internal static int[] OriginalAiCrisisPath(GameState state, SourceWorldContext current,
         int enemyHex, int ownHex)
     {
-        if ((uint)enemyHex >= Count || (uint)ownHex >= Count) return [];
+        if (!current.ContainsMapHex(enemyHex) || !current.ContainsMapHex(ownHex)) return [];
         var fields = state.NativeBaseCaptureCurrent
             ?? throw new InvalidDataException("original_ai.crisis.route_Hex16_owner");
         ushort? ReadHex16(int physical) => (uint)physical < (uint)fields.HexWords16.Length

@@ -8,11 +8,11 @@ internal partial class DistrictInformationListView : PagedInformationListView
     internal DistrictInformationPageSet Pages => pages;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         DistrictInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed)
+        Action<int> inspect, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.pages = pages;
         ConfigureList(repository, text, new DistrictInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "DistrictInformationList", "district_information_group");
+            close, inspect, scrollSpeed, "DistrictInformationList", "district_information_group", resources: resources);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

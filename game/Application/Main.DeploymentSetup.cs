@@ -49,7 +49,7 @@ public partial class Main
             view.Configure(_repository,_ui,city,
                 availability.AvailableTroops??throw new InvalidDataException("Deployment troop availability is unknown."),
                 availability.AvailableBooks,()=>CancelDeploymentMake(world,map,cityId),
-                ()=>_deploymentSetupPresenter?.OpenOfficerSelection());
+                ()=>_deploymentSetupPresenter?.OpenOfficerSelection(), TryBorrowMapUiResources(view));
             _deploymentSetupPresenter=new(view,_repository,_ui,world,composition.Snapshot,
                 composition.PrepareArmyQueries(world),cityId,rows=>RunPlayAction(()=>
                 {
@@ -107,7 +107,7 @@ public partial class Main
                     if(!OpenFalseReportTarget(world,map,force,action.Target.Id,view,Current,BindTargetPicker,
                         hex=>accept(action with{FalseReportDestinationHexId=hex})))
                         DeploymentUnavailable("deployment.false_report_destination");
-                },routePreviewChanged:map.SetDeploymentRoutePreviews);
+                },routePreviewChanged:map.SetDeploymentRoutePreviews,uiResources:TryBorrowApplicationUiResources(view));
             _deploymentAdoptSpeechWorld=(previous,replacement)=>
             {
                 if(_deploymentTarget!=view||!ReferenceEquals(world,previous))return;
@@ -140,12 +140,12 @@ public partial class Main
             _ui.SourceLocale,_presentationRandom.Next);
         if(!preparation.Available){DeploymentUnavailable(preparation.UnresolvedInput!);return;}
         var route=preparation.PortraitRoute??throw new InvalidDataException("Deployment standing portrait is unavailable.");
-        var sprites=new LocalizedUiSpriteSource(_repository!);
-        var layers=route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration=new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };_deploymentNarration=narration;AddChild(narration);
         try
         {
-            narration.Configure(_repository!,_ui,preparation.SpeakerName!,preparation.Text!,layers,()=>RunPlayAction(()=>
+            var resources=TryBorrowApplicationUiResources(narration)??throw new InvalidOperationException("Narration requires its prepared application resources.");
+            var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
+            narration.Configure(_repository!,_ui,preparation.SpeakerName!,preparation.Text!,layers,resources,()=>RunPlayAction(()=>
             {
                 if(_deploymentNarration!=narration)return;
                 if(!IsDeploymentCurrent(world,map)){CloseDeploymentSetup();return;}

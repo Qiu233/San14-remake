@@ -9,6 +9,7 @@ internal enum DeploymentSetupBatchAction { Automatic, TroopsTogether, MaximumTro
 /// selection and edits; this view does not publish campaign orders.</summary>
 internal partial class DeploymentSetupView : Control
 {
+    private bool ownsResources;
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
@@ -16,6 +17,7 @@ internal partial class DeploymentSetupView : Control
     private UiSourceHeader sourceHeader = null!;
     private Action? close;
     private DeploymentResourceHeader resourceHeader=null!;
+    internal AdministrationPageChrome.Resources SourceResources => new(assets!,font!,shader!);
     internal UiSourceCommonBlur CommonBackdrop { get; private set; } = null!;
 
 
@@ -31,21 +33,21 @@ internal partial class DeploymentSetupView : Control
     private readonly List<UiSourceBottomButton> batchButtons=[];
     private Action<DeploymentSetupBatchAction>? batchRequested;
     private bool abandoned;
-    private Control? definitionChild;
-    private bool definitionCanvasVisible,definitionBackdropVisible;
+    private Control? selectionChild;
+    private bool selectionCanvasVisible,selectionBackdropVisible;
     internal DeploymentUnitInformationView UnitInformation {get;private set;}=null!;
     internal DeploymentOfficerInformationView OfficerInformation {get;private set;}=null!;
-    internal void RequestClose() {if(!abandoned&&definitionChild is null)close?.Invoke();}
+    internal void RequestClose() {if(!abandoned&&selectionChild is null)close?.Invoke();}
     internal void Abandon()
     {
-        abandoned=true;definitionChild=null;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
+        abandoned=true;selectionChild=null;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
         foreach(var button in batchButtons)button.Disabled=true;
         balloonOwner=null;balloon?.DisplayText(null);
         Hide();
     }
 
     internal void Configure(GameResourceRepository repository, PreviewText text, CityState city,
-        long availableTroops, long? books, Action closed, Action edit)
+        long availableTroops, long? books, Action closed, Action edit, AdministrationPageChrome.Resources? resources = null)
     {
         Name = "DeploymentSetup";
         ZIndex = 3;
@@ -53,15 +55,17 @@ internal partial class DeploymentSetupView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         close = closed;
 
-        assets = new(repository); font = new(repository, text.SourceLocale);
-        shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
 
-        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
+        CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository,assets.SourceLayout(0xAEF1609E));
         canvas = new Control { Name = "SourceCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing deployment message {id}.");
-        var page = new UiSourceLayout(repository, 0xFC796D9B);
+        var page = assets.SourceLayout(0xFC796D9B);
         sourceHeader = new UiSourceHeader { Name = "DeploymentTitle" };
         canvas.AddChild(sourceHeader);
         sourceHeader.Configure(repository,assets,shader,font,Message(0x059F));
@@ -98,7 +102,7 @@ internal partial class DeploymentSetupView : Control
                 button.MouseExited+=()=>ApplyBalloon(button,null);
             }
         }
-        var hint = new UiSourceLayout(repository,0xAB6ADAA7);
+        var hint = assets.SourceLayout(0xAB6ADAA7);
         // The common footer's narration is a separate child at y912.
         foreach(var n in hint.Nodes.Where(n=>n.Type is 1 or 3)) Art(hint,n.Index,new(0,912));
         // This source narration has one literal and no dynamic substitution.
@@ -146,26 +150,26 @@ internal partial class DeploymentSetupView : Control
 
     internal void RegisterHeader(UiSourceHeaderStack owner) => sourceHeader.Publish(owner);
 
-    // Definition children are actual siblings of this canvas. Keep the page
+    // Selection children are actual siblings of this canvas. Keep the page
     // itself alive and visible so their own admission/lifetime remains real.
-    internal void BeginDefinitionSelection(Control owner)
+    internal void BeginChildSelection(Control owner, bool keepBackdrop = false)
     {
-        if(abandoned||definitionChild is not null||!IsInsideTree()||IsQueuedForDeletion())
-            throw new InvalidOperationException("The deployment setup cannot acquire another definition child.");
+        if(abandoned||selectionChild is not null||!IsInsideTree()||IsQueuedForDeletion())
+            throw new InvalidOperationException("The deployment setup cannot acquire another selection child.");
         if(!ReferenceEquals(owner.GetParent(),this))
-            throw new InvalidOperationException("The deployment definition child must belong to this setup.");
-        definitionCanvasVisible=canvas.Visible;definitionBackdropVisible=CommonBackdrop.Visible;
-        definitionChild=owner;balloonOwner=null;balloon?.DisplayText(null);
-        canvas.Hide();CommonBackdrop.Hide();
+            throw new InvalidOperationException("The deployment selection child must belong to this setup.");
+        selectionCanvasVisible=canvas.Visible;selectionBackdropVisible=CommonBackdrop.Visible;
+        selectionChild=owner;balloonOwner=null;balloon?.DisplayText(null);
+        canvas.Hide();if(!keepBackdrop)CommonBackdrop.Hide();
     }
 
-    internal void EndDefinitionSelection(Control owner)
+    internal void EndChildSelection(Control owner, bool restore = true)
     {
-        if(!ReferenceEquals(definitionChild,owner))return;
-        definitionChild=null;
-        if(abandoned||IsQueuedForDeletion()||!IsInsideTree())return;
-        if(GodotObject.IsInstanceValid(canvas)&&!canvas.IsQueuedForDeletion())canvas.Visible=definitionCanvasVisible;
-        if(GodotObject.IsInstanceValid(CommonBackdrop)&&!CommonBackdrop.IsQueuedForDeletion())CommonBackdrop.Visible=definitionBackdropVisible;
+        if(!ReferenceEquals(selectionChild,owner))return;
+        selectionChild=null;
+        if(!restore||abandoned||IsQueuedForDeletion()||!IsInsideTree())return;
+        if(GodotObject.IsInstanceValid(canvas)&&!canvas.IsQueuedForDeletion())canvas.Visible=selectionCanvasVisible;
+        if(GodotObject.IsInstanceValid(CommonBackdrop)&&!CommonBackdrop.IsQueuedForDeletion())CommonBackdrop.Visible=selectionBackdropVisible;
     }
 
     internal void ApplyDraftResources(DeploymentDraftResources resources)
@@ -239,7 +243,7 @@ internal partial class DeploymentSetupView : Control
     }
     public override void _ExitTree()
     {
-        definitionChild=null;close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
-        font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        selectionChild=null;close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
     }
 }

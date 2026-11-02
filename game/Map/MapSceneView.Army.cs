@@ -142,7 +142,7 @@ public partial class MapSceneView
                 // Source identity changes retire old assets before a replacement
                 // is admitted. Unsupported map/table profiles keep unit signs.
                 _remakeArmyVisuals = new(_repository, language, _projection, TerrainMeshes.Source.HeightField);
-                PlayableArmyVisualPlan descriptors = adapter.Resolve(world);
+                PlayableArmyVisualPlan descriptors = adapter.Resolve(world, visibleUnitIds: CaptureCurrentArmyPresence(world)?.VisibleUnitIds);
                 PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
                     _remakeArmyVisuals.Prepare(world, descriptors);
                 PlayableArmyVisualPlan plan = adapter.BindPoses(world, descriptors, poses);
@@ -178,7 +178,7 @@ public partial class MapSceneView
         }
         else
         {
-            PlayableArmyVisualPlan descriptors = _armyVisualAdapter!.Resolve(world);
+            PlayableArmyVisualPlan descriptors = _armyVisualAdapter!.Resolve(world, visibleUnitIds: CaptureCurrentArmyPresence(world)?.VisibleUnitIds);
             PlayableArmyPoseProvider? poses = _armyPoseOverride ? _armyPoseProvider :
                 _remakeArmyVisuals!.Prepare(world, descriptors);
             PlayableArmyVisualPlan plan = _armyVisualAdapter.BindPoses(world, descriptors, poses);

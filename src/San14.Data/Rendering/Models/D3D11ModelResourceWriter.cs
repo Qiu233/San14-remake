@@ -43,6 +43,39 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         IReadOnlySet<int>? singleInstanceStreams=null,
         bool stencilEnabled=false,byte? stencilReference=null)
     {
+        string metadata=WriteStaticGeometryAndPrograms(directory,meshDirectory,geometry,draw,shader,vs,ps,bindings,singleInstanceStreams);
+        AddBytes(Path.Combine(directory,"vs-b0.bin"),vertex);AddBytes(Path.Combine(directory,"ps-b0.bin"),pixel);
+        AddText(Path.Combine(directory,"draw.txt"),metadata+EncodeDepth(depth,stencilEnabled,stencilReference));
+    }
+
+    /// <summary>Camera-free immutable media. Constants and record routing have
+    /// no place in this output; the returned draw prefix is resource metadata.</summary>
+    public string WriteStaticPacket(string directory,string meshDirectory,MapStaticModelAsset asset,int drawIndex,
+        LoadedShaderContainer shader,NamedModelShader provider,int combination,int vs,int ps,
+        LoadedModelShaderBindings bindings)
+    {
+        var geometry=asset.RawTransforms.Geometry;var draw=asset.Draws[drawIndex];
+        var layout=geometry.Layouts[draw.LayoutIndex];
+        var signature=shader.ReadSignatures(vs).Parts.Single(s=>s.Kind==DxbcSignatureKind.Input);
+        foreach(var input in signature.Parameters.Where(p=>p.RawSystemValue==0))
+            if(layout.Attributes.Count(a=>ModelVertexInputs.ReadSemantic(a.SemanticCode).Name==input.SemanticName.Text
+                &&ModelVertexInputs.ReadSemantic(a.SemanticCode).Index==input.SemanticIndex)!=1)
+                throw new NotSupportedException("Static model VS input semantic is unsupported.");
+        string metadata=WriteStaticGeometryAndPrograms(directory,meshDirectory,geometry,draw,shader,vs,ps,bindings,null);
+        WriteStaticTextures(directory,asset,drawIndex,provider,shader,combination);
+        return metadata;
+    }
+
+    internal static string EncodeDepth(ModelQueueDepthState depth,bool stencilEnabled,byte? stencilReference)
+    {
+        string reference=stencilReference is byte value?$" {value}":string.Empty;
+        return $"{(depth.DepthTest?1:0)} {(depth.DepthWrite?1:0)} {depth.CompareCode+1} {(stencilEnabled?1:0)}{reference}\n";
+    }
+
+    string WriteStaticGeometryAndPrograms(string directory,string meshDirectory,G1ModelGeometry geometry,
+        G1DrawRecord draw,LoadedShaderContainer shader,int vs,int ps,LoadedModelShaderBindings bindings,
+        IReadOnlySet<int>? singleInstanceStreams)
+    {
         foreach(var buffer in geometry.VertexBuffers)
         {
             string path=Path.Combine(meshDirectory,$"vb-{buffer.Index}.bin");
@@ -55,7 +88,6 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
         }
         AddBytes(Path.Combine(directory,"vs.dxbc"),shader.Container.GetProgramBytes(shader.Source.Bytes,vs).ToArray());
         AddBytes(Path.Combine(directory,"ps.dxbc"),shader.Container.GetProgramBytes(shader.Source.Bytes,ps).ToArray());
-        AddBytes(Path.Combine(directory,"vs-b0.bin"),vertex);AddBytes(Path.Combine(directory,"ps-b0.bin"),pixel);
         var layout=geometry.Layouts[draw.LayoutIndex];
         AddLines(Path.Combine(directory,"layout.txt"),layout.Attributes.Select(a=>
         {
@@ -69,12 +101,9 @@ internal sealed class D3D11ModelResourceWriter(GameResourceRepository repository
             $"{slot} {geometry.VertexBuffers[i].Stride} {Relative(directory,Path.Combine(meshDirectory,$"vb-{i}.bin"))}"));
         var raster=ModelRendererStateSourceReader.ReadGroupRaster(bindings,draw.Index)
             ??throw new NotSupportedException("Source raster override is absent.");
-        string reference=stencilReference is byte value?$" {value}":string.Empty;
-        AddText(Path.Combine(directory,"draw.txt"),
-            $"{draw.IndexCount} {draw.IndexStart} 0 4 {geometry.IndexBuffers[draw.IndexBufferIndex].BitsPerIndex}\n"+
+        return $"{draw.IndexCount} {draw.IndexStart} 0 4 {geometry.IndexBuffers[draw.IndexBufferIndex].BitsPerIndex}\n"+
             $"{Relative(directory,Path.Combine(meshDirectory,$"ib-{draw.IndexBufferIndex}.bin"))}\n"+
-            $"{raster.NativeFillMode} {raster.NativeCullMode} {(raster.FrontCounterClockwise?1:0)}\n"+
-            $"{(depth.DepthTest?1:0)} {(depth.DepthWrite?1:0)} {depth.CompareCode+1} {(stencilEnabled?1:0)}{reference}\n");
+            $"{raster.NativeFillMode} {raster.NativeCullMode} {(raster.FrontCounterClockwise?1:0)}\n";
     }
 
     void WriteStaticTextures(string directory,MapStaticModelAsset asset,int drawIndex,

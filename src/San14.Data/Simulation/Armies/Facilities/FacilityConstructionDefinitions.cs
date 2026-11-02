@@ -31,7 +31,8 @@ public sealed partial class SourceWorldContext
     internal Func<bool?>? ConstructionTutorialQualification { get; set; }
     private readonly Dictionary<int, FacilityConstructionDefinition> _facilityConstructionDefinitions = [];
     internal FacilityConstructionDefinition? ReadFacilityConstructionDefinition(ObjectDefinitionReference reference) =>
-        reference.PhysicalSlot is int physical ? _facilityConstructionDefinitions.GetValueOrDefault(physical) : null;
+        reference.PhysicalSlot is int physical ? _facilityConstructionDefinitions.TryGetValue(physical, out var value)
+            ? value : _initialObjectFacilityRules?.ReadConstruction(physical) : null;
     private void SetFacilityConstructionDefinition(int physical, S14ObjectDefinition row) =>
         _facilityConstructionDefinitions[physical] = new(physical, row.RawField2C, row.BaseGoldCost,
             row.RequiredTrait, row.RequiredPolicyEffect, row.RequiredPolicyLevel, row.ExclusionRadius, row.ConstructionTerrainMask);

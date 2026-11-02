@@ -16,16 +16,20 @@ public sealed record ManualTacticProgressOperation(string Revision,
         Candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ?? Candidate.BaseCaptureContinuation?.PendingCapturedRulerTreatment;
     [JsonIgnore] public RulerSuccessionRequest? PendingRulerSuccession =>
         Candidate.PersonDeathContinuation?.PendingSuccession;
+    [JsonIgnore] public ArmyReturnCaptiveContinuation? PendingArmyReturnCaptives =>
+        Candidate.ArmyReturnCaptiveContinuation;
+    [JsonIgnore] public bool IsAwaitingArmyReturnCaptiveReply => PendingArmyReturnCaptives is { Phase:
+        not ArmyReturnCaptivePhase.ReadyToFinishReturn };
     [JsonIgnore] public bool RequiresAutomaticManualTacticContinuation =>
         Candidate.ManualTacticExecutionContinuation is not null &&
-        PendingCapturedRulerTreatment is null && PendingRulerSuccession is null;
+        PendingCapturedRulerTreatment is null && PendingRulerSuccession is null && !IsAwaitingArmyReturnCaptiveReply;
     [JsonIgnore] public TacticPresentationRequest? CurrentPresentation => Presentation is not { } key ? null :
         ManualTacticInterventionState.CopyRequest((key.Kind == TacticPresentationKind.UniqueDirection
             ? Candidate.ManualTacticIntervention!.Directions : Candidate.ManualTacticIntervention!.Effects)[0]);
     public ManualTacticProgressOperation Copy() => this with
     {
         Candidate = GameStateCopy.Copy(Candidate),
-        Captures = Captures.Select(c => c with { State = GameStateCopy.Copy(c.State) }).ToArray(),
+        Captures = [], // Old diagnostic snapshots have no runtime consumer.
         Grouping = Grouping with { Roots = Grouping.Roots.ToArray() }, ServiceChanges = ServiceChanges.Copy()
     };
     public void Validate(GameState committed)
@@ -41,8 +45,10 @@ public sealed record ManualTacticProgressOperation(string Revision,
             !ContinueAfterPresentation && Presentation is null && Candidate.ManualTacticExecutionContinuation is null ||
             ContinueAfterPresentation && Presentation is not null ||
             Candidate.ManualTacticExecutionContinuation is not null && Presentation is not null ||
-            ContinueAfterPresentation && (PendingCapturedRulerTreatment is not null || PendingRulerSuccession is not null))
+            ContinueAfterPresentation && (PendingCapturedRulerTreatment is not null || PendingRulerSuccession is not null ||
+                IsAwaitingArmyReturnCaptiveReply))
             throw new InvalidDataException("Manual tactic continuation is incomplete.");
+        ArmyReturnCaptiveContinuationValidation.Validate(Candidate);
         Request.ValidateNormalPeriod(committed);
         GameEngine.ValidateWorldIdentity(committed, Candidate); Context.Validate(Candidate);
         ServiceChanges.Validate();
@@ -70,12 +76,14 @@ public sealed record ManualTacticProgressOperation(string Revision,
 }
 
 /// <summary>One exclusive transaction slot, with two named continuation kinds.</summary>
-internal sealed record CampaignPendingOperation(CampaignProgressOperation? Story, ManualTacticProgressOperation? ManualTactic)
+internal sealed record CampaignPendingOperation(CampaignProgressOperation? Story, ManualTacticProgressOperation? ManualTactic,
+    CampaignArmyProgressOperation? ArmyProgress = null)
 {
     public void Validate(GameState world)
     {
-        if ((Story is null) == (ManualTactic is null)) throw new InvalidDataException("Campaign continuation requires exactly one named operation.");
-        Story?.Validate(world); ManualTactic?.Validate(world);
+        if ((Story is null ? 0 : 1) + (ManualTactic is null ? 0 : 1) + (ArmyProgress is null ? 0 : 1) != 1)
+            throw new InvalidDataException("Campaign continuation requires exactly one named operation.");
+        Story?.Validate(world); ManualTactic?.Validate(world); ArmyProgress?.Validate(world);
     }
 }
 public interface ICampaignManualTacticProgressRules : ICampaignProgressRules

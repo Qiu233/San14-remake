@@ -41,7 +41,12 @@ public interface IOrderAuthority
 /// Null district selects direct control; a delegated district must be explicitly
 /// authorized by the session. This is not an untrusted "is AI" permission flag.
 /// </summary>
-public readonly record struct CommandContext(string ActorId, int? DelegatedDistrictId = null);
+public readonly record struct CommandContext(string ActorId, int? DelegatedDistrictId = null)
+{
+    /// <summary>The admitted legacy Army owner supplies this exact reached
+    /// stage. It is not a command-provided date or a persisted World field.</summary>
+    public NativeArmyProgressStageMoment? ArmyProgressMoment { get; init; }
+}
 
 /// <summary>Shared command validation for human and computer players.</summary>
 public static class GameEngine
@@ -72,6 +77,11 @@ public static class GameEngine
     private static CommandResult? CheckOrderPermissions(GameState state, GameOrder order,
         CommandContext context, IOrderAuthority authority, bool requireStrategyPhase)
     {
+        if (state.ArmyReturnCaptiveContinuation is not null &&
+            order is not (ConfirmArmyReturnCaptiveBatchOrder or ConfirmArmyReturnCaptiveExecutionOrder or
+                CompleteArmyReturnCaptivePresentationOrder) &&
+            !(order is ConfirmRulerSuccessionOrder && state.PersonDeathContinuation?.PendingSuccession is not null))
+            return CommandResult.Reject("The army return is awaiting captive treatment.", "command.pending_return_captives");
         if (state.EditedEventPlayback is not null)
             return CommandResult.Reject("The campaign is awaiting its manual edited event.", "command.pending_edited_event");
         if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)
@@ -115,6 +125,8 @@ public static class GameEngine
 
     internal static GameState AdvancePeriodOwned(GameState state, GameState working, IAdvancementRules rules)
     {
+        if (state.ArmyReturnCaptiveContinuation is not null)
+            throw new InvalidOperationException("The army return is awaiting captive treatment.");
         if (state.EditedEventPlayback is not null)
             throw new InvalidOperationException("The campaign is awaiting its manual edited event.");
         if (state.NativePlayableTerminal is not null || state.CampaignTurnStop is not null)

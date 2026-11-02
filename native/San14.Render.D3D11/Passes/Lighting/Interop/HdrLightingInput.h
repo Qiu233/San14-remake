@@ -52,8 +52,7 @@ inline HdrLightState decodeHdrLight(std::span<const std::uint8_t> input, HdrLigh
     result.causticsUpdateDisabled = (get<std::uint32_t>(input.data() + 0x1F4) & 0x40000000u) != 0;
     return result;
 }
-inline HdrLightingLayout readHdrLightingLayout(const std::filesystem::path& path) {
-    NativePreparedInputFile input(path, std::ios::binary);
+inline HdrLightingLayout readHdrLightingLayout(std::istream& input) {
     auto word = [&]() {
         std::uint32_t value{}; input.read(reinterpret_cast<char*>(&value), 4);
         if (!input) throw std::runtime_error("HDR lighting layout is truncated"); return value;
@@ -77,5 +76,9 @@ inline HdrLightingLayout readHdrLightingLayout(const std::filesystem::path& path
     }
     if (input.peek() != std::char_traits<char>::eof()) throw std::runtime_error("HDR lighting layout tail");
     return result;
+}
+inline HdrLightingLayout readHdrLightingLayout(const std::filesystem::path& path) {
+    NativePreparedInputFile input(path,std::ios::binary);
+    return readHdrLightingLayout(input);
 }
 } // namespace San14::Render::Interop

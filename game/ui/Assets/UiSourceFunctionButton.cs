@@ -10,11 +10,14 @@ internal partial class UiSourceFunctionButton : UiSourceButton
     private Shader shader=null!;
     private Control? glyph;
     private string? currentIcon;
+    private bool expansionCommonSprite;
     public override bool _HasPoint(Vector2 point) => SourceInputAdmitted && _hit.HasPoint(point);
 
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string icon,Action pressed)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string icon,Action pressed,
+        bool expansionCommonSprite=false)
     {
         this.assets=assets;this.shader=shader;
+        this.expansionCommonSprite=expansionCommonSprite;
         source = new UiSourceLayout(repository,0x2B7AA77D);
         Size = new(source.Nodes[0].Value44,source.Nodes[0].Value46);
         _hit = source.Rectangle(1);
@@ -39,7 +42,8 @@ internal partial class UiSourceFunctionButton : UiSourceButton
     internal void SetIcon(string icon)
     {
         if(currentIcon==icon)return;
-        var replacement=source.Art(this,15,source.Rectangle(15),assets,shader,commonSpriteOverride:icon);
+        var replacement=source.Art(this,15,source.Rectangle(15),assets,shader,commonSpriteOverride:icon,
+            expansionCommonSprite:expansionCommonSprite);
         foreach(var part in replacement.GetChildren().OfType<UiSourceSprite>())
             part.SetColors(MapSpritePalettes.Create()[25+VisualState]);
         if(glyph is not null){RemoveChild(glyph);glyph.QueueFree();}

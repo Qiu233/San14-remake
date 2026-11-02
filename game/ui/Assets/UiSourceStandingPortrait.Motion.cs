@@ -19,7 +19,7 @@ internal partial class UiSourceStandingPortrait
     private StandingPortraitMotion? motion;
     private readonly Dictionary<int, MotionLayer> motionLayers = [];
 
-    private void ConfigureMotion(IReadOnlyList<LoadedSprite> sprites)
+    private void ConfigureMotion(ushort? currentAppearanceIndex)
     {
         var nodes = LcskNodeReader.Read(storyLayout!);
         foreach (var (id, image) in storyLayers)
@@ -35,7 +35,7 @@ internal partial class UiSourceStandingPortrait
         }
         bool ordinary = frameAnimation is null;
         motion = StandingPortraitMotion.Read(storyLayout!, motionLayers.Keys.ToArray(), ordinary,
-            (sprites as LoadedStandingPortraitSprites)?.CurrentAppearanceIndex);
+            currentAppearanceIndex);
         ApplyMotion(motion.SetAnimationEnabled(AnimateFrames));
         RefreshProcessing();
     }

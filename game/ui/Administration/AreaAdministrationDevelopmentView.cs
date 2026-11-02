@@ -15,7 +15,6 @@ internal partial class AreaAdministrationDevelopmentView : Control
     private readonly List<Item> items=[];
     private readonly Dictionary<string,Texture2D> developmentImages=[];
     private UiAssets assets=null!;
-    private LocalizedUiSpriteSource sprites=null!;
     private string unknown="",arrow="",levelPattern="";
     private uint previewColour,normalColour;
     private int startFrame;
@@ -23,7 +22,7 @@ internal partial class AreaAdministrationDevelopmentView : Control
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,PreviewText text)
     {
-        this.assets=assets;sprites=new(repository);MouseFilter=MouseFilterEnum.Ignore;
+        this.assets=assets;MouseFilter=MouseFilterEnum.Ignore;
         var panel=new UiSourceLayout(repository,0xC4464DC9);Size=panel.Rectangle(0).Size;
         var source=new UiSourceLayout(repository,0xC043267A);
         var gaugeSource=new UiSourceLayout(repository,0x3C47C086);
@@ -118,7 +117,7 @@ internal partial class AreaAdministrationDevelopmentView : Control
     {
         if(!developmentImages.TryGetValue(name,out var image))
         {
-            image=assets.SrgbSprite(name,sprites.LoadTexturePackSprite("texture_stl_city",name));
+            image=assets.SrgbTexturePackSpritePart("texture_stl_city",name,FullUv);
             developmentImages.Add(name,image);
         }
         return image;

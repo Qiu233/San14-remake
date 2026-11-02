@@ -203,6 +203,7 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         //its actual301DD0/2695D0/3014C0 no-step path, not a target rejection.
         if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current && action is not (14 or 16) &&
             !OrdinaryArmyRouteSource.UsesObjectCommandMovement(working, army) &&
+            !OrdinaryArmyRouteSource.HasExplicitMovementOverride(army) &&
             OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(working, army) is not { Kind: 6 }) return Missing("runtime.target_scope");
         if (next == ArmyMarchSourceAdapter.SourceHexCount)
         {

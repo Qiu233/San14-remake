@@ -13,6 +13,10 @@ public sealed record CampaignNewGameInputs(string SourceDirectory, string? Overr
     Func<GameResourceRepository, LoadedScenario, LoadedScenario>? TransformScenario = null)
 {
     public ApplicationPresentationOptions? PresentationOptions { get; init; }
+    /// <summary>Caller-captured resource reader template. Preparation creates
+    /// its own reader while borrowing this process owner's static sources and
+    /// preserving the captured user-portrait application facts.</summary>
+    public GameResourceRepository? ResourceSources { get; init; }
 }
 
 /// <summary>Read-only definitions and initializing world captured before a
@@ -51,7 +55,7 @@ public sealed partial class CampaignComposition
     {
         ArgumentNullException.ThrowIfNull(inputs);
         cancellationToken.ThrowIfCancellationRequested();
-        var repository = new GameResourceRepository(inputs.SourceDirectory, inputs.OverrideDirectory);
+        var repository = CreateNewGameReadScope(inputs);
         TraceNewGamePreparation(timing, "preview-load-begin");
         CampaignLoadResult campaign = LoadNewGameCandidate(repository, inputs, cancellationToken);
         TraceNewGamePreparation(timing, "preview-load-end");
@@ -59,7 +63,10 @@ public sealed partial class CampaignComposition
         cancellationToken.ThrowIfCancellationRequested();
         var army = campaign.Composition.PrepareArmyQueries(campaign.Session.World);
         var forces = army.CaptureNewGameForceSelection(campaign.Session.World,
-            ArmyFlagPaneNames.Load(campaign.Composition.Scenario), new(false, null, false));
+            //326230 freshly constructs World16A8=0; static scenario loading
+            //does not replace it. This route has not adopted a saved campaign.
+            ArmyFlagPaneNames.Load(campaign.Composition.Scenario), new(false, null, false),
+            previewWorldFlags16A8: 0u);
         cancellationToken.ThrowIfCancellationRequested();
         TraceNewGamePreparation(timing, "force-publication-prepared");
         var settings = army.CaptureNewGameSettings(inputs.Options);
@@ -80,7 +87,7 @@ public sealed partial class CampaignComposition
         ArgumentNullException.ThrowIfNull(appRandomSnapshot);
         ArgumentNullException.ThrowIfNull(crtRandomSnapshot);
         cancellationToken.ThrowIfCancellationRequested();
-        var repository = new GameResourceRepository(inputs.SourceDirectory, inputs.OverrideDirectory);
+        var repository = CreateNewGameReadScope(inputs);
         CampaignComposition composition;
         GameplaySession preview;
         if (retainedPreview is null)
@@ -118,6 +125,21 @@ public sealed partial class CampaignComposition
         TraceNewGamePreparation(timing, "start-simulation-end");
         cancellationToken.ThrowIfCancellationRequested();
         return new(repository, composition, started.Session, started.Presentation);
+    }
+
+    private static GameResourceRepository CreateNewGameReadScope(CampaignNewGameInputs inputs)
+    {
+        // Retain the existing directory-only constructor contract for callers
+        // that prepare an independent campaign outside the application host.
+        if (inputs.ResourceSources is not { } sources)
+            return new GameResourceRepository(inputs.SourceDirectory, inputs.OverrideDirectory);
+        string directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(inputs.SourceDirectory));
+        string? overrides = inputs.OverrideDirectory is null ? null :
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(inputs.OverrideDirectory));
+        if (!StringComparer.OrdinalIgnoreCase.Equals(directory, sources.SourceDirectory) ||
+            !StringComparer.OrdinalIgnoreCase.Equals(overrides, sources.OverrideDirectory))
+            throw new InvalidDataException("The captured new-game resource source differs from its selected directories.");
+        return sources.CreateReadScope();
     }
 
     private static CampaignLoadResult LoadNewGameCandidate(GameResourceRepository repository,

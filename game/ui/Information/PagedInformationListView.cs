@@ -13,6 +13,8 @@ internal partial class PagedInformationListView : DetailsView
     private IPagedInformationListContent pages = null!;
     protected MapInformationListView? list;
     private UiAssets assets = null!;
+    private bool ownsResources;
+    private AdministrationPageChrome.Resources? borrowedResources;
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
@@ -23,17 +25,25 @@ internal partial class PagedInformationListView : DetailsView
     private string groupMetadata = "";
     private int group;
     private bool abandoned;
+    private bool sourcePersonCells;
+    private float? rowExtentWidth;
     internal int CurrentGroup => group;
     internal bool? NameSortAscending => list?.NameSortAscending;
 
     protected void ConfigureList(GameResourceRepository repository, PreviewText text,
         IPagedInformationListContent pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed, string viewName, string groupMetadata)
+        Action<int> inspect, Func<int> scrollSpeed, string viewName, string groupMetadata,
+        AdministrationPageChrome.Resources? resources = null,
+        bool sourcePersonCellBounds = false, float? rowExtentWidth = null)
     {
         this.repository = repository; this.text = text; this.pages = pages;
         this.admitted = admitted; this.inspect = inspect; this.scrollSpeed = scrollSpeed;
         this.groupMetadata = groupMetadata;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        sourcePersonCells = sourcePersonCellBounds; this.rowExtentWidth = rowExtentWidth;
+        borrowedResources=resources;ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);
+        font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceHeaderCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
         AddChild(canvas);
         var header = new UiSourceHeader(); canvas.AddChild(header);
@@ -86,7 +96,8 @@ internal partial class PagedInformationListView : DetailsView
             pages.Groups.Select(value => value.Caption).ToArray(), index, ShowGroup,
             includeHeader: false, completeColumnProfile: true, normalColumnLayout: true,
             initialSortColumn: restored.SortedColumn, initialSortAscending: restored.Ascending,
-            retainSortDirections: true, retainedSortDirections: directions);
+            retainSortDirections: true, retainedSortDirections: directions, resources: borrowedResources,
+            sourcePersonCellBounds: sourcePersonCells, rowExtentWidth: rowExtentWidth);
         if (pages.SelectedIdentity is int selected)
         {
             int slot = current.Rows.First(row => row.Identity == selected).SourceIndex;
@@ -147,6 +158,8 @@ internal partial class PagedInformationListView : DetailsView
     public override void _ExitTree()
     {
         abandoned = true; admitted = null; scrollSpeed = null; inspect = null; refreshCurrent = null;
-        list?.Abandon(); list = null; base._ExitTree(); font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        list?.Abandon(); list = null; base._ExitTree();
+        if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+        borrowedResources=null;
     }
 }

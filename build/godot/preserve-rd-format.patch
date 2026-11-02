@@ -1,0 +1,202 @@
+--- a/scene/resources/texture_rd.h
++++ b/scene/resources/texture_rd.h
+@@ -44,6 +44,8 @@
+ 	mutable RID texture_rid;
+ 	RID texture_rd_rid;
+ 	Size2i size;
++	bool preserve_format = false;
++	bool format_locked = false;
+ 
+ protected:
+ 	static void _bind_methods();
+@@ -55,6 +57,9 @@
+ 	virtual bool has_alpha() const override;
+ 
+ 	virtual Ref<Image> get_image() const override;
++
++	void set_preserve_format(bool p_enabled);
++	bool is_format_preserved() const;
+ 
+ 	void set_texture_rd_rid(RID p_texture_rd_rid);
+ 	RID get_texture_rd_rid() const;
+--- a/scene/resources/texture_rd.cpp
++++ b/scene/resources/texture_rd.cpp
+@@ -39,6 +39,9 @@
+ // Texture2DRD
+ 
+ void Texture2DRD::_bind_methods() {
++	ClassDB::bind_method(D_METHOD("set_preserve_format", "enabled"), &Texture2DRD::set_preserve_format);
++	ClassDB::bind_method(D_METHOD("is_format_preserved"), &Texture2DRD::is_format_preserved);
++	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "preserve_format"), "set_preserve_format", "is_format_preserved");
+ 	ClassDB::bind_method(D_METHOD("set_texture_rd_rid", "texture_rd_rid"), &Texture2DRD::set_texture_rd_rid);
+ 	ClassDB::bind_method(D_METHOD("get_texture_rd_rid"), &Texture2DRD::get_texture_rd_rid);
+ 
+@@ -75,10 +78,23 @@
+ 	}
+ }
+ 
++void Texture2DRD::set_preserve_format(bool p_enabled) {
++	if (preserve_format == p_enabled) {
++		return;
++	}
++	ERR_FAIL_COND_MSG(format_locked, "Select preserve_format before assigning the first RenderingDevice texture.");
++	preserve_format = p_enabled;
++}
++
++bool Texture2DRD::is_format_preserved() const {
++	return preserve_format;
++}
++
+ void Texture2DRD::set_texture_rd_rid(RID p_texture_rd_rid) {
+ 	ERR_FAIL_NULL(RS::get_singleton());
+ 
+ 	if (p_texture_rd_rid.is_valid()) {
++		format_locked = true;
+ 		RS::get_singleton()->call_on_render_thread(callable_mp(this, &Texture2DRD::_set_texture_rd_rid).bind(p_texture_rd_rid));
+ 	} else if (texture_rid.is_valid()) {
+ 		RS::get_singleton()->free_rid(texture_rid);
+@@ -103,11 +119,11 @@
+ 	size.height = tf.height;
+ 
+ 	texture_rd_rid = p_texture_rd_rid;
+-
+-	if (texture_rid.is_valid()) {
+-		RS::get_singleton()->texture_replace(texture_rid, RS::get_singleton()->texture_rd_create(p_texture_rd_rid));
++	RID created = preserve_format ? RS::get_singleton()->texture_rd_create_with_format(p_texture_rd_rid) : RS::get_singleton()->texture_rd_create(p_texture_rd_rid);
++	if (texture_rid.is_valid()) {
++		RS::get_singleton()->texture_replace(texture_rid, created);
+ 	} else {
+-		texture_rid = RS::get_singleton()->texture_rd_create(p_texture_rd_rid);
++		texture_rid = created;
+ 	}
+ 
+ 	notify_property_list_changed();
+--- a/servers/rendering/rendering_server.h
++++ b/servers/rendering/rendering_server.h
+@@ -153,6 +153,7 @@
+ 	virtual void texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) = 0;
+ 
+ 	virtual RID texture_rd_create(const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) = 0;
++	virtual RID texture_rd_create_with_format(const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) = 0;
+ 	virtual RID texture_get_rd_texture(RID p_texture, bool p_srgb = false) const = 0;
+ 	virtual uint64_t texture_get_native_handle(RID p_texture, bool p_srgb = false) const = 0;
+ 
+--- a/servers/rendering/rendering_server.cpp
++++ b/servers/rendering/rendering_server.cpp
+@@ -2296,6 +2296,7 @@
+ 
+ 	ClassDB::bind_method(D_METHOD("texture_set_force_redraw_if_visible", "texture", "enable"), &RenderingServer::texture_set_force_redraw_if_visible);
+ 	ClassDB::bind_method(D_METHOD("texture_rd_create", "rd_texture", "layer_type"), &RenderingServer::texture_rd_create, DEFVAL(RSE::TEXTURE_LAYERED_2D_ARRAY));
++	ClassDB::bind_method(D_METHOD("texture_rd_create_with_format", "rd_texture", "layer_type"), &RenderingServer::texture_rd_create_with_format, DEFVAL(RSE::TEXTURE_LAYERED_2D_ARRAY));
+ 	ClassDB::bind_method(D_METHOD("texture_get_rd_texture", "texture", "srgb"), &RenderingServer::texture_get_rd_texture, DEFVAL(false));
+ 	ClassDB::bind_method(D_METHOD("texture_get_native_handle", "texture", "srgb"), &RenderingServer::texture_get_native_handle, DEFVAL(false));
+ 
+--- a/servers/rendering/rendering_server_default.h
++++ b/servers/rendering/rendering_server_default.h
+@@ -264,6 +264,15 @@
+ 
+ 	FUNC2(texture_set_force_redraw_if_visible, RID, bool)
+ 	FUNCRIDTEX2(texture_rd, const RID &, const RSE::TextureLayeredType)
++	virtual RID texture_rd_create_with_format(const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) override {
++		RID ret = RSG::texture_storage->texture_allocate();
++		if (Thread::get_caller_id() == server_thread || RSG::rasterizer->can_create_resources_async()) {
++			RSG::texture_storage->texture_rd_initialize_with_format(ret, p_rd_texture, p_layer_type);
++		} else {
++			command_queue.push(RSG::texture_storage, &RendererTextureStorage::texture_rd_initialize_with_format, ret, p_rd_texture, p_layer_type);
++		}
++		return ret;
++	}
+ 	FUNC2RC(RID, texture_get_rd_texture, RID, bool)
+ 	FUNC2RC(uint64_t, texture_get_native_handle, RID, bool)
+ 
+--- a/servers/rendering/storage/texture_storage.h
++++ b/servers/rendering/storage/texture_storage.h
+@@ -112,6 +112,7 @@
+ 	virtual Size2 texture_size_with_proxy(RID p_proxy) = 0;
+ 
+ 	virtual void texture_rd_initialize(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) = 0;
++	virtual void texture_rd_initialize_with_format(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) { ERR_FAIL_MSG("Native RenderingDevice texture format preservation requires the RD renderer."); }
+ 	virtual RID texture_get_rd_texture(RID p_texture, bool p_srgb = false) const = 0;
+ 	virtual uint64_t texture_get_native_handle(RID p_texture, bool p_srgb = false) const = 0;
+ 
+--- a/servers/rendering/renderer_rd/storage_rd/texture_storage.h
++++ b/servers/rendering/renderer_rd/storage_rd/texture_storage.h
+@@ -249,6 +249,7 @@
+ 	};
+ 
+ 	void _texture_format_from_rd(RD::DataFormat p_rd_format, TextureFromRDFormat &r_format);
++	void _texture_rd_initialize(RID p_texture, const RID &p_rd_texture, RSE::TextureLayeredType p_layer_type, bool p_preserve_format);
+ 
+ 	/* AREA LIGHT ATLAS API */
+ 
+@@ -640,6 +641,7 @@
+ 	virtual Size2 texture_size_with_proxy(RID p_proxy) override;
+ 
+ 	virtual void texture_rd_initialize(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) override;
++	virtual void texture_rd_initialize_with_format(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type = RSE::TEXTURE_LAYERED_2D_ARRAY) override;
+ 	virtual RID texture_get_rd_texture(RID p_texture, bool p_srgb = false) const override;
+ 	virtual uint64_t texture_get_native_handle(RID p_texture, bool p_srgb = false) const override;
+ 
+--- a/servers/rendering/renderer_rd/storage_rd/texture_storage.cpp
++++ b/servers/rendering/renderer_rd/storage_rd/texture_storage.cpp
+@@ -2161,6 +2161,14 @@
+ }
+ 
+ void TextureStorage::texture_rd_initialize(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type) {
++	_texture_rd_initialize(p_texture, p_rd_texture, p_layer_type, false);
++}
++
++void TextureStorage::texture_rd_initialize_with_format(RID p_texture, const RID &p_rd_texture, const RSE::TextureLayeredType p_layer_type) {
++	_texture_rd_initialize(p_texture, p_rd_texture, p_layer_type, true);
++}
++
++void TextureStorage::_texture_rd_initialize(RID p_texture, const RID &p_rd_texture, RSE::TextureLayeredType p_layer_type, bool p_preserve_format) {
+ 	ERR_FAIL_COND(!RD::get_singleton()->texture_is_valid(p_rd_texture));
+ 
+ 	// TODO : investigate if we can support this, will need to be able to obtain the order and obtain the slice info
+@@ -2207,14 +2215,14 @@
+ 	texture.validated_format = texture.format; // ??
+ 
+ 	RD::TextureView rd_view;
+-	rd_view.format_override = imfmt.rd_format == tf.format ? RD::DATA_FORMAT_MAX : imfmt.rd_format;
++	rd_view.format_override = p_preserve_format || imfmt.rd_format == tf.format ? RD::DATA_FORMAT_MAX : imfmt.rd_format;
+ 	rd_view.swizzle_r = imfmt.swizzle_r;
+ 	rd_view.swizzle_g = imfmt.swizzle_g;
+ 	rd_view.swizzle_b = imfmt.swizzle_b;
+ 	rd_view.swizzle_a = imfmt.swizzle_a;
+ 
+ 	texture.rd_type = tf.texture_type;
+-	texture.rd_format = imfmt.rd_format;
++	texture.rd_format = p_preserve_format ? tf.format : imfmt.rd_format;
+ 	texture.rd_format_srgb = imfmt.rd_format_srgb;
+ 	texture.rd_view = rd_view;
+ 
+--- a/doc/classes/Texture2DRD.xml
++++ b/doc/classes/Texture2DRD.xml
+@@ -11,6 +11,9 @@
+ 		<link title="Compute Texture demo">https://godotengine.org/asset-library/asset/2764</link>
+ 	</tutorials>
+ 	<members>
++		<member name="preserve_format" type="bool" setter="set_preserve_format" getter="is_format_preserved" default="false">
++			If true, the default sampling view retains the explicit format of the RenderingDevice texture, including sRGB decoding before hardware filtering. If false, the existing RenderingServer color-space view selection is used. Set this property before assigning the first [member texture_rd_rid]; changing it after assignment requires a new wrapper. Does not transfer ownership of the RenderingDevice texture.
++		</member>
+ 		<member name="resource_local_to_scene" type="bool" setter="set_local_to_scene" getter="is_local_to_scene" overrides="Resource" default="false" />
+ 		<member name="texture_rd_rid" type="RID" setter="set_texture_rd_rid" getter="get_texture_rd_rid">
+ 			The RID of the texture object created on the [RenderingDevice].
+--- a/doc/classes/RenderingServer.xml
++++ b/doc/classes/RenderingServer.xml
+@@ -4018,6 +4018,14 @@
+ 				[b]Note:[/b] The RenderingServer's [method free_rid] won't free the underlying [param rd_texture], you will want to free the [param rd_texture] using [method RenderingDevice.free_rid].
+ 			</description>
+ 		</method>
++		<method name="texture_rd_create_with_format">
++			<return type="RID" />
++			<param index="0" name="rd_texture" type="RID" />
++			<param index="1" name="layer_type" type="int" enum="RenderingServer.TextureLayeredType" default="0" />
++			<description>
++				Creates a RenderingServer texture whose default sampling view preserves the explicit RenderingDevice format. In particular, a typed sRGB source is decoded by hardware before filtering even in an SDR canvas. The original [method texture_rd_create] behavior is unchanged. Free the returned RenderingServer RID separately from the underlying RenderingDevice texture, as for [method texture_rd_create]. Requires the RenderingDevice renderer.
++			</description>
++		</method>
+ 		<method name="texture_replace">
+ 			<return type="void" />
+ 			<param index="0" name="texture" type="RID" />

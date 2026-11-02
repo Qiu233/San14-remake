@@ -10,7 +10,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public CommandResult IssueFalseReports(GameState state, IReadOnlyList<UnitState> actors,
         UnitState target, int destinationHexId, IReadOnlyList<int> waypointHexIds)
     {
-        if (actors is null || actors.Count is < 1 or > 30 ||
+        if (actors is null || actors.Count < 1 ||
             actors.Select(value => value.Id).Distinct().Count() != actors.Count ||
             actors.Any(value => state.Units.GetValueOrDefault(value.Id) != value || value.ForceId != actors[0].ForceId ||
                 value.Mission is null or { Kind: UnitMissionKind.Transport } || value.NativeTacticRuntime?.Status10 != 1 || value.Id == target.Id) ||

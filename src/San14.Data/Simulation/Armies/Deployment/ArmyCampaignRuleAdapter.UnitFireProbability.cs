@@ -13,7 +13,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(unitIds);
         try
         {
-            if (unitIds.Count is < 1 or > 30 || unitIds.Distinct().Count() != unitIds.Count ||
+            if (unitIds.Count < 1 || unitIds.Distinct().Count() != unitIds.Count ||
                 targetHexId is < 0 or >= 48400) throw FirePreviewMissing("selected-set-or-target");
             var current = CaptureWritableTransportRouteCurrent(state);
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);

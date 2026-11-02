@@ -29,8 +29,8 @@ public sealed partial class SourceWorldContext : IStaticAreaCityInitializationSt
         AreaCityAssignment.InitializeStaticCities(staticFlag, this);
     public void SetAreaScenarioForceSlot(int physicalSlot, byte? value)
     { Check(physicalSlot, 501, "area physical slot"); _areaScenarioForces[physicalSlot] = value; }
-    public byte? ReadAreaScenarioForceSlot(AreaReference area) =>
-        _areaScenarioForces.GetValueOrDefault(MapPhysical(area.PhysicalSlot, 501, "area"));
+    public byte? ReadAreaScenarioForceSlot(AreaReference area)
+    { int physical = MapPhysical(area.PhysicalSlot,501,"area"); return _areaScenarioForces.TryGetValue(physical,out var value) ? value : _initialAreaScenarioValues?.Force(physical); }
     public void AssignStaticHexForce(HexReference hex, int requestedForce) =>
         HexOwnership.Apply(hex, requestedForce, this);
     public IReadOnlyList<StaticHexOwnershipWrite> InitializeStaticHexOwnership(int staticFlag) =>

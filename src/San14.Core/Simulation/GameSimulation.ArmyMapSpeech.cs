@@ -7,8 +7,8 @@ public sealed partial class GameSimulation
     public bool TryCompleteArmyMapSpeechVoices(GameState expectedOwner, long sequence)
     {
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
-        if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is not { } speech ||
+        var owner = SourcePresentationOwner;
+        if (!ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is not { } speech ||
             pending is not null && !NormalPeriodOperation.HasContinuation(pending.Candidate))
             return false;
         int index = -1;
@@ -20,8 +20,7 @@ public sealed partial class GameSimulation
         {
             ArmyMapSpeech = speech with { Entries = speech.Entries.SetItem(index, entry with { SpatialVoicesAccepted = true }) }
         };
-        if (pending is not null) _normalPeriod = pending with { Candidate = accepted };
-        else State = accepted;
+        PublishSourcePresentationOwner(accepted, pending);
         return true;
     }
 
@@ -33,8 +32,8 @@ public sealed partial class GameSimulation
     {
         result = null;
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
-        if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
+        var owner = SourcePresentationOwner;
+        if (!ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
             pending is not null && !NormalPeriodOperation.HasContinuation(pending.Candidate))
             return false;
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -52,8 +51,7 @@ public sealed partial class GameSimulation
         if (result.UnresolvedOwner is not null) return false;
         // A source cancellation (for example a missing Army layout) is a real
         // queue update even though no bubble was started.
-        if (pending is not null) _normalPeriod = pending with { Candidate = result.State };
-        else State = result.State;
+        PublishSourcePresentationOwner(result.State, pending);
         return true;
     }
 
@@ -61,8 +59,8 @@ public sealed partial class GameSimulation
     public bool TryCompleteArmyMapSpeech(GameState expectedOwner, ArmyMapSpeechState snapshot, long sequence)
     {
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
-        if (_progress is not null || !ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
+        var owner = SourcePresentationOwner;
+        if (!ReferenceEquals(owner, expectedOwner) || owner.ArmyMapSpeech is null ||
             pending is not null && !NormalPeriodOperation.HasContinuation(pending.Candidate))
             return false;
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -74,8 +72,7 @@ public sealed partial class GameSimulation
             original.SpatialVoices is not { } voices || !voices.IsEmpty && !original.SpatialVoicesAccepted)
             return false;
         var completed = owner with { ArmyMapSpeech = snapshot with { Entries = snapshot.Entries.RemoveAt(index) } };
-        if (pending is not null) _normalPeriod = pending with { Candidate = completed };
-        else State = completed;
+        PublishSourcePresentationOwner(completed, pending);
         return true;
     }
 }

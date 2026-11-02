@@ -39,6 +39,8 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
     {
         try
         {
+            if (CaptureArmyReturnContinuationSource.Read(input) is not null)
+                return ResumePlayerReturnTail(input, request, borrowedCurrent);
             if (input.CityCaptureEmperorTail is not null)
                 return ResumeEmperorTail(input, request, operationThirdDate, sampler, borrowedCurrent, groups);
             if (request.Target.Kind != SettlementBaseKind.City || request.WinnerUnitId is not int winnerId)
@@ -78,7 +80,10 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
                 throw Missing("resume_winner_receiver");
             if (saved is null && oldForce == newForce)
                 return new(input, new(location, oldForce, newForce, unitId, commanderId, null, null, null, null, [], true), null);
-            if (oldForce is < 1 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
+            //2851B0 admits an actual neutral victim as well as an ordinary
+            //former owner. The winning District/Commander remain real valid
+            //ordinary owners; Force0 never stands in for an unknown source.
+            if (oldForce is < 0 or > 45 || newForce is < 1 or > 45) throw Missing("branch.nonordinary_Force");
             var winningForce = current.ReadForceTableReference(newForce) ?? throw Missing("winner_Force_pointer");
             var effects = new List<string>(); var working = input;
             if (saved is null)
@@ -121,10 +126,11 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
                     current.ReadOwnedCurrentListPool() ?? throw Missing("nearby_Army_pool"),
                     target, operationThirdDate, districtEffects, sampler);
                 effects.Add("2851B0.State_Region_counts_and_mode0_current_ring");
+                working = package.AppendBaseCaptureChronicleCurrent(working, current, target, winner, winningForce, sampler);
                 var scope = ownedScope = CityCaptureTerritorySource.CaptureRelatedAreas(current, target, newForce);
-                var assignment = CityCaptureTerritorySource.AssignCityDistrict(current, target, newDistrict);
                 queries = package.CreateCaptureDistrictOperationQueries(current, () => working,
                     next => working = next, operationThirdDate, districtEffects, newForce, groups);
+                var assignment = CityCaptureTerritorySource.AssignCityDistrictCurrent(current, target, newDistrict, queries);
                 Primary(current, assignment.CapturedOldDistrict, queries);
                 if (IsTerminal()) return CompleteTerminal();
                 effects.Add("26DA10.related_Area_chain_26D2E0_and_first_old_2E9140");
@@ -148,7 +154,12 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
                 working = package.ApplyCityCaptureAreaObjectsCurrent(working, current, scope, districtEffects);
                 int cap = K(ArmyDestructionParameterSeed.ReadCurrent(working, SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "231480_bound");
                 byte zero = unchecked((byte)Math.Min(cap, 0));
-                current.SetCaptureBaseThreatFields(target, new(zero, zero, 255, 0));
+                //26DA10 resets these four fields, retaining the same owner's
+                //other counters and automatic-tactics setting.
+                var threatFields = current.ReadCaptureBaseThreatFields(target)
+                    ?? throw Missing("capture_threat_current_fields");
+                current.SetCaptureBaseThreatFields(target, threatFields with
+                    { Byte49 = zero, Byte4B = zero, Byte62 = 255, Word64 = 0 });
                 var emperor = package.PrepareCaptureEmperorCurrent(working, current, scope);
                 working = emperor.State;
                 if (emperor.Progress is { } emperorProgress)
@@ -195,6 +206,15 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
                 var returned = package.PrepareOwnedArmyReturnCurrent(working, winner, target, 0,
                     returnWorld.Context, returnWorld.Pool, package.CreateCaptureGovernorQueries(working), new(false, false),
                     operationDate: operationThirdDate, sampler: sampler);
+                if (returned.Suspension is { } suspendedReturn)
+                {
+                    var returnTail = CaptureArmyReturnContinuationSource.Save(current, captureContext, counts);
+                    working = CaptureArmyReturnContinuationSource.Attach(
+                        returnWorld.CommitSuspension(working, suspendedReturn), returnTail);
+                    ReleaseOwned();
+                    working = BaseCapturePublicationSource.Publish(working, current, returnWorld.Pool, projectOwnedRoles: true);
+                    return new(working, null, null);
+                }
                 working = returnWorld.CommitPrepared(working, returned.Packet ?? throw Missing(returned.UnresolvedOwner ?? "winner_29F220"))
                     ?? throw Missing("winner_29F220_publication");
                 current = returnWorld.Context;
@@ -242,6 +262,19 @@ public sealed partial class OwnedCityCaptureStage(ArmyCampaignRuleAdapter packag
             }
         }
         catch (InvalidDataException error) { return new(null, null, error.Message); }
+    }
+    private OwnedCityCaptureResult ResumePlayerReturnTail(GameState input, BaseCaptureRequest request,
+        SourceWorldContext? borrowedCurrent)
+    {
+        if (request.Target.Kind != SettlementBaseKind.City) throw Missing("player_return_target_kind");
+        var current = borrowedCurrent ?? package.CaptureOwnedArmyReturnWorld(input).Context;
+        var completed = CaptureArmyReturnContinuationSource.Resume(package, input, current, request);
+        if (completed.Rewards is null) return new(completed.State, null, null);
+        var operation = completed.Operation;
+        return new(completed.State, new(request.Target.Id, operation.PreviousForceId, operation.WinnerForceId,
+            request.WinnerUnitId ?? throw Missing("player_return_winner"), operation.CommanderOfficerId,
+            null, null, null, completed.Rewards, ["2851B0.saved_player_return_and_original_reward_tail"])
+            { ReturnedTroops = operation.ReturnedTroops }, null);
     }
     private static int Food(CityCaptureFoodQuote result) => result.Value ?? throw Missing(result.UnresolvedOwner ?? "current_food_quote");
     private static void Primary(SourceWorldContext current, DistrictReference district,

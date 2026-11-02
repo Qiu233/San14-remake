@@ -9,12 +9,22 @@ public partial class Main
 {
     private void OpenInformationBrowser()
     {
-        if (!TutorialEntryAllowed) return;
-        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || _detailsView is not null ||
+        if (TryRequestPeriodMenu(PeriodMenuKind.Information)) return;
+        if (_session is { } session) OpenInformationBrowserOwned(session.World, duringPeriod: false);
+    }
+
+    private void OpenInformationBrowserFromPeriod(GameState borrowedWorld)
+        => OpenInformationBrowserOwned(borrowedWorld, duringPeriod: true);
+
+    private void OpenInformationBrowserOwned(GameState world, bool duringPeriod)
+    {
+        if (!TutorialEntryAllowed) { if (duringPeriod) ReleasePeriodMenu(PeriodMenuKind.Information); return; }
+        if (_failed || _shuttingDown || (_advancingPeriod && !duringPeriod) || IsReturningToTitle || _detailsView is not null ||
             _repository is null || _campaignComposition is not { } composition ||
-            _session is not { PlayerForceId: int player } session || session.HasPendingOperation ||
-            session.World is not { } world || _selectedSnapshot is null ||
-            _residentMap is not { IsPlayableMapReady: true } map) return;
+            _session is not { PlayerForceId: int player } session || (!duringPeriod && session.HasPendingOperation) ||
+            !IsInspectionWorldCurrent(session, world) || _selectedSnapshot is null ||
+            _residentMap is not { IsPlayableMapReady: true } map)
+        { if (duringPeriod) ReleasePeriodMenu(PeriodMenuKind.Information); return; }
         var rules = composition.PrepareArmyQueries(world);
         var page = rules.PrepareInformationBrowserPage(world, player);
         var initial = page.Menu(InformationTab.OwnForce);
@@ -23,12 +33,12 @@ public partial class Main
         {
             _playMessage.Text = _ui.Get("detail_unknown");
             GD.PushWarning(initial.UnresolvedOwner ?? "information.initial_tab");
+            if (duringPeriod) ReleasePeriodMenu(PeriodMenuKind.Information);
             return;
         }
         var browser = new MapInformationBrowserView();
         bool Current() => !_failed && !_shuttingDown && IsInformationBrowserCurrent(browser) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(_world, world) &&
-            ReferenceEquals(session.World, world) && _residentMap == map;
+            IsInspectionWorldCurrent(session, world) && _residentMap == map;
         void AdoptWorld(GameState next)
         {
             world = next;
@@ -39,10 +49,12 @@ public partial class Main
         {
             RetainCommandDetailSpeechWorld(browser, AdoptWorld);
             browser.Configure(_repository, _ui, _sourceHeaders,
-                Current, ReadMenu, (tab, node) => RunUiAction(() => OpenList(tab, node)),
-                () => RunUiAction(OpenHistory), close, CurrentListScrollSpeed, Literal(0x5F00), Literal(0x2733),
-                historyEnabled: true, (int)initialTab, initial.TabEnabled.Select(value => value == true).ToArray());
-        });
+                Current, ReadMenu, (tab, node) => RunInspectionUiAction(world, () => OpenList(tab, node)),
+                () => RunInspectionUiAction(world, OpenHistory), close, CurrentListScrollSpeed, Literal(0x5F00), Literal(0x2733),
+                historyEnabled: true, (int)initialTab, initial.TabEnabled.Select(value => value == true).ToArray(),
+                TryBorrowApplicationUiResources(browser));
+        }, allowDuringPeriod: duringPeriod, inspectionWorld: world);
+        if (duringPeriod && _commandDetailsView != browser) ReleasePeriodMenu(PeriodMenuKind.Information);
 
         string Literal(int id) => _repository.LoadMessages(_ui.SourceLocale, MessageKind.Game)
             .Messages.Sections[id / 10000].Records[id % 10000].Literals.Single().Text;
@@ -78,7 +90,7 @@ public partial class Main
             {
                 var detail = new MapInformationDestinyView();
                 browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, popularity,
-                    Current, close, CurrentListScrollSpeed));
+                    Current, close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
                 return;
             }
             //803430 opens the current player's force detail directly. Its
@@ -112,7 +124,7 @@ public partial class Main
                 .Select(row => new MapInformationListRow(indices[row], publication.Columns
                     .Select(column => InformationCellText(row.Cells.GetValueOrDefault(column.Key))).ToArray(), true)).ToArray();
             var presented = publication;
-            browser.ShowList(publication.Title, columns, Rows(publication), index => RunUiAction(() =>
+            browser.ShowList(publication.Title, columns, Rows(publication), index => RunInspectionUiAction(world, () =>
             {
                 if (!Current() || (uint)index >= publication.Rows.Length) return;
                 OpenInformationRecord(browser, rules, world, presented, publication.Rows[index], AdoptWorld,
@@ -133,7 +145,7 @@ public partial class Main
             {GD.PushWarning(prepared.UnresolvedInput??"belongings.current");browser.ApplyNotice(_ui.Get("information_partial"));return;}
             var detail=new MapInformationBelongingsView();
             browser.ShowDetail(detail,close=>detail.Configure(_repository!,_ui,publication,Current,close,
-                item=>RunUiAction(()=>
+                item=>RunInspectionUiAction(world,()=>
                 {
                     if(!Current()||!browser.IsCurrentDetail(detail))return;
                     OpenInformationItem(browser,rules,world,publication.Items.CurrentDefinitionIds,item,

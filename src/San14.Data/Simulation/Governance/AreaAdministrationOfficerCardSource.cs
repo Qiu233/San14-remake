@@ -20,6 +20,16 @@ internal sealed class AreaAdministrationOfficerCardSource(GameState state, Sourc
     internal AreaAdministrationOfficerCard Read(int areaId, long revision, int physical, bool valid, int traitContext = 12) =>
         ReadCard(areaId, revision, physical, valid, traitContext);
 
+    //1B9300's map face reads the valid Person's current A6 without the
+    //child card's abilities/traits or its invalid-person portrait2198 route.
+    internal OfficerPortraitRoute ReadMapPortrait(int physical)
+    {
+        int id = current.ReadPersonIdentity(physical) ?? throw Missing("map_person_identity");
+        var owner = state.Officers.GetValueOrDefault(id) ?? throw Missing("map_person_owner");
+        if (definitions.ResolveOfficerSource(id) != physical) throw Missing("map_person_owner_binding");
+        return Portrait(id, physical, owner);
+    }
+
     internal AreaAdministrationOfficerCard ReadCity(long revision, int physical, bool valid, int traitContext) =>
         ReadCard(null, revision, physical, valid, traitContext);
 

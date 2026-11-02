@@ -18,6 +18,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (state.BaseCaptureContinuation is { } pending &&
             (pending.SettlementIndex != -1 || pending.Operation.Request != request))
             throw ImmediateBaseMissing("occupation_owner");
+        if (CaptureArmyReturnContinuationSource.Read(state) is { CaptureTail: { } returnTail } &&
+            (returnTail.SettlementIndex != -1 || returnTail.Request != request))
+            throw ImmediateBaseMissing("return_capture_owner");
         state = FlushNormalCombatEffects(state, revision, precedingEffects);
         var pool = current.ReadOwnedCurrentListPool() ?? throw ImmediateBaseMissing("current_pool");
         if (!pool.OwnsArmyReturnProfile() || !ReferenceEquals(pool.ArmyReturnOwner, current))
@@ -50,7 +53,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var capture = new OwnedCityCaptureStage(this).TryApplyCurrent(state, current, request, date, sampler, groups);
             state = capture.State ?? throw ImmediateBaseMissing(capture.UnresolvedOwner ?? "City2851B0");
             terminal = capture.NativeTerminal || ImmediateBaseHasTerminal(state);
-            if (!terminal && state.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(state))
+            if (!terminal && state.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(state) &&
+                CaptureArmyReturnContinuationSource.Read(state) is null)
                 reports = (capture.Receipt ?? throw ImmediateBaseMissing("City_completed_receipt")).Reports;
         }
         else if (request.Target.Kind == SettlementBaseKind.Gate)
@@ -58,7 +62,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             var capture = new OwnedGateCaptureStage(this).TryApplyCurrent(state, current, request, date, sampler, groups);
             state = capture.State ?? throw ImmediateBaseMissing(capture.UnresolvedOwner ?? "Gate2851B0");
             terminal = capture.NativeTerminal || ImmediateBaseHasTerminal(state);
-            if (!terminal && state.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(state))
+            if (!terminal && state.BaseCaptureContinuation is null && !AutomaticEmperorCaptureLifecycle.HasCaptureTail(state) &&
+                CaptureArmyReturnContinuationSource.Read(state) is null)
                 reports = (capture.Receipt ?? throw ImmediateBaseMissing("Gate_completed_receipt")).Reports;
         }
         else throw ImmediateBaseMissing("target_kind");
@@ -76,19 +81,22 @@ public sealed partial class ArmyCampaignRuleAdapter
         }
         //Reports are already published above. The returned list is diagnostic;
         //a resume publishes only its newly completed source tail once.
-        return new(state, state.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(state), terminal, reports);
+        return new(state, state.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(state) ||
+            CaptureArmyReturnContinuationSource.Read(state) is not null, terminal, reports);
     }
 
     internal ImmediateBaseCaptureResult ResumeImmediateBaseCaptureCurrent(GameState state,
         SourceWorldContext current, NativeMapSeasonDate date, long revision,
         List<CampaignEffectRequest> precedingEffects, ArmyMapGroupingOwner? groups = null)
     {
-        var operation = state.BaseCaptureContinuation?.Operation ?? state.CityCaptureEmperorTail?.Operation;
-        int position = state.BaseCaptureContinuation?.SettlementIndex ?? state.CityCaptureEmperorTail?.SettlementIndex
+        var returnOwner = CaptureArmyReturnContinuationSource.Read(state);
+        var operation = returnOwner?.CaptureTail?.Operation ?? state.BaseCaptureContinuation?.Operation ?? state.CityCaptureEmperorTail?.Operation;
+        int position = returnOwner?.CaptureTail?.SettlementIndex ?? state.BaseCaptureContinuation?.SettlementIndex ?? state.CityCaptureEmperorTail?.SettlementIndex
             ?? state.BaseWinnerEmperorTail?.SettlementIndex ?? throw ImmediateBaseMissing("resume_occupation");
         var request = operation?.Request ?? state.BaseWinnerEmperorTail?.Request
             ?? throw ImmediateBaseMissing("resume_request");
-        if (position != -1 || state.BaseCaptureContinuation?.PendingCapturedRulerTreatment is not null ||
+        if (position != -1 || returnOwner is not null && returnOwner.Phase != ArmyReturnCaptivePhase.ReadyToFinishReturn ||
+            state.BaseCaptureContinuation?.PendingCapturedRulerTreatment is not null ||
             state.PersonDeathContinuation is not null || state.AutomaticEmperorCapture?.PendingDecision is not null ||
             AutomaticEmperorCaptureLifecycle.IsPresentationPending(state))
             throw ImmediateBaseMissing("resume_actual_decision_pending");

@@ -196,14 +196,28 @@ static UINT executeNativeOcean116(ID3D11DeviceContext* context,
     std::array<ID3D11RenderTargetView*,6> rt{};
     for(UINT i=0;i<6;++i)rt[i]=ocean.targets[i].Get();
     context->OMSetRenderTargets(UINT(rt.size()),rt.data(),ocean.depthTarget.Get());
+    // Only this loop owns IA/material writes until every strip has drawn.
+    // Reset on each execution so the first strip establishes all bindings.
+    // Same-material strips change their stride-zero instance offset while
+    // retaining the wave/UV streams, index buffer and near/far constants.
+    const NativeOceanStrip* previous=nullptr;
     for(const auto& packet:ocean.strips) {
-        ID3D11Buffer* vertices[]{packet.flat?ocean.geometry.farVertices.Get():ocean.geometry.wave[0].Get(),ocean.geometry.wave[1].Get(),ocean.geometry.wave[2].Get()};
-        context->IASetVertexBuffers(0,3,vertices,ocean.geometry.strides.data(),packet.offsets.data());
-        context->IASetIndexBuffer(packet.flat?ocean.geometry.farIndices.Get():ocean.geometry.waveIndices.Get(),DXGI_FORMAT_R16_UINT,0);
-        auto vc=ocean.vertexConstants[packet.flat].Get(),pc=ocean.pixelConstants[packet.flat].Get();
-        context->VSSetConstantBuffers(ocean.materialLayout.vertex.slot,1,&vc);
-        context->PSSetConstantBuffers(ocean.materialLayout.pixel.slot,1,&pc);
+        const bool materialChanged=!previous||packet.flat!=previous->flat;
+        if(materialChanged||packet.offsets[0]!=previous->offsets[0]||packet.offsets[2]!=previous->offsets[2]) {
+            ID3D11Buffer* vertices[]{packet.flat?ocean.geometry.farVertices.Get():ocean.geometry.wave[0].Get(),ocean.geometry.wave[1].Get(),ocean.geometry.wave[2].Get()};
+            context->IASetVertexBuffers(0,3,vertices,ocean.geometry.strides.data(),packet.offsets.data());
+        } else {
+            auto instance=ocean.geometry.wave[1].Get();
+            context->IASetVertexBuffers(1,1,&instance,&ocean.geometry.strides[1],&packet.offsets[1]);
+        }
+        if(materialChanged) {
+            context->IASetIndexBuffer(packet.flat?ocean.geometry.farIndices.Get():ocean.geometry.waveIndices.Get(),DXGI_FORMAT_R16_UINT,0);
+            auto vc=ocean.vertexConstants[packet.flat].Get(),pc=ocean.pixelConstants[packet.flat].Get();
+            context->VSSetConstantBuffers(ocean.materialLayout.vertex.slot,1,&vc);
+            context->PSSetConstantBuffers(ocean.materialLayout.pixel.slot,1,&pc);
+        }
         context->DrawIndexed(packet.indexCount,packet.startIndex,packet.baseVertex);
+        previous=&packet;
     }
     // Source117 owns attachment Pop and Main mirror copy. Release bindings for
     // that transition. The draw scope then publishes the reached exit state.

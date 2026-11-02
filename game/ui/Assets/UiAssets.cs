@@ -1,20 +1,23 @@
 using Godot;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using San14.Data;
 using San14.Data.Formats;
 
 /// <summary>Shares decoded GPU images within one view, including G1T subtextures.</summary>
-internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
+internal sealed partial class UiAssets(GameResourceRepository repository, UiAssets.PortraitImages? sharedPortraits = null) : IDisposable
 {
-    private readonly Dictionary<string, LoadedSprite> _sources = [];
-    private readonly Dictionary<string, (LoadedSprite Source, AtlasTexture Texture)> _sprites = [];
-    private readonly Dictionary<(string Name, LcskUvQuad Uv), AtlasTexture> _parts = [];
-    private readonly Dictionary<string, ImageTexture> _textures = [];
+    internal PortraitImages Portraits {get;}=(sharedPortraits??new PortraitImages()).Retain();
+    private readonly bool useSharedNativeSprites=sharedPortraits is not null;
+    private readonly Dictionary<SpriteCacheKey, LoadedSprite> _sources = [];
+    private readonly Dictionary<SpriteCacheKey, (LoadedSprite Source, AtlasTexture Texture)> _sprites = [];
+    private readonly Dictionary<(SpriteCacheKey Name, LcskUvQuad Uv), AtlasTexture> _parts = [];
+    private readonly Dictionary<LoadedTexture, ImageTexture> _textures = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(string Sprite, string Mask), ImageTexture> _masked = [];
     private readonly List<AtlasTexture> _atlasTextures = [];
-    private readonly Dictionary<string, AtlasTexture> _linearSprites = [];
-    private readonly Dictionary<string, AtlasTexture> _addressedSprites = [];
-    private readonly Dictionary<(string Name, LcskUvQuad Uv), AtlasTexture> _linearParts = [];
+    private readonly Dictionary<SpriteCacheKey, AtlasTexture> _linearSprites = [];
+    private readonly Dictionary<SpriteCacheKey, AtlasTexture> _addressedSprites = [];
+    private readonly Dictionary<(SpriteCacheKey Name, LcskUvQuad Uv), AtlasTexture> _linearParts = [];
     private readonly List<ImageTexture> _linearTextures = [];
     private LocalizedUiSpriteSource? _declaredSprites;
     private readonly Dictionary<(uint File,string Name),LoadedSprite> _localSprites=[];
@@ -23,11 +26,14 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     private bool _disposed;
     private readonly Dictionary<uint, LoadedLayout> _layouts = [];
     private readonly Dictionary<uint, UiSourceLayout> _sourceLayouts = [];
+    private readonly Dictionary<(uint File, string Names), IReadOnlyDictionary<string, LcskAnimationClip>> _animationClips = [];
+    private readonly Dictionary<string, uint> _namedLayouts = new(StringComparer.Ordinal);
     private readonly Dictionary<Vector2, UiSourceLayout> _commandLayouts = [];
     private readonly Dictionary<LcskDocument,UiSourceButtonStateProfile> _buttonStateProfiles = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(string Locale, string Caption), LoadedSprite> _captions = [];
     private sealed record PreparedLinearPixels(int Width, int Height, byte[] Bytes);
-    private readonly Dictionary<string, PreparedLinearPixels> _preparedLinearPixels = [];
+    private readonly Dictionary<SpriteCacheKey, PreparedLinearPixels> _preparedLinearPixels = [];
+    private readonly Dictionary<SpriteCacheKey, (string Name, LoadedSprite? Declaration)> _preparedEncodedSprites = [];
 
     // CPU-only page resources. A worker may own this instance exclusively
     // until it transfers the entire instance to the UI thread.
@@ -45,6 +51,43 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         if (!_sourceLayouts.TryGetValue(file, out var result))
             _sourceLayouts.Add(file, result = new UiSourceLayout(Layout(file)));
         return result;
+    }
+
+    // The same prepared source curves serve every instance of a map button.
+    // This cache follows the existing resource owner and its generation.
+    internal IReadOnlyDictionary<string, LcskAnimationClip> SourceAnimationClips(UiSourceLayout source,
+        IReadOnlySet<string> names)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var key = (source.Source.Source.FileId, string.Join("\0", names.Order(StringComparer.Ordinal)));
+        if (!_animationClips.TryGetValue(key, out var clips))
+            _animationClips.Add(key, clips = LcskAnimationReader.Read(source.Source.Layout, names)
+                .ToDictionary(clip => clip.Name, StringComparer.Ordinal));
+        return clips;
+    }
+
+    internal UiSourceLayout SourceLayout(string name)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_namedLayouts.TryGetValue(name, out uint file))
+        {
+            var layout = MapMarkerLayout.LoadNamed(repository, name);
+            file = layout.Source.FileId; _namedLayouts.Add(name, file);
+            _layouts.TryAdd(file, layout);
+        }
+        return SourceLayout(file);
+    }
+
+    internal void PrepareCommonSprite(string name, string? texturePack = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_commonSprites.TryGetValue((name, texturePack), out var source))
+        {
+            source = texturePack is null ? DeclaredSprites.LoadCommonSprite(name) :
+                DeclaredSprites.LoadTexturePackSprite(texturePack, name);
+            _commonSprites.Add((name, texturePack), source);
+        }
+        PrepareLinearSprite(name, source);
     }
 
     internal UiSourceButtonStateProfile ButtonStateProfile(LoadedLayout layout)
@@ -93,20 +136,52 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         return result;
     }
 
-    private PreparedLinearPixels PrepareLinearSprite(string name, LoadedSprite? declaredSource)
+    // CPU-only preparation follows the actual component SRV. Encoded portrait
+    // components borrow the decoded source; linear components retain their
+    // converted pixels. Main creates both image kinds before title input.
+    internal void PrepareSprite(LoadedSprite source, bool srgb)
     {
-        string key = SpriteKey(name, declaredSource);
-        if (_preparedLinearPixels.TryGetValue(key, out var result)) return result;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        string name = source.Definition.Name;
+        if (srgb) PrepareLinearSprite(name, source);
+        else
+        {
+            _ = SourceSprite(name, source);
+            _preparedEncodedSprites.TryAdd(SpriteKey(name, source), (name, source));
+        }
+    }
+
+    // This overload follows the same unqualified lookup as Sprite(name) and
+    // SrgbSprite(name). Keep its identity separate from layout/pack-qualified
+    // declarations; equal names in different banks are not interchangeable.
+    internal void PrepareSprite(string name, bool srgb)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (srgb) PrepareLinearSprite(name, null);
+        else
+        {
+            _ = SourceSprite(name);
+            _preparedEncodedSprites.TryAdd(SpriteKey(name, null), (name, null));
+        }
+    }
+
+    private void PrepareLinearSprite(string name, LoadedSprite? declaredSource)
+    {
+        var key = SpriteKey(name, declaredSource);
+        if (_linearSprites.ContainsKey(key) || _preparedLinearPixels.ContainsKey(key) || _preparedNativeSprites.ContainsKey(key)) return;
         var sprite = SourceSprite(name, declaredSource);
+        if (useSharedNativeSprites && Portraits.TryPrepareNativeSprite(repository, sprite, out var native))
+        {
+            _preparedNativeSprites.Add(key, new(native!, sprite.Definition.GetRectangle(native!.Image.Width, native.Image.Height)));
+            return;
+        }
         RgbaTexture source = sprite.Texture.Texture;
         SpriteRectangle region = sprite.Definition.GetRectangle(source.Width, source.Height);
         int width = (int)region.Width, height = (int)region.Height;
         SourceSampling? sampler = sprite.Texture.SourceImage is not null ? Sampling(sprite.Texture) : null;
         float[] pixels = UiSrgbPixels.Bordered(source, (int)region.X, (int)region.Y, width, height,
             sampler?.AddressU == 1, sampler?.AddressV == 1);
-        result = new(width, height, MemoryMarshal.AsBytes(pixels.AsSpan()).ToArray());
-        _preparedLinearPixels.Add(key, result);
-        return result;
+        _preparedLinearPixels.Add(key, new(width, height, MemoryMarshal.AsBytes(pixels.AsSpan()).ToArray()));
     }
 
     // All common/local artwork in a page shares its existing declaration owner.
@@ -146,7 +221,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     internal LoadedSprite SourceSprite(string name, LoadedSprite? declaredSource = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        string key = SpriteKey(name, declaredSource);
+        var key = SpriteKey(name, declaredSource);
         if (!_sources.TryGetValue(key, out var source))
         {
             source = declaredSource ?? repository.LoadSprite("ScreenLayout", name);
@@ -159,10 +234,10 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     public (LoadedSprite Source, AtlasTexture Texture) Sprite(string name, LoadedSprite? declaredSource = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        string spriteKey=SpriteKey(name,declaredSource);
+        var spriteKey=SpriteKey(name,declaredSource);
         if (_sprites.TryGetValue(spriteKey, out var existing)) return existing;
         LoadedSprite source = SourceSprite(name, declaredSource);
-        string key = $"{source.Texture.DecodedSha256}/{source.Texture.TextureIndex}";
+        var key = source.Texture;
         if (!_textures.TryGetValue(key, out ImageTexture? texture))
         {
             RgbaTexture pixels = source.Texture.Texture;
@@ -232,9 +307,36 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
     public AtlasTexture SrgbSprite(string name, LoadedSprite? declaredSource = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        string spriteKey=SpriteKey(name,declaredSource);
+        var spriteKey=SpriteKey(name,declaredSource);
         if (_linearSprites.TryGetValue(spriteKey, out AtlasTexture? existing)) return existing;
-        var prepared = PrepareLinearSprite(name, declaredSource);
+        PrepareLinearSprite(name, declaredSource);
+        if (_preparedNativeSprites.TryGetValue(spriteKey, out var native))
+        {
+            Portraits.MaterializeAsync().GetAwaiter().GetResult();
+            return MaterializeNativeSprite(spriteKey, native);
+        }
+        return MaterializeLinearSprite(spriteKey, _preparedLinearPixels[spriteKey]);
+    }
+
+    // Called on Main after the CPU preparation has transferred this owner.
+    // Preserve the exact qualified keys selected by the ordinary declaration
+    // resolver; no extra atlas lookup or fabricated scene is required.
+    internal void MaterializePreparedTextures()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if(Portraits.IsPrepared)Portraits.MaterializeAsync().GetAwaiter().GetResult();
+        foreach (var prepared in _preparedNativeSprites.ToArray())
+            _ = MaterializeNativeSprite(prepared.Key, prepared.Value);
+        foreach (var prepared in _preparedLinearPixels.ToArray())
+            _ = MaterializeLinearSprite(prepared.Key, prepared.Value);
+        foreach (var prepared in _preparedEncodedSprites.Values)
+            _ = Sprite(prepared.Name, prepared.Declaration);
+        _preparedEncodedSprites.Clear();
+    }
+
+    private AtlasTexture MaterializeLinearSprite(SpriteCacheKey spriteKey, PreparedLinearPixels prepared)
+    {
+        if (_linearSprites.TryGetValue(spriteKey, out var existing)) return existing;
         int width = prepared.Width, height = prepared.Height;
         using Image image = Image.CreateFromData(width + 2, height + 2, false, Image.Format.Rgbaf, prepared.Bytes);
         ImageTexture texture = ImageTexture.CreateFromImage(image);
@@ -263,7 +365,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         // encoded GPU atlas, then apply it to the bordered linear atlas.
         ObjectDisposedException.ThrowIf(_disposed, this);
         ValidateUv(name, uv);
-        string spriteKey=SpriteKey(name,declaredSource);
+        var spriteKey=SpriteKey(name,declaredSource);
         if (_linearParts.TryGetValue((spriteKey, uv), out var cached)) return cached;
         var sprite = SrgbSprite(name,declaredSource);
         Rect2 region = sprite.Region;
@@ -276,6 +378,14 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
 
     public AtlasTexture SrgbLayoutSpritePart(LoadedLayout layout,string name,LcskUvQuad uv)
         => SrgbSpritePart(name,uv,LayoutLocalSprite(layout,name));
+
+    // Multi-component gauges consume one real layout sprite through the same
+    // nullable declaration path. Keep its key identical to the later draw.
+    internal void PrepareSrgbLayoutSprite(LoadedLayout layout, string name)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PrepareLinearSprite(name, LayoutLocalSprite(layout, name));
+    }
 
     internal LoadedSprite SourceLayoutSprite(LoadedLayout layout, string name)
         => SourceSprite(name, LayoutLocalSprite(layout, name));
@@ -311,7 +421,7 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         if(sampler.Filter!=0x14||sampler.MinimumLodBits!=0||sampler.MaximumLodBits!=0||
             sampler.AddressU is not (1 or 2 or 3)||sampler.AddressV is not (1 or 2 or 3)||
             outsideU&&sampler.AddressU==3||outsideV&&sampler.AddressV==3)return false;
-        string key=SpriteKey(name,source);
+        var key=SpriteKey(name,source);
         if(_addressedSprites.TryGetValue(key,out texture))return true;
         var input=source.Texture.Texture;
         var region=source.Definition.GetRectangle(input.Width,input.Height);
@@ -350,8 +460,31 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         return SrgbSpritePart(name,uv,declared);
     }
 
-    private static string SpriteKey(string name,LoadedSprite? source)=>source is null?name:
-        $"{source.Texture.DecodedSha256}/{source.Texture.TextureIndex}/{name}";
+    internal AtlasTexture PortraitPart(LoadedUiSpriteSource source,LcskUvQuad uv)
+    {
+        ObjectDisposedException.ThrowIf(_disposed,this);ValidateUv(source.Definition.Name,uv);
+        var key=SpriteKey("portrait:"+source.Resource.Source.DecodedSha256+"/"+source.ImageIndex+"/"+source.Definition.Name,null);
+        if(_parts.TryGetValue((key,uv),out var cached))return cached;
+        var image=Portraits.RequireTexture(source);var rectangle=source.Definition.GetRectangle(source.Image.Width,source.Image.Height);
+        var region=new Rect2(rectangle.X,rectangle.Y,rectangle.Width,rectangle.Height);
+        var atlas=CreateAtlas(image,new(region.Position+region.Size*new Vector2(uv.TopLeft.U,uv.TopLeft.V),
+            region.Size*new Vector2(uv.BottomRight.U-uv.TopLeft.U,uv.BottomRight.V-uv.TopLeft.V)));
+        _parts.Add((key,uv),atlas);return atlas;
+    }
+
+    // A qualified sprite includes its actual CPU source object, not only its
+    // content label. Editable clones can retain the original metadata hash.
+    // Unqualified lookup remains a separate key with no declared source.
+    private readonly struct SpriteCacheKey : IEquatable<SpriteCacheKey>
+    {
+        private readonly string name;
+        private readonly LoadedTexture? texture;
+        internal SpriteCacheKey(string name,LoadedTexture? texture)=>(this.name,this.texture)=(name,texture);
+        public bool Equals(SpriteCacheKey other)=>name==other.name&&ReferenceEquals(texture,other.texture);
+        public override bool Equals(object? value)=>value is SpriteCacheKey other&&Equals(other);
+        public override int GetHashCode()=>HashCode.Combine(name,texture is null?0:RuntimeHelpers.GetHashCode(texture));
+    }
+    private static SpriteCacheKey SpriteKey(string name,LoadedSprite? source)=>new(name,source?.Texture);
 
     public void Dispose()
     {
@@ -361,9 +494,11 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         _atlasTextures.Clear();
         _sprites.Clear();
         _sources.Clear();
-        _layouts.Clear(); _sourceLayouts.Clear(); _commandLayouts.Clear(); _captions.Clear();
+        _layouts.Clear(); _sourceLayouts.Clear(); _animationClips.Clear(); _namedLayouts.Clear(); _commandLayouts.Clear(); _captions.Clear();
         _buttonStateProfiles.Clear();
         _preparedLinearPixels.Clear();
+        _preparedNativeSprites.Clear();
+        _preparedEncodedSprites.Clear();
         _sampling.Clear();
         _parts.Clear();
         _linearSprites.Clear();
@@ -376,5 +511,6 @@ internal sealed class UiAssets(GameResourceRepository repository) : IDisposable
         _masked.Clear();
         foreach (ImageTexture texture in _textures.Values) texture.Dispose();
         _textures.Clear();
+        Portraits.Release();
     }
 }

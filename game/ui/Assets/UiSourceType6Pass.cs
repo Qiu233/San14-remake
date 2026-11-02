@@ -8,16 +8,17 @@ internal sealed class UiSourceType6Pass : IDisposable
 {
     internal SubViewport Capture { get; }
     internal SubViewport Horizontal { get; }
-    internal UiSourceType6Quad Vertical { get; }
-    private readonly List<Shader> shaders = [];
+    internal UiSourceType6Quad Vertical { get; private set; }
     private readonly List<ShaderMaterial> materials = [];
     private bool disposed;
     private readonly ShaderMaterial horizontalKernel, verticalKernel;
+    private readonly ShaderMaterial copyMaterial, prefillMaterial;
+    private readonly UiSourceType6Quad prefillQuad, horizontalQuad;
 
     internal UiSourceType6Pass(SubViewport successor, SubViewport predecessor,
         Control originalCanvas, UiSourceType6Parameters parameters, Vector2[] screenQuad,
         Vector2[] sourceUvs, Rect2I sourceRegion, Vector2I contextSize, uint drawingLayer,
-        float effectiveAlpha, Vector4 captureColor, Vector4 prefillColor)
+        float effectiveAlpha, Vector4 captureColor, Vector4 prefillColor, UiSourceType6Shaders shaders)
     {
         if (successor.Size != predecessor.Size || screenQuad.Length != 4 || sourceUvs.Length != 4 ||
             contextSize.X <= 0 || contextSize.Y <= 0 || predecessor.Size.X < 4 || predecessor.Size.Y < 4 ||
@@ -32,33 +33,32 @@ internal sealed class UiSourceType6Pass : IDisposable
         // preserves its shared World2D and does not move the original Controls.
         predecessor.Reparent(Capture);
 
-        var copy = Material(CopyCode, "Type6EncodedRgbaCopy");
-        copy.SetShaderParameter("source_image", predecessor.GetTexture());
-        copy.SetShaderParameter("copy_color", captureColor);
-        AddFull(Capture, copy, quarter);
+        copyMaterial = Material(shaders.Copy, "Type6EncodedRgbaCopy");
+        copyMaterial.SetShaderParameter("source_image", predecessor.GetTexture());
+        copyMaterial.SetShaderParameter("copy_color", captureColor);
+        AddFull(Capture, copyMaterial, quarter);
 
         bool prefill = sourceRegion.Size != contextSize;
-        if (prefill)
-        {
-            var fill = Material(CopyCode, "Type6HorizontalPrefill");
-            fill.SetShaderParameter("source_image", Capture.GetTexture());
-            // White source vertices do not reset the stock copy ColorScale.
-            // Both capture and prefill take the actual owning copy state.
-            fill.SetShaderParameter("copy_color", prefillColor);
-            AddFull(Horizontal, fill, quarter);
-        }
+        prefillMaterial = Material(shaders.Copy, "Type6HorizontalPrefill");
+        prefillMaterial.SetShaderParameter("source_image", Capture.GetTexture());
+        // Keep one local prefill draw so a resized region can reuse its target.
+        // A full-region pass still emits no prefill, exactly as before.
+        prefillMaterial.SetShaderParameter("copy_color", prefillColor);
+        prefillQuad = AddFull(Horizontal, prefillMaterial, quarter);
+        prefillQuad.Visible = prefill;
         Vector4 region = UiSourceType6Parameters.BlurRegion(sourceRegion, contextSize, quarter);
         Vector2 perPixel = parameters.PerPixel(contextSize);
         float[] weights = KernelWeights(parameters);
-        var h = Material(KernelCode + HorizontalCode, "Type6HorizontalRgb");
+        var h = Material(shaders.Horizontal, "Type6HorizontalRgb");
         horizontalKernel = h;
         ConfigureKernel(h, Capture.GetTexture(), perPixel.X);
         var hQuad = new UiSourceType6Quad { Name = "HorizontalLocalQuad", Material = h,
             Positions = screenQuad.Select(p => p / (Vector2)contextSize * (Vector2)quarter).ToArray(),
             Uvs = sourceUvs.ToArray() };
         Horizontal.AddChild(hQuad);
+        horizontalQuad = hQuad;
 
-        var v = Material(KernelCode + VerticalCode, "Type6VerticalFinalBlend");
+        var v = Material(shaders.Vertical, "Type6VerticalFinalBlend");
         verticalKernel = v;
         ConfigureKernel(v, Horizontal.GetTexture(), perPixel.Y);
         v.SetShaderParameter("draw_enabled", parameters.DrawEnabled);
@@ -78,6 +78,51 @@ internal sealed class UiSourceType6Pass : IDisposable
             material.SetShaderParameter("weights", weights);
             material.SetShaderParameter("blur_region", region);
         }
+    }
+
+    internal void Rebind(SubViewport successor, SubViewport predecessor, Control drawingParent,
+        UiSourceType6Parameters parameters, Vector2[] screenQuad, Vector2[] sourceUvs,
+        Rect2I sourceRegion, Vector2I contextSize, uint drawingLayer, float effectiveAlpha,
+        Vector4 captureColor, Vector4 prefillColor)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (successor.Size != predecessor.Size || screenQuad.Length != 4 || sourceUvs.Length != 4 ||
+            contextSize.X <= 0 || contextSize.Y <= 0 || predecessor.Size.X < 4 || predecessor.Size.Y < 4 ||
+            !float.IsFinite(effectiveAlpha) || effectiveAlpha < 0 || effectiveAlpha > 1)
+            throw new ArgumentException("Type6 requires an actual full-size prefix and four quad corners.");
+        // Targets stay with this composition. Controls and their current
+        // screen-space geometry can change independently of these GPU images.
+        if (Horizontal.GetParent() != successor) Horizontal.Reparent(successor);
+        if (predecessor.GetParent() != Capture) predecessor.Reparent(Capture);
+        copyMaterial.SetShaderParameter("source_image", predecessor.GetTexture());
+        copyMaterial.SetShaderParameter("copy_color", captureColor);
+        prefillMaterial.SetShaderParameter("copy_color", prefillColor);
+        prefillQuad.Visible = sourceRegion.Size != contextSize;
+        Vector2I quarter = Horizontal.Size;
+        horizontalQuad.SetGeometry(screenQuad.Select(p => p / (Vector2)contextSize * (Vector2)quarter).ToArray(), sourceUvs, 1);
+        var inverse = drawingParent.GetGlobalTransformWithCanvas().AffineInverse();
+        var positions = screenQuad.Select(p => inverse * p).ToArray();
+        if (!GodotObject.IsInstanceValid(Vertical) || Vertical.IsQueuedForDeletion())
+        {
+            if (GodotObject.IsInstanceValid(Vertical))
+            { Vertical.Hide(); Vertical.Material = null; Vertical.QueueFree(); }
+            Vertical = new UiSourceType6Quad { Name = "VerticalLocalQuad", Material = verticalKernel,
+                VisibilityLayer = drawingLayer, Positions = positions, Uvs = sourceUvs.ToArray(), Alpha = effectiveAlpha };
+            drawingParent.AddChild(Vertical);
+        }
+        else if (Vertical.GetParent() != drawingParent) Vertical.Reparent(drawingParent, false);
+        Vertical.VisibilityLayer = drawingLayer;
+        Vertical.SetGeometry(positions, sourceUvs, effectiveAlpha);
+        if (drawingParent is UiSourceType6) drawingParent.MoveChild(Vertical, 0);
+        Vector2 perPixel = parameters.PerPixel(contextSize);
+        Vector4 region = UiSourceType6Parameters.BlurRegion(sourceRegion, contextSize, quarter);
+        horizontalKernel.SetShaderParameter("per_pixel", perPixel.X);
+        horizontalKernel.SetShaderParameter("blur_region", region);
+        verticalKernel.SetShaderParameter("per_pixel", perPixel.Y);
+        verticalKernel.SetShaderParameter("blur_region", region);
+        verticalKernel.SetShaderParameter("destination_image", predecessor.GetTexture());
+        verticalKernel.SetShaderParameter("blend_kind", (int)parameters.Blend);
+        SetWeight(parameters);
     }
 
     internal void SetWeight(UiSourceType6Parameters parameters)
@@ -103,16 +148,17 @@ internal sealed class UiSourceType6Pass : IDisposable
         UseHdr2D = false, RenderTargetClearMode = SubViewport.ClearMode.Always,
         RenderTargetUpdateMode = SubViewport.UpdateMode.Always
     };
-    private ShaderMaterial Material(string code, string name)
+    private ShaderMaterial Material(Shader shader, string name)
     {
-        var shader = new Shader { Code = code, ResourceName = name }; shaders.Add(shader);
-        var material = new ShaderMaterial { Shader = shader }; materials.Add(material); return material;
+        var material = new ShaderMaterial { Shader = shader, ResourceName = name };
+        materials.Add(material); return material;
     }
-    private static void AddFull(SubViewport target, ShaderMaterial material, Vector2I size)
+    private static UiSourceType6Quad AddFull(SubViewport target, ShaderMaterial material, Vector2I size)
     {
-        target.AddChild(new UiSourceType6Quad { Material = material,
+        var quad = new UiSourceType6Quad { Material = material,
             Positions = [Vector2.Zero, new(size.X, 0), new(0, size.Y), (Vector2)size],
-            Uvs = [Vector2.Zero, Vector2.Right, Vector2.Down, Vector2.One] });
+            Uvs = [Vector2.Zero, Vector2.Right, Vector2.Down, Vector2.One] };
+        target.AddChild(quad); return quad;
     }
 
     // Non-HDR Canvas uses encoded RGB in this project. Do linear interpolation
@@ -143,14 +189,14 @@ internal sealed class UiSourceType6Pass : IDisposable
         render_mode unshaded, blend_disabled;
         uniform sampler2D source_image : filter_nearest, repeat_disable;
         """;
-    private const string CopyCode = Header + SamplingCode + """
+    internal const string CopyCode = Header + SamplingCode + """
         uniform vec4 copy_color;
         void fragment() {
             vec4 c = linear_sample(source_image, UV) * copy_color;
             COLOR = vec4(encode_srgb(c.rgb), c.a);
         }
         """;
-    private const string KernelCode = Header + SamplingCode + """
+    internal const string KernelCode = Header + SamplingCode + """
         uniform float weights[10];
         uniform float per_pixel;
         uniform vec4 blur_region;
@@ -174,10 +220,10 @@ internal sealed class UiSourceType6Pass : IDisposable
             return result;
         }
         """;
-    private const string HorizontalCode = """
+    internal const string HorizontalCode = """
         void fragment() { COLOR = vec4(encode_srgb(filter_rgb(UV, true)), 1.0); }
         """;
-    private const string VerticalCode = """
+    internal const string VerticalCode = """
         uniform sampler2D destination_image : filter_nearest, repeat_disable;
         uniform int blend_kind;
         uniform bool draw_enabled;
@@ -196,6 +242,7 @@ internal sealed class UiSourceType6Pass : IDisposable
             else if (blend_kind == 2) { rgb = src * dst.a + dst.rgb * (1.0 - dst.a); alpha = a * dst.a; }
             else if (blend_kind == 3) { rgb = src * dst.a + dst.rgb * (1.0 - dst.a); alpha = a * a + dst.a * (1.0 - a); }
             else if (blend_kind == 4) { rgb = src * a + dst.rgb * (1.0 - a); alpha = a * a + dst.a * (1.0 - a); }
+            else if (blend_kind == 5) { rgb = src * dst.a + dst.rgb * (1.0 - dst.a); alpha = a * a + dst.a * (1.0 - dst.a); }
             COLOR = vec4(encode_srgb(rgb), alpha);
             }
         }
@@ -216,15 +263,19 @@ internal sealed class UiSourceType6Pass : IDisposable
         if (GodotObject.IsInstanceValid(Capture)) Capture.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
         if (GodotObject.IsInstanceValid(Horizontal)) Horizontal.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
         foreach (var material in materials) material.Dispose();
-        foreach (var shader in shaders) shader.Dispose();
     }
 }
 
 internal partial class UiSourceType6Quad : Control
 {
-    internal Vector2[] Positions { get; init; } = [];
-    internal Vector2[] Uvs { get; init; } = [];
-    internal float Alpha { get; init; } = 1;
+    internal Vector2[] Positions { get; set; } = [];
+    internal Vector2[] Uvs { get; set; } = [];
+    internal float Alpha { get; set; } = 1;
+    internal void SetGeometry(Vector2[] positions, Vector2[] uvs, float alpha)
+    {
+        Positions = positions; Uvs = uvs.ToArray(); Alpha = alpha;
+        if (IsInsideTree()) BuildCommands();
+    }
     public override void _Ready() { MouseFilter = MouseFilterEnum.Ignore; BuildCommands(); }
     // Preserve source TL/TR/BL/BR order and its TR-BL diagonal. Automatic
     // polygon triangulation need not choose the source six-index topology.

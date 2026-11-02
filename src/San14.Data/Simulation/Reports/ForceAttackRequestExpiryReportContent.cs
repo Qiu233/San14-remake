@@ -19,6 +19,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
+        //Advice reuses selection with an explicit nonmutating text consumer.
+        private readonly Func<ForceAttackRequestExpiryFormattingInputs,string>? textOnly;
         private bool entered, completed, appended;
         private ForceAttackRequestExpiryFormattingInputs? formatting;
         private string? text;
@@ -26,10 +28,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         public GameState State { get; private set; }
         public ForceAttackRequestExpiryReportSnapshot Snapshot => new(completed, formatting, text, marker, appended);
         internal ForceAttackRequestExpiryReportContentOperation(ArmyCampaignRuleAdapter package,
-            GameState state, SourceWorldContext current, WorldIndexContext pool)
+            GameState state, SourceWorldContext current, WorldIndexContext pool, Func<ForceAttackRequestExpiryFormattingInputs,string>? textOnly = null)
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile()) throw Missing("same_current_pool");
-            this.package = package; State = state; this.current = current; this.pool = pool;
+            this.package = package; State = state; this.current = current; this.pool = pool; this.textOnly=textOnly;
         }
         public ForceAttackRequestExpiryReportSnapshot Produce(TransferPersonReference speaker, ActionReportLocalRecords records)
         {
@@ -63,7 +65,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 int ordinal = K(current.ReadForcePhysicalSlot(force), "message_Force_virtual60");
                 ushort ruler = ordinal == 0 ? (ushort)5014 : K(current.ReadForceRecord(physical)?.RawRuler10, "message_ruler10");
                 formatting = new(speakerId, otherId, freshMonths, ruler);
-                text = package.FormatActionAttackRequestExpiryReport(State, current, formatting, value => State = value).Text;
+                text = textOnly is {} render ? render(formatting) : package.FormatActionAttackRequestExpiryReport(State, current, formatting, value => State = value).Text;
                 ushort freshSpeaker = Identity(speaker);
                 int target = ReadByte(physical, 0x160, owner?.TargetLocationId, "marker_TargetLocation160");
                 marker = ReadReportBaseMarker(current, BaseLookup.Find(target, current), Missing);

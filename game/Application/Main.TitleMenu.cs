@@ -25,7 +25,7 @@ public partial class Main
             view.Configure(_repository,_ui,TitleAvailability(),
                 ()=>!_failed&&!_shuttingDown&&_titleMenu==view&&!HasCampaignSavePage&&!HasEnvironmentSettings&&!HasTitleEditMenu&&!HasCollectionMenu&&!HasTutorialSelection&&_titleConfirmation is null,
                 command=>RunUiAction(()=>ExecuteTitleCommand(command)),
-                locale=>RunUiAction(()=>ChangeTitleLanguage(locale)));
+                locale=>RunUiAction(()=>ChangeTitleLanguage(locale)), TryBorrowApplicationUiResources(view));
             _browserContent.Hide();_browserContent.ProcessMode=ProcessModeEnum.Disabled;
         }
         catch { CloseTitleMenu();throw; }

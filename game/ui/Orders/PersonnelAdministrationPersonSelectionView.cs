@@ -12,12 +12,11 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
     private PreviewText text = null!;
     private PersonnelAdministrationOfficerSelection model = null!;
     private OfficerInformationPageSet pages = null!;
-    private Control headerHost = null!, rowsHost = null!;
+    private readonly Dictionary<int, UiSourceTablePage<RowDisplay>> tablePages = [];
+    private UiSourceTablePage<RowDisplay>? activeTable;
     private UiSourceScrollbar scroll = null!;
     private UiSourceBottomButton selectAll = null!;
-    private readonly List<RowDisplay> pool = [];
     private readonly List<int> selected = [];
-    private readonly Dictionary<int, UiSourceColumnButton> headers = [];
     private readonly Dictionary<int, Dictionary<int, bool>> directions = [];
     private readonly Dictionary<int, (int Column, bool Ascending)> arrows = [];
     private readonly List<UiSourceTabButton> tabs = [];
@@ -42,7 +41,8 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         PersonnelAdministrationOfficerSelection model,
-        Func<bool> admitted, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed, bool retainOnAccept = false)
+        Func<bool> admitted, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources resources, bool retainOnAccept = false)
     {
         this.repository = repository; this.text = text; this.model = model; pages = model.Pages;
         this.admitted = admitted; this.closed = closed; maximum = model.MaximumSelected;
@@ -53,7 +53,7 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, () => Finish(SelectedOfficerIds));
+        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, () => Finish(SelectedOfficerIds), resources: resources);
         var narrator = new AdministrationMessages(repository, text.SourceLocale);
         defaultHint = model.GuideText;
         chrome.ApplyDefaultHint(defaultHint); chrome.ApplyReturnHint(narrator.Format(0x2733));
@@ -74,15 +74,10 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
             tab.Pressed += () => { if(ReadAdmission())ShowGroup(id); };
             mount.X += width-6;
         }
-        headerHost = new Control { Name="PersonnelAdministrationPersonHeaders", Position=new(213,214), Size=new(1464,48), MouseFilter=MouseFilterEnum.Pass };
-        chrome.Canvas.AddChild(headerHost);
-        rowsHost = new Control { Name="PersonnelAdministrationPersonsViewport", Position=new(213,264), Size=new(1464,596), ClipContents=true, MouseFilter=MouseFilterEnum.Pass };
-        chrome.Canvas.AddChild(rowsHost);
         scroll = new() { Name="PersonnelAdministrationPersonScrollbar", Position=new(1687,265), Size=new(16,597) };
         chrome.Canvas.AddChild(scroll);
         scroll.Configure(repository,chrome.Assets,chrome.SpriteShader,Math.Max(0,pages.CurrentOfficerIds.Length*48-596),scrollSpeed(),
             _ => PositionRows(),currentScrollSpeed:scrollSpeed);
-        rowsHost.GuiInput += input => {if(ReadAdmission())scroll.HandleWheel(input);};
         var footer = new UiSourceLayout(repository,0xD8913AB2);
         selectAll = new() {Name="PersonnelAdministrationSelectAll",Position=footer.Rectangle(14,new(0,904)).Position,InputAdmission=ReadAdmission};
         chrome.Canvas.AddChild(selectAll);
@@ -103,62 +98,100 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
     private void ShowGroup(int index)
     {
         if(abandoned||activeGroup==index)return;
-        foreach(var heading in headers.Values){heading.InputAdmission=null;heading.Disabled=true;}
-        headers.Clear();
-        foreach(var display in pool){display.Button.InputAdmission=null;display.Button.Disabled=true;}
-        pool.Clear();Clear(headerHost);Clear(rowsHost);
-        activeGroup=index;columns=pages.Groups[index].Columns.Where(column=>column.Visible).ToArray();
-        publication=pages.ReadPage(index);
+        var nextColumns=pages.Groups[index].Columns.Where(column=>column.Visible).ToArray();
+        var nextPublication=pages.ReadPage(index);
         var slots=pages.Groups[index].Columns.Select((column,slot)=>(column.Id,slot)).ToDictionary(value=>value.Id,value=>value.slot);
-        sourceSlots=columns.Select(column=>slots[column.Id]).ToArray();
-        unsortable=columns.Where((column,slot)=>!column.CanSort||publication.Rows.Any(row=>row.Cells[sourceSlots[slot]].SortUnresolvedOwner is not null))
+        var nextSlots=nextColumns.Select(column=>slots[column.Id]).ToArray();
+        var nextUnsortable=nextColumns.Where((column,slot)=>!column.CanSort||nextPublication.Rows.Any(row=>row.Cells[nextSlots[slot]].SortUnresolvedOwner is not null))
             .Select(column=>column.Id).ToHashSet();
         if(!directions.TryGetValue(index,out var next))directions.Add(index,next=[]);
-        foreach(var column in columns)next.TryAdd(column.Id,column.InitialAscending);
-        foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==index;
-        int[] bodyWidths=BodyWidths(columns);float factor=WidthFactor(columns);int x=48;
-        AddHeader(-1,Message(0x628),0,48);
-        for(int slot=0;slot<columns.Length;slot++)
+        foreach(var column in nextColumns)next.TryAdd(column.Id,column.InitialAscending);
+        bool created=false;
+        if(!tablePages.TryGetValue(index,out var table))
         {
-            var column=columns[slot];
-            int headerWidth=slot==columns.Length-1&&factor<1 ? 1465-x : (int)((column.Width-20)*factor+20);
-            AddHeader(column.Id,column.Caption,x,headerWidth);x+=headerWidth;
+            table=CreateTable(index,nextColumns,nextPublication.Rows.Length);
+            created=true;
         }
-        var rowColumns=columns.Select((column,index)=>new DeploymentPersonColumn(column.Id,bodyWidths[index],column.CaptionMessageId,
-            (byte)(((column.CellFormat-3)<<4)|1),(byte)(column.CellFormat-2),column.InitialAscending)).ToArray();
-        for(int i=0;i<Math.Min(14,publication.Rows.Length);i++)
+        var previous=(Table:activeTable,Group:activeGroup,Columns:columns,Publication:publication,Slots:sourceSlots,Unsortable:unsortable);
+        try
         {
-            var button=new UiSourcePersonRow {Name="PersonnelAdministrationVisiblePersonRow"+i,InputAdmission=ReadAdmission};
-            rowsHost.AddChild(button);
-            button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,Message(0x628),rowColumns,
-                columns.Select(_=>new DeploymentPersonCell("")).ToArray(),1464);
-            var display=new RowDisplay(button);pool.Add(display);
-            button.GuiInput+=input=>{if(ReadAdmission())scroll.HandleWheel(input);};
-            button.Pressed+=()=>
+            activeTable?.SetActive(false);
+            activeTable=table;activeGroup=index;columns=nextColumns;publication=nextPublication;
+            sourceSlots=nextSlots;unsortable=nextUnsortable;
+            foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==index;
+            foreach(var (column,heading) in table.Headers)
+                heading.ApplySortDirection(arrows.TryGetValue(index,out var arrow)&&arrow.Column==column ? arrow.Ascending : null);
+            PositionRows();RefreshSelection();table.SetActive(true);
+            if(publication.UnresolvedOwner is { } missing){chrome.ApplyDefaultHint(defaultHint);SetMeta("personnel_administration_person_page_issue",missing);}
+            else {chrome.ApplyDefaultHint(defaultHint);if(HasMeta("personnel_administration_person_page_issue"))RemoveMeta("personnel_administration_person_page_issue");}
+            SetMeta("personnel_administration_person_active_page",index);
+            if(created)tablePages.Add(index,table);
+        }
+        catch
+        {
+            table.SetActive(false);
+            if(created)DiscardTable(table);
+            activeTable=previous.Table;activeGroup=previous.Group;columns=previous.Columns;
+            publication=previous.Publication;sourceSlots=previous.Slots;unsortable=previous.Unsortable;
+            foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==activeGroup;
+            activeTable?.SetActive(true);
+            throw;
+        }
+    }
+    private UiSourceTablePage<RowDisplay> CreateTable(int index,OfficerInformationColumn[] tableColumns,int rowCount)
+    {
+        var headerHost=new Control {Name="PersonnelAdministrationPersonHeaders"+index,Position=new(213,214),Size=new(1464,48),MouseFilter=MouseFilterEnum.Pass};
+        var rowsHost=new Control {Name="PersonnelAdministrationPersonsViewport"+index,Position=new(213,264),Size=new(1464,596),ClipContents=true,MouseFilter=MouseFilterEnum.Pass};
+        var table=new UiSourceTablePage<RowDisplay>(headerHost,rowsHost);
+        table.SetActive(false);
+        try
+        {
+            chrome.Canvas.AddChild(headerHost);chrome.Canvas.AddChild(rowsHost);
+            rowsHost.GuiInput+=input=>{if(ReadTableAdmission(table))scroll.HandleWheel(input);};
+            int[] bodyWidths=BodyWidths(tableColumns);float factor=WidthFactor(tableColumns);int x=48;
+            AddHeader(-1,Message(0x628),0,48);
+            for(int slot=0;slot<tableColumns.Length;slot++)
             {
-                if(!ReadAdmission()||display.Entry is not { } row||button.Disabled)return;
-                if(!selected.Remove(row.OfficerId)&&selected.Count<maximum)selected.Add(row.OfficerId);
-                RefreshSelection();
-            };
+                var column=tableColumns[slot];
+                int headerWidth=slot==tableColumns.Length-1&&factor<1 ? 1465-x : (int)((column.Width-20)*factor+20);
+                AddHeader(column.Id,column.Caption,x,headerWidth);x+=headerWidth;
+            }
+            var rowColumns=tableColumns.Select((column,slot)=>new DeploymentPersonColumn(column.Id,bodyWidths[slot],column.CaptionMessageId,
+                (byte)(((column.CellFormat-3)<<4)|1),(byte)(column.CellFormat-2),column.InitialAscending)).ToArray();
+            for(int i=0;i<Math.Min(14,rowCount);i++)
+            {
+                var button=new UiSourcePersonRow {Name="PersonnelAdministrationVisiblePersonRow"+i,InputAdmission=()=>ReadTableAdmission(table)};
+                rowsHost.AddChild(button);
+                button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,Message(0x628),rowColumns,
+                    tableColumns.Select(_=>new DeploymentPersonCell("")).ToArray(),1464);
+                var display=new RowDisplay(button);table.Items.Add(display);
+                button.GuiInput+=input=>{if(ReadTableAdmission(table))scroll.HandleWheel(input);};
+                button.Pressed+=()=>
+                {
+                    if(!ReadTableAdmission(table)||display.Entry is not { } row||button.Disabled)return;
+                    if(!selected.Remove(row.OfficerId)&&selected.Count<maximum)selected.Add(row.OfficerId);
+                    RefreshSelection();
+                };
+            }
+            return table;
         }
-        foreach(var (column,heading) in headers)
-            heading.ApplySortDirection(arrows.TryGetValue(index,out var arrow)&&arrow.Column==column ? arrow.Ascending : null);
-        PositionRows();RefreshSelection();
-        if(publication.UnresolvedOwner is { } missing){chrome.ApplyDefaultHint(defaultHint);SetMeta("personnel_administration_person_page_issue",missing);}
-        else {chrome.ApplyDefaultHint(defaultHint);if(HasMeta("personnel_administration_person_page_issue"))RemoveMeta("personnel_administration_person_page_issue");}
-        SetMeta("personnel_administration_person_active_page",index);
+        catch
+        {
+            DiscardTable(table);
+            throw;
+        }
 
         void AddHeader(int id,string caption,int left,int width)
         {
-            var button=new UiSourceColumnButton {Name="PersonnelAdministrationPersonColumn"+id,Position=new(left,0),Size=new(width,48),InputAdmission=ReadAdmission};
-            headerHost.AddChild(button);headers.Add(id,button);
+            var button=new UiSourceColumnButton {Name="PersonnelAdministrationPersonColumn"+id,Position=new(left,0),Size=new(width,48),InputAdmission=()=>ReadTableAdmission(table)};
+            headerHost.AddChild(button);table.Headers.Add(id,button);
             button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,caption,personList:true);
-            button.Pressed+=()=>SortColumn(id);
+            button.Pressed+=()=>{if(ReadTableAdmission(table))SortColumn(id);};
         }
     }
     private void SortColumn(int column)
     {
-        if(!ReadAdmission()||publication is null||headers[column].Disabled)return;
+        if(!ReadAdmission()||publication is null||activeTable is not { } table||table.Headers[column].Disabled)return;
         bool ascending;
         if(column<0)
         {
@@ -175,16 +208,16 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
             foreach(var group in pages.Groups)arrows[group.Index]=group.Index==activeGroup ? (column,ascending) : (-2,false);
         }
         publication=pages.ReadPage(activeGroup);
-        foreach(var (id,heading) in headers)heading.ApplySortDirection(id==column?ascending:null);
+        foreach(var (id,heading) in table.Headers)heading.ApplySortDirection(id==column?ascending:null);
         PositionRows();RefreshSelection();
     }
     private void PositionRows()
     {
-        if(publication is null)return;
+        if(publication is null||activeTable is not { } table)return;
         int first=scroll.Value/48;
-        for(int slot=0;slot<pool.Count;slot++)
+        for(int slot=0;slot<table.Items.Count;slot++)
         {
-            var display=pool[slot];int index=first+slot;
+            var display=table.Items[slot];int index=first+slot;
             if(index>=publication.Rows.Length){display.Entry=null;display.Button.Hide();continue;}
             var row=publication.Rows[index];display.Entry=row;
             display.Button.Position=new(0,index*48-scroll.Value);display.Button.Show();
@@ -208,10 +241,13 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
     }
     private void RefreshSelection()
     {
-        foreach(var display in pool)
-            if(display.Entry is { } row){display.Button.Selected=selected.Contains(row.OfficerId);display.Button.Disabled=busy||!RowEnabled(row.OfficerId)||!display.Button.Selected&&selected.Count>=maximum;}
-        foreach(var (id,heading) in headers)
-            heading.Disabled=busy||unsortable.Contains(id);
+        if(activeTable is { } table)
+        {
+            foreach(var display in table.Items)
+                if(display.Entry is { } row){display.Button.Selected=selected.Contains(row.OfficerId);display.Button.Disabled=busy||!RowEnabled(row.OfficerId)||!display.Button.Selected&&selected.Count>=maximum;}
+            foreach(var (id,heading) in table.Headers)
+                heading.Disabled=busy||unsortable.Contains(id);
+        }
         if(selectAll is not null){selectAll.Disabled=busy||EligibleCount()==0;selectAll.ApplyCaption(selected.Count>=maximum||selected.Count>=EligibleCount()?clearCaption:selectCaption);}
         chrome.ApplyReturn(!busy&&returnAllowed);
         var ids=SelectedOfficerIds;
@@ -227,7 +263,13 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
     {float factor=WidthFactor(columns);return columns.Select(column=>20+(int)((column.Width-20)*factor)).ToArray();}
     private string Message(int id)=>repository.LoadMessages(text.SourceLocale,San14.Data.Formats.MessageKind.Data).Messages.Sections[1].Records[id].Text
         ??throw new InvalidDataException("Missing administration person caption.");
-    private static void Clear(Control parent){foreach(Node child in parent.GetChildren()){parent.RemoveChild(child);child.QueueFree();}}
+    private static void DiscardTable(UiSourceTablePage<RowDisplay> table)
+    {
+        if(table.HeaderHost.GetParent() is { } headerParent)headerParent.RemoveChild(table.HeaderHost);
+        if(table.RowsHost.GetParent() is { } rowsParent)rowsParent.RemoveChild(table.RowsHost);
+        table.HeaderHost.QueueFree();table.RowsHost.QueueFree();
+    }
+    private bool ReadTableAdmission(UiSourceTablePage<RowDisplay> table)=>ReferenceEquals(activeTable,table)&&ReadAdmission();
     private bool ReadAdmission()=>!abandoned&&!busy&&closed is not null&&IsVisibleInTree()&&CanProcess()&&(admitted?.Invoke()??false);
     internal void SetBusy(bool value){if(!abandoned){busy=value;RefreshSelection();}}
     internal void RequestCancel(){if(returnAllowed)Finish(null);}
@@ -252,8 +294,13 @@ internal partial class PersonnelAdministrationPersonSelectionView : Control
     internal void Abandon()
     {
         if(abandoned)return;abandoned=true;closed=null;admitted=null;rowAdmission=null;confirmationAdmission=null;
-        foreach(var display in pool){display.Button.InputAdmission=null;display.Button.Disabled=true;}
-        foreach(var header in headers.Values){header.InputAdmission=null;header.Disabled=true;}
+        foreach(var table in tablePages.Values)
+        {
+            foreach(var display in table.Items){display.Button.InputAdmission=null;display.Button.Disabled=true;}
+            foreach(var header in table.Headers.Values){header.InputAdmission=null;header.Disabled=true;}
+            table.SetActive(false);
+        }
+        activeTable=null;
         foreach(var tab in tabs){tab.InputAdmission=null;tab.Disabled=true;}
         if(selectAll is not null){selectAll.InputAdmission=null;selectAll.Disabled=true;}
         scroll?.SetProcessInput(false);chrome?.Abandon();Hide();

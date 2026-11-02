@@ -12,6 +12,7 @@ internal partial class SceneryMapLabelView : Control
     private readonly List<Control> textStates = [];
     private readonly List<Control> flagStates = [];
     private readonly Dictionary<int, Control> flagParts = [];
+    private readonly Dictionary<int, bool> appliedFlagVisibility = [];
     private readonly Dictionary<int, MapCornerColors> paintedFlagColors = [];
     private bool? paintedShowOutline;
     private UiSourceLayout textLayout = null!, flagLayout = null!;
@@ -25,16 +26,26 @@ internal partial class SceneryMapLabelView : Control
     private SceneryMapFlagUpdate? appearance;
     private Action? released;
     private int display = -1, interaction = 4, appliedInteraction = -1;
+    private int appliedLayoutDisplay = int.MinValue;
+    private byte? appliedTextAlpha, appliedFlagAlpha;
     private int focusOverride, pushOverride;
     private Vector2I canonicalPosition;
     private bool abandoned, configured;
     private bool controlEnabled = true;
+    private bool rootVisible = true;
+    private bool? appliedDisabled;
     private bool presentationInputAdmitted = true;
     private bool sourceInputOwned,nativeFocus,nativePush,focusKnown=true,commandPressQualified;
     private Action? pointerEnter,pointerLeave,pointerDown,pointerRelease,inputChanged;
 
     internal string SourceName => caption.Text;
     internal Vector2I CanonicalPosition => canonicalPosition;
+    internal bool RootVisible => rootVisible;
+    internal void SetRootVisible(bool value)
+    {
+        if(rootVisible==value)return;
+        Visible=value;rootVisible=value;
+    }
     internal Rect2 HitRectangle => new(overlay.Position, overlay.Size);
     internal SceneryMapNameWidthRequests WidthRequests { get; private set; }
     internal bool FillKnown => appearance?.Fill is not null;
@@ -154,6 +165,7 @@ internal partial class SceneryMapLabelView : Control
 
     internal void SetCanonicalPosition(Vector2I position)
     {
+        if (canonicalPosition == position) return;
         canonicalPosition = position;
         Position = position;
         if (configured) UpdateHitGeometry();
@@ -210,29 +222,51 @@ internal partial class SceneryMapLabelView : Control
 
     internal void SetAlpha(byte? textAlpha,byte? flagAlpha,bool forceRootVisible)
     {
-        if(textAlpha is byte text)textRoot.Modulate=new(1,1,1,text/255f);
-        if(flagAlpha is byte flag)flagRoot.Modulate=new(1,1,1,flag/255f);
-        if(forceRootVisible)Visible=true;
+        if(textAlpha is byte text)ApplyTextAlpha(text);
+        if(flagAlpha is byte flag)ApplyFlagAlpha(flag);
+        if(forceRootVisible)SetRootVisible(true);
         UpdateInputAdmission();
     }
 
     internal void SetPresentation(int selectedDisplay, bool rootVisible, byte textAlpha, byte flagAlpha)
     {
         display = selectedDisplay;
-        var children = SceneryMapMarkerSources.VisibleChildren(display);
-        textRoot.Visible = children.Text;
-        flagRoot.Visible = children.Flag;
-        textRoot.Modulate = new(1, 1, 1, textAlpha / 255f);
-        flagRoot.Modulate = new(1, 1, 1, flagAlpha / 255f);
-        Control selected = display == 0 ? textRoot : flagRoot;
-        Rect2 hit = (display == 0 ? textLayout : flagLayout).Rectangle(1);
-        overlay.Position = selected.Position + hit.Position;
-        overlay.Size = hit.Size;
-        UpdateHitGeometry();
-        Visible = rootVisible;
+        bool layoutChanged = appliedLayoutDisplay != display;
+        if (layoutChanged)
+        {
+            var children = SceneryMapMarkerSources.VisibleChildren(display);
+            textRoot.Visible = children.Text;
+            flagRoot.Visible = children.Flag;
+        }
+        ApplyTextAlpha(textAlpha);
+        ApplyFlagAlpha(flagAlpha);
+        if (layoutChanged)
+        {
+            Control selected = display == 0 ? textRoot : flagRoot;
+            Rect2 hit = (display == 0 ? textLayout : flagLayout).Rectangle(1);
+            overlay.Position = selected.Position + hit.Position;
+            overlay.Size = hit.Size;
+            UpdateHitGeometry();
+            appliedLayoutDisplay = display;
+        }
+        SetRootVisible(rootVisible);
         UpdateInputAdmission();
         UpdateInteraction();
         ApplyInteraction();
+    }
+
+    private void ApplyTextAlpha(byte value)
+    {
+        if (appliedTextAlpha == value) return;
+        textRoot.Modulate = new(1, 1, 1, value / 255f);
+        appliedTextAlpha = value;
+    }
+
+    private void ApplyFlagAlpha(byte value)
+    {
+        if (appliedFlagAlpha == value) return;
+        flagRoot.Modulate = new(1, 1, 1, value / 255f);
+        appliedFlagAlpha = value;
     }
 
     private void UpdateHitGeometry()
@@ -247,7 +281,7 @@ internal partial class SceneryMapLabelView : Control
     internal void Abandon()
     {
         CancelCommandPress();
-        abandoned = true; released = null; overlay.Disabled = true;
+        abandoned = true; released = null; ApplyDisabled(true);
         overlay.ReadCanonicalPointer=null;
         pointerEnter=null;pointerLeave=null;pointerDown=null;pointerRelease=null;inputChanged=null;
         SetInteraction(4);
@@ -283,8 +317,14 @@ internal partial class SceneryMapLabelView : Control
         // Preparing a frame temporarily closes the controller's logical input
         // gate. Toggling BaseButton.Disabled there destroys its live press.
         // Keep the physical button state across those ordinary frame updates.
-        => overlay.Disabled = abandoned || !controlEnabled || !Visible ||
-            !SceneryMapMarkerSources.VisibleChildren(display).Flag;
+        => ApplyDisabled(abandoned || !controlEnabled || !rootVisible ||
+            !SceneryMapMarkerSources.VisibleChildren(display).Flag);
+
+    private void ApplyDisabled(bool disabled)
+    {
+        if(appliedDisabled==disabled)return;
+        overlay.Disabled=disabled;appliedDisabled=disabled;
+    }
 
     private void ApplyInteraction()
     {
@@ -326,6 +366,7 @@ internal partial class SceneryMapLabelView : Control
     private void ApplyColor(int index, MapCornerColors? colors)
     {
         if(colors is not { } known)return;
+        if(paintedFlagColors.TryGetValue(index,out var applied)&&applied==known)return;
         paintedFlagColors[index]=known;
         foreach(var sprite in flagParts[index].GetChildren().OfType<UiSourceSprite>())sprite.SetColors(known);
     }
@@ -333,8 +374,13 @@ internal partial class SceneryMapLabelView : Control
     private void ApplyFlagVisibility()
     {
         foreach(var (index,part) in flagParts)
-            part.Visible=paintedFlagColors.ContainsKey(index) &&
+        {
+            bool visible=paintedFlagColors.ContainsKey(index) &&
                 (index is not (3 or 6 or 7 or 11 or 12 or 16) || paintedShowOutline is true);
+            if(appliedFlagVisibility.TryGetValue(index,out bool applied)&&applied==visible)continue;
+            part.Visible=visible;
+            appliedFlagVisibility[index]=visible;
+        }
     }
 
     private static UiSourceLayout Layout(MapMarkerLayout source,

@@ -2,6 +2,7 @@
 #include "../../Runtime/PreparedFileInput.h"
 #include "../../Camera/CameraState.h"
 #include "OctreeAdmission.h"
+#include <optional>
 
 // Main source domains only. No GPU, alternate camera, source I/O per request,
 // shader override or claim that these direct stores prepare current lighting.
@@ -34,11 +35,17 @@ inline Profile loadProfile(const std::filesystem::path& path){
     if(in.peek()!=std::char_traits<char>::eof()||p.phaseDenominator==0)throw std::runtime_error("Far Main profile size/phase domain");return p;
 }
 inline Owner createOwner(const Profile& p){return {p.initialPriorCloudy,uint16_t(p.initialAppFlags),{1,1,1,1,1,1}};}
-inline CurrentRenderMode currentMode(Zoom zoom){
-    return {source_camera::classifyRenderMode(zoom),source_camera::A(float(zoom.band),source_camera::D(float(zoom.fraction),10000.f))};
+inline CurrentRenderMode currentMode(Zoom zoom,std::optional<uint32_t> actualMainMode=std::nullopt){
+    if(actualMainMode&&*actualMainMode>4)throw std::runtime_error("Current Main mode is outside the prepared0..4 display profile");
+    // Main17BD0's explicit App28C mode and ECB0 are separate source domains.
+    // Keep the real zoom index for phase/procedural consumers even when the
+    // accepted Main owner overrides the ordinary distance classification.
+    return {actualMainMode?int(*actualMainMode):source_camera::classifyRenderMode(zoom),
+        source_camera::A(float(zoom.band),source_camera::D(float(zoom.fraction),10000.f))};
 }
-inline Current prepareCurrent(const Profile& p,Owner& owner,Zoom zoom,const Prefix& actualRawCamera){
-    Current out;out.mode=currentMode(zoom);out.directPrefix=actualRawCamera;
+inline Current prepareCurrent(const Profile& p,Owner& owner,Zoom zoom,const Prefix& actualRawCamera,
+        std::optional<uint32_t> actualMainMode=std::nullopt){
+    Current out;out.mode=currentMode(zoom,actualMainMode);out.directPrefix=actualRawCamera;
     out.preparedWords=p.direct.at(out.mode.sceneMode);
     uint32_t cloudy=p.selectedCloudy;
     for(auto& word:out.preparedWords)if(word.offset==0x1D0)cloudy=word.bits;

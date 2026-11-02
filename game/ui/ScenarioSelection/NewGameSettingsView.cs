@@ -7,17 +7,32 @@ using San14.Data.Formats;
 /// until Main confirms the draft and performs its normal fresh initialization.</summary>
 internal partial class NewGameSettingsView : Control
 {
+    private sealed record Choice(string Text, bool Selected, bool Enabled, bool CanSelect);
+    private sealed class Row(int group, int index, int titleId, string title, int count)
+    {
+        internal readonly int Group = group, Index = index, TitleId = titleId;
+        internal readonly string Title = title;
+        internal Choice[] Choices = new Choice[count];
+        internal Action<int>? Choose;
+    }
+    private sealed record RowControls(Control Host, UiSourceText Title, UiSourceRadioButton[] Choices)
+    { internal Row? Model; }
     private readonly List<UiSourceTabButton> tabs = [];
-    private readonly List<Control> groups = [];
     private readonly List<UiSourceRadioButton> buttons = [];
     private readonly List<Action> refresh = [];
-    private readonly Dictionary<(int Group, int Row), UiSourceRadioButton[]> readOnlyButtons = [];
+    private readonly Dictionary<(int Group, int Row), Row> rows = [];
+    // Different choice counts have different authored widths/segments. Retain
+    // each encountered shape at its source row, then rebind it across groups.
+    private readonly Dictionary<(int Row, int Count), RowControls> pool = [];
     private readonly Dictionary<(int Group, int Row), NewGameConfirmationSetting> summary = [];
     internal IReadOnlyList<NewGameConfirmationSetting> CaptureConfirmationSettings() => summary
         .OrderBy(pair => pair.Key.Group).ThenBy(pair => pair.Key.Row).Select(pair => pair.Value).ToArray();
     private readonly Dictionary<Control, (int Group, int Row, int Choice)> helpSources = [];
     private UiSourceFixedHelp help = null!;
     private AdministrationMessages messages = null!;
+    private GameResourceRepository repository = null!;
+    private AdministrationPageChrome chrome = null!;
+    private UiSourceLayout layout = null!;
     private bool helpPending;
     private Action<NewGameOptions>? changed;
     private Func<bool>? admitted;
@@ -31,9 +46,10 @@ internal partial class NewGameSettingsView : Control
         Func<bool> admitted, Action<NewGameOptions> changed)
     {
         Publication = publication; Draft = publication.Draft;
+        this.repository = repository; this.chrome = chrome;
         this.admitted = admitted; this.changed = changed;
         Name = "OrdinaryNewGameSettings"; Size = new(1920, 1080); MouseFilter = MouseFilterEnum.Ignore;
-        var layout = new UiSourceLayout(repository, 0xA32D4D03);
+        layout = new UiSourceLayout(repository, 0xA32D4D03);
         var advice = new UiSourceLayout(repository, 0xD6361A53);
         Vector2 adviceMount = layout.Rectangle(1).Position;
         advice.Art(this, 1, advice.Rectangle(1, adviceMount), chrome.Assets, chrome.SpriteShader);
@@ -45,8 +61,6 @@ internal partial class NewGameSettingsView : Control
         for (int group = 0; group < 5; group++)
         {
             int index = group;
-            var pane = new Control { Name = "SettingsGroup" + group, Size = Size, MouseFilter = MouseFilterEnum.Ignore };
-            AddChild(pane); groups.Add(pane);
             Rect2 rectangle = tabLayout.Rectangle(group + 2, tabMount);
             var tab = new UiSourceTabButton { Name = "SettingsTab" + group, Position = rectangle.Position,
                 Size = rectangle.Size, InputAdmission = ReadAdmission };
@@ -101,39 +115,24 @@ internal partial class NewGameSettingsView : Control
         Add(publication.EnemyArmyInformation, options => options.EnemyArmyInformation,
             (options, value) => options with { EnemyArmyInformation = value }, publication.EnemyArmyInformationFor);
         foreach (var setting in publication.ReadOnlyRows)
-        {
-            var (row, rowSource) = CreateRow(setting.Group, setting.Row, setting.Title, setting.Choices.Count);
-            var rowButtons = new UiSourceRadioButton[setting.Choices.Count];
-            for (int index = 0; index < rowButtons.Length; index++)
-            {
-                var choice = setting.Choices[index];
-                var radio = CreateRadio(row, rowSource, setting.Group, setting.Row, index, setting.Choices.Count,
-                    choice.Text, static () => false, static () => { });
-                rowButtons[index] = radio;
-            }
-            readOnlyButtons.Add((setting.Group, setting.Row), rowButtons);
-        }
-        SelectGroup(0); Refresh();
+            rows.Add((setting.Group, setting.Row), new(setting.Group, setting.Row, setting.TitleMessageId,
+                setting.Title, setting.Choices.Count));
+        VisibilityChanged += PresentCurrentGroup;
+        Refresh(); SelectGroup(0);
 
         void Add<T>(NewGameSettingPreview<T> setting, Func<NewGameOptions, T?> read,
             Func<NewGameOptions, T, NewGameOptions> write,
             Func<NewGameOptions, NewGameSettingPreview<T>>? project = null) where T : struct
         {
-            var (row, rowSource) = CreateRow(setting.Group, setting.Row, setting.Title ?? text.Get("detail_unknown"), setting.Choices.Count);
-            var rowButtons = new UiSourceRadioButton[setting.Choices.Count];
+            var row = new Row(setting.Group, setting.Row, setting.TitleMessageId,
+                setting.Title ?? text.Get("detail_unknown"), setting.Choices.Count);
+            rows.Add((setting.Group, setting.Row), row);
             var current = setting;
-            for (int index = 0; index < rowButtons.Length; index++)
+            row.Choose = index =>
             {
-                int choiceIndex = index;
-                rowButtons[index] = CreateRadio(row, rowSource, setting.Group, setting.Row, index, rowButtons.Length,
-                    setting.Choices[index].Text ?? text.Get("detail_unknown"),
-                    () => ReadAdmission() && current.Choices[choiceIndex].CanSelect == true,
-                    () =>
-                    {
-                        if (!ReadAdmission() || current.Choices[choiceIndex].CanSelect != true) return;
-                        Draft = write(Draft, current.Choices[choiceIndex].Value); Refresh(); this.changed?.Invoke(Draft);
-                    });
-            }
+                if (!ReadAdmission() || current.Choices[index].CanSelect != true) return;
+                Draft = write(Draft, current.Choices[index].Value); Refresh(); this.changed?.Invoke(Draft);
+            };
             refresh.Add(() =>
             {
                 current = project?.Invoke(Draft) ?? setting;
@@ -142,47 +141,76 @@ internal partial class NewGameSettingsView : Control
                     EqualityComparer<T>.Default.Equals(item.Value, chosen))) value = current.EffectiveValue;
                 summary[(setting.Group, setting.Row)] = new(setting.TitleMessageId,
                     value.HasValue ? current.Choices.FirstOrDefault(choice => EqualityComparer<T>.Default.Equals(choice.Value, value.Value))?.Text : null);
-                for (int index = 0; index < rowButtons.Length; index++)
+                for (int index = 0; index < row.Choices.Length; index++)
                 {
                     var choice = current.Choices[index];
                     bool selected = value.HasValue && EqualityComparer<T>.Default.Equals(value.Value, choice.Value);
-                    rowButtons[index].Selected = selected;
-                    // Like the original read-only selection, a forced value
-                    // keeps its push artwork while the permission gate denies edits.
-                    rowButtons[index].Disabled = busy || choice.CanSelect != true && !selected;
+                    // A forced selected value retains its push artwork even
+                    // while the independent permission gate denies editing.
+                    row.Choices[index] = new(choice.Text ?? text.Get("detail_unknown"), selected,
+                        choice.CanSelect == true || selected, choice.CanSelect == true);
                 }
             });
         }
-
-        (Control Row, UiSourceLayout Source) CreateRow(int group, int index, string caption, int count)
-        {
-            var box = ScenarioSettingsSourceLayout.Row(layout, index);
-            var row = new Control { Name = $"Setting{group}_{index}", Position = box.Position,
-                Size = box.Size, MouseFilter = MouseFilterEnum.Pass };
-            groups[group].AddChild(row);
-            row.SetMeta("source_mount_index", ScenarioSettingsSourceLayout.RowMount(index));
-            var source = ScenarioSettingsSourceLayout.RadioRow(repository, count);
-            source.Art(row, 2, source.Rectangle(2), chrome.Assets, chrome.SpriteShader);
-            source.Text(row, 3, default, caption, chrome.Font);
-            BindHelp(row, group, index, 0);
-            return (row, source);
-        }
-
-        UiSourceRadioButton CreateRadio(Control row, UiSourceLayout source, int group, int index,
-            int ordinal, int count, string caption, Func<bool> admission, Action released)
-        {
-            Rect2 box = ScenarioSettingsSourceLayout.Radio(source, ordinal, count);
-            var radio = new UiSourceRadioButton { Name = $"SettingChoice{group}_{index}_{ordinal}",
-                Position = box.Position, Size = box.Size, InputAdmission = admission };
-            row.AddChild(radio); buttons.Add(radio);
-            var segment = ordinal == 0 ? UiSourceRadioSegment.Left : ordinal == count - 1 ?
-                UiSourceRadioSegment.Right : UiSourceRadioSegment.Centre;
-            radio.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, segment, caption, released);
-            BindHelp(radio, group, index, ordinal);
-            return radio;
-        }
     }
 
+    private RowControls CreateRow(Row model)
+    {
+        int count = model.Choices.Length;
+        var box = ScenarioSettingsSourceLayout.Row(layout, model.Index);
+        var host = new Control { Position = box.Position, Size = box.Size, MouseFilter = MouseFilterEnum.Pass };
+        AddChild(host);
+        host.SetMeta("source_mount_index", ScenarioSettingsSourceLayout.RowMount(model.Index));
+        var source = ScenarioSettingsSourceLayout.RadioRow(repository, count);
+        source.Art(host, 2, source.Rectangle(2), chrome.Assets, chrome.SpriteShader);
+        var title = source.Text(host, 3, default, "", chrome.Font);
+        var choices = new UiSourceRadioButton[count];
+        var control = new RowControls(host, title, choices);
+        BindHelp(host);
+        for (int index = 0; index < count; index++)
+        {
+            int ordinal = index;
+            Rect2 rectangle = ScenarioSettingsSourceLayout.Radio(source, index, count);
+            var button = new UiSourceRadioButton { Position = rectangle.Position, Size = rectangle.Size,
+                InputAdmission = () => CurrentRow(control) && control.Model!.Choices[ordinal].CanSelect };
+            host.AddChild(button); buttons.Add(button); choices[index] = button;
+            var segment = index == 0 ? UiSourceRadioSegment.Left : index == count - 1 ?
+                UiSourceRadioSegment.Right : UiSourceRadioSegment.Centre;
+            button.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, segment, "", () =>
+            {
+                if (CurrentRow(control) && control.Model!.Choices[ordinal].CanSelect)
+                    control.Model.Choose?.Invoke(ordinal);
+            });
+            BindHelp(button);
+        }
+        return control;
+    }
+    private bool CurrentRow(RowControls control) => ReadAdmission() && control.Host.IsVisibleInTree() &&
+        control.Model?.Group == CurrentGroup;
+    private void PresentCurrentGroup()
+    {
+        if (abandoned || !IsVisibleInTree() || layout is null) return;
+        foreach (var control in pool.Values)
+            if (control.Model?.Group != CurrentGroup) control.Host.Hide();
+        foreach (var model in rows.Values.Where(row => row.Group == CurrentGroup).OrderBy(row => row.Index))
+        {
+            var key = (model.Index, model.Choices.Length);
+            if (!pool.TryGetValue(key, out var control)) pool.Add(key, control = CreateRow(model));
+            control.Model = model;
+            control.Host.Name = $"Setting{model.Group}_{model.Index}";
+            control.Title.Text = model.Title;
+            helpSources[control.Host] = (model.Group, model.Index, 0);
+            for (int index = 0; index < control.Choices.Length; index++)
+            {
+                var button = control.Choices[index]; var choice = model.Choices[index];
+                button.Name = $"SettingChoice{model.Group}_{model.Index}_{index}";
+                button.Caption = choice.Text; button.Selected = choice.Selected;
+                button.Disabled = busy || !choice.Enabled;
+                helpSources[button] = (model.Group, model.Index, index);
+            }
+            control.Host.Show();
+        }
+    }
     private void ConfigureHelp(UiSourceLayout source, Vector2 mount, AdministrationPageChrome chrome)
     {
         Rect2 box = source.Rectangle(2, mount);
@@ -191,9 +219,8 @@ internal partial class NewGameSettingsView : Control
         help.Configure(chrome.Font, MapFontProfile.FromNode(source.Nodes[2], source.Source.Source.ResourceUri));
         help.Apply(messages.Format(0x2790));
     }
-    private void BindHelp(Control control, int group, int row, int choice)
+    private void BindHelp(Control control)
     {
-        helpSources.Add(control, (group, row, choice));
         control.MouseEntered += RequestHelpRefresh;
         control.MouseExited += RequestHelpRefresh;
     }
@@ -210,6 +237,7 @@ internal partial class NewGameSettingsView : Control
         int message = 0x2790;
         for (var hovered = GetViewport().GuiGetHoveredControl(); hovered is not null; hovered = hovered.GetParent() as Control)
         {
+            if (!hovered.IsVisibleInTree()) break;
             if (helpSources.TryGetValue(hovered, out var source))
             {
                 message = ScenarioSettingsSourceLayout.Help(source.Group, source.Row, source.Choice,
@@ -231,32 +259,33 @@ internal partial class NewGameSettingsView : Control
     private void SelectGroup(int group)
     {
         CurrentGroup = group;
-        for (int index = 0; index < groups.Count; index++) { groups[index].Visible = index == group; tabs[index].Selected = index == group; }
-        help.Apply(messages.Format(0x2790));
+        for (int index = 0; index < tabs.Count; index++) tabs[index].Selected = index == group;
+        PresentCurrentGroup(); help.Apply(messages.Format(0x2790));
     }
     private void Refresh()
     {
         foreach (var update in refresh) update();
         foreach (var setting in Publication.ReadOnlyRowsFor(Draft))
         {
-            var row = readOnlyButtons[(setting.Group, setting.Row)];
+            var model = rows[(setting.Group, setting.Row)];
             summary[(setting.Group, setting.Row)] = new(setting.TitleMessageId,
                 setting.Choices.FirstOrDefault(choice => choice.RadioIndex == setting.SelectedRadioIndex)?.Text);
-            for (int index = 0; index < row.Length; index++)
+            for (int index = 0; index < model.Choices.Length; index++)
             {
-                bool selected = setting.SelectedRadioIndex == setting.Choices[index].RadioIndex;
-                row[index].Selected = selected; row[index].Disabled = busy || !selected;
+                var choice = setting.Choices[index]; bool selected = setting.SelectedRadioIndex == choice.RadioIndex;
+                model.Choices[index] = new(choice.Text, selected, selected, false);
             }
         }
-        RequestHelpRefresh();
+        PresentCurrentGroup(); RequestHelpRefresh();
     }
     internal void SetBusy(bool value)
     { busy = value; foreach (var tab in tabs) tab.Disabled = value; Refresh(); }
     internal void Abandon()
     {
-        abandoned = true; changed = null; admitted = null; refresh.Clear(); helpSources.Clear(); readOnlyButtons.Clear(); summary.Clear();
+        abandoned = true; changed = null; admitted = null; refresh.Clear(); helpSources.Clear(); rows.Clear(); summary.Clear();
+        VisibilityChanged -= PresentCurrentGroup;
         foreach (var button in buttons) { button.InputAdmission = null; button.Abandon(); }
         foreach (var tab in tabs) { tab.InputAdmission = null; tab.Disabled = true; }
-        Hide();
+        pool.Clear(); Hide();
     }
 }

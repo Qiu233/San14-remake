@@ -9,9 +9,6 @@ public partial class Main
     private GameplaySession? _incomeReportSession;
     private CampaignApplicationState? _incomeReportApplication;
     private MapSceneView? _incomeReportMap;
-    private UiAssets? _incomeReportAssets;
-    private MapFont? _incomeReportFont;
-    private Shader? _incomeReportShader;
     private Action? _incomeReportCompleted;
     private MapInformationListView? _incomeReportDetails;
     private CityDetailsView? _incomeReportCity;
@@ -35,12 +32,11 @@ public partial class Main
         _incomeReportView = view;
         try
         {
-            _incomeReportAssets = new(_repository); _incomeReportFont = new(_repository, _ui.SourceLocale);
-            _incomeReportShader = UiSourceSprite.CreateShader();
             AddChild(view);
+            var resources = TryBorrowApplicationUiResources(view);
             RetirePeriodReportView();
             EnsureReportBackground(session, application, _incomeReportMap, view);
-            view.Configure(_repository, _incomeReportAssets, _incomeReportShader, _incomeReportFont,
+            view.Configure(_repository, resources.Assets, resources.SpriteShader, resources.Font,
                 _ui.SourceLocale, source.Current, source.Force, Numbers, Advice, null, false,
                 showDetails: district => OpenIncomeReportDetails(view, rules, source, district),
                 showGraph: graph is null ? null : _ => view.ToggleGraph(), () => IncomeReportInputAdmitted(view),
@@ -195,9 +191,6 @@ public partial class Main
             if (!view.IsQueuedForDeletion()) view.QueueFree();
         }
         _incomeReportNumbers.Clear();
-        _incomeReportFont?.Dispose(); _incomeReportFont = null;
-        _incomeReportAssets?.Dispose(); _incomeReportAssets = null;
-        _incomeReportShader?.Dispose(); _incomeReportShader = null;
         if (!HasActionReport) CloseReportBackground();
     }
 }

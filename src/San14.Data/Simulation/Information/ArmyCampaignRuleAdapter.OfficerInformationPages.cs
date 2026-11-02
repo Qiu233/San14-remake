@@ -53,10 +53,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly bool? rowPaletteEnabled;
         private readonly Lazy<SourceWorldContext> captured;
         internal SourceWorldContext current => captured.Value;
+        private readonly NewGameOfficerListInputs? prestartListInputs;
         private CityDomesticPersonCellSource? cells;
         private CityDomesticPersonCellSource Cells => cells ??= new(state, current, rules._definitions,
             rules._governorInputs, rules._scenario, rules._repository, rules.Seed.Language,
-            rules.ReadApplicationGameplay()?.UserSelectionServicePresent);
+            rules.ReadApplicationGameplay()?.UserSelectionServicePresent, prestartListInputs);
         private TacticRemakeCurrentAbilities? abilities;
         private TacticRemakeCurrentAbilities Abilities => abilities ??= new(current, rules._scenario,
             rules.Seed.Language, SimulationRuleIdentity.ForLocale(rules.Seed.Language));
@@ -64,13 +65,22 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly Dictionary<(int Person, int Column), PreparedCell> prepared = [];
 
         internal OfficerInformationCurrent(ArmyCampaignRuleAdapter rules, GameState state, int playerForceId,
-            bool? rowPaletteEnabled = null, SourceWorldContext? retainedCurrent = null)
+            bool? rowPaletteEnabled = null, SourceWorldContext? retainedCurrent = null, bool bindGameplayInputs = true, NewGameOfficerAbilityProducer? prestartAbilities = null)
         {
             this.rules = rules; this.state = state; this.playerForceId = playerForceId;
             this.rowPaletteEnabled = rowPaletteEnabled;
+            if (!bindGameplayInputs)
+                prestartListInputs = rules.CreateNewGameOfficerListInputs(state,
+                    retainedCurrent ?? throw Missing("normal-load.retained-current"),
+                    prestartAbilities ?? throw Missing("normal-load.ability-inputs"));
+            newGameAbilityProducer = prestartAbilities;
             captured = new(() =>
             {
                 var result = retainedCurrent ?? rules.CaptureDeploymentPersonSelectionCurrent(state);
+                //A pre-start caller lends its real normal-load Person owner.
+                //Its clock, Army lifecycle and ability banks do not exist yet;
+                //do not create them just to display the common Person columns.
+                if (!bindGameplayInputs) return result;
                 result.RestoreOwnedArmyReturnSlots(state, state.ReadArmyLifecycle() ?? throw Missing("army_lifecycle"));
                 ForceUnregisterInputs.BindCurrent(state, result);
                 OwnedArmyReturnServiceInputs.BindCurrent(state, result);

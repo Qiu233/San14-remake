@@ -32,7 +32,7 @@ internal partial class TalentOrdersView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text, TalentOrderKind kind,
         Func<bool> admitted, Action returned, Action accepted, Action continued, Action chooseTarget, Action chooseExecutors,
-        Action<int> chooseRecruitMode,Action automaticRequested)
+        Action<int> chooseRecruitMode,Action automaticRequested, AdministrationPageChrome.Resources? resources = null)
     {
         this.text = text; this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         this.continued=continued;
@@ -45,7 +45,7 @@ internal partial class TalentOrdersView : Control
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, search ? 0x0276 : 0x0277, RequestBack,
-            () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); },threeButtonFooter:true);
+            () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); },threeButtonFooter:true, resources: resources);
         var footer=new UiSourceLayout(repository,0xD8913AB2);
         continueOrders=new() { Name="ContinueTalentOrders",Position=footer.Rectangle(3,new(0,904)).Position,
             ActionMode=BaseButton.ActionModeEnum.Release,InputAdmission=ReadAdmission,Disabled=true };
@@ -63,10 +63,9 @@ internal partial class TalentOrdersView : Control
                 ()=>{if(ReadAdmission())this.automaticRequested?.Invoke();});
         }
         Vector2 mount = search ? new(434, 272) : new(434, 119);
-        int[] replaced = search ? [5, 27, 105] : [7, 82, 151, 155, 159, 177];
-        foreach (var node in source.Nodes)
+        foreach (int index in PageNodeIndices(source, search))
         {
-            if (InsideReplacement(node.Index)) continue;
+            var node = source.Nodes[index];
             if (node.Type is 1 or 3) source.Art(chrome.Canvas, node.Index, source.Rectangle(node.Index, mount), chrome.Assets, chrome.SpriteShader);
             else if (node.Type == 6) source.Blur(chrome.Canvas, node.Index, source.Rectangle(node.Index, mount));
         }
@@ -108,12 +107,6 @@ internal partial class TalentOrdersView : Control
         SetMeta("source_layout", source.Source.Source.ResourceUri);
         SetBusy(false);
 
-        bool InsideReplacement(int index)
-        {
-            for (int? parent = index; parent is int current; parent = source.Nodes[current].ParentIndex)
-                if (replaced.Contains(current)) return true;
-            return false;
-        }
         UiSourceText Value(int node) => source.Text(chrome.Canvas, node, mount, "", chrome.Font);
         void Label(int node,int message) => source.Text(chrome.Canvas,node,mount,Message(message),chrome.Font);
         AreaAdministrationOfficerView Officer(int node, Action choose)
@@ -122,6 +115,20 @@ internal partial class TalentOrdersView : Control
             chrome.Canvas.AddChild(card);
             card.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, text, choose, chrome.Canvas);
             card.SetMeta("source_mount_node", node); return card;
+        }
+    }
+
+    // CPU preparation and presentation consume the same authored panes.
+    // Replaced subtrees belong to their dedicated live controls.
+    internal static IEnumerable<int> PageNodeIndices(UiSourceLayout source, bool search)
+    {
+        int[] replaced = search ? [5, 27, 105] : [7, 82, 151, 155, 159, 177];
+        foreach (var node in source.Nodes)
+        {
+            bool insideReplacement = false;
+            for (int? parent = node.Index; parent is int current; parent = source.Nodes[current].ParentIndex)
+                if (replaced.Contains(current)) { insideReplacement = true; break; }
+            if (!insideReplacement) yield return node.Index;
         }
     }
 

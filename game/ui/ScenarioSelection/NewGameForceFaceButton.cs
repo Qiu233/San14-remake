@@ -4,7 +4,7 @@ using San14.Data;
 // The row's force and the ruler's current force are distinct source owners.
 // The list paints selection by Person identity and activates the latter force.
 internal sealed record NewGameForceFaceContent(int ForceId, int RulerId,
-    int? SelectionForceId, LoadedSprite? Portrait);
+    int? SelectionForceId, LoadedUiSpriteSource? Portrait);
 
 /// <summary>The original startup Face1 button. All five states share one
 /// resolved portrait; masks and the authored overhanging geometry stay intact.</summary>
@@ -18,7 +18,7 @@ internal partial class NewGameForceFaceButton : UiSourceButton
     private GameResourceRepository repository = null!;
     private UiAssets assets = null!;
     private Shader shader = null!;
-    private LoadedSprite? currentPortrait;
+    private LoadedUiSpriteSource? currentPortrait;
     private Action<int?>? hovered;
     private Action<int>? activated;
     internal NewGameForceFaceContent? Content { get; private set; }

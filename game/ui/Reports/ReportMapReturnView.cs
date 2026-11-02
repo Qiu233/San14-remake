@@ -9,20 +9,17 @@ internal partial class ReportMapReturnView : Control
     private Control canvas = null!;
     private UiSourceHeader? title;
     private UiSourceReportFooter? footer;
-    private UiAssets? assets;
-    private MapFont? font;
-    private Shader? shader;
     private Action? returned;
 
     internal void Configure(GameResourceRepository repository, string locale,
-        UiSourceHeaderStack headers, Action returned)
+        UiSourceHeaderStack headers, Action returned, AdministrationPageChrome.Resources resources)
     {
         this.returned = returned;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
         canvas = new Control { Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
         AddChild(canvas);
-        assets = new UiAssets(repository); font = new MapFont(repository, locale); shader = UiSourceSprite.CreateShader();
+        var assets = resources.Assets; var font = resources.Font; var shader = resources.SpriteShader;
         footer = new UiSourceReportFooter { Name = "ReturnToReport" };
         canvas.AddChild(footer);
         footer.Configure(repository, assets, shader, locale, false, RequestBack,
@@ -64,8 +61,5 @@ internal partial class ReportMapReturnView : Control
     public override void _ExitTree()
     {
         returned = null;
-        font?.Dispose(); font = null;
-        assets?.Dispose(); assets = null;
-        shader?.Dispose(); shader = null;
     }
 }

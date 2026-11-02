@@ -87,17 +87,19 @@ public sealed partial record GameState
 
 internal static class RulerDecisionContinuationValidation
 {
-    internal static void Validate(GameState state)
+    internal static void Validate(GameState state, CampaignOperationWorldContext? operationContext = null)
     {
-        NormalCombatImmediateContinuationValidation.Validate(state);
-        DuelAftermathContinuationValidation.Validate(state);
-        BaseCaptureContinuationValidation.Validate(state);
+        NormalCombatImmediateContinuationValidation.Validate(state, operationContext);
+        DuelAftermathContinuationValidation.Validate(state, operationContext);
+        BaseCaptureContinuationValidation.Validate(state, operationContext);
         ManualTacticExecutionContinuationValidation.Validate(state);
         if (state.ArmyDefeatContinuation is { } defeat)
         {
-            bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } &&
+            bool immediate = (state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } ||
+                operationContext?.Moment is { SchedulerStageIndex: 13 }) &&
                 state.NormalCombatImmediateContinuation is not null ||
-                state.NativePeriodContinuation?.Cursor is { StageIndex: 5 } && state.DuelAftermathContinuation is not null ||
+                (state.NativePeriodContinuation?.Cursor is { StageIndex: 5 } ||
+                    operationContext?.Moment is { SchedulerStageIndex: 5 }) && state.DuelAftermathContinuation is not null ||
                 state.ManualTacticExecutionContinuation is not null;
             if ((immediate ? defeat.SettlementIndex != -1 : defeat.SettlementIndex < 0) ||
                 defeat.Defeat is null || defeat.Defeat.VictimUnitId <= 0 ||

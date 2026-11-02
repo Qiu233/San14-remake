@@ -28,27 +28,39 @@ public partial class Main
         var selectionRules = composition.PrepareArmyQueries(owner);
         var selection = PrepareDetailSelection(selectionRules, owner, InformationListKind.Officers, officer, selectionIds)
             with { InitialNameSortAscending = initialNameSortAscending };
-        bool Admitted() => !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, current) &&
+        bool Admitted() => !_failed && !_shuttingDown && !IsReturningToTitle &&
+            IsInspectionWorldCurrent(session, current) &&
             ReferenceEquals(_residentMap, map) && hostCurrent();
-        Action<int>? priority = session.PlayerForceId is int player ? choice => RunUiAction(() =>
+        Action<int>? priority = session.PlayerForceId is int player ? choice => RunInspectionUiAction(current, () =>
         {
-            if (!Admitted() || session.HasPendingOperation) return;
+            if (!Admitted() || (!_advancingPeriod && session.HasPendingOperation)) return;
             var before = current;
-            var result = session.Issue(new SetOfficerPriorityOrder(player, currentOfficer, choice), new(_presentationRandom.State));
+            bool duringPeriod = _advancingPeriod;
+            var order = new SetOfficerPriorityOrder(player, currentOfficer, choice);
+            var result = duringPeriod ? session.ApplyBorrowedOfficerPriority(current, order)
+                : session.Issue(order, new(_presentationRandom.State));
             if (!result.Accepted)
             {
                 _playMessage.Text = _ui.Format("play_order_rejected", result.MissingRuleKey is { } missing
                     ? _ui.CommandError(missing) : result.ErrorCode is { } code ? _ui.CommandError(code) : result.Error ?? "?");
                 return;
             }
-            current = session.World;
-            // The details host and its parent must adopt the actual accepted
-            // world before ordinary map refresh checks their lifetimes.
-            if (ReferenceEquals(_commandDetailsWorld, before)) _commandDetailsWorld = current;
+            current = result.State!;
+            // The checkpoint's owner, all retained inspectors and their real
+            // sequence publications adopt one accepted result before returning.
+            if (duringPeriod)
+            {
+                if (!TryAdoptPeriodMenuWorld(before, current))
+                    throw new InvalidOperationException("The officer inspector's period borrow has retired.");
+                AdoptCommandDetailsSpeechWorld(session, before, current);
+            }
+            else if (ReferenceEquals(_commandDetailsWorld, before)) _commandDetailsWorld = current;
             adoptWorld?.Invoke(current);
-            if (current.CampaignAppRandom32 is { } random) _presentationRandom.InstallCommittedState(random.State);
-            SynchronizeApplicationCrtRandom(current);
+            if (!duringPeriod)
+            {
+                if (current.CampaignAppRandom32 is { } random) _presentationRandom.InstallCommittedState(random.State);
+                SynchronizeApplicationCrtRandom(current);
+            }
             _playMessage.Text = _ui.Get("play_order_accepted");
             var updated = composition.PrepareArmyQueries(current).QueryOfficerDetail(current, player, currentOfficer);
             if (updated.Available && updated.Value is { } next) view.ApplyCurrent(next);
@@ -58,7 +70,7 @@ public partial class Main
                 GD.PushWarning(updated.UnresolvedInput ?? "officer-detail.after_priority");
                 _playMessage.Text = _ui.Get("detail_unknown");
             }
-            RefreshCurrentPlayWorld();
+            if (!duringPeriod) RefreshCurrentPlayWorld();
         }) : null;
         view.Configure(_repository!, publication, _ui, () =>
         {
@@ -66,12 +78,12 @@ public partial class Main
             returnSelection?.Invoke(view.ReadSelectionReturn());
             close();
         }, Admitted, priority,
-            selection: selection, select: id => RunUiAction(() =>
+            selection: selection, select: id => RunInspectionUiAction(current, () =>
             {
-                if (!Admitted() || session.HasPendingOperation) return;
+                if (!Admitted() || (!_advancingPeriod && session.HasPendingOperation)) return;
                 var next = ReadCurrentOfficerDetail(current, id);
                 view.SelectCurrent(next);
                 currentOfficer = id;
-            }));
+            }), resources: TryBorrowApplicationUiResources(view));
     }
 }

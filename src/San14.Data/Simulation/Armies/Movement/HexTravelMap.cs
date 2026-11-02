@@ -15,13 +15,13 @@ public sealed class HexTravelMap : IHexTravelMap
     {
         ArgumentNullException.ThrowIfNull(loaded);
         _map = loaded.Map;
-        if (_map.Width != 220 || _map.Height != 220 || _map.Cells.Length != 48400)
-            throw new InvalidDataException("The inspected original hex-neighborhood profile requires a 220x220 map.");
+        if (_map.Width < 1 || _map.Height < 1 || (long)_map.Width * _map.Height != _map.Cells.Length)
+            throw new InvalidDataException("Hex travel map dimensions do not cover its cells.");
         MapSha256 = loaded.Source.Sha256;
     }
 
     public IReadOnlyList<int> RadiusOneCandidates(int hexId) =>
-        HexNeighborhood.RadiusOneCandidates(hexId);
+        HexNeighborhood.RadiusOneCandidates(hexId, Width, Height);
 
     public byte SurfaceCode(int hexId) => Cell(hexId).SurfaceCode;
 

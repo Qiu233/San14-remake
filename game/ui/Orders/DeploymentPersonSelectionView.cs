@@ -11,11 +11,17 @@ internal partial class DeploymentPersonSelectionView : Control
 {
     internal bool IsSelectionActive => _close is not null && !IsQueuedForDeletion() &&
         IsInsideTree() && IsVisibleInTree() && CanProcess();
+    private sealed class RowDisplay(UiSourcePersonRow row)
+    {
+        internal UiSourcePersonRow Row { get; } = row;
+        internal DeploymentPersonListEntry? Entry;
+    }
     private sealed class PersonPage(IReadOnlyList<DeploymentPersonColumn> columns)
     {
         internal IReadOnlyList<DeploymentPersonColumn> Columns { get; } = columns;
         internal Control? Body;
-        internal readonly List<(DeploymentPersonListEntry Entry, UiSourcePersonRow Row)> Rows = [];
+        internal Dictionary<int,DeploymentPersonListEntry> Entries = [];
+        internal readonly List<RowDisplay> Rows = [];
         internal readonly Dictionary<int,UiSourceColumnButton> Headers = [];
         internal readonly Dictionary<int,bool> NextAscending = [];
         internal int? ActiveColumn;
@@ -32,6 +38,7 @@ internal partial class DeploymentPersonSelectionView : Control
     private UiAssets? _assets;
     private MapFont? _font;
     private Shader? _shader;
+    private bool _ownsResources;
     private Control _canvas = null!;
     private UiSourceHeader _sourceHeader = null!;
     private Action<IReadOnlyList<int>?>? _close;
@@ -74,7 +81,7 @@ internal partial class DeploymentPersonSelectionView : Control
         Func<IReadOnlyList<DeploymentPersonSortRow>,int,bool,DeploymentPersonOrderQuery>? traitOrder = null,
         Func<int>? currentScrollSpeed = null,
         Func<IReadOnlyList<int>,bool>? selectionAdmission = null,
-        UiSourceCommonBlur? commonBackdrop = null)
+        UiSourceCommonBlur? commonBackdrop = null, AdministrationPageChrome.Resources? resources = null)
     {
         if (maximum is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(maximum));
         _repository=repository; _text=text; _basicEntries=entries;
@@ -98,16 +105,18 @@ internal partial class DeploymentPersonSelectionView : Control
         }
         else
         {
-            _commonBackdrop = new UiSourceCommonBlur(); AddChild(_commonBackdrop); _commonBackdrop.Configure(repository);
+            _commonBackdrop = new UiSourceCommonBlur(); AddChild(_commonBackdrop); _commonBackdrop.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
         }
-        _assets=new(repository); _font=new(repository,text.SourceLocale); _shader=UiSourceSprite.CreateShader();
+        _ownsResources=resources is null;
+        _assets=resources?.Assets??new(repository);_font=resources?.Font??new(repository,text.SourceLocale);
+        _shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         _selectCaption=Message(0x003A); _clearCaption=Message(0x003B); _checkGlyph=Message(0x0628);
         _canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};
         AddChild(_canvas);
         _sourceHeader=new UiSourceHeader {Name="PersonSelectionTitle"};
         _canvas.AddChild(_sourceHeader);
         _sourceHeader.Configure(repository,_assets,_shader,_font,Message(0x032E));
-        var shell=new UiSourceLayout(repository,0xA3B4A82E);
+        var shell=_assets.SourceLayout(0xA3B4A82E);
         shell.Blur(_canvas,2,shell.Rectangle(2,new(191,147)));
         shell.Art(_canvas,3,shell.Rectangle(3,new(191,147)),_assets,_shader);
         int[] tabs=[0x03CD,0x022B,0x0235,0x03DD,0x03DE,0x023D];
@@ -150,7 +159,9 @@ internal partial class DeploymentPersonSelectionView : Control
     private void BuildPage(int index,IReadOnlyList<DeploymentPersonListEntry> entries,IReadOnlyList<string>? captions=null)
     {
         var page=_pages[index];
-        var body=new Control {Name="PersonPage"+index,Size=_canvas.Size,MouseFilter=MouseFilterEnum.Ignore};
+        page.Entries=entries.ToDictionary(entry=>entry.OfficerId);
+        var body=new Control {Name="PersonPage"+index,Size=_canvas.Size,MouseFilter=MouseFilterEnum.Ignore,
+            Visible=index==_activePage};
         _canvas.AddChild(body); page.Body=body;
         int columnX=213;
         Header(-1,_checkGlyph,48);
@@ -161,18 +172,24 @@ internal partial class DeploymentPersonSelectionView : Control
         }
         var clip=new Control {Name="PersonListViewport",Position=new(213,264),Size=new(1464,596),
             ClipContents=true,MouseFilter=MouseFilterEnum.Pass};
-        body.AddChild(clip); clip.GuiInput+=_scroll.HandleWheel;
-        var byId=entries.ToDictionary(entry=>entry.OfficerId);
-        foreach(int id in _orderedIds)
+        body.AddChild(clip);
+        clip.GuiInput+=input=>{if(IsSelectionActive&&index==_activePage)_scroll.HandleWheel(input);};
+        //596 visible pixels span at most14 rows when the scroll starts
+        //between48-pixel boundaries. The complete data/order remains above.
+        for(int slot=0;slot<Math.Min(14,_orderedIds.Count);slot++)
         {
-            var entry=byId[id];
-            var row=new UiSourcePersonRow {Name="PersonRow"+page.Rows.Count};
+            var row=new UiSourcePersonRow {Name="PersonRow"+slot};
+            var display=new RowDisplay(row);
+            row.InputAdmission=()=>IsSelectionActive&&index==_activePage&&display.Entry is not null;
             clip.AddChild(row);
-            row.Configure(_repository,_assets!,_shader!,_font!,_checkGlyph,page.Columns,entry.Cells);
-            page.Rows.Add((entry,row)); row.GuiInput+=_scroll.HandleWheel;
+            row.Configure(_repository,_assets!,_shader!,_font!,_checkGlyph,page.Columns,
+                page.Columns.Select(_=>new DeploymentPersonCell("")).ToArray());
+            page.Rows.Add(display);
+            row.GuiInput+=input=>{if(IsSelectionActive&&index==_activePage)_scroll.HandleWheel(input);};
             row.Pressed+=()=>
             {
-                if(_close is null || index!=_activePage || row.Disabled)return;
+                if(!IsSelectionActive||index!=_activePage||display.Entry is not {} entry||row.Disabled)return;
+                int id=entry.OfficerId;
                 bool changed=_selected.Remove(id);
                 if(!changed&&_selected.Count<_maximum){_selected.Add(id);changed=true;}
                 RefreshSelection(selectedChanged:changed);
@@ -185,7 +202,7 @@ internal partial class DeploymentPersonSelectionView : Control
             bool queryMissing=id!=-1 && (index==0 || id==0 ? _order is null : index switch
                 {1=>_formationOrder is null,2=>_linkageOrder is null,3 or 4=>_tacticOrder is null,_=>_traitOrder is null});
             var header=new UiSourceColumnButton {Name="PersonHeader"+id,Position=new(columnX,214),
-                Size=new(width,48),Disabled=queryMissing};
+                Size=new(width,48),Disabled=queryMissing,InputAdmission=()=>IsSelectionActive&&index==_activePage};
             body.AddChild(header); header.Configure(_repository,_assets!,_shader!,_font!,caption,personList:true);
             page.Headers.Add(id,header); header.Pressed+=()=>{if(index==_activePage)Sort(id);};
             columnX+=width;
@@ -222,7 +239,7 @@ internal partial class DeploymentPersonSelectionView : Control
             }
         }
         _pages[_activePage].Body!.Hide();
-        _activePage=index; page.Body!.Show();
+        _activePage=index; PositionRows(); page.Body!.Show();
         // Each body has the same rows and range; sharing the actual scrollbar
         // transfers the leaving page's offset without a reset or another sort.
         foreach(var row in page.Rows)row.Row.ReleaseFocus();
@@ -240,13 +257,8 @@ internal partial class DeploymentPersonSelectionView : Control
         if(page.Body is null)BuildPage(2,content.Entries,content.Captions);
         else
         {
-            var byId=content.Entries.ToDictionary(entry=>entry.OfficerId);
-            for(int i=0;i<page.Rows.Count;i++)
-            {
-                var (previous,row)=page.Rows[i];
-                var entry=byId[previous.OfficerId];
-                row.ApplyCells(entry.Cells);page.Rows[i]=(entry,row);
-            }
+            page.Entries=content.Entries.ToDictionary(entry=>entry.OfficerId);
+            PositionRows();
             for(int i=0;i<content.Captions.Count;i++)page.Headers[212+i].ApplyCaption(content.Captions[i]);
         }
         _linkageDirty=false;RefreshSelection();return true;
@@ -278,12 +290,8 @@ internal partial class DeploymentPersonSelectionView : Control
     {
         if(selectedChanged){_linkageDirty=true;SelectionChangedSequence++;}
         foreach(var page in _pages)
-            foreach(var (entry,row) in page.Rows)
-            {
-                row.Selected=_selected.Contains(entry.OfficerId);
-                row.Disabled=entry.Disabled || !row.Selected && _selected.Count>=_maximum;
-                row.QueueRedraw();
-            }
+            foreach(var display in page.Rows)
+                ApplyRowSelection(display);
         int enabledCount=_basicEntries.Count(entry=>!entry.Disabled);
         _selectAll.Disabled=enabledCount==0;
         _selectAll.ApplyCaption(enabledCount==0 || _selected.Count<_maximum && _selected.Count<enabledCount ? _selectCaption : _clearCaption);
@@ -332,12 +340,6 @@ internal partial class DeploymentPersonSelectionView : Control
             ?? new(null,"deployment.person-traits.unavailable");
         if(!result.Available){_unavailable?.Invoke(result.UnresolvedInput!);return;}
         _orderedIds.Clear();_orderedIds.AddRange(result.OfficerIds!);
-        foreach(var body in _pages.Where(item=>item.Body is not null))
-        {
-            var byId=body.Rows.ToDictionary(item=>item.Entry.OfficerId);
-            var reordered=_orderedIds.Select(id=>byId[id]).ToArray();
-            body.Rows.Clear();body.Rows.AddRange(reordered);
-        }
         PositionRows();
         if(columnId==-1)_nextCheckAscending=!ascending;
         else page.NextAscending[columnId]=!ascending;
@@ -356,8 +358,38 @@ internal partial class DeploymentPersonSelectionView : Control
 
     private void PositionRows()
     {
+        int first=_scroll.Value/48;
         foreach(var page in _pages)
-            for(int i=0;i<page.Rows.Count;i++)page.Rows[i].Row.Position=new(0,i*48-_scroll.Value);
+            for(int slot=0;slot<page.Rows.Count;slot++)
+            {
+                var display=page.Rows[slot];var row=display.Row;
+                int index=first+slot;
+                if(index>=_orderedIds.Count)
+                {
+                    display.Entry=null;row.Disabled=true;row.Hide();
+                    continue;
+                }
+                var entry=page.Entries[_orderedIds[index]];
+                if(!ReferenceEquals(display.Entry,entry))
+                {
+                    //BaseButton disables cancel its existing press attempt.
+                    //A down on the previous officer must not select the new
+                    //officer when a wheel/sort rebind happens before release.
+                    display.Entry=null;row.Disabled=true;
+                    row.ApplyCells(entry.Cells);
+                    display.Entry=entry;
+                }
+                row.Position=new(0,index*48-_scroll.Value);
+                ApplyRowSelection(display);row.Show();
+            }
+    }
+    private void ApplyRowSelection(RowDisplay display)
+    {
+        if(display.Entry is not {} entry)return;
+        var row=display.Row;
+        row.Selected=_selected.Contains(entry.OfficerId);
+        row.Disabled=entry.Disabled || !row.Selected && _selected.Count>=_maximum;
+        row.QueueRedraw();
     }
     private void Fit()
     {
@@ -365,5 +397,5 @@ internal partial class DeploymentPersonSelectionView : Control
         _canvas.Scale=Vector2.One*factor;
         _canvas.Position=(Size-new Vector2(1920,1080)*factor)/2;
     }
-    public override void _ExitTree(){_commonBackdrop=null;_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}
+    public override void _ExitTree(){_commonBackdrop=null;if(_ownsResources){_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}}
 }

@@ -174,6 +174,17 @@ public static class TransferService
     {
         ArgumentNullException.ThrowIfNull(queries);
         ArgumentNullException.ThrowIfNull(state);
+        if (!HasPersonnelMilestoneReached(queries)) return false;
+        CompletePersonnelMilestone(queries, state);
+        return true;
+    }
+
+    //The owned return/capture adapter opens a profile operation only after
+    //this actual count succeeds. Ordinary below-threshold transfers need no
+    //service bitmap, clock or platform writer.
+    internal static bool HasPersonnelMilestoneReached(ITransferServiceQueries queries)
+    {
+        ArgumentNullException.ThrowIfNull(queries);
         if (!Known(queries.ReadTransferServiceEligibility(), "refresh eligibility")) return false;
         ForceReference player = queries.ReadCurrentPlayerForce()
             ?? throw new InvalidDataException("Current transfer service player force pointer is unknown.");
@@ -193,12 +204,17 @@ public static class TransferService
             byte force = Known(queries.ReadPersonCurrentRawForceSlot(physical), $"person {physical} current raw force");
             if (force == playerPhysical) count++;
         }
-        if (count < 200) return false;
+        return count >= 200;
+    }
+
+    //The same current query has already reached the personnel-count branch.
+    //Keep the original flag17, completion scan and flag0 order.
+    internal static void CompletePersonnelMilestone(IServiceFlagQueries queries, ITransferServiceState state)
+    {
         SetFlag(17, queries, state);
         for (int bit = 1; bit <= 37; bit++)
-            if (!Known(state.ReadPrimaryFlag(bit), $"current completion bit {bit}")) return true;
+            if (!Known(state.ReadPrimaryFlag(bit), $"current completion bit {bit}")) return;
         SetFlag(0, queries, state);
-        return true;
     }
 
     /// <summary>3EFEB0(index,1,0). No platform action is assumed absent and no clock is invented.</summary>

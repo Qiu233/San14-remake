@@ -14,6 +14,15 @@ public partial class MapSceneView
     private int informationStyle;
     private static bool InformationDeveloperMenuEnabled=>System.Environment.GetEnvironmentVariable("SAN14_DEVELOPER_WORKSPACE")=="1";
     private static bool InformationCategoryVisible(byte flags)=>(flags&1)!=0||(flags&2)==0&&(flags&4)!=0;
+    private uint? informationSelectionMask;
+    internal event Action<uint>? InformationLayersChanged;
+    // These are the user's persistent choices. Temporary category forcing by
+    // selectors and reports does not rewrite the ordinary toolbar's checks.
+    internal uint InformationLayerSelectionMask =>
+        (informationNeighbors?1u:0u)|(informationStyle==0?2u:0u)|(informationStyle==1?4u:0u)|
+        (_mapPresentation is not null&&(_mapPresentation.Policy.Flags15&4)!=0?8u:0u)|
+        (_mapPresentation is not null&&(_mapPresentation.Policy.Category16&4)!=0?16u:0u)|
+        (_keyboardArmyInformationVisible?32u:0u);
     internal int InformationTerritoryStyle => chronologyOwner is not null?0:informationStyle;
 
     internal void SetInformationLayerQuery(Func<GameState,MapInformationLayerSnapshot> query)
@@ -78,6 +87,9 @@ public partial class MapSceneView
     private void RefreshInformationMenu()
     {
         informationDiplomacy=_mapPresentation is not null&&InformationCategoryVisible(_mapPresentation.Policy.Flags15);
+        uint selected=InformationLayerSelectionMask;
+        if(informationSelectionMask!=selected)
+        {informationSelectionMask=selected;InformationLayersChanged?.Invoke(selected);}
         if(informationMenu is null)return;
         var popup=informationMenu.GetPopup();
         foreach(int action in new[]{17,18,19,20,21,22})

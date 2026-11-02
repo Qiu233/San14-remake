@@ -5,12 +5,15 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private bool _advancingPeriod;
+    private bool _periodReplyOnly;
     private Task? _periodAdvanceTask;
     private CancellationTokenSource? _periodAdvanceCancellation;
     private Control? _periodAdvanceOverlay;
     private CampaignPeriodPlayback? _periodPlayback;
     private MapSceneView? _periodPlaybackMap;
     private int _periodPlaybackSpeed = 1;
+    private GameplaySession? _periodProgressSession;
+    private CampaignProgressFrameAdmission? _periodProgressAdmission;
     private void ActivateForceHudAdvance()
     {
         if(_advancingPeriod)TryTogglePeriodPlayback();
@@ -19,11 +22,22 @@ public partial class Main
 
     private bool TryTogglePeriodPlayback()
     {
-        if (!_advancingPeriod || _periodPlayback is not {} playback || _shuttingDown) return false;
+        if (!_advancingPeriod || _periodReplyOnly || _periodPlayback is not {} playback || _shuttingDown) return false;
         playback.TogglePause();
         if (GodotObject.IsInstanceValid(_periodPlaybackMap))
             _periodPlaybackMap!.SetPeriodPlaybackPaused(playback, playback.IsPaused || playback.ManualCommandSelectionOpen);
         RefreshPeriodPlaybackControls(); return true;
+    }
+
+    private void PausePeriodPlaybackForRulerFocus(MapSceneView map)
+    {
+        if (!_advancingPeriod || _periodReplyOnly || _periodPlayback is not { } playback ||
+            !ReferenceEquals(_periodPlaybackMap, map) || _shuttingDown) return;
+        // This source command sets the pause bit, even when the camera
+        // is already busy. Camera completion does not resume simulation.
+        playback.SetPaused(true);
+        map.SetPeriodPlaybackPaused(playback, true);
+        RefreshPeriodPlaybackControls();
     }
 
     private bool TrySetPeriodPlaybackSpeed(int speedIndex)
@@ -37,15 +51,25 @@ public partial class Main
     private void RefreshPeriodPlaybackControls()
     {
         if(_forceHud is{} hud&&GodotObject.IsInstanceValid(hud))
-            hud.ApplyExecution(_advancingPeriod&&_periodPlayback is not null,_periodPlayback?.IsPaused==true,
+            hud.ApplyExecution(_advancingPeriod&&!_periodReplyOnly&&_periodPlayback is not null,_periodPlayback?.IsPaused==true,
                 _periodPlayback?.Speed??_periodPlaybackSpeed,
-                _periodPlayback is{} period?period.Candidate?.NativeMapSeason?.ThirdDate:_world?.NativeMapSeason?.ThirdDate);
+                _periodReplyOnly&&_session is{} owner?PersonnelPresentationOwner(owner).NativeMapSeason?.ThirdDate:
+                    _periodPlayback is{} period?period.Candidate?.NativeMapSeason?.ThirdDate:_world?.NativeMapSeason?.ThirdDate);
     }
 
     private void PublishPeriodPlayback(CampaignPeriodPlayback owner, MapSceneView? map, GameState candidate)
     {
         if (!ReferenceEquals(_periodPlayback, owner) || _shuttingDown || _failed || !IsInsideTree()) return;
         if (GodotObject.IsInstanceValid(map)) map!.PublishPeriodPlayback(owner, candidate);
+        if (TryBeginPeriodMenuBorrow(owner, candidate)) return;
+        if (TryBeginCampaignHelpBorrow(owner, candidate)) return;
+        if (BeginPeriodMapMusic(owner, map, candidate)) return;
+        var refreshed = PresentPeriodArmyViews(owner, map, candidate);
+        if (!ReferenceEquals(refreshed, candidate))
+        {
+            candidate = refreshed;
+            if (GodotObject.IsInstanceValid(map)) map!.PublishPeriodPlayback(owner, candidate);
+        }
         BeginPeriodOccupationPresentation(owner,map,candidate);
         BeginPeriodDuelPresentation(owner,map,candidate);
         BeginPeriodDuelCaptureAnnouncement(owner,map,candidate);
@@ -60,6 +84,12 @@ public partial class Main
     {
         var cancellation = new CancellationTokenSource();
         _periodAdvanceCancellation = cancellation;
+        bool replyOnly=source.PendingNormalPeriod is null&&
+            (CampaignComposition.IsManualRulerReply(source, campaignChoice) ||
+                (source.PendingArmyProgressCandidate is not null && campaignChoice is not null) ||
+                campaignChoice is ConfirmArmyReturnCaptiveBatchOrder or ConfirmArmyReturnCaptiveExecutionOrder or CompleteArmyReturnCaptivePresentationOrder ||
+                campaignChoice is ConfirmRulerSuccessionOrder&&StoryOwner(source).ArmyReturnCaptiveContinuation is not null);
+        _periodReplyOnly=replyOnly;
         MapSceneView? playbackMap = _residentMap;
         CampaignPeriodPlayback? playback = null;
         Control? overlay = null;
@@ -70,6 +100,10 @@ public partial class Main
         Exception? applicationServiceFailure = null;
         try
         {
+            RetireReportMapMusic();
+            if (!replyOnly && (campaignChoice is null && source.PendingNormalPeriod is null ||
+                !HasPeriodReportMusicScene(source, playbackMap)))
+                await CapturePeriodReportMusicScene(source, playbackMap, cancellation.Token);
             Action<GameState>? beginTutorial = null;
             Func<GameState, (GameState State, bool Hold)>? updateTutorial = null;
             Func<GameState, GameState>? endTutorial = null;
@@ -100,6 +134,7 @@ public partial class Main
                 candidate => PublishPeriodPlayback(playback!, playbackMap, candidate),
                 () =>
                 {
+                    RetirePeriodMapMusic(playback!);
                     RetirePeriodDuelCaptureAnnouncement(playback!);
                     RetirePeriodDuelPresentation(playback!);
                     CloseManualTacticCommands();
@@ -108,15 +143,19 @@ public partial class Main
                         playbackMap!.ReleasePeriodPlaybackCandidate(playback!);
                     RefreshManualTacticCommands(null);
                     RefreshPeriodPlaybackControls();
-                }, cancellation.Token, beginTutorial, updateTutorial, endTutorial);
+                }, cancellation.Token, beginTutorial, updateTutorial, endTutorial,
+                ReferenceEquals(_periodProgressSession, source) ? _periodProgressAdmission : null);
             _periodPlayback = playback; _periodPlaybackMap = playbackMap;
+            if(!replyOnly)playbackMap?.SetPeriodProgressFrameDriver(playback);
             if (playbackMap is not null) RefreshOrdinaryTacticBinding(source, playbackMap);
             playback.SetSpeed(_periodPlaybackSpeed);
-            if (!continuingStory) overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
+            if (!continuingStory&&!replyOnly) overlay = ShowPeriodAdvanceProgress(playbackMap, playback);
             var voice = _preferences.Voice.Capture();
             if (playbackMap?.SourceMainCameraTerrain is { } terrain)
                 composition.ConfigureBaseCapturePresentationTerrain(terrain);
-            composition.ConfigureArmyTraitSpeechViews(playbackMap?.CaptureArmyTraitSpeechViews());
+            var armySpeechViews = playbackMap?.CaptureArmyTraitSpeechViews();
+            composition.ConfigureArmyTraitSpeechViews(armySpeechViews);
+            playback.ConfigureArmyTraitSpeechViews(armySpeechViews);
             composition.ConfigureFacilityPeriodicArmyViews(playbackMap is null ? null : playbackMap.CaptureFacilityArmyView);
             composition.ConfigureArmyFireViews(playbackMap is null ? null : playbackMap.CaptureArmyFireView);
             if (playbackMap is not null) composition.ConfigureTacticPresentationViews(playbackMap.TacticPresentationViews);
@@ -124,30 +163,38 @@ public partial class Main
             var result = campaignChoice switch
             {
                 null => await composition.AdvancePeriodAsync(source, cancellation.Token,
-                    new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 ConfirmDiplomaticNegotiationOrder diplomatic => await composition.ConfirmDiplomaticNegotiationAsync(
-                    source, diplomatic, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    source, diplomatic, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 ConfirmSelfRecommendationOrder recommendation => await composition.ConfirmSelfRecommendationAsync(
-                    source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    source, recommendation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 ConfirmCoalitionInvitationOrder invitation => await composition.ConfirmCoalitionInvitationAsync(
-                    source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    source, invitation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
+                ConfirmArmyReturnCaptiveBatchOrder captiveBatch => await composition.ConfirmArmyReturnCaptiveBatchAsync(
+                    source, captiveBatch, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
+                ConfirmArmyReturnCaptiveExecutionOrder captiveExecution => await composition.ConfirmArmyReturnCaptiveExecutionAsync(
+                    source, captiveExecution, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
+                CompleteArmyReturnCaptivePresentationOrder captivePresentation => await composition.CompleteArmyReturnCaptivePresentationAsync(
+                    source, captivePresentation, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 ConfirmCapturedRulerTreatmentOrder treatment => await composition.ConfirmCapturedRulerTreatmentAsync(
-                    source, treatment, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    source, treatment, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 ConfirmRulerSuccessionOrder succession => await composition.ConfirmRulerSuccessionAsync(
-                    source, succession, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings),
+                    source, succession, cancellation.Token, new(_presentationRandom.State), voice, playback.Checkpoint, storyBindings, playback.AdmitStage),
                 _ => throw new InvalidOperationException("Unsupported campaign decision.")
             };
+            cancellation.Token.ThrowIfCancellationRequested();
             if (_failed || _shuttingDown || !GodotObject.IsInstanceValid(this) || !IsInsideTree() ||
                 !result.IsCurrent(_session)) return;
 
             _session = result.Session;
             AdoptStoryPresentationSession(source,result.Session,result.Composition,playbackMap);
             AdoptOrdinaryTacticSession(source, result.Session, playbackMap);
-            SynchronizeApplicationCrtRandom(result.Session.PendingNormalPeriod?.Candidate ?? result.Session.World);
-            if ((result.Session.PendingNormalPeriod?.Candidate??result.Session.World).CampaignAppRandom32 is { } appRandom)
+            SynchronizeApplicationCrtRandom(PersonnelPresentationOwner(result.Session));
+            if (PersonnelPresentationOwner(result.Session).CampaignAppRandom32 is { } appRandom)
                 _presentationRandom.InstallCommittedState(appRandom.State);
             adopted = result.Session;
             _sceneAudioBinding?.AdoptPlayableSession(source, result.Session);
+            AdoptPeriodReportMusicScene(source, result.Session);
             _campaignComposition = result.Composition;
             try { result.Composition.PublishApplicationServices(PersonnelPresentationOwner(result.Session)); }
             catch (Exception error) { applicationServiceFailure = error; }
@@ -157,7 +204,8 @@ public partial class Main
             PublishCampaignPresentation(result.Presentation);
             _playMessage.Text = "";
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException error) when (cancellation.IsCancellationRequested &&
+            error.CancellationToken == cancellation.Token) { }
         catch (Exception error)
         {
             if (!_shuttingDown && GodotObject.IsInstanceValid(this) && IsInsideTree() && ReferenceEquals(_session, source))
@@ -169,18 +217,26 @@ public partial class Main
         }
         finally
         {
+            if (adopted is null) playback?.DiscardInitializedArmySpeechViews();
             bool ownsAdvance = ReferenceEquals(_periodAdvanceCancellation, cancellation);
             if (ownsAdvance)
             {
+                _periodProgressSession = adopted?.PendingNormalPeriod is not null ? adopted : null;
+                _periodProgressAdmission = _periodProgressSession is not null ? playback?.Admission : null;
+                ClosePeriodMenuForPeriod(playback);
+                CloseCampaignHelpForPeriod(playback);
                 _advancingPeriod = false;
+                _periodReplyOnly = false;
                 _periodAdvanceCancellation = null;
                 _periodPlayback = null;
                 _periodPlaybackMap = null;
             }
             bool resume = ownsAdvance && ReferenceEquals(_session, adopted ?? source);
+            if (!replyOnly && playback is not null && GodotObject.IsInstanceValid(playbackMap))
+                playbackMap!.ClearPeriodProgressFrameDriver(playback);
             // This is the map that borrowed this operation, including during
             // shutdown or campaign replacement. A newer map owns itself.
-            if (playback is not null && GodotObject.IsInstanceValid(playbackMap))
+            if (!replyOnly && playback is not null && GodotObject.IsInstanceValid(playbackMap))
             {
                 // A returned session can still own a private waiting period.
                 // A typed source wait retains its reached candidate for map
@@ -200,7 +256,7 @@ public partial class Main
             {
                 if (resume) RunUiAction(() =>
                 {
-                    ClosePeriodAdvanceProgress(overlay, playbackMap, resumeMap: !continuingStory);
+                    ClosePeriodAdvanceProgress(overlay, playbackMap, resumeMap: !continuingStory&&!replyOnly);
                     RefreshCurrentPlayWorld();
                     if (adopted is not null && automaticSaveNotice is not null)
                         _playMessage.Text = automaticSaveNotice;

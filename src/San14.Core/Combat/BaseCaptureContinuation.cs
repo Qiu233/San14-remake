@@ -27,15 +27,16 @@ public sealed partial record GameState
 
 internal static class BaseCaptureContinuationValidation
 {
-    internal static void Validate(GameState state)
+    internal static void Validate(GameState state, CampaignOperationWorldContext? operationContext = null)
     {
         if (state.BaseCaptureContinuation is not { } value) return;
-        bool immediate = state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } && state.NormalCombatImmediateContinuation is not null ||
+        bool immediate = (state.NativePeriodContinuation?.Cursor is { StageIndex: 13 } ||
+                operationContext?.Moment is { SchedulerStageIndex: 13 }) && state.NormalCombatImmediateContinuation is not null ||
             state.ManualTacticExecutionContinuation is not null && state.NativePeriodContinuation?.Cursor is null or { StageIndex: 6 };
         if (state.ArmyDefeatContinuation is not null || value.Operation is not { } operation ||
             operation.Request is not { } request ||
             (immediate ? value.SettlementIndex != -1 || !MatchesImmediateTarget(state, request.Target) :
-                state.NativePeriodContinuation?.Cursor is not { StageIndex: 25 } || value.SettlementIndex < 0 ||
+                state.NativePeriodContinuation?.Cursor is not { StageIndex: 25 } && operationContext?.Moment is not { SchedulerStageIndex: 25 } || value.SettlementIndex < 0 ||
                 state.PendingCombatSettlements?.Requests is not { } queue || value.SettlementIndex >= queue.Count ||
                 queue[value.SettlementIndex] != request) || request.Target is null || !Enum.IsDefined(request.Target.Kind) ||
             request.Target.Id <= 0 || request.WinnerUnitId is <= 0 ||

@@ -26,12 +26,14 @@ inline NativeCityPopulation prepareNativeFacilityPrimaryPopulation(ID3D11Device*
         const NativeCityPopulation& bank,const std::vector<NativePrimaryUpdate>& current) {
     return prepareNativeSharedPrimaryPopulation(device,bank,prepareNativeFacilityPrimarySource(bank.source,current));
 }
-inline void publishNativeFacilityPrimaryPopulation(ID3D11Device* device,NativeCityPopulation& owner,
+inline bool publishNativeFacilityPrimaryPopulation(ID3D11Device* device,NativeCityPopulation& owner,
         const NativeCityPopulation& bank,const std::vector<NativePrimaryUpdate>& current) {
     validateNativeFacilityPrimaryRows(bank.source,current);
     if(current.size()!=owner.source.worlds.size()) {
         // Actual construction/demolition changes resident mutable CB owners.
         // Geometry, shaders and textures remain borrowed from the one bank.
         owner=prepareNativeFacilityPrimaryPopulation(device,bank,current);
-    } else updateNativeCityPopulation(owner,current);
+        return true; // New resident CB owners must replace every joined binding.
+    }
+    return updateNativeCityPopulation(owner,current);
 }

@@ -8,6 +8,7 @@
 #include "HdrShaderModules.h"
 #include "Interop/HdrProgramBankInput.h"
 #include "Interop/HdrProgramBindingInputs.h"
+#include "Interop/HdrRecipeMedia.h"
 #include <map>
 #include <memory>
 #include <set>
@@ -230,29 +231,31 @@ private:
         return key == "00000000" && (role == "Hatching" || role == "Ramp" || role == "IES");
     }
     static HdrProgramRecipe readRecipe(const fs::path& directory) {
+        Interop::HdrRecipeMedia media(directory);
         HdrProgramRecipe result;
-        NativePreparedInputFile unsupported(directory / "unsupported.txt");
+        auto unsupported=media.open("unsupported.txt");
         if (!unsupported) throw std::runtime_error("HDR program recipe capability declaration is absent");
         result.unsupported.assign(std::istreambuf_iterator<char>(unsupported), {});
         if (result.unsupported.find_first_not_of(" \t\r\n") != std::string::npos) return result;
         result.unsupported.clear();
         unsigned hatching{}, fade{};
-        NativePreparedInputFile policy(directory / "policy.txt"); policy >> hatching >> fade;
+        auto policy=media.open("policy.txt"); policy >> hatching >> fade;
         if (!policy || hatching > 1 || fade > 1) throw std::runtime_error("HDR program live writer policy format");
         result.hasHatching = hatching != 0; result.hasShadowFade = fade != 0;
         std::string stage, file; unsigned slot{};
-        NativePreparedInputFile constants(directory / "cbuffers.txt");
+        auto constants=media.open("cbuffers.txt");
         if (!constants) throw std::runtime_error("HDR program constant declarations are absent");
         while (constants >> stage >> slot >> file) {
             if ((stage != "VS" && stage != "PS") || slot >= 14) throw std::runtime_error("HDR program constant stage or slot");
-            auto bytes = load(directory / file);
+            auto bytes = media.read(file);
             if (bytes.empty() || bytes.size() > 65536 || bytes.size() % 16 != 0) throw std::runtime_error("HDR program constant extent");
             result.constants.push_back({stage == "VS", slot, file, std::move(bytes), {}});
         }
         if (!constants.eof()) throw std::runtime_error("HDR program constant declarations are truncated");
-        result.lighting = Interop::readHdrLightingLayout(directory / "hdr-lighting-layout.bin");
+        auto lighting=media.open("hdr-lighting-layout.bin");
+        result.lighting = Interop::readHdrLightingLayout(lighting);
         auto fields = [&](const char* name, auto& writes, const auto& widths) {
-            NativePreparedInputFile input(directory / name);
+            auto input=media.open(name);
             if (!input) throw std::runtime_error("HDR selected semantic layout is absent");
             typename std::remove_reference_t<decltype(writes)>::value_type write;
             while (input >> write.kind >> write.offset >> write.sourceOffset >> write.bytes) {
@@ -268,12 +271,14 @@ private:
         fields("height-fog-writes.txt", result.heightFog, std::array<unsigned, 4>{12,48,48,240});
         // Older prepared banks predate the live cluster writer. They cannot
         // contain a ready Cluster role, and do not require an empty new file.
-        if(fs::exists(nativePreparedFilePath(directory/"cluster-writes.txt")))
+        if(media.exists("cluster-writes.txt"))
             fields("cluster-writes.txt",result.cluster,std::array<unsigned,4>{16,8,4,8});
-        if(fs::exists(nativePreparedFilePath(directory/"material-writes.txt")))
+        if(media.exists("material-writes.txt"))
             fields("material-writes.txt",result.materialWrites,std::array<unsigned,4>{16,16,28,4});
-        result.textures=Interop::readHdrTextureRecipes(directory / "textures.txt");
-        for (const auto& file:Interop::readHdrSamplerFiles(directory / "samplers.txt")) {
+        auto textures=media.open("textures.txt");
+        result.textures=Interop::readHdrTextureRecipes(textures);
+        auto samplers=media.open("samplers.txt");
+        for (const auto& file:Interop::readHdrSamplerFiles(samplers)) {
             HdrSamplerRecipe sampler;sampler.slot=file.slot;sampler.paired=file.paired;
             const auto image=std::find_if(result.textures.begin(),result.textures.end(),[&](const auto& texture){return texture.slot==file.slot;});
             if(file.paired&&(image==result.textures.end()||image->role!="TranslucentSpecular"))
@@ -281,14 +286,14 @@ private:
             if(image!=result.textures.end()&&image->role=="TranslucentSpecular"&&!file.paired)
                 throw std::runtime_error("HDR late specular requires both actual sampler recipes");
             for(unsigned side=0;side<(file.paired?2u:1u);++side) {
-                const auto bytes=load(directory/file.files[side]);
+                const auto bytes=media.read(file.files[side]);
                 if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("HDR sampler descriptor format");
                 std::memcpy(&sampler.descriptions[side],bytes.data(),bytes.size());
             }
             if(!file.paired)sampler.descriptions[1]=sampler.descriptions[0];
             result.samplers.push_back(sampler);
         }
-        if (fs::exists(nativePreparedFilePath(directory / "material-table.bin"))) result.material = load(directory / "material-table.bin");
+        if (media.exists("material-table.bin")) result.material = media.read("material-table.bin");
         return result;
     }
     NativeSourceHdrPass createPass(const HdrProgramRecipe& recipe, HdrProgramReference program) {

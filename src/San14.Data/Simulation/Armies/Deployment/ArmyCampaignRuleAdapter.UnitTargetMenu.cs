@@ -27,7 +27,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(unitIds);
         ArgumentNullException.ThrowIfNull(route);
         var ids = Array.AsReadOnly(unitIds.ToArray());
-        if (ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count || clickedHexId is < 0 or >= 48400)
+        if (ids.Count < 1 || ids.Distinct().Count() != ids.Count || clickedHexId is < 0 or >= 48400)
             return new(ids, clickedHexId, null, false, null, null, [], null);
         var units = new List<UnitState>(ids.Count);
         foreach (int id in ids)
@@ -55,7 +55,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, int actorForceId, IReadOnlyList<UnitState> armies,
         int clickedPhysical, int targetPhysical, IReadOnlyList<int> freshWaypoints)
     {
-        if (armies.Count is < 1 or > 30 || armies.Select(army => army.Id).Distinct().Count() != armies.Count ||
+        if (armies.Count < 1 || armies.Select(army => army.Id).Distinct().Count() != armies.Count ||
             clickedPhysical is < 0 or >= 48400 || targetPhysical is < 0 or >= 48400 || freshWaypoints.Count > 5 ||
             freshWaypoints.Any(point => point is < 0 or >= 48400)) return (false, null);
         try

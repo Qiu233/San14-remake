@@ -12,6 +12,7 @@ public sealed record MapRouteTextureGroup(RenderResourceDescriptor Declaration,
 /// selecting the draw context and creating GPU state remain renderer work.</summary>
 public sealed class MapRouteDrawResources
 {
+    private readonly RenderResourceDescriptor[] declarations;
     public ulong ContextRevision { get; }
     public RenderResourceDescriptor ProgramReference { get; }
     public RenderResourceDescriptor ProgramDeclaration { get; }
@@ -21,8 +22,9 @@ public sealed class MapRouteDrawResources
 
     private MapRouteDrawResources(ulong revision, RenderResourceDescriptor reference,
         RenderResourceDescriptor declaration, LoadedShaderContainer shader,
-        Dictionary<uint, MapRouteTextureGroup> groups)
+        Dictionary<uint, MapRouteTextureGroup> groups, RenderResourceDescriptor[] declarations)
     {
+        this.declarations = declarations;
         ContextRevision = revision; ProgramReference = reference; ProgramDeclaration = declaration;
         Shader = shader; Bindings = shader.ReadG1Bindings();
         TextureGroups = new ReadOnlyDictionary<uint, MapRouteTextureGroup>(groups);
@@ -31,6 +33,7 @@ public sealed class MapRouteDrawResources
     public static MapRouteDrawResources Load(GameResourceRepository repository, RenderResourceContext context)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(context);
+        var declarations = new Dictionary<uint, RenderResourceDescriptor>();
         var reference = Require(0x653D89CF, 0x0118E31A);
         var declaration = Require(Word(reference.Object, 0xD78969E0), 0x4B00DA96);
         var shader = repository.LoadShaderContainer("system", Word(declaration.Object, ModelShaderResources.G1SPropertyHash));
@@ -57,15 +60,32 @@ public sealed class MapRouteDrawResources
             }
             groups.Add(key, new(group, table, Word(group.Object, 0x8D16812D), images.AsReadOnly()));
         }
-        return new(context.Revision, reference, declaration, shader, groups);
+        return new(context.Revision, reference, declaration, shader, groups, declarations.Values.ToArray());
 
         RenderResourceDescriptor Require(uint name, uint expectedClass)
         {
             var descriptor = context.Lookup(name) ?? throw new InvalidDataException($"route.resource.{name:X8}.missing");
             if (descriptor.Object.Kind != DokObjectKind.Inline || descriptor.Object.ClassId != expectedClass)
                 throw new NotSupportedException($"route.resource.{name:X8}.class_{descriptor.Object.ClassId:X8}");
+            declarations.TryAdd(name, descriptor);
             return descriptor;
         }
+    }
+
+    // Called only when a real resource namespace is installed or replaced.
+    // These are retained parsed-source identities, never new hashes or I/O.
+    public bool MatchesContext(RenderResourceContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        foreach (var source in declarations)
+        {
+            var current = context.Lookup(source.Object.ObjectId);
+            if (current is null || current.Object.ClassId != source.Object.ClassId ||
+                current.Source.Source.ResourceUri != source.Source.Source.ResourceUri ||
+                current.Source.Source.DecodedSha256 != source.Source.Source.DecodedSha256)
+                return false;
+        }
+        return true;
     }
 
     private static uint Word(DokObject source, uint name)

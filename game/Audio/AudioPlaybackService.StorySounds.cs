@@ -32,9 +32,10 @@ public partial class AudioPlaybackService
         {
             if (source.StereoPartner is { } right)
             {
-                var decoder = _decoder ?? throw new InvalidOperationException("story.audio.sound_decoder_owner");
-                var leftAudio = await decoder.DecodeInputAsync(source.Input, lifetime.Token).ConfigureAwait(false);
-                var rightAudio = await decoder.DecodeInputAsync(right.Input, lifetime.Token).ConfigureAwait(false);
+                if (_decoder is null) throw new InvalidOperationException("story.audio.sound_decoder_owner");
+                var leftDecoded = await DecodeResidentAsync(source.Input, lifetime.Token).ConfigureAwait(false);
+                var rightDecoded = await DecodeResidentAsync(right.Input, lifetime.Token).ConfigureAwait(false);
+                var leftAudio = leftDecoded.Audio; var rightAudio = rightDecoded.Audio;
                 ValidateComponent(leftAudio, source.Playback.Sample);
                 ValidateComponent(rightAudio, right.Playback.Sample);
                 clip = await InvokeOnEngineThreadAsync(() => OriginalOutputs.SpeakerLayout == GameAudioSpeakerLayout.Surround51

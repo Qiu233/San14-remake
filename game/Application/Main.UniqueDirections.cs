@@ -87,7 +87,14 @@ public partial class Main
             owner = OrdinaryTacticOwner(session);
             var manager = owner.ManualTacticIntervention!;
             if (session.PendingManualTacticCandidate is not null && !_advancingPeriod)
-                throw new InvalidDataException("unique.legacy_manual_progress_host");
+            {
+                // The scene, audio, beams and owned effect host have actually
+                // retired. Only this completion supplies the saved head receipt.
+                CloseUniqueDirection();
+                TryContinueLegacyManualProgress(session, composition,
+                    new(request.Sequence, TacticPresentationKind.UniqueDirection));
+                return;
+            }
             bool completed = _advancingPeriod
                 ? _periodPlayback!.TryCompleteUniqueDirection(owner, manager, request.Sequence)
                 : session.TryCompleteUniqueDirectionPresentation(owner, manager, request.Sequence);

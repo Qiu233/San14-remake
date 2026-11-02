@@ -22,6 +22,7 @@ internal partial class D3D11SceneryMapLabels : Control
     }
     private readonly Control root=new(){Name="CanonicalSceneryLabels",MouseFilter=MouseFilterEnum.Ignore};
     private readonly List<Child> children=[];
+    private readonly Dictionary<int,Child> childrenByLandmark=[];
     private readonly object lifetime=new();
     private SceneryLayoutReference reference=new(null);
     private bool attached,retired;
@@ -42,6 +43,7 @@ internal partial class D3D11SceneryMapLabels : Control
     private int? auxiliaryHexLookup=48400;
     internal int? AuxiliaryHexLookup=>auxiliaryHexLookup;
     private Child? hoveredChild;
+    internal IReadOnlyList<int> PhysicalReceivers { get; private set; } = Array.Empty<int>();
 
     internal D3D11SceneryMapLabels()
     {
@@ -79,6 +81,7 @@ internal partial class D3D11SceneryMapLabels : Control
                 view.BindCanonicalPointer(canonicalPointer);
                 view.SetPresentationInputAdmitted(false);
                 var child=new Child(entry,view);
+                childrenByLandmark.Add(entry.LandmarkId,child);
                 children.Add(child);
                 view.BindSourceInput(()=>Enter(child),()=>Leave(child),()=>Down(child),()=>Release(child),InputChanged);
             }
@@ -86,6 +89,7 @@ internal partial class D3D11SceneryMapLabels : Control
         }
         // Empty is admitted only from the actual known-empty registry above.
         // It is never manufactured to stand in for unknown construction.
+        PhysicalReceivers=Array.AsReadOnly(children.Select(child=>child.Entry.LandmarkId).ToArray());
         UpdateScale();Visible=false;
         lock(lifetime){reference=new(identity);attached=true;}
     }
@@ -109,10 +113,27 @@ internal partial class D3D11SceneryMapLabels : Control
 
     internal void SetChildControl(int landmarkId,bool enabled,int displayOverride)
     {
-        var child=children.Single(c=>c.Entry.LandmarkId==landmarkId);
+        var child=childrenByLandmark[landmarkId];
         child.Enabled=enabled;child.DisplayOverride=displayOverride;
         child.View.SetControlEnabled(enabled);
         lock(lifetime)dirtyRevision++;
+    }
+
+    internal void SetDomesticControl(int landmarkId,bool enabled)
+    {
+        var child=childrenByLandmark[landmarkId];
+        SetChildControl(landmarkId,enabled,enabled?child.DisplayOverride:1);
+        if(!enabled)
+        {
+            // 1BB980 also calls v2A8(0). Projection may show the root again,
+            //but its text and flag children must stay hidden under override1.
+            child.View.SetPresentation(-1,false,child.TextAlpha,child.FlagAlpha);
+            child.View.SetRootVisible(false);
+        }
+    }
+    internal void EndDomesticControls()
+    {
+        foreach(var child in children)SetChildControl(child.Entry.LandmarkId,true,0);
     }
 
     internal void BindCurrentInput(SourceWorldContext current,SceneryMapHexSelection primary)
@@ -120,7 +141,7 @@ internal partial class D3D11SceneryMapLabels : Control
 
     internal SceneryMapAlphaInputs? ReadCurrentAlphaInputs(int landmarkId)
     {
-        var child=children.Single(c=>c.Entry.LandmarkId==landmarkId);
+        var child=childrenByLandmark[landmarkId];
         if(inputCurrent is {} current)
         {
             var own=ReadSceneryHex(current,child.Entry.LandmarkId);
@@ -210,6 +231,8 @@ internal partial class D3D11SceneryMapLabels : Control
         bool complete=true;
         foreach(var child in children)
         {
+            bool alphaRead=false;
+            SceneryMapAlphaInputs? alphaInput=null;
             int actualDisplay=policy.Mode switch
             {
                 0 or 1 or 2 or 8=>display,
@@ -234,19 +257,19 @@ internal partial class D3D11SceneryMapLabels : Control
             }
             if(!units.Units.TryGetValue(child.Entry.LandmarkId,out var unit)||
                 !unit.CurrentPositionComplete||unit.Position is not { } position)
-            {child.View.Visible=false;complete=false;continue;}
+            {child.View.SetRootVisible(false);complete=false;continue;}
             float fade=MapLabelPresentation.DistanceFade(new(position.X,position.Y,position.Z),
                 acceptedCamera.Camera.CurrentPose.Position80,acceptedCamera.ControllerState.Distance90);
-            if(refresh&&child.View.Visible)
+            if(refresh&&child.View.RootVisible)
             {
-                if(level<4&&fade>1f)child.View.Visible=false;
+                if(level<4&&fade>1f)child.View.SetRootVisible(false);
                 else if(!ApplyAlpha(child))complete=false;
             }
             if(actualDisplay==-1)continue;
             bool? valid=sameCurrent.ReadSceneryNativeValidity(new(child.Entry.LandmarkId));
             if(valid==false)continue; // Native projection returns before its visibility store.
             if(valid is null||!applicationSurfaceKnown)
-            {child.View.Visible=false;complete=false;continue;}
+            {child.View.SetRootVisible(false);complete=false;continue;}
             var point=MapControlProjection.Project(position,new(0,300,0),
                 acceptedCamera.Camera.SourceWorldToProjection,viewport,clipBypass==true,applicationSurface);
             // A point admitted by the strict clip branch has the same output
@@ -254,7 +277,7 @@ internal partial class D3D11SceneryMapLabels : Control
             // result while that actual owner is still unknown.
             if(point is null&&clipBypass is null)complete=false;
             bool onScreen=point.HasValue&&!(level<4&&fade>1f);
-            child.View.Visible=onScreen;
+            child.View.SetRootVisible(onScreen);
             if(onScreen&&point is { } pixel)
             {
                 var rawPosition=child.View.CanonicalPosition;
@@ -262,11 +285,11 @@ internal partial class D3D11SceneryMapLabels : Control
                 // projected point differs from the old parent position.
                 if(rawPosition!=new Vector2I(pixel.X,pixel.Y))
                 {
-                    var animation=readCurrentAlpha(child.Entry.LandmarkId);
+                    var animation=ReadAlpha();
                     if(animation?.PositionTypeThreeAnimation is not bool positionAnimated)
                     {
                         ApplyAlpha(child); // Independent reached writer even when position knowledge is missing.
-                        child.View.Visible=false;complete=false;continue;
+                        child.View.SetRootVisible(false);complete=false;continue;
                     }
                     if(!positionAnimated)rawPosition=new(pixel.X,pixel.Y);
                     if(!ApplyAlpha(child))complete=false;
@@ -278,7 +301,7 @@ internal partial class D3D11SceneryMapLabels : Control
             {
                 if(target.DisplayOverride!=0||alphaRefreshSuppressed==true)return true;
                 if(alphaRefreshSuppressed is null)return false;
-                var input=readCurrentAlpha(target.Entry.LandmarkId);
+                var input=ReadAlpha();
                 if(input?.InteractionForcesOpaque is not bool opaque)return false;
                 byte? text=opaque?byte.MaxValue:input.TextTypeOneAnimation==false?
                     MapLabelPresentation.TextAlpha(level,fade):null;
@@ -288,6 +311,12 @@ internal partial class D3D11SceneryMapLabels : Control
                 if(flag is byte f)target.FlagAlpha=f;
                 target.View.SetAlpha(text,flag,opaque);
                 return opaque||input.TextTypeOneAnimation.HasValue&&input.FlagTypeOneAnimation.HasValue;
+            }
+
+            SceneryMapAlphaInputs? ReadAlpha()
+            {
+                if(!alphaRead){alphaInput=readCurrentAlpha(child.Entry.LandmarkId);alphaRead=true;}
+                return alphaInput;
             }
         }
         preparedFrame=acceptedCamera;

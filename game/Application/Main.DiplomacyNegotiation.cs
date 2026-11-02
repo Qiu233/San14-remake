@@ -204,7 +204,7 @@ public partial class Main
             {
                 map.RefreshPlayableWorld(pending.Candidate);map.SetDetailsOpen(false);SetMapFocus(true);
                 navigation.Configure(_repository,_ui.SourceLocale,_sourceHeaders,
-                    ()=>RunUiAction(()=>CloseDiplomaticNegotiationAuxiliary()));
+                    ()=>RunUiAction(()=>CloseDiplomaticNegotiationAuxiliary()), TryBorrowApplicationUiResources(navigation));
             }
             catch{CloseDiplomaticNegotiationAuxiliary();throw;}
         }

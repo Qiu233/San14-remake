@@ -13,8 +13,11 @@ public sealed partial class SourceWorldContext : IAreaMapStatisticsState,
     { Check(slot, 31, "surface type lookup slot"); return _surfaceTypePointers.TryGetValue(slot, out int? physical) ? new(physical) : null; }
     public void SetSurfaceTypeRawField2A(int physicalSlot, ushort? value)
     { Check(physicalSlot, 31, "surface type physical slot"); _surfaceTypeFields2A[physicalSlot] = value; }
-    public ushort? ReadSurfaceTypeRawField2A(SurfaceTypeReference surface) =>
-        _surfaceTypeFields2A.GetValueOrDefault(MapPhysical(surface.PhysicalSlot, 31, "surface type"));
+    public ushort? ReadSurfaceTypeRawField2A(SurfaceTypeReference surface)
+    {
+        int physical = MapPhysical(surface.PhysicalSlot, 31, "surface type");
+        return _surfaceTypeFields2A.TryGetValue(physical, out var value) ? value : _initialSurfaceMovementRules?.ReadMovementCost(physical);
+    }
 
     public int? ReadAreaMapForceSlot(AreaReference area) => ReadAreaCurrentForceSlot(area);
     public int? CountAreaTerrainCells(AreaReference area) => AreaMapStatistics.CountTerrainCells(area, this);

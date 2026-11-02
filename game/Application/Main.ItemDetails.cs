@@ -25,8 +25,8 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             detail.Configure(_repository,_ui,rules.QueryItemInformation(world,itemId),
-                context,()=>{returnSelection?.Invoke(detail.ReadSelectionReturn());close();},id=>RunUiAction(()=>detail.Apply(rules.QueryItemInformation(world,id))),
-                ()=>RunUiAction(()=>
+                context,()=>{returnSelection?.Invoke(detail.ReadSelectionReturn());close();},id=>RunInspectionUiAction(world, ()=>detail.Apply(rules.QueryItemInformation(world,id))),
+                ()=>RunInspectionUiAction(world, ()=>
                 {
                     if(!IsInformationBrowserCurrent(browser))return;
                     var poem=rules.ReadItemPoemInformation(world,detail.CurrentItemId);

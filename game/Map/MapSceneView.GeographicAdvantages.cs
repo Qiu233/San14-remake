@@ -60,7 +60,7 @@ public partial class MapSceneView
                 p.Distance,p.Yaw,p.Pitch,1),unchecked((int)Time.GetTicksMsec())))return false;
             geographicPriorCamera=null;
         }
-        ResetSourceCameraInput();CloseCityCommandMenu();
+        ResetSourceCameraInput();CloseCityCommandMenu();CloseAreaHexCommandMenu();
         _mapPresentation.SetGeographicAdvantagesVisible(visible);
         if(geographicView is not null)geographicView.Visible=visible;
         SetSummaryGeographySelected(visible);

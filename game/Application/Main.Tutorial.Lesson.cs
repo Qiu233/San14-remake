@@ -85,14 +85,15 @@ public partial class Main
     private void BeginTutorialLesson(TutorialSelectionPreparation selection, TutorialLessonPreparation prepared)
     {
         if (!IsTutorialPreparationCurrent(selection) || HasTutorialLesson || _repository is null) return;
-        var composition = CampaignComposition.PrepareTutorial(_repository, prepared,
+        var repository = selection.Repository ?? throw new InvalidOperationException("The prepared tutorial resource reader is absent.");
+        var composition = CampaignComposition.PrepareTutorial(repository, prepared,
             TutorialLessonSession.ReadApplicationContext(prepared.World!), _personnelGroupMoveDestinations);
         composition.ConfigurePersonnelNarrationVoice(_preferences.Voice.Capture());
         composition.ConfigureApplicationProfile(GetApplicationProfile());
         var rules = composition.Army ?? throw new InvalidDataException("tutorial.main.rule_owner");
         var audio = new CampaignNormalEventAudioInputs(_ui.SourceLocale,
             readApplicationField1AC: () => 0, readApplicationPointerPresent: () => true);
-        var lesson = TutorialLessonSession.Begin(prepared with { Rules = rules }, new(_repository, audio));
+        var lesson = TutorialLessonSession.Begin(prepared with { Rules = rules }, new(repository, audio));
         var entered = rules.EnterStrategy(lesson.World, CampaignEntryKind.NewCampaign);
         lesson.AdoptWorld(lesson.BusinessWorld, entered);
         // The real map/info controllers must exist before Opening can create

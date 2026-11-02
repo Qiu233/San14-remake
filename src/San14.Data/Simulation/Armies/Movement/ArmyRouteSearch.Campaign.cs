@@ -9,7 +9,7 @@ internal static partial class ArmyRouteSearch
     internal static int CampaignTargetCost(GameState state, SourceWorldContext current,
         int force, int start, int goal)
     {
-        if ((uint)start >= Count || (uint)goal >= Count) return 0;
+        if (!current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) return 0;
         var fields = state.NativeBaseCaptureCurrent ?? throw new InvalidDataException("campaign.deployment.route_Hex16_owner");
         ushort? ReadHex16(int physical) => (uint)physical < (uint)fields.HexWords16.Length
             ? fields.HexWords16[physical] : throw new InvalidDataException("campaign.deployment.route_Hex16_index");

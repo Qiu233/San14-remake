@@ -11,6 +11,7 @@ public partial class MapSceneView
 
         _logicalWorld = replacement;
         if (ReferenceEquals(_cityDomesticMenuWorld, previous)) _cityDomesticMenuWorld = replacement;
+        if (ReferenceEquals(_areaHexCommandWorld, previous)) _areaHexCommandWorld = replacement;
         _sceneryMap?.AdoptSpeechWorld(previous, replacement);
 
         // These are cache ownership keys, not accepted-frame provenance. The

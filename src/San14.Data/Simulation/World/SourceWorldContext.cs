@@ -453,6 +453,9 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
 
     /// <summary>Explicit native lookup reset; does not erase current physical person fields.</summary>
     public void ResetPersonIdLookup() { _officerSources.ClearLogicalReferences(); }
+    internal void BindInitialOfficerLookups(InitialOfficerSourceDefinitions definitions)
+        => _officerSources.BindInitialLogicalReferences(definitions);
+
     /// <summary>Ordered native rebuild; no implicit clear and no rollback on unknown/unsafe identity.</summary>
     public void RebuildPersonIdLookup()
     {
@@ -590,7 +593,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
     // The normal fresh-context factory may retain its already initialized
     // skill definitions. The public source loader still performs raw writes.
     internal void MaterializeStaticSource(LoadedScenario loaded, PersonSkillInitialValues? initialSkills, bool materializePersonalities = true,
-        InitialPersonAttributeValues? initialAttributes = null)
+        InitialPersonAttributeValues? initialAttributes = null, bool baseObjectsOnly = false, InitialAreaScenarioValues? initialAreas = null, InitialOfficerSourceDefinitions? initialOfficers = null)
     {
         if (loaded is null || loaded.Metadata.FormatMarker != 0x66 || loaded.Metadata.LeadingRecordCount != 1852)
             throw new InvalidDataException("Event source materialization requires the inspected CE scenario profile.");
@@ -600,6 +603,7 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             source.ObjectSourceRecords.SourceSha256 != loaded.Metadata.DecodedSha256 ||
             source.WorldParameters.DecodedSha256 != loaded.Metadata.DecodedSha256)
             throw new InvalidDataException("Event source materialization has missing or contradictory source tables/hashes.");
+        ResetOwnedPersonSkillProjection();
         if (initialSkills is not null)
         {
             if (!initialSkills.BelongsTo(loaded))
@@ -612,18 +616,28 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
                 throw new InvalidDataException("Initial Person attributes belong to another loaded definition owner.");
             _initialPersonAttributes = initialAttributes;
         }
+        if (initialAreas is not null && !initialAreas.BelongsTo(loaded))
+            throw new InvalidDataException("Initial Area values belong to another loaded definition owner.");
+        _initialAreaScenarioValues = initialAreas;
+        if (initialOfficers is not null)
+        {
+            if (!initialOfficers.BelongsTo(loaded))
+                throw new InvalidDataException("Initial Officer identity values belong to another loaded definition owner.");
+            _officerSources.BindInitialRecords(initialOfficers);
+            _officerSources.InitializeTableReferences(initialOfficers.RecordCount);
+        }
         int reportTime = ReadStaticReportWorldTime(source.WorldParameters);
         for (int slot = 0; slot < source.Characters.Count; slot++)
         {
             CharacterPreviewRecord person = source.Characters[slot];
             if (person.Slot != slot || person.CharacterId is < 0 or > ushort.MaxValue)
                 throw new InvalidDataException($"Event source person physical slot {slot} is invalid.");
-            _officerSources.SetRecordIdentity(slot, person.CharacterId);
+            if (initialOfficers is null) _officerSources.SetRecordIdentity(slot, person.CharacterId);
             _persons[slot] = new(OfficerBehaviorSourceAdapter.Decode(person.CreditReference?.RawFlagsWord,
                 person.CreditReference?.RawTailCode), person.StatusCode, person.SecondaryCitySlot);
             SetPersonDistrictSlot(slot, person.DistrictSlot);
             SetPersonFirstLocation(slot, person.CitySlot);
-            SetTransferPersonTablePointer(slot, slot);
+            if (initialOfficers is null) SetTransferPersonTablePointer(slot, slot);
             if (initialAttributes is null)
             {
                 SetPersonPostLoadByte(slot, 0x124, person.Leadership);
@@ -636,6 +650,9 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
             if (initialSkills is null) MaterializePersonSkillSource(person);
         }
         SetBasePersonPointer(0);
+        // Captured currents borrow immutable scenario values; explicit writes
+        // remain in private dictionaries. Raw source materialization still writes.
+        if (initialAreas is null)
         for (int slot = 0; slot < source.Areas.Count; slot++)
         {
             AreaPreviewRecord area = source.Areas[slot];
@@ -696,6 +713,10 @@ public sealed partial class SourceWorldContext : IS14BasicEventConditionQueries,
         {
             S14ScenarioObjectRecord value = source.ObjectSourceRecords.Objects[slot];
             if (value.PhysicalSlot != slot) throw new InvalidDataException($"Event source object physical slot {slot} is invalid.");
+            //The warm owned factory needs only the opening Base objects
+            //0..61 until BindCurrentMapObjects replaces all object fields.
+            //Keep full source record admission, including omitted rows.
+            if (baseObjectsOnly && slot >= 62) continue;
             SetObjectRecord(new(slot, value.RawField10, value.RawField12));
             SetObjectRawField14(slot, value.RawField14);
             SetObjectForceSlot13(slot, value.RawField13);

@@ -9,7 +9,7 @@ internal partial class MapCommandRail : Control
     private Shader? _cursorShader, _focusShader, _submenuFocusShader;
     private UiAssets? _assets;
     private MapFont? _font;
-    private LocalizedUiSpriteSource _declaredSprites = null!;
+    private IReadOnlyDictionary<MapCommandCategory, LoadedSprite> _captions = null!;
     private MainCommandLayoutSources _layouts = null!;
     private MapCommandRailSources _source = null!;
     private MainCommandLayoutState _outer = null!;
@@ -39,26 +39,20 @@ internal partial class MapCommandRail : Control
     internal bool SourceControlReady => !_retired && !AutomaticallyHidden && _style is not null && _buttons.Count > 0 &&
         IsInsideTree() && !IsQueuedForDeletion() && IsVisibleInTree();
 
-    internal void Configure(GameResourceRepository repository, string locale,
+    internal void Configure(GameResourceRepository repository, string locale, MapHudResources resources,
         IReadOnlyDictionary<MapMenuCommand, Action> commands, MapMainCommandStyle? style = null, MapMainCommandPresentation? presentation = null, string unknownText = "")
     {
         Name = "MapCommandRail";
         MouseFilter = MouseFilterEnum.Stop;
-        _assets = new(repository); _shader = UiSourceSprite.CreateShader();
-        _cursorShader = MapCommandRailShaders.Cursor(); _focusShader = MapCommandRailShaders.Focus();
-        _submenuFocusShader = MapCommandRailShaders.Focus(submenu: true);
-        _source = new(repository); _layouts = new(repository, _source);
-        var subFocus = LcskAnimationReader.Read(_source.SubmenuButton.Layout,
-            new HashSet<string> { "1_focus", "4_disable_forcus" });
-        Color SubTint(string name, int node)
-        {
-            var clip = subFocus.Single(c => c.Name == name);
-            return SourceEffectTint(clip.Sample(clip.EndFrame), node);
-        }
-        _submenuFocusTint = SubTint("1_focus", 8);
-        _submenuDisabledFocusTint = SubTint("4_disable_forcus", 18);
-        _declaredSprites = new(repository); _font = new(repository, locale);
-        _menus = MapCommandRailSources.ReadMenus(repository, locale);
+        _assets = resources.Shared.Assets; _shader = resources.Shared.SpriteShader;
+        _font = resources.Shared.Font;
+        _cursorShader = resources.CursorShader; _focusShader = resources.FocusShader;
+        _submenuFocusShader = resources.SubmenuFocusShader;
+        _source = resources.Sources.Rail; _layouts = resources.Sources.Layouts;
+        _captions = resources.Sources.Captions;
+        _submenuFocusTint = resources.Sources.SubmenuFocusTint;
+        _submenuDisabledFocusTint = resources.Sources.SubmenuDisabledFocusTint;
+        _menus = resources.Sources.Menus;
         _commands = commands; _locale = locale; _presentation = presentation;
         ConfigureEntryHints(repository, unknownText);
         _outer = new(_layouts.Outer, _layouts.Outer.Stable("cmd_slide_in"));
@@ -129,14 +123,12 @@ internal partial class MapCommandRail : Control
         var maskTexture = Texture(_layouts.Main, 19);
         Texture2D[] first = Images(_source.Button, [3, 6, 10, 13, 16]);
         Texture2D[] second = Images(_source.Button, [4, 7, 11, 14, 17]);
-        string[] captions = ["01shussei", "02seifu", "03jinzai", "04keiryaku", "05gaikou", "07gunjo", "06kessai"];
         foreach (var mount in _layouts.ReadButtonMounts(style))
         {
             var category = mount.Category;
             var rectangle = _main.Layout.Rectangle(mount.ButtonNode);
             var button = new MapCommandRailButton { Name = category.ToString(), Position = rectangle.Position };
-            var caption = _declaredSprites.LoadCommandCaption(_locale,
-                "000_cmn_btn_main_txt_" + captions[(int)category]);
+            var caption = _captions[category];
             button.Configure(_shader!, first, second, _assets!.SrgbSprite(caption.Definition.Name, caption),
                 rectangle.Size, new(mount.HitWidth, mount.HitHeight), new(Vector2.Zero, rectangle.Size),
                 maskTexture, new(mask.Position - rectangle.Position, mask.Size));
@@ -289,7 +281,7 @@ internal partial class MapCommandRail : Control
     private static Color SourceEffectTint(MainCommandLayoutAsset source, string name, int node)
         => SourceEffectTint(source.Stable(name).Values, node);
 
-    private static Color SourceEffectTint(IEnumerable<LcskAnimationValue> values, int node)
+    internal static Color SourceEffectTint(IEnumerable<LcskAnimationValue> values, int node)
     {
         Color tint = Colors.White;
         foreach (var value in values)
@@ -358,11 +350,8 @@ internal partial class MapCommandRail : Control
         VisibilityChanged -= VisibilityChangedHandler;
         CloseMenu(); _buttons.Clear(); _cursors.Clear(); _attention.Clear(); _badges.Clear();
         PresentationChanged = null;
-        _font?.Dispose(); _font = null;
-        _cursorShader?.Dispose(); _cursorShader = null;
-        _focusShader?.Dispose(); _focusShader = null;
-        _submenuFocusShader?.Dispose(); _submenuFocusShader = null;
-        _shader?.Dispose(); _shader = null;
-        _assets?.Dispose(); _assets = null;
+        // These immutable resources belong to Main's startup generation.
+        _font = null; _cursorShader = null; _focusShader = null;
+        _submenuFocusShader = null; _shader = null; _assets = null;
     }
 }

@@ -29,7 +29,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         var resume = state.NativePeriodContinuation?.Cursor;
         long expectedWaiting = season.ProcessedNativeOrdinal;
         if (resume?.StageIndex is (byte)NativeArmyProgressStage.Defeat or (byte)NativeArmyProgressStage.Combat
-            or (byte)NativeArmyProgressStage.DuelOpportunity or (byte)NativeArmyProgressStage.ManualTacticIntervention)
+            or (byte)NativeArmyProgressStage.DuelOpportunity or (byte)NativeArmyProgressStage.ManualTacticIntervention
+            or (byte)NativeArmyProgressStage.Movement)
         {
             var reachedDate = season.ThirdDate;
             for (int cycle = 0; cycle <= resume.CycleIndex; cycle++)
@@ -64,7 +65,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (resume is not null) stages.RestoreCheckpoint(resume.Grouping);
         var diagnostics = resume?.Diagnostics.ToList() ?? new List<NativeNormalArmyCombatPhaseDiagnostic>();
         GameState working = state;
-        working = _periodPresentation?.Invoke(working) ?? working;
+        working = _periodPresentation?.Invoke(working,
+            resume is not null || clock.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod
+            ? new NativeArmyProgressStageMoment(checked(season.AdvancedCalendarSteps + (resume?.CycleIndex ?? 0)),
+                resume?.Date ?? season.ThirdDate, resume?.StageIndex ?? 0, resume?.CycleIndex ?? 0,
+                NativeArmyProgressStageBoundary.StageEntry) : null) ?? working;
         while (resume is not null || working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod)
         {
             season = working.NativeMapSeason!;
@@ -85,6 +90,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 {
                     var moment = new NativeArmyProgressStageMoment(ordinal, date, stage, cycle,
                         NativeArmyProgressStageBoundary.StageEntry);
+                    if (_periodStageAdmission is not null)
+                        working = _periodStageAdmission(working, moment);
                     switch ((NativeArmyProgressStage)stage)
                     {
                         case NativeArmyProgressStage.PersonnelReturn:
@@ -181,10 +188,26 @@ public sealed partial class ArmyCampaignRuleAdapter
                                 ?? throw PeriodMissing("stage7_current_inputs");
                             break;
                         case NativeArmyProgressStage.Movement:
+                            var resumedMovement = resume?.MovementContinuation;
+                            if (resume?.StageIndex == (byte)NativeArmyProgressStage.Movement)
+                            {
+                                if (resumedMovement is null) throw PeriodMissing("stage8_resume_queue");
+                                movementCurrent = CaptureWritableTransportRouteCurrent(working);
+                                var resumePool = movementCurrent.ReadOwnedCurrentListPool()
+                                    ?? throw PeriodMissing("stage8_resume_pool");
+                                working = ResumeMovementReturnCaptivesCurrent(working, movementCurrent, resumePool);
+                                if (working.ArmyReturnCaptiveContinuation is not null)
+                                    return new(working, stages);
+                                queue = resumedMovement.RestoreQueue(working);
+                                var resumedQueries = new ArmyMarchCurrentProducer(_repository, this, _map,
+                                    operationCurrent: movementCurrent);
+                                movement = new(resumedQueries, new(this, movementCurrent), movementCurrent);
+                            }
                             var moved = ArmyMovementStage.AdvanceCurrentQueueOwned(working, moment,
                                 queue ?? throw PeriodMissing("same_cycle_stage7_queue"),
-                                movement ?? throw PeriodMissing("same_cycle_movement_rules"));
-                            if (!moved.Complete)
+                                movement ?? throw PeriodMissing("same_cycle_movement_rules"),
+                                admitNextBatch: _periodStageAdmission, resumed: resumedMovement);
+                            if (!moved.Complete && moved.SuspendedMovement is null)
                             {
                                 //The source runtime names each unresolved rule exit.
                                 //Only queue/receiver publication failures reach here.
@@ -199,6 +222,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                                 ?? throw PeriodMissing("stage8_current_pool");
                             working = working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
                                 { Indexes = pool.ProjectOwnedRoles() });
+                            if (moved.SuspendedMovement is { } heldMovement)
+                            {
+                                var held = working.NativePeriodContinuation ?? throw PeriodMissing("stage8_preparation");
+                                var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
+                                    stages.CaptureCheckpoint(), diagnostics.ToArray(), dueBeforeBlock)
+                                    { MovementContinuation = heldMovement };
+                                return new(working with { NativePeriodContinuation = held with { Cursor = cursor } }, stages);
+                            }
+                            if (resumedMovement is not null)
+                            {
+                                resume = null;
+                                working = working with { NativePeriodContinuation = working.NativePeriodContinuation is { } completedMovement
+                                    ? completedMovement with { Cursor = null } : null };
+                            }
                             queue = null; movement = null; movementCurrent = null;
                             break;
                         case NativeArmyProgressStage.Combat:
@@ -232,7 +269,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                             var reports = defeated.Receipts.Select(receipt => new NativeSubdayReport("field_destroyed",
                                 working.NativeClock!.UpdateOrdinal, receipt.UnitId, receipt.ForceId, receipt.PhysicalSlot));
                             working = working with { NativeSubdayReports = [.. working.NativeSubdayReports ?? [], .. reports] };
-                            if (working.ArmyDefeatContinuation is not null || working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+                            if (working.ArmyDefeatContinuation is not null || working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working) ||
+                                working.ArmyReturnCaptiveContinuation is { Caller: ArmyReturnCaptiveCaller.BaseCapture, CaptureTail: not null })
                             {
                                 var suspendedPeriod = working.NativePeriodContinuation ?? throw PeriodMissing("stage25_preparation");
                                 var cursor = new NativePeriodCursor(cycle, stage, date, -1, -1,
@@ -303,7 +341,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ReachedDuePhaseCount = calendar.ReachedDuePhaseCount + diagnostics.Count - dueBeforeBlock,
                 LastAdvanceDiagnostics = [] };
             working = working with { NativeMapSeason = advanced.State, NativeNormalArmyCombatCalendar = calendar };
-            working = _periodPresentation?.Invoke(working) ?? working;
+            working = _periodPresentation?.Invoke(working,
+                working.NativeClock!.UpdatesIntoPeriod < NativeSubdayStateValidation.UpdatesPerPeriod
+                    ? new NativeArmyProgressStageMoment(advanced.State.AdvancedCalendarSteps,
+                        advanced.State.ThirdDate, 0, 0, NativeArmyProgressStageBoundary.StageEntry)
+                    : null) ?? working;
         }
         working = working with { NativeNormalArmyCombatCalendar = calendar with
             { LastAdvanceDiagnostics = diagnostics.ToArray() } };

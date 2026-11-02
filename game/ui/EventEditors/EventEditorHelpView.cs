@@ -3,7 +3,7 @@ using San14.Data;
 
 /// <summary>The normal mode-one help directory and its original illustration /
 /// explanation detail panes. This page never edits an event or its library.</summary>
-internal partial class EventEditorHelpView : Control
+internal partial class EventEditorHelpView : DetailsView
 {
     private GameResourceRepository repository = null!;
     private EventEditorHelpCatalog catalog = null!;
@@ -27,17 +27,22 @@ internal partial class EventEditorHelpView : Control
     internal int PageIndex => page;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        EventEditorHelpCatalog catalog, Func<bool> admitted, Action returned)
+        EventEditorHelpCatalog catalog, Func<bool> admitted, Action returned,
+        CampaignHelpAdviser? campaignAdviser = null, Func<int>? currentScrollSpeed = null)
     {
         if (catalog.Locale != text.SourceLocale) throw new InvalidDataException("Help locale differs from its view.");
         this.repository = repository; this.catalog = catalog; this.admitted = admitted; this.returned = returned;
+        this.campaignAdviser = campaignAdviser; this.currentScrollSpeed = currentScrollSpeed;
         Name = "EventEditorHelp"; ZIndex = 7; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ConfigureCommonBackdrop(repository);
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         header = new() { Name = "EventHelpHeader" }; canvas.AddChild(header);
         header.Configure(repository, assets, shader, font, catalog.Title);
+        ConfigureSourcePage(catalog.Mode == 0 ? "CampaignHelp" : "EventEditorHelp", header, returned);
+        ZIndex = 7;
         var root = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "12_01_01_help_pk"));
         Vector2 mount = new(960 + root.Nodes[0].HeaderValues[0], 540 - root.Nodes[0].HeaderValues[1]);
         sourceRoot = new() { Name = "HelpSourceRoot", Position = mount,
@@ -49,22 +54,8 @@ internal partial class EventEditorHelpView : Control
         // eight tabs and the normal gameplay hint selector.
         var selector = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "12_01_01_help_offset_03"));
         ConfigureAdviser(selector);
-        Rect2 list = selector.Rectangle(6);
-        list.Position -= new Vector2(108, 0); list.Size += new Vector2(108, 0);
-        var clip = new Control { Name = "HelpTopicRows", Position = list.Position, Size = list.Size,
-            ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
-        directory.AddChild(clip);
-        for (int index = 0; index < catalog.Topics.Count; index++)
-        {
-            var entry = catalog.Topics[index];
-            var row = new EventEditorHelpTopicButton { Name = "EventHelpTopic" + entry.Id,
-                Position = new(0, index * 50), InputAdmission = () => CanUse() && topic is null };
-            clip.AddChild(row); row.Configure(repository, assets, shader, font, entry.Title, () => OpenTopic(entry));
-            row.SetMeta("help_topic_id", entry.Id); rows.Add(row);
-        }
-        var scrollBox = selector.Rectangle(35);
-        var scroll = new UiSourceScrollbar { Name = "HelpTopicScroll", Position = scrollBox.Position, Size = scrollBox.Size };
-        directory.AddChild(scroll); scroll.ConfigureNoRange(repository, assets, shader);
+        if (catalog.Mode == 0) ConfigureCampaignDirectory(root, selector);
+        else ConfigureEventDirectory(selector);
         detailSource = new(MapMarkerLayout.LoadNamed(repository, "12_01_01_help_offset_02"));
         detail = new() { Name = "EventHelpDetail", Size = detailSource.Rectangle(0).Size,
             MouseFilter = MouseFilterEnum.Stop, Visible = false };
@@ -84,9 +75,29 @@ internal partial class EventEditorHelpView : Control
             InputAdmission = CanUse };
         canvas.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestBack, UiAudioCue.Cancel);
-        SetMeta("source_layout", root.Source.Source.ResourceUri); SetMeta("source_help_mode", 1);
-        SetMeta("source_dictionary_category", 8); Resized += Fit; Fit();
+        SetMeta("source_layout", root.Source.Source.ResourceUri); SetMeta("source_help_mode", catalog.Mode);
+        SetMeta("source_dictionary_category", catalog.Mode == 0 ? catalog.Categories[0].Id : 8); Resized += Fit; Fit();
     }
+    private void ConfigureEventDirectory(UiSourceLayout selector)
+    {
+        Rect2 list = selector.Rectangle(6);
+        list.Position -= new Vector2(108, 0); list.Size += new Vector2(108, 0);
+        var clip = new Control { Name = "HelpTopicRows", Position = list.Position, Size = list.Size,
+            ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
+        directory.AddChild(clip);
+        for (int index = 0; index < catalog.Topics.Count; index++)
+        {
+            var entry = catalog.Topics[index];
+            var row = new EventEditorHelpTopicButton { Name = "EventHelpTopic" + entry.Id,
+                Position = new(0, index * 50), InputAdmission = () => CanUse() && topic is null };
+            clip.AddChild(row); row.Configure(repository, assets, shader, font, entry.Title, () => OpenTopic(entry));
+            row.SetMeta("help_topic_id", entry.Id); rows.Add(row);
+        }
+        var scrollBox = selector.Rectangle(35);
+        var scroll = new UiSourceScrollbar { Name = "HelpTopicScroll", Position = scrollBox.Position, Size = scrollBox.Size };
+        directory.AddChild(scroll); scroll.ConfigureNoRange(repository, assets, shader);
+    }
+
     private EventEditorHelpArrow Arrow(string name, int node, bool right, Action pressed)
     {
         var box = detailSource.Rectangle(node);
@@ -97,6 +108,7 @@ internal partial class EventEditorHelpView : Control
     private void OpenTopic(EventEditorHelpTopic entry)
     {
         if (!CanUse() || topic is not null || entry.Pages.Length == 0) return;
+        campaignScrollbar?.CancelDrag();
         topic = entry; page = 0; directory.Hide(); detail.Show(); title.Text = entry.Title;
         ApplyPage();
     }
@@ -133,16 +145,25 @@ internal partial class EventEditorHelpView : Control
         string wrapped = DeploymentNarrationPlainParagraph.WrapKnownColourParagraph(value,
             line => (int)font.Measure(line, profile).Width, (int)box.Size.X, 128);
         float advance = font.Source.Record('\u3042', profile.Face).Height * profile.ScaleY + profile.VerticalSpace;
-        string[] lines = wrapped.Split('\n');
-        for (int index = 0; index < lines.Length; index++)
+        var lines = DeploymentNarrationParagraphPlan.Runs(wrapped);
+        var presets = MapTextPresets.Create();
+        for (int index = 0; index < lines.Count; index++)
         {
             var line = new UiSourceText { Name = name + "Line" + index,
                 Position = new(0, index * advance), Size = new(box.Size.X, advance) };
-            clip.AddChild(line); line.Configure(font, profile); line.Text = lines[index];
+            clip.AddChild(line); line.Configure(font, profile);
+            line.SetRuns(lines[index].Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
+            {
+                NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
+                NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
+                NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
+                _ => (uint?)null
+            })).ToArray());
         }
     }
     private bool CanUse() => !abandoned && IsInsideTree() && IsVisibleInTree() && admitted?.Invoke() == true;
-    internal void RegisterHeader(UiSourceHeaderStack owner) => header.Publish(owner);
+    internal override void RegisterHeader(UiSourceHeaderStack owner) => header?.Publish(owner);
+    internal override void RequestClose() => RequestBack();
     internal void RequestBack()
     {
         if (!CanUse()) return;
@@ -153,6 +174,7 @@ internal partial class EventEditorHelpView : Control
     {
         if (abandoned) return;
         abandoned = true; admitted = null; returned = null;
+        AbandonCampaignDirectory();
         foreach (var row in rows) row.Abandon();
         if (back is not null) { back.InputAdmission = null; back.Disabled = true; }
         if (previous is not null) previous.Abandon(); if (next is not null) next.Abandon(); Hide();
@@ -163,7 +185,10 @@ internal partial class EventEditorHelpView : Control
         float scale = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    {
+        Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); base._ExitTree();
+    }
 }
 
 internal partial class EventEditorHelpArrow : UiSourceButton

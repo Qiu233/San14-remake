@@ -108,7 +108,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     private static void CheckTransportSelectionShape(IReadOnlyList<int> ids)
     {
-        if (ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count)
+        if (ids.Count < 1 || ids.Distinct().Count() != ids.Count)
             throw TransportUnitQueryMissing("selected-set");
     }
 

@@ -132,6 +132,9 @@ public sealed class PlayableUnitOrders(IOrderRules originalCommands, PlayableLan
                 return CommandResult.Reject("Unit must be inside a friendly city to disband.", "unit.disband_location");
             if (PlayableCityEntryStates.Return(state, active, city, cityEntryState) is { } returned)
             {
+                if (returned.State.ArmyReturnCaptiveContinuation is { } captive)
+                    return CommandResult.Accept(returned.State with { ArmyReturnCaptiveContinuation = captive with
+                        { ImmediateEntryReportRuleId = returned.RuleId } });
                 var settled = PlayableOfficerArrivalAftermath.Settle(returned.State, [active.OfficerId]);
                 var completedReports = settled.Reports.Append(new PeriodReportEntry("unit_entered", active.ForceId,
                     city.Id, active.OfficerId, active.Troops, active.HexId, active.HexId)

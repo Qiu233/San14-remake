@@ -17,7 +17,9 @@ public sealed partial class GameResourceRepository
 
     public LoadedOriginalAiScripts LoadOriginalAiScripts(string relativePath = "0000/param_s.bin")
     {
+        SynchronizeResidentInvalidation();
         var id = GameResourceId.File(relativePath);
+        _residentSources.OriginalAiScriptSources.TryAdd(id, 0);
         string uri = id.ToString();
         string path = _overrides.Find(id) ?? SourcePath(relativePath);
         var info = new FileInfo(path);
@@ -58,6 +60,9 @@ public sealed partial class GameResourceRepository
 
     public void InvalidateOriginalAiPolicy()
     {
-        InvalidateOriginalAiResources(); _originalAiScripts.Clear(); _originalAiPolicies.Clear();
+        var sources = _residentSources.OriginalAiScriptSources.Keys
+            .Append(GameResourceId.File("0000/param_s.bin")).Distinct().ToArray();
+        InvalidateOriginalAiResources();
+        foreach (var source in sources) Invalidate(source);
     }
 }

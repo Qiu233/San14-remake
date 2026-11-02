@@ -3,7 +3,7 @@ using Godot;
 using San14.Data;
 
 internal sealed record DeploymentSummaryRowContent(int OfficerId,string ArmyName,int FormationId,int Troops,
-    IReadOnlyList<string> TacticNames,LoadedSprite? Portrait,DeploymentDraftFigures? Figures);
+    IReadOnlyList<string> TacticNames,LoadedUiSpriteSource? Portrait,DeploymentDraftFigures? Figures);
 
 /// <summary>An original nonempty summary row. Values come from the unpublished
 /// local draft and current figure queries, never from an invented Army.</summary>

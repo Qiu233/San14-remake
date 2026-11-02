@@ -28,7 +28,7 @@ public sealed record CampaignOperationWorldContext(NativeMapSeasonState BlockSta
 {
     public void Validate(GameState state)
     {
-        if (Moment?.SchedulerStageIndex == 6)
+        if (Moment?.SchedulerStageIndex is 5 or 6 or 8 or 13 or 25)
         {
             int cycle = Moment.CycleWithinAtomicBlock;
             int waited = cycle == 2 ? 1 : 0;
@@ -41,8 +41,9 @@ public sealed record CampaignOperationWorldContext(NativeMapSeasonState BlockSta
                 Moment.CalendarCycleOrdinal != BlockStartSeason.AdvancedCalendarSteps + cycle ||
                 BlockStartSeason.ProcessedNativeOrdinal != BlockStartClock.UpdateOrdinal ||
                 BlockStartSeason.ThirdDate.Hour % 6 != 0 ||
-                Moment.PreWriterThirdDate != BlockStartSeason.ThirdDate with { Hour = checked((sbyte)(BlockStartSeason.ThirdDate.Hour + cycle * 2)) })
-                throw new InvalidDataException("Manual tactic world is outside its exact stage6 cycle boundary.");
+                Moment.PreWriterThirdDate != BlockStartSeason.ThirdDate with { Hour = checked((sbyte)(BlockStartSeason.ThirdDate.Hour + cycle * 2)) } ||
+                Moment.SchedulerStageIndex is 5 or 13 && (cycle != 2 || Moment.PreWriterThirdDate.Hour != 10))
+                throw new InvalidDataException("Saved campaign world is outside its exact Army stage boundary.");
             return;
         }
         if (BlockStartSeason is null || BlockStartClock is null || Moment is null ||
@@ -119,7 +120,7 @@ public sealed record CampaignProgressOperation(string Revision, CampaignProgress
         Candidate = GameStateCopy.Copy(Candidate),
         Landmark = Landmark with { Registry = Landmark.Registry.ToArray() },
         Story = Story.Copy(),
-        Captures = Captures.Select(c => c with { State = GameStateCopy.Copy(c.State) }).ToArray(),
+        Captures = [], // Old diagnostic snapshots have no runtime consumer.
         Grouping = Grouping with { Roots = Grouping.Roots.ToArray() },
         ServiceChanges = ServiceChanges.Copy()
     };
@@ -168,11 +169,12 @@ public sealed record CampaignProgressOperation(string Revision, CampaignProgress
         }
     }
 }
-public enum CampaignProgressOutcome { Committed, AwaitingStory, Unresolved, AwaitingManualTactic }
+public enum CampaignProgressOutcome { Committed, AwaitingStory, Unresolved, AwaitingManualTactic, AwaitingArmyProgress }
 public sealed record CampaignProgressTransition(CampaignProgressOutcome Outcome, GameState? State,
     CampaignProgressOperation? Pending, string? UnresolvedOwner)
 {
     public ManualTacticProgressOperation? ManualTactic { get; init; }
+    public CampaignArmyProgressOperation? ArmyProgress { get; init; }
     public CampaignServiceChanges ServiceChanges { get; init; } = CampaignServiceChanges.Empty;
     public CampaignGroupingCheckpoint? Grouping { get; init; }
     public long LastStorySequence { get; init; }

@@ -13,13 +13,14 @@ internal sealed partial class DeploymentTargetPresenter
         Action<bool> modalChanged, Func<DeploymentBehavior,Action<GameState>,bool>? saveDefaults = null,
         Func<int>? scrollSpeed = null, bool? tutorialRestrictsFacilities = null,
         Action<DeploymentAction,int,Action<DeploymentAction>>? chooseFalseReportDestination = null,
-        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged = null)
+        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged = null,
+        AdministrationPageChrome.Resources? uiResources = null)
         : this(view, repository, text, world, rules, 0, preparation.ForceId,
             preparation.Armies.Select(army=>army.Row).ToArray(), project, projectMarker, accepted, back,
             unavailable, modalChanged, saveDefaults: saveDefaults, scrollSpeed: scrollSpeed,
             tutorialRestrictsFacilities: tutorialRestrictsFacilities,
             chooseFalseReportDestination: chooseFalseReportDestination,
-            routePreviewChanged: routePreviewChanged, generalPreparation: preparation)
+            routePreviewChanged: routePreviewChanged, generalPreparation: preparation, uiResources: uiResources)
     { }
 
     internal IReadOnlyList<GeneralUnitTargetArmy> GeneralArmies => MatchGeneralRows(Draft.Rows);
@@ -32,7 +33,8 @@ internal sealed partial class DeploymentTargetPresenter
     }
 
     private void ConfigureGeneralTargetView(GeneralUnitTargetPreparation preparation,
-        IReadOnlyList<DeploymentTargetRowContent> contents, Func<int>? scrollSpeed)
+        IReadOnlyList<DeploymentTargetRowContent> contents, Func<int>? scrollSpeed,
+        AdministrationPageChrome.Resources? uiResources)
     {
         // Group display rows in the retained source order. The actual packet
         // order remains Draft.Rows and is never regrouped for formal commit.
@@ -49,7 +51,7 @@ internal sealed partial class DeploymentTargetPresenter
         view.ConfigureGeneral(repository, text, header, groups, Draft.SelectedOfficers,
             scrollSpeed?.Invoke() ?? 0, officers=>
             {if(disposed)return;CloseMenu();previewHex=null;Draft.SelectOfficers(officers);Refresh();},
-            OpenFacilities, RequestBack, scrollSpeed);
+            OpenFacilities, RequestBack, scrollSpeed, resources: uiResources);
     }
 
     private void RefreshGeneralTargetHeader()

@@ -34,9 +34,14 @@ public static partial class G1EffectDrawWriter
         }
         if (type is not (0 or 1 or 2))
             throw new NotSupportedException($"Particle payload dispatch {type} is not implemented.");
+        // Enum35 has only the matrix-oriented source callback.
+        if (renderEnum == 35 && type != 2)
+            throw new NotSupportedException("Sprite material35 requires its matrix-oriented payload.");
+        if (renderEnum == 35 && (sourceFlags & 2) != 0)
+            throw new NotSupportedException("Sprite material35 angle-opacity requires its source modulation.");
         renderType = renderEnum switch
         {
-            7 => 7, 8 => 8, 19 => 17, 23 => 29, 26 => 22, 34 => 18,
+            7 => 7, 8 => 8, 19 => 17, 23 => 29, 26 => 22, 34 => 18, 35 => 23,
             38 => 48, 40 => 50, 53 => 38,
             67 => 64, 68 => 65, 98 => 95, 99 => 96,
             _ => throw new NotSupportedException($"Sprite rendering enum {renderEnum} is not implemented.")
@@ -114,7 +119,7 @@ public static partial class G1EffectDrawWriter
             new(F(payload, 0x28), F(payload, 0x24)), new(F(payload, 0x28), F(payload, 0x2C))];
         int index = (payload[0xE] + ((flags & 0x20) != 0 ? 128 : 0)) & 255;
         uint packed = (uint)index << 24;
-        if (renderEnum == 26)
+        if (renderEnum is 26 or 35)
         {
             Vector3 n = new(normal.X, normal.Y, normal.Z);
             Vector3 delta = camera.Eye - new Vector3(center.X, center.Y, center.Z);

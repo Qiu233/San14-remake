@@ -74,7 +74,14 @@ public partial class Main
             return false;
         if (session.PendingCampaignEventCommand is not null)
             return RefreshCampaignEventCommandContinuation(session, composition, map, player);
-        if (session.PendingNormalPeriod is not { } pending) return TryReturnToCampaignEventCommandList(session);
+        if (session.PendingNormalPeriod is not { } pending)
+        {
+            var captiveOwner=StoryOwner(session);
+            if(captiveOwner.ArmyReturnCaptiveContinuation is not null&&
+                TryOpenRulerDecision(session,captiveOwner,composition,map,player))return true;
+            if (TryRefreshLegacyManualProgress(session,composition,map,player)) return true;
+            return TryReturnToCampaignEventCommandList(session);
+        }
         if (TryOpenRulerDecision(session, pending, composition, map, player)) return true;
         if (TryHandleNormalStoryAudio(session, pending, composition, map)) return true;
         if (TryOpenNormalStoryForceRank(session, pending, composition, map)) return true;
@@ -100,7 +107,7 @@ public partial class Main
                         CloseSelfRecommendation();
                         _advancingPeriod = true;
                         _periodAdvanceTask = AdvancePlayableAsync(session, composition, campaignChoice: choice);
-                    }));
+                    }),TryBorrowApplicationUiResources(view));
                 map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true);
                 SetMapFocus(false); HideDeploymentHud();
                 return true;
@@ -118,6 +125,7 @@ public partial class Main
             return TryOpenForeignTradeReport();
         if (!pending.RequiresAutomaticNormalTurnContinuation && !pending.RequiresAutomaticArmyDefeatContinuation &&
             !pending.RequiresAutomaticBaseCaptureContinuation && !pending.RequiresAutomaticTacticPresentationContinuation &&
+            !pending.RequiresAutomaticArmyReturnContinuation &&
             !pending.RequiresAutomaticManualTacticContinuation && !pending.RequiresAutomaticCaravanContinuation &&
             !pending.RequiresAutomaticStrategicContinuation && !pending.RequiresAutomaticIntelligenceContinuation) return false;
         // A failed worker must not immediately retry the same immutable

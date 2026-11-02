@@ -55,6 +55,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
     public string Revision { get; }
     public TacticRuleAdapter Tactics { get; }
 
+    //The operation keeps a fresh mutable current. Its three movement readers
+    //borrow only this package's matching immutable terrain/catalog/seed values.
+    internal ArmyMovementEligibilityCurrentProducer CreateOwnedMovementEligibility(LoadedMap map,
+        IArmyMovementEligibilityCurrentOwnerQueries owners) => new(this, map, _terrain, _catalog, owners);
+    internal ArmyMobilityCurrentProducer CreateOwnedMovementMobility(LoadedMap map) =>
+        new(this, _mobilitySeed, map, _terrain, _catalog);
+    internal ArmyMarchPenaltyCurrentProducer CreateOwnedMovementPenalty(LoadedMap map) =>
+        new(this, map, _terrain, _catalog, _marchPenaltySeed);
+
     private ArmyCampaignRuleAdapter(GameResourceRepository repository, ArmyOperationContext definitions, LoadedScenario scenario,
         LoadedSkillDefinitions skills, TacticSourceCatalog catalog, LoadedMap map, LoadedTerrainTypes terrain,
         TacticRemakeParameterSeed seed, ArmyConstruction creation,
@@ -135,14 +144,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         LoadedScenario source, LoadedMap map, string language, string revision,
         IManualTacticPresentationAdmission? automaticPresentationAdmission = null)
     {
-        LoadedTerrainTypes terrain = repository.LoadTerrainTypes($"0010_{language}/fixdataexce.s14");
-        LoadedSkillDefinitions skills = repository.LoadSkillDefinitions($"0010_{language}/fixdataexce.s14");
+        LoadedTerrainTypes terrain = repository.LoadArmyTerrainTypes($"0010_{language}/fixdataexce.s14");
+        LoadedSkillDefinitions skills = repository.LoadArmySkillDefinitions($"0010_{language}/fixdataexce.s14");
         LoadedPersonalities personalities = repository.LoadPersonalities($"0010_{language}/fixdataexce.s14");
         var definitions = new ArmyOperationContext(source, map, terrain, skills, personalities,
-            repository.LoadObjectDefinitions(source.FixedDataSource.SourcePath));
+            repository.LoadArmyObjectDefinitions(source.FixedDataSource.SourcePath));
         TacticRemakeParameterSeed seed = TacticRemakeParameterSeed.LoadPinnedSeed(repository, language);
         LoadedExperienceData experience = repository.LoadExperienceData(ExperienceVariant.ExCe);
-        return new(repository, definitions, source, skills, TacticSourceParameters.Read(skills.Formations, skills.Source), map, terrain,
+        var tacticCatalog = skills.InitialValues?.TacticCatalog ?? TacticSourceParameters.Read(skills.Formations, skills.Source);
+        return new(repository, definitions, source, skills, tacticCatalog, map, terrain,
             seed, ArmyConstruction.LoadCurrent(repository, language,
                 ArmyCreationConfiguration.ObservedShortPacketFields),
             ArmyMoraleParameterSeed.LoadPinnedSeed(repository, language),
@@ -632,7 +642,8 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
             var interrupted = projection.OrderedPairs[nextPairIndex];
             working = ResumeImmediateCombatSettlementCurrent(working, current, date, revision, effects);
             if (HasNativeCampaignStop(working)) return PublishStoppedCombat();
-            if (working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working))
+            if (working.BaseCaptureContinuation is not null || AutomaticEmperorCaptureLifecycle.HasCaptureTail(working) ||
+                CaptureArmyReturnContinuationSource.Read(working) is not null)
                 return RetainSuspendedMixedPair(nextPairIndex, retainedCombat.ReportWord20,
                     retainedCombat.AutomaticExecution, retainedCombat.BaseAutomaticExecution,
                     retainedCombat.PendingAutomaticFatalFeedback);
@@ -867,6 +878,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         {
             if (borrowedCurrent is null) return CaptureCurrentDefinitions(reached);
             latest = reached;
+            _personRelationInputs.BindCurrent(() => latest, borrowedCurrent);
             BindLatestPolicyReaders();
             OwnedArmyDestructionCurrent.BindOwnedCurrentContext(reached, borrowedCurrent);
             return borrowedCurrent;
@@ -874,6 +886,7 @@ public sealed partial class ArmyCampaignRuleAdapter : ITacticRuleSource,
         if (borrowedCurrent is not null)
         {
             _baseCapacityInputs.BindCurrent(state, borrowedCurrent);
+            _personRelationInputs.BindCurrent(() => latest, borrowedCurrent);
             BindLatestPolicyReaders();
         }
         return NormalArmyCombatCurrentPhase.Capture(state, moment,

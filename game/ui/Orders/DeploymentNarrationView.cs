@@ -6,6 +6,7 @@ using San14.Data;
 internal partial class DeploymentNarrationView : Control
 {
     private UiAssets? assets;
+    private bool ownsResources=true;
     private MapFont? font;
     private Shader? shader;
     private Control canvas=null!;
@@ -112,26 +113,44 @@ internal partial class DeploymentNarrationView : Control
         =>ConfigureEvent(repository,text,speaker,expanded,[(6,executorLayers),(5,targetLayers)],
             executorSpeaking?3:4,consumed,automaticAdvance,admitted);
 
+    // The real route has already selected three parts or thirty frames.
+    // Its application owner is required; the page owns only its controls.
+    internal void Configure(GameResourceRepository repository,PreviewText text,string speaker,
+        string expanded,LoadedStandingPortraitSources standingLayers,AdministrationPageChrome.Resources resources,
+        Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null)
+        =>ConfigureEventCore(repository,text,speaker,expanded,
+            [(2,portrait=>portrait.Configure(repository,resources.Assets,resources.SpriteShader,standingLayers))],
+            null,consumed,automaticAdvance,admitted,resources:resources);
+
     private void ConfigureEvent(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<(int Node,IReadOnlyList<LoadedSprite> Layers)> participants,
         int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,bool singleWait = false)
+        =>ConfigureEventCore(repository,text,speaker,expanded,
+            participants.Where(participant=>participant.Layers.Count>0).Select(participant=>(participant.Node,
+                (Action<UiSourceStandingPortrait>)(portrait=>portrait.Configure(repository,assets!,shader!,participant.Layers)))).ToArray(),
+            activeSlot,consumed,automaticAdvance,admitted,singleWait);
+
+    private void ConfigureEventCore(GameResourceRepository repository,PreviewText text,string speaker,
+        string expanded,IReadOnlyList<(int Node,Action<UiSourceStandingPortrait> Configure)> participants,
+        int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,
+        bool singleWait=false,AdministrationPageChrome.Resources? resources=null)
     {
         Name="DeploymentNarration";ZIndex=10;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);completed=consumed;
         readAutomaticAdvance=automaticAdvance;readAdmission=admitted;sourceLocale=text.SourceLocale;
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new Control{Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
-        var root=new UiSourceLayout(repository,0xD8B39FC6);
-        var characterParent=new UiSourceLayout(repository,0x86BA499F);
+        var root=assets.SourceLayout(0xD8B39FC6);
+        var characterParent=assets.SourceLayout(0x86BA499F);
         foreach(var participant in participants)
         {
-            if(participant.Layers.Count==0)continue;
             var portrait=new UiSourceStandingPortrait{Name="NarrationPortrait"+participant.Node,
                 Position=characterParent.Rectangle(participant.Node).Position};
-            canvas.AddChild(portrait);portrait.Configure(repository,assets,shader,participant.Layers);
+            canvas.AddChild(portrait);participant.Configure(portrait);
             portrait.SetMeta("character_parent_node",participant.Node);
         }
-        var message=new UiSourceLayout(repository,0x98D39EC1);
+        var message=assets.SourceLayout(0x98D39EC1);
         message.Art(canvas,2,message.Rectangle(2),assets,shader);
         var name=new UiSourceText{Name="NarrationSpeaker",Position=message.Rectangle(3).Position,Size=message.Rectangle(3).Size};
         canvas.AddChild(name);
@@ -153,7 +172,7 @@ internal partial class DeploymentNarrationView : Control
             body.PageDrawn+=publication=>{if(!finished&&publication==body.Publication)ready=true;};
             body.Configure(font,MapFontProfile.FromNode(message.Nodes[4],message.Source.Source.ResourceUri),expanded);
         }
-        var cursor=new UiSourceLayout(repository,0x0D12D720);
+        var cursor=assets.SourceLayout(0x0D12D720);
         storyContinueCursor=cursor.Art(canvas,2,cursor.Rectangle(2,message.Rectangle(5).Position),assets,shader);
         BeginPageWait();
         SetMeta("source_layout",root.Source.Source.ResourceUri);
@@ -250,6 +269,6 @@ internal partial class DeploymentNarrationView : Control
     public override void _ExitTree()
     {
         completed=null;readAutomaticAdvance=null;readAdmission=null;KeyboardInput=null;MouseInputAdmission=null;finished=true;
-        font?.Dispose();assets?.Dispose();shader?.Dispose();
+        if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}
     }
 }

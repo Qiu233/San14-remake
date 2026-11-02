@@ -44,6 +44,7 @@ public sealed partial class GameResourceRepository
     /// physical slots. Absent files retain the real zeroed reset definition.</summary>
     public ApplicationSpecialPersonAvailability LoadApplicationSpecialPersonCapabilities()
     {
+        SynchronizeResidentInvalidation();
         if(_specialPersonCapabilities is not null)return _specialPersonCapabilities;
         var admission=LoadCollectionOfficerAdmission();
         var directory=ReadCollectionSpecialOfficerDirectory(admission);

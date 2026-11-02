@@ -17,7 +17,7 @@ public sealed partial class RemakeArmySceneVisuals
         _independentAnimations.Add(category,new(category,action.ActionIndex,action.AnimationData.Single().Source.FileId,0));
     }
 
-    private RemakeArmyVisualFrame PublishSiegeMotionFrame(UnitState unit,OwnedMotion owned)
+    private RemakeArmyVisualFrame PublishSiegeMotionFrame(OwnedMotion owned)
     {
         int category=owned.SelectedFormation1B-4;
         var records=owned.Motion.CaptureRecords();var current=owned.Motion.UnitPosition10;
@@ -37,7 +37,7 @@ public sealed partial class RemakeArmySceneVisuals
             var key=new RemakeArmyComponentKey(write.DescriptorOffset,write.DescriptorInstanceIndex);
             publications.Add(key,new(key,write.RecordIndex,category,write,world,_independentAnimations[category],source));
         }
-        return new(unit.Id,unit.HexId,unit.FormationId!.Value,owned.Initialization,records,
+        return new(owned.Unit.UnitId,owned.Unit.HexId,owned.Unit.FormationSlot!.Value,owned.Initialization,records,
             new(writes,[],records.CallerSource,records.CodeSource),
             ArmyInstancePose.WriteFlags(records,2,[],[]),
             new ReadOnlyDictionary<RemakeArmyComponentKey,RemakeArmyPosePublication>(publications))

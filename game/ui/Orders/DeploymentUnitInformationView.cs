@@ -69,7 +69,7 @@ internal partial class DeploymentUnitInformationView : Control
         }
     }
     internal void ApplySelection(DeploymentDraftRow? row,DeploymentDraftUnitInfo? info,DeploymentDraftFigures? figures,
-        LoadedSprite? resolvedPortrait,Action<int>? changed,Action<int?>? calculatorReturned=null)
+        LoadedUiSpriteSource? resolvedPortrait,Action<int>? changed,Action<int?>? calculatorReturned=null)
     {
         if(abandoned)return;
         changeTroops=changed;this.calculatorReturned=calculatorReturned;
@@ -124,7 +124,7 @@ internal partial class DeploymentUnitInformationView : Control
                 calculator=null;dialog.QueueFree();
                 if(calculatorReturned is { } returned)returned(result);
                 else if(result is int troops)changeTroops?.Invoke(troops);
-            });
+            },resources:new(assets, font, shader));
         }
         catch{calculator=null;dialog.QueueFree();throw;}
     }

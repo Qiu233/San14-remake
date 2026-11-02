@@ -12,11 +12,11 @@ internal partial class DefinitionInformationListView : PagedInformationListView
     private UiSourceBottomButton? officers;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         DefinitionInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> openOfficers, Func<int> scrollSpeed, Action<int>? inspect = null)
+        Action<int> openOfficers, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources, Action<int>? inspect = null)
     {
         this.repository = repository; this.pages = pages; this.admitted = admitted; this.openOfficers = openOfficers;
         ConfigureList(repository, text, new DefinitionInformationListContent(pages), admitted,
-            close, id => { RefreshOfficers(); inspect?.Invoke(id); }, scrollSpeed, "DefinitionInformationList", "definition_information_group");
+            close, id => { RefreshOfficers(); inspect?.Invoke(id); }, scrollSpeed, "DefinitionInformationList", "definition_information_group", resources: resources);
     }
     protected override void ConfigureListExtras(MapInformationListView currentList)
     {

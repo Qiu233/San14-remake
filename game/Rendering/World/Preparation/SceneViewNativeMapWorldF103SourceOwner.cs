@@ -28,6 +28,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
     private readonly MainMapCameraModeOwner mainMode;
     private readonly MapMainCameraPostSelectionOwner mainPostSelection;
     private readonly MapGameLightQualityOwner graphicsQuality;
+    private MapGameLightQualityControlOwner? gameLightControls;
     private readonly SceneViewNativeMapSourceFields scalars;
     private readonly MapSeasonMainCameraPhaseSource phase;
     private readonly SkyWeatherNativePowerSource weather;
@@ -38,6 +39,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
     private readonly OwnedWorldLists worldLists;
     private readonly LoadedEnvironmentWorldLightPublicationSource environment;
     private SceneViewNativeMapSeasonResourceBundle seasonResources;
+    private MapSeasonMainCameraModeSources modeSources;
     private readonly Dictionary<uint,OwnedWorldData> data = new();
     private readonly ConditionalWeakTable<NativeMapFrameContext,CurrentFrame> current = new();
     private readonly string generation;
@@ -59,7 +61,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         ArgumentNullException.ThrowIfNull(resources);
         if (resources.Locale != loaded.InitialFrame.MainCamera.Camera.ExecutableLocale)
             throw new InvalidDataException("Loaded season declarations must use this Main session's executable locale.");
-        seasonResources = resources;
+        seasonResources = resources;modeSources=new(loaded.Repository,resources.CameraSource);
     }
 
     public sealed record CurrentFrame(MapSourceCreatedWorldF103Frames World,
@@ -157,6 +159,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         environment=EnvironmentWorldLightPublicationSource.Load(repo);
         var season=loaded.InitialFrame.World.NativeMapSeason??throw new InvalidDataException("World source season is absent.");
         seasonResources=SceneViewNativeMapSeasonResourceBundle.Load(repo,season,locale,1);
+        modeSources=new(repo,seasonResources.CameraSource);
         var boot=loaded.InitialFrame with {MainCamera=loaded.InitialFrame.MainCamera with {
             Camera=loaded.InitialFrame.MainCamera.Camera.CopyAcceptedSnapshotForOwnedFrame(1,generation+"/bootstrap-optics")}};
         if (actualBootstrapArmyInventory is null)
@@ -200,7 +203,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var population=cpu.PrepareCurrent(capture);long number=population.FrameNumber;
         Mark("current-static-population");
         var mode=mainMode.PrepareCurrent(capture.MainCamera);mode.ValidateCurrent(mainMode,capture.MainCamera);
-        var selectedSeason=resources.CameraSource.WithCalendar(MapSeasonRuntime.PrepareFrame(season,number));
+        var selectedSeason=modeSources.Prepare(MapSeasonRuntime.PrepareFrame(season,number),mode);
         var post=mainPostSelection.PrepareCurrent(selectedSeason,mode,graphicsQuality);
         var before=SkySeasonMainCameraProducer.PrepareBeforeFinalPreparation(selectedSeason,capture.MainCamera,mode.Mode288,phase,
             previousAcceptedLightingState:previousLighting,mainPostSelection:post);
@@ -218,8 +221,14 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         var common=MapCommonRenderState.FromSettings(commonSource,number,
             generation+"/source-Common-settings",generation+"/Common",Binding.ViewIdentity,generation+"/properties-before-ambient");
         var provider=providers?.Invoke(declarations);
-        var caller=provider is null?null:DirectionalLightProviderCaller.CaptureFreshOwnedCaller(
-            before.MainFrame,common,DirectionalProviderCallerScope.FreshOwnedCameraClearedLateControlsNoLaterSelectorWriter);
+        if(provider is null&&mode.Mode288!=0)
+            throw new NotSupportedException("Current World mode needs its actual ready Directional child provider.");
+        if(provider is not null)
+        {
+            if(gameLightControls is null||!ReferenceEquals(gameLightControls.FirstRegisteredRoot,sources[0].Construction))
+                gameLightControls=new(sources.Select(source=>source.Construction).ToArray());
+            gameLightControls.ApplyCurrent(graphicsQuality.CurrentQualityOption18,mode.Mode288);
+        }
         var packets=sources.Select((s,i)=>
         {
             var input=new MapSourceCreatedLightingFrameInputs(number,Binding with {LightOwnerIdentity=Light(i)},present.Parameters,
@@ -227,7 +236,7 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
             MapLightingCameraScope.LightingPrefix,scalars.PrepareBuiltinAmbientCameraRate(capture.MainCamera.Camera),true,new(),
             PresentSeasonCamera:present);
             return provider is null?s.PrepareFrame(input):s.PrepareFrame(input,
-                provider.PrepareFreshCallerFrame(s.Construction,caller!,before.MainFrame,present.PreparedCameraPrefix.Span));
+                provider.PrepareSuccessfulMainFrame(s.Construction,present,common,gameLightControls!));
         }).ToArray();
         var primary=packets[2];
         Mark("current-common-five-light-packets");
@@ -243,9 +252,16 @@ public sealed class SceneViewNativeMapWorldF103SourceOwner
         // Append owns this registry mutation. Full source-order equivalence
         // belongs to offline checks, not a second snapshot on every frame.
         var counted=MapSourceCreatedWorldKind1Publication.PrepareSourceRetainedQueue(number,Binding,generation+"/World-queue/"+number,
-            declarations,metadata.Select((m,i)=>new MapWorldKind1CurrentRecordInput(number,Binding.ViewIdentity,m,i,Record(i),
-                m.DeclaredGroupMask,m.MaxPrimitiveNum,packets[i].LocalLightData.Span[0xF20],true,true,true,
-                environment.SourceProvenance+";actual-constructed-world-record="+Record(i))).ToArray());
+            declarations,metadata.Select((m,i)=>
+            {
+                var actor=packets[i].SelectedDirectionalConstruction??throw new InvalidDataException("Actual selected World actor is absent.");
+                var selected=actor.Metadata;
+                return new MapWorldKind1CurrentRecordInput(number,Binding.ViewIdentity,m,i,Record(i),
+                    selected.SourceGroupMask,checked((int)selected.MaximumPrimitiveCount),packets[i].LocalLightData.Span[0xF20],
+                    selected.SourceGroupMask==m.DeclaredGroupMask,selected.MaximumPrimitiveCount==m.MaxPrimitiveNum,
+                    selected.SourceF20==m.SourceLightDataF20,
+                    environment.SourceProvenance+";actual-selected-world-record="+Record(i),actor);
+            }).ToArray());
         var queue=counted.Records.Select((r,i)=>new TerrainCurrentKind1WorldPQPublication(number,Binding.ViewIdentity,
             counted.QueueOwnerIdentity,i,0x10000000,generation+"/World-pair/"+number+"/"+i,Record(i),r.Mask78,true,r.ProducerProvenance)).ToArray();
         Mark("current-world-list-and-record-counts");

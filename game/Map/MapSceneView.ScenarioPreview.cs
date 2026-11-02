@@ -5,6 +5,7 @@ using San14.Data;
 public partial class MapSceneView
 {
     private MapSeasonScenarioPreviewFrame? _scenarioPreviewCalendar;
+    private CityGateMapMarkerSources? _scenarioPreviewMarkerSources;
     private StartupMapCameraAdapter? _sourceStartupCamera;
     private bool _adoptingStartedCampaign;
     private bool _startedCampaignAccepted=true;
@@ -14,7 +15,8 @@ public partial class MapSceneView
     private D3D11CurrentSeasonFrame? _pendingAcceptedPreviewSeason;
     private TaskCompletionSource<bool>? _startedMapFrame;
     private GameState? _startedMapWorld;
-    internal CityGateMapMarkerSources CityGateMarkerSources=>_d3d11Markers?.MarkerSources??throw new InvalidOperationException("The actual source marker owner is absent.");
+    internal CityGateMapMarkerSources CityGateMarkerSources=>_d3d11Markers?.MarkerSources??
+        _scenarioPreviewMarkerSources??throw new InvalidOperationException("The actual source marker resources are absent.");
     internal bool IsNewGameScenarioPreview=>_scenarioPreviewCalendar is not null;
     private MainMapCameraControllerParameters ActiveSourceCameraParameters=>
         chronologyCamera?.Parameters??_sourceStartupCamera?.Parameters??_sourceMainCamera?.Parameters??
@@ -115,9 +117,10 @@ public partial class MapSceneView
                 _scenarioPreviewCalendar=null;_sourceStartupCamera=null;_sourceMainCamera=null;
                 InstallCampaignArmyPublisher();
                 _sourceMainMode!.SetCurrentOverride28C(-1);
+                if(_d3d11Markers is null)InitializeD3D11CampaignMapLocations();
                 _d3d11Markers!.AdoptCampaignPlayer(world,player);
                 _d3d11Markers.ConfigureArmyLabels(_repository,snapshot,CaptureCurrentVisualWorld,
-                    MainMapCameraControllerParameters.LoadSourceDefaults(_repository,_text.SourceLocale));
+                    MainMapCameraControllerParameters.LoadSourceDefaults(_repository,_text.SourceLocale),CaptureCurrentArmyPresence);
                 _d3d11Markers.Visible=true;
                 _facilityConnections=CaptureFacilitySceneConnections(world);
                 _startedMapWorld=world;_startedMapFrame=new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -132,6 +135,16 @@ public partial class MapSceneView
             }
             finally {_adoptingStartedCampaign=false;}
         }
+    }
+
+    internal System.Numerics.Vector3 ResolveScenarioPreviewHexAnchor(int hex)
+    {
+        var terrain = _sceneTerrain?.WorldGroundHeight ??
+            throw new InvalidOperationException("The force map has no loaded Scene Landscape world Field.");
+        if (!ReferenceEquals(_deploymentTargetAnchors?.Terrain, terrain)) _deploymentTargetAnchors = new(terrain);
+        var anchor = _deploymentTargetAnchors.Query(hex);
+        return anchor.GroundWorld ?? throw new InvalidDataException(anchor.UnresolvedInput ??
+            "The force map Hex has no resolved world anchor.");
     }
 
     internal bool TryPickScenarioPreviewHex(MainMapCameraCanonicalPoint cursor,out int hex)

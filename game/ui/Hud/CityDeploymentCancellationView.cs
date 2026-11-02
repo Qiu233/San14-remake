@@ -19,18 +19,20 @@ internal partial class CityDeploymentCancellationView : Control
     private Action? close;
     private Rect2? menuRectangle;
     private int scroll;
-    private bool abandoned;
+    private bool abandoned, ownsResources;
     private Vector2? rightStart;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
         DeploymentCancellationPage page,Rect2? menuRectangle,Func<bool> admitted,
-        Action<ArmyReceiverId> cancel,Action close,Func<int> scrollSpeed)
+        Action<ArmyReceiverId> cancel,Action close,Func<int> scrollSpeed, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository=repository;this.text=text;this.menuRectangle=menuRectangle;
         this.admitted=admitted;this.cancel=cancel;this.close=close;
         Name="CityDeploymentCancellation";ZIndex=5;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new(){Name="CancellationCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};
         AddChild(canvas);Resized+=Fit;Fit();
         Apply(page,scrollSpeed);
@@ -40,7 +42,7 @@ internal partial class CityDeploymentCancellationView : Control
     {
         if(popup is not null){canvas.RemoveChild(popup);popup.QueueFree();}
         buttons.Clear();
-        var source=new UiSourceLayout(repository,0xFE9C1A61);
+        var source=assets.SourceLayout(0xFE9C1A61);
         Vector2 position=menuRectangle is Rect2 menu?new(menu.End.X,menu.Position.Y):new(900,500);
         Vector2 size=source.Rectangle(0).Size;
         if(position.X+size.X>1920&&menuRectangle is Rect2 parent)position.X=parent.Position.X-size.X;
@@ -102,7 +104,7 @@ internal partial class CityDeploymentCancellationView : Control
     }
     private void Fit()
     {float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=new(scale,scale);canvas.Position=(Size-canvas.Size*scale)*.5f;}
-    public override void _ExitTree(){Abandon();assets?.Dispose();font?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){Abandon();if(ownsResources){assets?.Dispose();font?.Dispose();shader?.Dispose();}}
 }
 
 internal partial class CityDeploymentCancellationButton : UiSourceButton
@@ -110,7 +112,7 @@ internal partial class CityDeploymentCancellationButton : UiSourceButton
     internal void Configure(GameResourceRepository repository,PreviewText text,UiAssets assets,Shader shader,
         MapFont font,DeploymentCancellationRow row,Action selected)
     {
-        var source=new UiSourceLayout(repository,0x4BC1E64C);Size=source.Rectangle(0).Size;
+        var source=assets.SourceLayout(0x4BC1E64C);Size=source.Rectangle(0).Size;
         source.Art(this,2,source.Rectangle(2),assets,shader);
         var states=new Control[5];
         for(int state=0;state<5;state++)
@@ -127,7 +129,7 @@ internal partial class CityDeploymentCancellationButton : UiSourceButton
         if(row.SupplyPalette is int supply)source.Art(this,7,source.Rectangle(7),assets,shader,palettes[supply]);
         source.Text(this,4,default,row.Name??text.Get("detail_unknown"),font);
         source.Text(this,6,default,row.TroopsText??text.Get("detail_unknown"),font);
-        var barSource=new UiSourceLayout(repository,0xAFC125D8);
+        var barSource=assets.SourceLayout(0xAFC125D8);
         Rect2 barBounds=source.Rectangle(8);
         var bar=new Control{Name="CancellationMorale",Position=barBounds.Position,Size=barSource.Rectangle(0).Size,
             Scale=barBounds.Size/barSource.Rectangle(0).Size,MouseFilter=MouseFilterEnum.Ignore};

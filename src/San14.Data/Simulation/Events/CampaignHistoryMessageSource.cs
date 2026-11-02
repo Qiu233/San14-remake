@@ -244,11 +244,15 @@ public sealed partial class ArmyCampaignRuleAdapter
             0 => operands.Area0, 1 => operands.Area1, 2 => operands.Area2,
             3 => operands.Area3, 4 => operands.Area4, _ => null
         }) ?? throw HistoryMissing("Area_argument");
-        //Bare City argument is read without the display-field range gate.
+        //Bare City arguments bypass the field range gate. Field4 returns
+        //the current Base's Force slot, independently of its formatted name.
         public int CityValue(int a, int f)
         {
-            if (f != 0) throw HistoryMissing("Base_numeric_field");
-            return BaseArgument(a);
+            if (f == 0) return BaseArgument(a);
+            if (f != '4') throw HistoryMissing("Base_numeric_field");
+            ushort raw = BaseArgument(a);
+            if (raw is 0 or > 61) return 0;
+            return HistoryKnown(current.ReadBaseForceSlot(BaseLookup.Find(raw, current)), "Base_numeric_ForceB0");
         }
         public int BaseArgumentValidity(int raw) => HistoryKnown(
             current.ReadBaseNativeValidity(BaseLookup.Find(raw, current)), "Base_argument_validity") ? 1 : 0;

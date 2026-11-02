@@ -82,7 +82,12 @@ public partial class MapSceneView
 
     internal void RetireHexFirePresentation()
     {
-        _hexFireLifetime?.Cancel(); _hexFireLifetime?.Dispose(); _hexFireLifetime = null;
+        if (_hexFireLifetime is { } lifetime)
+        {
+            TreeExiting -= RetireHexFirePresentation;
+            _hexFireLifetime = null;
+            lifetime.Cancel(); lifetime.Dispose();
+        }
         foreach (var slot in _hexFireSlots.Values)
             if (slot.Ticket is { } ticket) { _captureEffects?.Retire(ticket); _captureEffects?.Forget(ticket); }
         _hexFireSlots.Clear(); _hexFirePresentation = null; _hexFireRebinding = Task.CompletedTask;

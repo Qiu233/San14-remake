@@ -8,7 +8,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     public CommandResult IssueOrdinaryArmiesWithdrawal(GameState state, IReadOnlyList<UnitState> armies,
         IReadOnlyList<ArmyWithdrawalSavedGroup>? savedGroups = null)
     {
-        if (armies is null || armies.Count is < 1 or > 30 || armies.Select(army => army.Id).Distinct().Count() != armies.Count)
+        if (armies is null || armies.Count < 1 || armies.Select(army => army.Id).Distinct().Count() != armies.Count)
             return CommandResult.Reject("Select distinct deployed ordinary armies.", "unit.batch");
         try
         {

@@ -53,7 +53,7 @@ public partial class Main
         try
         {
             _transportSetupPresenter = new(view, _repository, _ui, world, composition.Snapshot, rules, source,
-                _sourceHeaders, Current, CurrentListScrollSpeed, BeginTarget, PrepareFoodWarning, Returned, TransportUnavailable);
+                _sourceHeaders, Current, CurrentListScrollSpeed, BeginTarget, PrepareFoodWarning, Returned, TransportUnavailable,uiResources:TryBorrowApplicationUiResources(view));
         }
         catch { CloseTransportSetup(); throw; }
 
@@ -106,7 +106,7 @@ public partial class Main
                         });
                         if (saved) HideDeploymentHud(); else TransportUnavailable(_playMessage.Text);
                         return saved;
-                    },routePreviewChanged:map.SetDeploymentRoutePreviews);
+                    },routePreviewChanged:map.SetDeploymentRoutePreviews,uiResources:TryBorrowApplicationUiResources(target));
                 map.SetDetailsOpen(false, keepMapVisible: true); HideDeploymentHud();
                 map.SetCommandTargetPicker(hex => _transportTargetPresenter?.PickTarget(hex, map.SourceSelectionShiftHeld),
                     hex => _transportTargetPresenter?.AllowPointer(hex) == true,

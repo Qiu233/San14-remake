@@ -6,6 +6,7 @@ using San14.Client.Gameplay;
 /// visible above the original footer. Only an explicit reply resolves it.</summary>
 internal partial class SelfRecommendationView : Control
 {
+    // All static resources are borrowed from the application owner.
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
@@ -15,7 +16,7 @@ internal partial class SelfRecommendationView : Control
     private Action<bool>? replied;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, OfficerDetailPublication officer,
-        string expanded, Func<bool> admitted, Action<bool> replied)
+        string expanded, Func<bool> admitted, Action<bool> replied,AdministrationPageChrome.Resources resources)
     {
         this.admitted = admitted; this.replied = replied;
         Name = "SelfRecommendation"; ZIndex = 96; MouseFilter = MouseFilterEnum.Stop;
@@ -26,8 +27,8 @@ internal partial class SelfRecommendationView : Control
         // including its page buttons. Its own footer supplies the reply.
         var detail = new OfficerDetailsView { Size = new(1920, 1080) };
         canvas.AddChild(detail);
-        detail.Configure(repository, officer, text, () => { }, admitted, showNavigation: false);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        detail.Configure(repository, officer, text, () => { }, admitted, showNavigation: false,resources:resources);
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         Vector2 mount = new(0, 904);
         var narration = new UiSourceLayout(repository, 0xAB6ADAA7);
@@ -93,6 +94,5 @@ internal partial class SelfRecommendationView : Control
     public override void _ExitTree()
     {
         replied = null; admitted = null;
-        font?.Dispose(); assets?.Dispose(); shader?.Dispose();
     }
 }

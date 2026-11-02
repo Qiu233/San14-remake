@@ -10,7 +10,7 @@ public partial class Main
     private GameState? _mapSystemWorld;
     private MapSceneView? _mapSystemMap;
     private CancellationTokenSource? _mapSystemPreparation;
-    private bool _mapSystemPresentationActive, _mapSystemClosing;
+    private bool _mapSystemPresentationActive, _mapSystemClosing, _mapSystemPeriodInspection;
     private bool HasMapSystemMenu => _mapSystemMenu is not null;
     private Button _playSystemMenu = null!;
 
@@ -20,6 +20,7 @@ public partial class Main
         // owners. A gameplay commit or replaced session must still retire them.
         if (_mapSystemMenu is null || _mapSystemSession != session ||
             _mapSystemMap != _residentMap || !ReferenceEquals(_mapSystemWorld, previous)) return;
+        if (_mapSystemPeriodInspection && !TryAdoptPeriodMenuWorld(previous, replacement)) return;
         _mapSystemWorld = replacement;
         if (_campaignSaveView is not null && _campaignSaveSession == session && _campaignSaveMap == _residentMap &&
             ReferenceEquals(_campaignSaveWorld, previous)) _campaignSaveWorld = replacement;
@@ -27,17 +28,31 @@ public partial class Main
             ReferenceEquals(_worldEditWorld, previous)) _worldEditWorld = replacement;
     }
 
-    private async void OpenMapSystemMenu()
+    private void OpenMapSystemMenu()
+    {
+        if (TryRequestPeriodMenu(PeriodMenuKind.System)) return;
+        OpenMapSystemMenuCore(null);
+    }
+
+    private void OpenMapSystemMenuFromPeriod(GameState borrowedWorld) => OpenMapSystemMenuCore(borrowedWorld);
+
+    private async void OpenMapSystemMenuCore(GameState? borrowedWorld)
     {
         if (_failed || _shuttingDown || IsReturningToTitle || HasMapSystemMenu || HasCampaignSavePage || HasAdministrationPage || HasMilitaryOrderPage || HasCommandWorkspace ||
             _detailsView is not null || _periodReportView is not null || HasActionReport || HasPersonnelConfirmation || _repository is null ||
-            _session is not { PlayerForceId: not null } session) return;
+            _session is not { PlayerForceId: not null } session)
+        { if (borrowedWorld is not null) ReleasePeriodMenu(PeriodMenuKind.System); return; }
         // File/settings/application operations do not require a completed GPU
         // map. Keep the actual optional map owner for suspension and retirement.
         var map=_residentMap;
-        var world = session.World;
+        var world = borrowedWorld ?? session.World;
+        if (!IsInspectionWorldCurrent(session, world))
+        { if (borrowedWorld is not null) ReleasePeriodMenu(PeriodMenuKind.System); return; }
+        bool periodInspection = borrowedWorld is not null;
         var view = new MapSystemMenuView();
         _mapSystemMenu = view; _mapSystemSession = session; _mapSystemWorld = world; _mapSystemMap = map;
+        _mapSystemPeriodInspection = periodInspection;
+        view.TreeExiting += () => { if (_mapSystemMenu == view) CloseMapSystemMenu(); };
         var preparation = new CancellationTokenSource();
         _mapSystemPreparation = preparation;
         var token = preparation.Token;
@@ -63,7 +78,7 @@ public partial class Main
                     bool generationCurrent = await Task.Run(prepared.IsCurrentGeneration, token);
                     if (token.IsCancellationRequested || resourceOwner.Retired || !Current() || _ui.SourceLocale != locale)
                     { if (_mapSystemMenu == view) CloseMapSystemMenu(); return; }
-                    if (!generationCurrent)
+                    if (!resourceOwner.HasCurrentResourceRevision || !generationCurrent)
                     {
                         RetireMapSystemResourcePreparation(resourceOwner);
                         prepared = null;
@@ -86,7 +101,7 @@ public partial class Main
             // preparation still owns its resources, before Configure receives
             // their ownership or creates any UI borrowers.
             bool scenarioSettingsSupported = _campaignComposition?.PrepareArmyQueries(_mapSystemWorld!).CanViewCurrentScenarioSettings(_mapSystemWorld!) == true;
-            bool currentWorldEditSupported = _campaignComposition?.PrepareArmyQueries(_mapSystemWorld!)
+            bool currentWorldEditSupported = !periodInspection && _campaignComposition?.PrepareArmyQueries(_mapSystemWorld!)
                 .QueryCurrentWorldEditAdmission(_mapSystemWorld!, session.HasPendingOperation).Value?.Allowed == true;
             var ready = prepared;
             var releaseResources = BorrowMapSystemResources(resourceOwner, view, ready);
@@ -96,9 +111,9 @@ public partial class Main
                 if (!Current() || HasCampaignSavePage || HasEnvironmentSettings || HasScenarioSettings || HasCurrentWorldEditors || _mapSystemConfirmation is not null) return;
                 if (command == MapSystemCommand.Exit) RequestLeave(returnToTitle: false);
                 else if (command == MapSystemCommand.ReturnToTitle) RequestLeave(returnToTitle: true);
-                else if (command == MapSystemCommand.Environment) RunUiAction(OpenEnvironmentSettings);
-                else if (command == MapSystemCommand.ScenarioSettings) RunUiAction(OpenScenarioSettings);
-                else if (command == MapSystemCommand.Edit) RunUiAction(OpenCurrentWorldEditors);
+                else if (command == MapSystemCommand.Environment) RunUiAction(OpenEnvironmentSettings, allowDuringPeriod: periodInspection);
+                else if (command == MapSystemCommand.ScenarioSettings) RunUiAction(OpenScenarioSettings, allowDuringPeriod: periodInspection);
+                else if (command == MapSystemCommand.Edit && !periodInspection) RunUiAction(OpenCurrentWorldEditors);
                 else if (command == MapSystemCommand.Manual)
                 {
                     // The original opens its external manual and keeps Config.
@@ -111,12 +126,14 @@ public partial class Main
                 }
                 else
                 {
+                    if (periodInspection) return;
                     OpenCampaignSaves(command == MapSystemCommand.Save);
                     if (HasCampaignSavePage) view.SuspendContent();
                 }
             }, scenarioSettingsSupported: scenarioSettingsSupported,
                 currentWorldEditSupported: currentWorldEditSupported,
-                prepared: ready, releasePrepared: releaseResources);
+                prepared: ready, releasePrepared: releaseResources,
+                saveSupported: !periodInspection, loadSupported: !periodInspection);
             if (await view.PlayTransition(true) && Current()) view.SetBusy(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -125,7 +142,7 @@ public partial class Main
             if (_mapSystemMenu == view)
             {
                 CloseMapSystemMenu();
-                RunUiAction(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw());
+                RunUiAction(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw(), allowDuringPeriod: periodInspection);
             }
         }
         finally
@@ -135,7 +152,7 @@ public partial class Main
         }
 
         bool Current() => !_failed && !_shuttingDown && _mapSystemMenu == view && _residentMap == map &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, _mapSystemWorld) && ReferenceEquals(_world, _mapSystemWorld);
+            ReferenceEquals(_session, session) && _mapSystemWorld is { } queryWorld && IsInspectionWorldCurrent(session, queryWorld);
 
         void RequestLeave(bool returnToTitle)
         {
@@ -167,6 +184,7 @@ public partial class Main
     private async void RequestCloseMapSystemMenu()
     {
         if (_mapSystemMenu is not { } view || _mapSystemClosing) return;
+        bool periodInspection = _mapSystemPeriodInspection;
         if (!view.IsPrepared || view.IsTransitioning) { CloseMapSystemMenu(); return; }
         _mapSystemClosing = true; view.SetBusy(true);
         try
@@ -178,37 +196,47 @@ public partial class Main
         catch (Exception error)
         {
             if (_mapSystemMenu == view)
-            { CloseMapSystemMenu(); RunUiAction(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw()); }
+            { CloseMapSystemMenu(); RunUiAction(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw(), allowDuringPeriod: periodInspection); }
         }
     }
 
     private void CloseMapSystemMenu()
     {
         if (_mapSystemMenu is null && _mapSystemMap is null) return;
-        _mapSystemPreparation?.Cancel(); _mapSystemPreparation = null;
-        _mapSystemClosing = false;
-        bool presentationActive = _mapSystemPresentationActive; _mapSystemPresentationActive = false;
-        CloseCurrentWorldEditors(resumeParent: false);
-        CloseScenarioSettings(resumeParent: false);
-        CloseEnvironmentSettings(resumeParent: false);
-        var question = _mapSystemConfirmation; _mapSystemConfirmation = null;
-        if (question is not null) { question.Abandon(); question.QueueFree(); }
-        CloseCampaignSaves();
-        var map = _mapSystemMap; _mapSystemMap = null;
-        _mapSystemSession = null; _mapSystemWorld = null;
-        var view = _mapSystemMenu; _mapSystemMenu = null;
-        if (view is not null) { view.Abandon(); view.QueueFree(); }
-        if (_mapSystemResources is { Map: null } resources) RetireMapSystemResourcePreparation(resources);
-        if (presentationActive && map is not null && GodotObject.IsInstanceValid(map) && _residentMap == map) map.SetDetailsOpen(false);
-        if (!_failed && !_shuttingDown) SetMapFocus(_mapFocused);
+        bool releasePeriod = _mapSystemPeriodInspection;
+        _mapSystemPeriodInspection = false;
+        try
+        {
+            _mapSystemPreparation?.Cancel(); _mapSystemPreparation = null;
+            _mapSystemClosing = false;
+            bool presentationActive = _mapSystemPresentationActive; _mapSystemPresentationActive = false;
+            CloseCurrentWorldEditors(resumeParent: false);
+            CloseScenarioSettings(resumeParent: false);
+            CloseEnvironmentSettings(resumeParent: false);
+            var question = _mapSystemConfirmation; _mapSystemConfirmation = null;
+            if (question is not null) { question.Abandon(); question.QueueFree(); }
+            CloseCampaignSaves();
+            var map = _mapSystemMap; _mapSystemMap = null;
+            _mapSystemSession = null; _mapSystemWorld = null;
+            var view = _mapSystemMenu; _mapSystemMenu = null;
+            if (view is not null) { view.Abandon(); view.QueueFree(); }
+            if (presentationActive && map is not null && GodotObject.IsInstanceValid(map) && _residentMap == map) map.SetDetailsOpen(false);
+            if (!_failed && !_shuttingDown) SetMapFocus(_mapFocused);
+        }
+        finally
+        {
+            // Only this root close releases the stage borrow. Children and
+            // confirmation boxes keep it while using the retained Config.
+            if (releasePeriod) ReleasePeriodMenu(PeriodMenuKind.System);
+        }
     }
 
     private bool ResumeMapSystemMenu()
     {
         var view = _mapSystemMenu;
         if (HasCurrentWorldEditors || HasEnvironmentSettings || HasScenarioSettings || view is null || _session is not { } session ||
-            !ReferenceEquals(_mapSystemSession, session) || !ReferenceEquals(_mapSystemWorld, session.World) ||
-            !ReferenceEquals(_world, session.World) || _residentMap != _mapSystemMap)
+            !ReferenceEquals(_mapSystemSession, session) || _mapSystemWorld is not { } queryWorld ||
+            !IsInspectionWorldCurrent(session, queryWorld) || _residentMap != _mapSystemMap)
         {
             // A replaced campaign cannot retain the old parent's borrowed background.
             view?.Hide(); return false;

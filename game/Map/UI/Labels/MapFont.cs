@@ -9,7 +9,67 @@ internal sealed class MapFont : IDisposable
     private readonly Dictionary<ulong, DrawOwner> _owners = [];
     private readonly Shader _shader = CreateShader();
     internal readonly record struct PreparedTextKey(string Value, MapFontProfile Profile);
+    // Source is diagnostic provenance. This font owner and the remaining
+    // complete profile already identify the rendered pixels. Keep the
+    // caller's profile intact while sharing equal text across UI layouts.
+    private static PreparedTextKey TextKey(string value, MapFontProfile profile) =>
+        new(value, profile.Source.Length == 0 ? profile : profile with { Source = string.Empty });
     private readonly IReadOnlyDictionary<PreparedTextKey, MapTextCache>? _preparedText;
+    // Finite prepared captions remain resident with this resource owner.
+    // Other text is retained only by live slots, so scrolling numbers cannot
+    // grow a historical cache indefinitely.
+    private readonly Dictionary<PreparedTextKey, TextTextures> _textTextures = [];
+    private sealed class TextTextures(PreparedTextKey? key, MapTextCache cache, ImageTexture[] textures, bool resident)
+    {
+        internal PreparedTextKey? Key { get; } = key;
+        internal MapTextCache Cache { get; } = cache;
+        internal ImageTexture[] Textures { get; } = textures;
+        internal bool Resident { get; } = resident;
+        internal int Users = 1;
+    }
+    private TextTextures AcquireText(string value, MapFontProfile profile, IReadOnlyList<uint?>? glyphColours,
+        IReadOnlyList<MapTextPreset?>? glyphBodyPresets = null)
+    {
+        PreparedTextKey? key = glyphColours is null && glyphBodyPresets is null ? TextKey(value, profile) : null;
+        if (key is {} sharedKey && _textTextures.TryGetValue(sharedKey, out var shared))
+        { shared.Users++; return shared; }
+        MapTextCache cache = key is {} preparedKey && _preparedText is {} prepared &&
+            prepared.TryGetValue(preparedKey, out var pixels) ? pixels : MapTextCache.Build(Source, value, profile, glyphColours, glyphBodyPresets);
+        var textures = new List<ImageTexture>(3);
+        try
+        {
+            foreach (var channel in new[] { cache.Offset, cache.Stroke, cache.Body })
+            {
+                using var image = Image.CreateFromData(cache.Width, cache.Height, false,
+                    Image.Format.Rgbaf, MemoryMarshal.AsBytes(channel.AsSpan()).ToArray());
+                textures.Add(ImageTexture.CreateFromImage(image));
+            }
+            var result = new TextTextures(key, cache, textures.ToArray(),
+                key is {} staticKey && _preparedText?.ContainsKey(staticKey) == true);
+            if (key is {} addedKey) _textTextures.Add(addedKey, result);
+            return result;
+        }
+        catch
+        { foreach (var texture in textures) texture.Dispose(); throw; }
+    }
+    private void ReleaseText(TextTextures text)
+    {
+        if (--text.Users != 0 || text.Resident) return;
+        if (text.Key is {} key) _textTextures.Remove(key);
+        foreach (var texture in text.Textures) texture.Dispose();
+    }
+    // The finite prepared captions are static. Their textures remain owned by
+    // this resource generation even when no page currently draws them.
+    internal void MaterializePreparedText()
+    {
+        if (_preparedText is null) return;
+        foreach (var entry in _preparedText)
+        {
+            var text = AcquireText(entry.Key.Value, entry.Key.Profile, null);
+            ReleaseText(text);
+        }
+    }
+
     internal MapFontSource Source { get; }
     internal MapFont(MapFontSource source, IReadOnlyDictionary<PreparedTextKey, MapTextCache>? preparedText = null)
     { Source = source; _preparedText = preparedText; }
@@ -21,7 +81,7 @@ internal sealed class MapFont : IDisposable
         if (value.Length == 0) return;
         profile.ValidateSingleLine();
         var fitted = source.FitToWidth(value, profile, width);
-        var key = new PreparedTextKey(value, fitted);
+        var key = TextKey(value, fitted);
         if (!caches.ContainsKey(key)) caches.Add(key, MapTextCache.Build(source, value, fitted));
     }
     internal MapFont(GameResourceRepository repository, string locale) =>
@@ -54,19 +114,27 @@ internal sealed class MapFont : IDisposable
 
     internal void SetDrawingVisibilityLayer(CanvasItem canvas, uint layer) => Owner(canvas).SetVisibilityLayer(layer);
 
+    // Existing glyph commands remain parented to this actual CanvasItem.
+    // Moving it changes their inherited placement; only the viewport-aligned
+    // backbuffer copy rectangles/inverse transforms need to be refreshed.
+    internal void RefreshDrawingPlacement(CanvasItem canvas)
+    {
+        if(_owners.TryGetValue(canvas.GetInstanceId(),out var owner))owner.RefreshPlacement();
+    }
+
     private DrawOwner Owner(CanvasItem canvas)
     {
         ulong id = canvas.GetInstanceId();
         if (!_owners.TryGetValue(id, out var owner))
         {
-            owner = new(canvas, _shader, () => { _owners.Remove(id, out var old); old?.Dispose(); }, _preparedText);
+            owner = new(canvas, _shader, () => { _owners.Remove(id, out var old); old?.Dispose(); }, this);
             _owners.Add(id, owner);
         }
         return owner;
     }
     internal void Draw(CanvasItem canvas, string value, Vector2 baseline,
         MapFontProfile profile, HorizontalAlignment alignment = HorizontalAlignment.Left,
-        float width = -1, Color? modulate = null,IReadOnlyList<uint?>? glyphColours=null)
+        float width = -1, Color? modulate = null,IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null)
     {
         if (value.Length == 0) return;
         float x = baseline.X;
@@ -77,7 +145,7 @@ internal sealed class MapFont : IDisposable
                 HorizontalAlignment.Right => width - Measure(value, profile).Width,
                 _ => 0
             };
-        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White,glyphColours);
+        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White,glyphColours,glyphBodyPresets);
     }
 
     internal sealed class DrawOwner : IDisposable
@@ -85,15 +153,14 @@ internal sealed class MapFont : IDisposable
         private readonly CanvasItem _canvas;
         private readonly Shader _shader;
         private readonly Action _exiting;
-        private readonly IReadOnlyDictionary<PreparedTextKey, MapTextCache>? _preparedText;
+        private readonly MapFont _font;
         private readonly List<TextSlot> _slots = [];
         private Vector2 _scale;
         private int _used;
         private uint _visibilityLayer;
         internal int ActiveCount => _used;
-        internal DrawOwner(CanvasItem canvas, Shader shader, Action exiting,
-            IReadOnlyDictionary<PreparedTextKey, MapTextCache>? preparedText)
-        { _canvas = canvas; _shader = shader; _exiting = exiting; _preparedText = preparedText; _visibilityLayer = canvas.VisibilityLayer; canvas.TreeExiting += exiting; }
+        internal DrawOwner(CanvasItem canvas, Shader shader, Action exiting, MapFont font)
+        { _canvas = canvas; _shader = shader; _exiting = exiting; _font = font; _visibilityLayer = canvas.VisibilityLayer; canvas.TreeExiting += exiting; }
         internal void SetVisibilityLayer(uint layer)
         {
             _visibilityLayer = layer;
@@ -101,14 +168,18 @@ internal sealed class MapFont : IDisposable
         }
         internal void Begin(Vector2 scale) { _used = 0; _scale = scale; }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint,
-            IReadOnlyList<uint?>? glyphColours=null)
+            IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null)
         {
-            if (_used == _slots.Count) _slots.Add(new(_canvas, _shader, _used, _visibilityLayer, _preparedText));
-            _slots[_used++].Draw(source, value, profile, baseline, tint, _scale, glyphColours);
+            if (_used == _slots.Count) _slots.Add(new(_canvas, _shader, _used, _visibilityLayer, _font));
+            _slots[_used++].Draw(source, value, profile, baseline, tint, _scale, glyphColours, glyphBodyPresets);
         }
         internal void End()
         {
             for (int i = _used; i < _slots.Count; i++) _slots[i].Hide();
+        }
+        internal void RefreshPlacement()
+        {
+            for(int i=0;i<_used;i++)_slots[i].RefreshPlacement();
         }
         public void Dispose()
         {
@@ -123,16 +194,19 @@ internal sealed class MapFont : IDisposable
         private readonly CanvasItem _owner;
         private readonly Rid _copy, _draw;
         private readonly ShaderMaterial _material;
-        private ImageTexture[] _textures = [];
+        private TextTextures? _text;
+        private List<TextTextures>? _pendingRelease;
         private string? _value;
         private MapFontProfile? _profile;
         private IReadOnlyList<uint?>? _glyphColours;
+        private IReadOnlyList<MapTextPreset?>? _glyphBodyPresets;
         private MapTextCache? _cache;
-        private readonly IReadOnlyDictionary<PreparedTextKey, MapTextCache>? _preparedText;
-        internal TextSlot(CanvasItem owner, Shader shader, int index, uint visibilityLayer,
-            IReadOnlyDictionary<PreparedTextKey, MapTextCache>? preparedText)
+        private Rect2 _copyRectangle;
+        private Transform2D _drawingTransform;
+        private readonly MapFont _font;
+        internal TextSlot(CanvasItem owner, Shader shader, int index, uint visibilityLayer, MapFont font)
         {
-            _owner = owner; _preparedText = preparedText;
+            _owner = owner; _font = font;
             Rid parent = owner.GetCanvasItem();
             _copy = RenderingServer.CanvasItemCreate(); _draw = RenderingServer.CanvasItemCreate();
             RenderingServer.CanvasItemSetParent(_copy, parent); RenderingServer.CanvasItemSetParent(_draw, parent);
@@ -151,46 +225,56 @@ internal sealed class MapFont : IDisposable
             RenderingServer.CanvasItemSetVisibilityLayer(_draw, layer);
         }
         internal void Draw(MapFontSource source, string value, MapFontProfile profile,
-            Vector2 baseline, Color tint, Vector2 scale, IReadOnlyList<uint?>? glyphColours=null)
+            Vector2 baseline, Color tint, Vector2 scale, IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null)
         {
-            ImageTexture[] replaced = [];
-            if (_value != value || _profile != profile || !ReferenceEquals(_glyphColours,glyphColours))
+            if (_value != value || _profile != profile || !ReferenceEquals(_glyphColours,glyphColours) || !ReferenceEquals(_glyphBodyPresets,glyphBodyPresets))
             {
-                if (glyphColours is null && _preparedText is { } texts &&
-                    texts.TryGetValue(new(value, profile), out var prepared)) _cache = prepared;
-                else _cache = MapTextCache.Build(source, value, profile,glyphColours);
-                replaced = _textures;
-                _textures = new[] { _cache.Offset, _cache.Stroke, _cache.Body }.Select(pixels =>
+                // A failed partial Canvas/material update may still reference
+                // either resource. Retain both until a completed replacement
+                // or this slot's own RID/material retirement.
+                if (_text is not null)
                 {
-                    using var image = Image.CreateFromData(_cache.Width, _cache.Height, false,
-                        Image.Format.Rgbaf, MemoryMarshal.AsBytes(pixels.AsSpan()).ToArray());
-                    return ImageTexture.CreateFromImage(image);
-                }).ToArray();
-                _material.SetShaderParameter("offset_cache", _textures[0]);
-                _material.SetShaderParameter("stroke_cache", _textures[1]);
-                _material.SetShaderParameter("body_cache", _textures[2]);
-                _value = value; _profile = profile;_glyphColours=glyphColours;
+                    _pendingRelease ??= [];
+                    _pendingRelease.EnsureCapacity(_pendingRelease.Count + 1);
+                }
+                var next = _font.AcquireText(value, profile, glyphColours, glyphBodyPresets);
+                if (_text is {} previous) _pendingRelease!.Add(previous);
+                _text = next; _cache = next.Cache;
+                _value = null; // A partial material bind must retry even if the next requested text is the previous value.
+                _material.SetShaderParameter("offset_cache", next.Textures[0]);
+                _material.SetShaderParameter("stroke_cache", next.Textures[1]);
+                _material.SetShaderParameter("body_cache", next.Textures[2]);
+                _value = value; _profile = profile;_glyphColours=glyphColours;_glyphBodyPresets=glyphBodyPresets;
             }
             _material.SetShaderParameter("node_tint", new Vector4(Cpu(tint.R), Cpu(tint.G), Cpu(tint.B), tint.A));
             var rect = new Rect2(baseline + new Vector2(_cache!.Left, _cache.Top), new(_cache.Width, _cache.Height));
             var transform = Transform2D.Identity.Scaled(scale);
             RenderingServer.CanvasItemSetTransform(_draw, transform);
-            UiSourceBackBufferCopy.Configure(_owner, _copy, rect.Grow(1), transform);
+            _copyRectangle=rect.Grow(1);_drawingTransform=transform;
+            RefreshPlacement();
             RenderingServer.CanvasItemSetVisible(_copy, true); RenderingServer.CanvasItemSetVisible(_draw, true);
             RenderingServer.CanvasItemClear(_draw);
-            RenderingServer.CanvasItemAddTextureRect(_draw, rect, _textures[2].GetRid());
+            RenderingServer.CanvasItemAddTextureRect(_draw, rect, _text!.Textures[2].GetRid());
             // Both the material and the retained Canvas command must release
             // the old textures before their managed/native owners are retired.
-            foreach (var texture in replaced) texture.Dispose();
+            ReleasePendingText();
+        }
+        private void ReleasePendingText()
+        {
+            if (_pendingRelease is not {} pending) return;
+            foreach (var text in pending) _font.ReleaseText(text);
+            pending.Clear();
         }
         private static float Cpu(float encoded) => MathF.Truncate(MathF.Pow(encoded, 2.2f) * 255f) / 255f;
+        internal void RefreshPlacement()=>UiSourceBackBufferCopy.Configure(_owner,_copy,_copyRectangle,_drawingTransform);
         internal void Hide()
         { RenderingServer.CanvasItemSetVisible(_copy, false); RenderingServer.CanvasItemSetVisible(_draw, false); }
         public void Dispose()
         {
             RenderingServer.FreeRid(_copy); RenderingServer.FreeRid(_draw);
             _material.Dispose();
-            foreach (var texture in _textures) texture.Dispose();
+            if (_text is {} text) { _text = null; _font.ReleaseText(text); }
+            ReleasePendingText();
         }
     }
 
@@ -234,6 +318,9 @@ internal sealed class MapFont : IDisposable
     public void Dispose()
     {
         foreach (var owner in _owners.Values) owner.Dispose();
-        _owners.Clear(); _shader.Dispose();
+        _owners.Clear();
+        foreach (var text in _textTextures.Values)
+            foreach (var texture in text.Textures) texture.Dispose();
+        _textTextures.Clear(); _shader.Dispose();
     }
 }

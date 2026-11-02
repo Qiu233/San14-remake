@@ -52,7 +52,7 @@ public partial class OfficerDetailsView
         person.UnresolvedOwner is null ? "" : currentText.Get("detail_unknown");
     private static string Number(int value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    private static (int Node, int Message)[] PageCaptions(int page) => page switch
+    internal static (int Node, int Message)[] PageCaptions(int page) => page switch
     {
         0 => [(14,0x42A),(32,0x219),(26,0x1FE),(22,0x1FD),(95,0x246),(85,0x21D),
             (111,0x221),(121,0x450),(70,0x21C),(29,0x212),(80,0x429),(90,0x21E),

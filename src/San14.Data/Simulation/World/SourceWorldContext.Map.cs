@@ -21,12 +21,12 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
 
     public string? FixedMapSourceSha256 { get; private set; }
 
-    public void SetHexTablePointer(int slot, int? physicalSlot) => SetPointer(_hexPointers, slot, 48400, physicalSlot, 48400);
+    public void SetHexTablePointer(int slot, int? physicalSlot) => SetPointer(_hexPointers, slot, MapTileCount, physicalSlot, MapTileCount);
     public void SetAreaTablePointer(int slot, int? physicalSlot) => SetPointer(_areaPointers, slot, 501, physicalSlot, 501);
     public void SetHexAreaSlot(int physicalSlot, ushort? value)
-    { Check(physicalSlot, 48400, "hex physical slot"); _hexAreas[physicalSlot] = value; }
+    { Check(physicalSlot, MapTileCount, "hex physical slot"); _hexAreas[physicalSlot] = value; }
     public void SetHexForceSlot(int physicalSlot, byte? value)
-    { Check(physicalSlot, 48400, "hex physical slot"); _hexForces[physicalSlot] = value; }
+    { Check(physicalSlot, MapTileCount, "hex physical slot"); _hexForces[physicalSlot] = value; }
     public void SetAreaValidityCode(int physicalSlot, byte? value)
     { Check(physicalSlot, 501, "area physical slot"); _areaValidityCodes[physicalSlot] = value; }
     public void SetAreaCitySlot(int physicalSlot, byte? value)
@@ -58,19 +58,23 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
     }
     public HexReference? ReadHexTableReference(int slot)
     {
-        Check(slot, 48400, "hex lookup slot");
+        Check(slot, MapTileCount, "hex lookup slot");
         return _hexPointers.TryGetValue(slot, out int? physical) ? new(physical) :
             _hexIdentityDefinitions is not null ? new(slot) : null;
     }
-    public ushort? ReadHexAreaSlot(HexReference reference)
+    internal int? ReadMapAreaId(HexReference reference)
     {
-        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        int physical = MapPhysical(reference.PhysicalSlot, MapTileCount, "hex");
         return _hexAreas.TryGetValue(physical, out ushort? area) ? area :
-            _hexAreaDefinitions is not null ? (ushort)_hexAreaDefinitions.Tile(physical).AreaId : null;
+            _hexAreaDefinitions is not null ? _hexAreaDefinitions.Tile(physical).AreaId : null;
     }
+    // The original word interface is a source-format boundary, not the
+    // identity domain of MapTopology. Never truncate an unencodable area.
+    public ushort? ReadHexAreaSlot(HexReference reference) => ReadMapAreaId(reference) is int area
+        ? checked((ushort)area) : null;
     public byte? ReadHexForceSlot(HexReference reference)
     {
-        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        int physical = MapPhysical(reference.PhysicalSlot, MapTileCount, "hex");
         if (_hexForces.TryGetValue(physical, out byte? changed)) return changed;
         if (_currentTerritoryOwnership is null ||
             !_currentTerritoryOwnership.TryGetValue(physical, out var cell) || cell.Id != physical ||

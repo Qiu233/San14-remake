@@ -2,28 +2,66 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-public sealed record TerrainPatch(ArrayMesh Mesh, SpatialTreeNode SourceNode,
-    int ColumnOrigin, int RowOrigin, int SampleStep, IReadOnlyList<uint> PackedSamples,
-    TerrainTriangleGeometry Geometry);
+/// <summary>Real prepared CPU geometry, optionally accompanied by a Godot
+/// upload. The native renderer borrows the CPU side without an unused upload.</summary>
+public sealed record TerrainPatch
+{
+    private readonly ArrayMesh? uploadedMesh;
+    public ArrayMesh Mesh => uploadedMesh ?? throw new InvalidOperationException("This terrain patch has CPU geometry only.");
+    public bool HasGpuMesh => uploadedMesh is not null;
+    public SpatialTreeNode SourceNode { get; }
+    public int ColumnOrigin { get; }
+    public int RowOrigin { get; }
+    public int SampleStep { get; }
+    public IReadOnlyList<uint> PackedSamples { get; }
+    public TerrainTriangleGeometry Geometry { get; }
+    public uint EdgeFlags { get; }
+    private readonly Aabb cpuBounds;
+    public Aabb Bounds => uploadedMesh is { } mesh ? mesh.GetAabb() : cpuBounds;
 
+    internal TerrainPatch(PreparedTerrainMeshPatch source, ArrayMesh? upload = null, uint[]? packedSamples = null)
+    {
+        uploadedMesh = upload; SourceNode = source.Node;
+        ColumnOrigin = source.ColumnOrigin; RowOrigin = source.RowOrigin; SampleStep = source.SampleStep;
+        PackedSamples = Array.AsReadOnly(packedSamples ?? source.PackedSamples.ToArray()); Geometry = source.Geometry;
+        EdgeFlags = source.Input?.EdgeFlags ?? 0;
+        if (upload is not null) return;
+        // Use the actual vertex extrema for the same float origin/size as a
+        // mesh AABB. Geometry.Maximum is deliberately conservative for rays.
+        var minimum = Geometry.Minimum; var maximum = Geometry.Positions.Span[0];
+        foreach (var position in Geometry.Positions.Span) maximum = System.Numerics.Vector3.Max(maximum, position);
+        cpuBounds = new(new(minimum.X, minimum.Y, minimum.Z),
+            new(maximum.X - minimum.X, maximum.Y - minimum.Y, maximum.Z - minimum.Z));
+    }
+
+    internal void DisposeUpload() => uploadedMesh?.Dispose();
+}
+
+/// <summary>One owned terrain geometry result. GPU presentation is an explicit
+/// capability; CPU-only results retain source triangles and no Godot resources.</summary>
 public sealed class TerrainMeshResult : IDisposable
 {
     public LoadedTerrainResources Source { get; }
     public IReadOnlyList<TerrainPatch> Patches { get; }
     public int TreeDepth { get; }
+    public bool UsesInitialHeightAdapter { get; }
+    public bool HasGpuMeshes => previewMaterial is not null;
     /// <summary>Explicit draw selection can mix levels or contain a visibility-filtered subset.</summary>
     public bool HasExplicitSelection => TreeDepth < 0;
-    public ShaderMaterial PreviewMaterial { get; }
-    private readonly Shader _shader;
-    private bool _disposed;
+    private readonly ShaderMaterial? previewMaterial;
+    public ShaderMaterial PreviewMaterial => previewMaterial ??
+        throw new InvalidOperationException("This terrain result has no Godot presentation material.");
+    private readonly Shader? shader;
+    private bool disposed;
     internal TerrainMeshResult(LoadedTerrainResources source, IReadOnlyList<TerrainPatch> patches,
-        int depth, ShaderMaterial material, Shader shader)
-        => (Source, Patches, TreeDepth, PreviewMaterial, _shader) = (source, patches, depth, material, shader);
+        int depth, bool usesInitialHeightAdapter, ShaderMaterial? material = null, Shader? program = null)
+        => (Source, Patches, TreeDepth, UsesInitialHeightAdapter, previewMaterial, shader) =
+            (source, patches, depth, usesInitialHeightAdapter, material, program);
     public void Dispose()
     {
-        if (_disposed) return;
-        foreach (TerrainPatch patch in Patches) patch.Mesh.Dispose();
-        PreviewMaterial.Dispose(); _shader.Dispose(); _disposed = true;
+        if (disposed) return;
+        foreach (TerrainPatch patch in Patches) patch.DisposeUpload();
+        previewMaterial?.Dispose(); shader?.Dispose(); disposed = true;
     }
 }
 
@@ -44,6 +82,15 @@ public static class TerrainMesh
         => Upload(TerrainMeshPreparation.Prepare(loaded,
             initialHeight ?? throw new ArgumentNullException(nameof(initialHeight)),
             TerrainMeshSelection.Explicit(loaded.SpatialTree, selection)));
+
+    public static TerrainMeshResult PrepareCpu(LoadedTerrainResources loaded,
+        LoadedTerrainInitialHeightResources initialHeight, int treeDepth = 2) =>
+        RetainCpu(TerrainMeshPreparation.Prepare(loaded,
+            initialHeight ?? throw new ArgumentNullException(nameof(initialHeight)), treeDepth));
+
+    internal static TerrainMeshResult RetainCpu(PreparedTerrainMesh prepared) =>
+        new(prepared.Source, Array.AsReadOnly(prepared.Patches.Select(patch => new TerrainPatch(patch)).ToArray()),
+            prepared.TreeDepth, prepared.InitialHeight is not null);
 
     internal static TerrainMeshResult Upload(PreparedTerrainMesh prepared)
     {
@@ -91,7 +138,7 @@ public static class TerrainMesh
                 float[]? tangents = input is null ? null : patch.Tangents.ToArray();
                 uint[] packed = patch.PackedSamples.ToArray();
                 var mesh = new ArrayMesh { ResourceName = $"SourceTerrain_{loaded.HeightField.Source.FileId:X8}_Node{node.Index}" };
-                patches.Add(new(mesh, node, originColumn, originRow, step, Array.AsReadOnly(packed), patch.Geometry));
+                patches.Add(new(patch, mesh, packed));
                 using Godot.Collections.Array arrays = [];
                 arrays.Resize((int)Mesh.ArrayType.Max);
                 arrays[(int)Mesh.ArrayType.Vertex] = vertices;
@@ -150,11 +197,11 @@ public static class TerrainMesh
                     "column +X; row +Z; uniform source LOD; original checkerboard diagonal; unlit material preview" :
                     "explicit source nodes and stitch flags; original checkerboard diagonal; selection point/visibility owned by caller; unlit material preview");
             }
-            return new(loaded, patches.AsReadOnly(), prepared.TreeDepth, material, shader);
+            return new(loaded, patches.AsReadOnly(), prepared.TreeDepth, initialHeight is not null, material, shader);
         }
         catch (Exception error)
         {
-            foreach (TerrainPatch patch in patches) patch.Mesh.Dispose();
+            foreach (TerrainPatch patch in patches) patch.DisposeUpload();
             material?.Dispose(); shader?.Dispose();
             throw new InvalidDataException($"Original terrain mesh {context}: {error.Message}", error);
         }

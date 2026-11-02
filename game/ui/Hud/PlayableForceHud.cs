@@ -27,8 +27,6 @@ public partial class PlayableForceHud : Control
     private UiSourcePortrait? _portrait;
     private Rect2 _portraitRectangle;
     private GameResourceRepository _repository = null!;
-    private LocalizedUiSpriteSource _portraitSources = null!;
-    private readonly Dictionary<(string Pack, string Sprite), LoadedSprite> _portraits = [];
     private (string Pack, string Sprite)? _shownPortrait;
     private MapAdvanceButton _advance = null!;
     private Shader? _spriteShader;
@@ -38,9 +36,9 @@ public partial class PlayableForceHud : Control
     internal bool? StrategyControlReady => _commandRail?.SourceControlReady;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, ForceHudView view,
-        Action advance, Action openForceDetails, IReadOnlyDictionary<MapMenuCommand, Action>? mapCommands = null,
+        MapHudResources resources, Action advance, Action openForceDetails, IReadOnlyDictionary<MapMenuCommand, Action>? mapCommands = null,
         Action? openSystemMenu = null, Action? openInformationMenu = null,
-        Action<int>? changeSpeed = null,int speed=1)
+        Action<int>? changeSpeed = null,int speed=1,Action? pointNorth=null,Action? locateRuler=null,Action? openHelp=null)
     {
         Name = "PlayableForceHud";
         ZIndex = 2;
@@ -50,29 +48,32 @@ public partial class PlayableForceHud : Control
         //Reparenting a live source sprite retires its material in _ExitTree.
         _ordinaryHeader = new Control { Name = "OrdinaryMapHeader", MouseFilter = MouseFilterEnum.Ignore, Size = Size };
         AddChild(_ordinaryHeader);
-        _assets = new UiAssets(repository);
-        _font = new MapFont(repository, text.SourceLocale);
-        _repository = repository; _portraitSources = new(repository);
+        _assets = resources.Shared.Assets;
+        _font = resources.Shared.Font;
+        _repository = repository;
         executionText=text;
-        _spriteShader = UiSourceSprite.CreateShader();
+        _spriteShader = resources.Shared.SpriteShader;
         // CMainTopLayoutOffset selects the Chinese layout by its Common name.
-        var header = repository.LoadLayout("ScreenLayout", 0xBB442620);
-        var nodes = LcskNodeReader.Read(header.Layout);
-        var source = new UiSourceLayout(header);
+        var header = _assets.Layout(0xBB442620);
+        var source = _assets.SourceLayout(0xBB442620);
+        var nodes = source.Nodes;
         MapTextPresets presets = MapTextPresets.Create();
 
         var commandRail = new MapCommandRail();
-        commandRail.Configure(repository, text.SourceLocale, mapCommands ?? new Dictionary<MapMenuCommand,Action>(),
-            view.MainCommandStyle, view.MainCommandPresentation, view.UnknownText);
         _commandRail=commandRail;
         AddChild(commandRail);
-        if (openSystemMenu is not null || openInformationMenu is not null)
+        commandRail.Configure(repository, text.SourceLocale, resources, mapCommands ?? new Dictionary<MapMenuCommand,Action>(),
+            view.MainCommandStyle, view.MainCommandPresentation, view.UnknownText);
+        if (openSystemMenu is not null || openInformationMenu is not null || pointNorth is not null || locateRuler is not null || openHelp is not null)
         {
             // log_slide_in's settled node83 X is960. Its authored -200 is
             // replaced by the source animation, never added to this endpoint.
             var main = new UiSourceLayout(repository, 0x036BB544,
                 new Dictionary<int, UiSourceNodeGeometry> { [83] = new(Origin: new Vector2(960, 0)) });
             var top = new UiSourceLayout(repository, 0xF28BE325);
+            if (locateRuler is not null) Function("MapRulerHomeButton", 48, "000_cmn_icon_china", locateRuler);
+            if (pointNorth is not null) Function("MapNorthButton", 42, "000_cmn_icon_north", pointNorth);
+            if (openHelp is not null) Function("MapHelpButton", 36, "000_cmn_icon_help", openHelp);
             if (openInformationMenu is not null) Function("MapInformationButton", 30, "000_cmn_icon_info", openInformationMenu);
             if (openSystemMenu is not null) Function("MapSystemButton", 24, "000_cmn_icon_opt", openSystemMenu);
 
@@ -250,8 +251,7 @@ public partial class PlayableForceHud : Control
         UiSourcePortrait? next = null;
         if (key is { } selected)
         {
-            if (!_portraits.TryGetValue(selected, out var image))
-            { image = _portraitSources.LoadTexturePackSprite(selected.Pack, selected.Sprite); _portraits.Add(selected, image); }
+            var image = _assets!.Portraits.RequireSource(selected.Pack, selected.Sprite);
             next = new UiSourcePortrait { Name = "RulerPortrait", Position = _portraitRectangle.Position };
             try { next.ConfigureMapHeader(_repository, _assets!, _spriteShader!, image); }
             catch { next.Free(); throw; }
@@ -291,10 +291,7 @@ public partial class PlayableForceHud : Control
 
     public override void _ExitTree()
     {
-        _font?.Dispose();
-        _font = null;
-        _assets?.Dispose();
-        _assets = null;
-        _spriteShader?.Dispose(); _spriteShader = null;
+        // Main releases the generation after this control and all children exit.
+        _font = null; _assets = null; _spriteShader = null;
     }
 }

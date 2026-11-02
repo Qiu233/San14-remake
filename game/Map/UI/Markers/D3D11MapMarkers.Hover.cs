@@ -27,6 +27,9 @@ internal partial class D3D11MapMarkers
     {
         hex=null;
         if(!IsVisibleInTree()||Size.X<=0||Size.Y<=0)return false;
+        _armyLabels?.UpdateInteractionPointer(point, frame, null);
+        if(TryPickArmy(point, frame, out var army))
+        {hex=army.HexId;AcceptPointerHex(null);return true;}
         if(informationHits.TryPick(point/Size*CanonicalSize,frame,
             _baseInformationVisible||campaignMarkerHexes is not null,out var hit,campaignMarkerHexes,directionSuppression))
         {hex=hit.Hex;AcceptPointerHex(hex);return true;}

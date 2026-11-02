@@ -7,6 +7,7 @@ public partial class Main
     // narration wait and the active period worker accept these early keys.
     private bool HandleGameplayEarlyKeyboard(InputEvent input)
     {
+        if (HasCampaignHelp) return false;
         if (HandleGameplayNarrationKeyboard(input)) return true;
         if (!_advancingPeriod || input is not InputEventKey key || !key.Pressed || key.Echo ||
             _preferences is null || _failed || _shuttingDown || IsReturningToTitle ||

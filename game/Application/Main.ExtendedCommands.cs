@@ -51,6 +51,14 @@ public partial class Main
 
     private void RefreshExtendedCommands()
     {
+        // These panels belong to the optional development command browser.
+        // The normal map's separate command pages query their own current
+        // drafts. Keep its real manual-tactic presentation binding alive.
+        if (!DeveloperWorkspaceEnabled)
+        {
+            RefreshManualTacticCommands(_advancingPeriod ? _periodPlayback?.Candidate : _world);
+            return;
+        }
         int? unit = _playUnit.Selected >= 0 ? _playUnit.GetSelectedId() : null;
         int? city = _playCity.Selected >= 0 ? _playCity.GetSelectedId() : null;
         _militaryOrders.Refresh(_militaryViews.Create(_world, unit, _playerForceId), _selectedCell?.Id);

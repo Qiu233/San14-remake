@@ -48,6 +48,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (native.Status10 != 1) return Missing("ordinary_type1_siege_attributes");
             if (native.Abnormal25 != 0) return Missing("Army_provocation_stage3_4");
 
+            //This direction can also be the first pair of a Base-only cut.
+            //Read its commander's neighbor relations from this actual state.
+            _personRelationInputs.BindCurrent(state, current);
             var abilities = new TacticRemakeCurrentAbilities(current, _scenario,
                 Seed.Language, SimulationRuleIdentity.ForLocale(Seed.Language));
             var context = new TacticRemakeCurrentContext(current, _catalog, _map,

@@ -1,3 +1,4 @@
+using San14.Data;
 using San14.Data.Formats;
 
 /// <summary>Three independent text caches in the source linear colour domain.
@@ -6,11 +7,13 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
     float[] Offset, float[] Stroke, float[] Body)
 {
     internal static MapTextCache Build(MapFontSource source, string value,
-        MapFontProfile profile,IReadOnlyList<uint?>? glyphColours=null)
+        MapFontProfile profile,IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null)
     {
         if(glyphColours is not null&&glyphColours.Count!=value.Length)
             throw new ArgumentException("Text colour runs must cover the complete UTF16 line.",nameof(glyphColours));
-        var glyphs = new List<(G1FontGlyphPixels Glyph, int X, int Y, int Width, int Height,uint? Colour)>();
+        if(glyphBodyPresets is not null&&glyphBodyPresets.Count!=value.Length)
+            throw new ArgumentException("Text body presets must cover the complete UTF16 line.",nameof(glyphBodyPresets));
+        var glyphs = new List<(G1FontGlyphPixels Glyph, int X, int Y, int Width, int Height,uint? Colour,MapTextPreset? BodyPreset)>();
         int cursor = 0;
         int glyphIndex=0;
         foreach (char code in value)
@@ -19,7 +22,8 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
             var record = glyph.Record;
             glyphs.Add((glyph, cursor + (int)(record.HorizontalOffsetX * profile.ScaleX),
                 -(int)(record.HorizontalOffsetY * profile.ScaleY),
-                (int)(record.Width * profile.ScaleX), (int)(record.Height * profile.ScaleY),glyphColours?[glyphIndex++]));
+                (int)(record.Width * profile.ScaleX), (int)(record.Height * profile.ScaleY),glyphColours?[glyphIndex],glyphBodyPresets?[glyphIndex]));
+            glyphIndex++;
             cursor += (int)(record.HorizontalAdvance * profile.ScaleX) + profile.HorizontalSpace;
         }
         var strokeOffsets = profile.HasStroke ? profile.StrokeOffsets().ToArray() : [];
@@ -49,7 +53,9 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
         {
             foreach (var g in glyphs)
             {
-                uint[] current=body&&g.Colour is uint colour?[colour,colour,colour,colour]:colours;
+                uint[] current=body&&g.BodyPreset is {} preset
+                    ? [preset.LT.CpuPacked,preset.RT.CpuPacked,preset.RB.CpuPacked,preset.LB.CpuPacked]
+                    : body&&g.Colour is uint colour?[colour,colour,colour,colour]:colours;
                 for (int y = 0; y < g.Height; y++)
                     for (int x = 0; x < g.Width; x++)
                     {
@@ -72,11 +78,11 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
         }
     }
 
-    private static float[] Sample(G1FontGlyphPixels glyph, float x, float y)
+    private static System.Numerics.Vector4 Sample(G1FontGlyphPixels glyph, float x, float y)
     {
         int x0 = (int)MathF.Floor(x), y0 = (int)MathF.Floor(y);
         float fx = x - x0, fy = y - y0;
-        var result = new float[4];
+        var result = System.Numerics.Vector4.Zero;
         for (int c = 0; c < 4; c++)
         {
             float a = Pixel(x0, y0, c), b = Pixel(x0 + 1, y0, c);
@@ -90,10 +96,10 @@ internal sealed record MapTextCache(int Left, int Top, int Width, int Height,
              Math.Clamp(px, 0, glyph.Pixels.Width - 1)) * 4 + c] / 255f;
     }
 
-    private static float[] Corner(uint[] colours, float x, float y)
+    private static System.Numerics.Vector4 Corner(uint[] colours, float x, float y)
     {
         // The original quad consists of the LT/RT/RB and LT/RB/LB triangles.
-        var result = new float[4];
+        var result = System.Numerics.Vector4.Zero;
         for (int c = 0; c < 4; c++)
         {
             float a = Channel(colours[0]), b = Channel(colours[1]);

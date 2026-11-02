@@ -23,6 +23,17 @@ public sealed class ArmyMapUiSources
             .Select(row => (From: row.PortraitWhenTrue, To: row.PortraitWhenFalse)).ToArray();
         var names = new Dictionary<int, string>
         {
+            [0x169]="000_cmn_icon_chikei_01heichi",
+            [0x16A]="000_cmn_icon_chikei_02yama",
+            [0x16B]="000_cmn_icon_chikei_03mori",
+            [0x16C]="000_cmn_icon_chikei_04mizube",
+            [0x16D]="000_cmn_icon_chikei_05kawa",
+            [0x16E]="000_cmn_icon_chikei_06doku",
+            [0x16F]="000_cmn_icon_chikei_07fu",
+            [0x170]="000_cmn_icon_chikei_08city",
+            [0x171]="000_cmn_icon_chikei_09gate",
+            [0x172]="000_cmn_icon_chikei_10port",
+            [0x3E9]="000_cmn_icon_chikei_11honryu",
             [0x21D]="000_cmn_mrk_base_disable",
             [0x1C3]="000_cmn_icon_kyoten", [0x198]="000_cmn_icon_gate", [0x1D6]="000_cmn_icon_port",
             [0x221]="000_cmn_mrk_base_red", [0x222]="000_cmn_mrk_base_yellow",

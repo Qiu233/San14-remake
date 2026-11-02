@@ -12,6 +12,7 @@ internal partial class DeploymentTargetConfirmation : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Control canvas=null!;
     private Action<bool>? close;
     private UiSourceParagraph? wrappedMessage;
@@ -21,32 +22,34 @@ internal partial class DeploymentTargetConfirmation : Control
     internal void Abandon(){close=null;Hide();}
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
-        DeploymentTargetConfirmationKind kind,Action<bool> closed)
+        DeploymentTargetConfirmationKind kind,Action<bool> closed,AdministrationPageChrome.Resources? resources=null)
     {
         int record=kind switch
         {DeploymentTargetConfirmationKind.Orders=>0x08A8,DeploymentTargetConfirmationKind.LowMorale=>0x08A9,
             DeploymentTargetConfirmationKind.Discard=>0x08AA,_=>throw new ArgumentOutOfRangeException(nameof(kind))};
         string message=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2].Records[record].Literals.Single().Text;
-        ConfigureMessage(repository,text,message,closed);
+        ConfigureMessage(repository,text,message,closed,resources);
         SetMeta("message_record",record);
     }
 
     internal void ConfigureMessage(GameResourceRepository repository,PreviewText text,
-        string message,Action<bool> closed)
-        => ConfigureMessageCore(repository,text,message,closed,false);
+        string message,Action<bool> closed,AdministrationPageChrome.Resources? resources=null)
+        => ConfigureMessageCore(repository,text,message,closed,false,resources);
 
     internal void ConfigureWrappedMessage(GameResourceRepository repository,PreviewText text,
-        string message,Action<bool> closed)
-        => ConfigureMessageCore(repository,text,message,closed,true);
+        string message,Action<bool> closed,AdministrationPageChrome.Resources? resources=null)
+        => ConfigureMessageCore(repository,text,message,closed,true,resources);
 
     private void ConfigureMessageCore(GameResourceRepository repository,PreviewText text,
-        string message,Action<bool> closed,bool wrap)
+        string message,Action<bool> closed,bool wrap,AdministrationPageChrome.Resources? resources)
     {
         Name="DeploymentTargetConfirmation";ZIndex=10;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);close=closed;
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new Control{Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
-        var source=new UiSourceLayout(repository,0xDB48324F);Vector2 mount=new(610,672);
+        var source=assets.SourceLayout(0xDB48324F);Vector2 mount=new(610,672);
         var mask = source.Art(canvas,1,source.Rectangle(1,mount),assets,shader,
             blend:UiSourceSprite.Blend.AlphaMask);
         Rect2 blur = source.Rectangle(2,mount);
@@ -119,5 +122,5 @@ internal partial class DeploymentTargetConfirmation : Control
         float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*scale;
         canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
-    public override void _ExitTree(){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 }

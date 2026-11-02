@@ -20,8 +20,8 @@ public partial class MapSceneView
     private Vector2? ProjectCommandHex(int hex, bool groundMarker)
     {
         var frame=UseD3D11Map?_d3d11PresentedInput?.SourceFrame:_sourceMainCameraFrame;
-        if(_sourceMainCameraTerrain is not { } terrain||frame is null)return null;
-        if(_deploymentTargetAnchors?.Terrain!=terrain)_deploymentTargetAnchors=new(terrain);
+        if(_sceneTerrain?.WorldGroundHeight is not { } terrain||frame is null)return null;
+        if(!ReferenceEquals(_deploymentTargetAnchors?.Terrain,terrain))_deploymentTargetAnchors=new(terrain);
         var anchor = _deploymentTargetAnchors.Query(hex);
         if((groundMarker ? anchor.GroundWorld : anchor.MenuWorld) is not { } world)return null;
         var pixel=DeploymentTargetProjection.ProjectCanonical1920(world,frame.Camera.Matrices.WorldToProjection100);
@@ -33,7 +33,7 @@ public partial class MapSceneView
     internal void SetCommandTargetPicker(Action<int>? picked,Func<int,bool>? pointerAllowed=null,
         Action<int?>? hovered=null,bool supportsShiftWaypoint=false)
     {
-        CloseCityCommandMenu();ResetSourceCameraInput();
+        CloseCityCommandMenu();CloseAreaHexCommandMenu();ResetSourceCameraInput();
         _commandTargetPicked=picked;
         _commandTargetPointerAllowed=pointerAllowed;_commandTargetPressAllowed=false;
         _commandTargetHovered=hovered;

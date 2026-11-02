@@ -166,9 +166,44 @@ static UINT pixelBytes(DXGI_FORMAT format) {
 #include "../Scene/Models/BaseRenderWorld.h"
 #include "SceneFrameCoordinator.h"
 #include "../Scene/Routes/RouteOverlay.h"
+#include <charconv>
+
+#include "../Interop/Native11Device.h"
+void San14::Render::Native11Device::loadRouteMedia(const std::vector<NativeRouteGpuDeclaration>& sources) {
+    auto role=acquire();
+    {std::lock_guard lock(lifetime_);if(closing_)throw std::runtime_error("Native11 device owner is closing");}
+    if(!routeMedia_)routeMedia_=std::make_shared<NativeRouteGpuResidency>();
+    routeMedia_->replace(device_.Get(),sources);
+}
+std::shared_ptr<const San14::Render::NativeRouteGpuMedia> San14::Render::Native11Device::borrowRouteMedia(
+        const std::wstring& key,const std::wstring& identity) {
+    auto role=acquire();
+    {std::lock_guard lock(lifetime_);if(closing_)throw std::runtime_error("Native11 device owner is closing");}
+    if(!routeMedia_)throw std::runtime_error("Route GPU startup loading has not completed");
+    return routeMedia_->borrow(key,identity);
+}
+std::vector<San14::Render::NativeRouteGpuDeclaration> San14::Render::readNativeRouteGpuReferences(const fs::path& path) {
+    NativePreparedInputFile input(path);
+    if(NativeRouteGpuResidency::readLine(input)!="SAN14_ROUTE_GPU_MEDIA_REFERENCES 1")
+        throw std::runtime_error("Map opening route GPU reference signature is invalid");
+    auto countLine=NativeRouteGpuResidency::readLine(input);unsigned count{};
+    auto parsed=std::from_chars(countLine.data(),countLine.data()+countLine.size(),count);
+    if(parsed.ec!=std::errc{}||parsed.ptr!=countLine.data()+countLine.size()||!count)
+        throw std::runtime_error("Map opening route GPU reference count is invalid");
+    std::vector<NativeRouteGpuDeclaration> result;result.reserve(count);
+    for(unsigned i=0;i<count;i++) {
+        auto key=NativeRouteGpuResidency::readWideLine(input),identity=NativeRouteGpuResidency::readWideLine(input);
+        auto directory=NativeRouteGpuResidency::readLine(input);
+        if(key.empty()||identity.empty()||directory.empty())throw std::runtime_error("Map route GPU reference is incomplete");
+        result.push_back({std::move(key),std::move(identity),fs::u8path(directory)});
+    }
+    std::string extra;if(std::getline(input,extra))throw std::runtime_error("Map route GPU reference has extra rows");
+    return result;
+}
+
 San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host, RenderConfiguration configuration) {
     RenderCallbackScope callbacks{host};
-    NativeRouteOverlay routes;
+    NativeRouteOverlay routes(host.device,host.routeGpuMedia,host.requireRouteGpuMedia);
     const auto& resources=configuration.resources;
     const auto& input=resources.terrain();
     const auto modelSource=resources.directory(ResourceGroup::Models);
@@ -235,7 +270,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto jointShadowInput=resources.directory(ResourceGroup::BaseShadows);
     SceneFrameCoordinator frameState{host.currentSeason?&*host.currentSeason:nullptr};
     SdfNativeSceneOwner sourceSdf;
-    sourceSdf.loadFreshNormalSource(resources.root()/"sdf-source-input");
+    sourceSdf.loadFreshNormalSource(resources.directory(ResourceGroup::SdfConstruction));
     CloudEnvironmentPass clouds; // Retires before its borrowed Star and numerical resource owners.
     rain::Manager rainManager;
     GraphicsClipState frontendClip;
@@ -247,7 +282,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         // Prepare the held World once; accepted camera requests reuse this owner.
         territory.prepareZones(resources.directory(ResourceGroup::TerritoryZones));
         staticModels.emplace(modelSource);
-        bases.preparePrimary(device.Get(),resources,host.cityGateWorld,host.areaCapitalWorld);
+        bases.preparePrimary(device.Get(),resources,host.cityGateWorld,host.areaCapitalWorld,
+            host.primaryGpuMedia,host.requirePrimaryGpuMedia);
         groundDetails.prepareResources(device.Get(),resources.directory(ResourceGroup::GroundDetails),
             frameState.season()?resources.directory(ResourceGroup::SeasonalGroundDetails):fs::path{});
         frameState.prepareWeatherProfile(resources);
@@ -266,14 +302,16 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         frameState.bindFieldDisplay(shadows,staticModels->catalog());
         // Normal ready STA, Camera kind0: D57E50/EBD510 select K1890's
         // original white Static. FE8 belongs to the older empty-registry lab.
-        shadows.prepareReceiverResources(device.Get(),resources.directory(ResourceGroup::ShadowReceivers));
+        shadows.prepareReceiverResources(device.Get(),resources.directory(ResourceGroup::ShadowReceiverBank),
+            resources.directory(ResourceGroup::ShadowReceivers));
     }
     auto publishCurrentModels=[&]() {
         armies.publishArmy(device.Get(),context.Get(),host.armyWorld);
         bases.publish(device.Get(),context.Get(),host.cityGateWorld,host.areaCapitalWorld,armies);
-        if(bases.populationChanged()) {
+        if(bases.shadowPopulationPending()) {
             shadows.publishPrimaryPopulation(staticModels->catalog(),bases.primary(),
                 *staticModels);
+            bases.acknowledgeShadowPopulation();
         }
         if(armies.hasActiveArmyOwner())armies.synchronize(device.Get(),*host.armyWorld);
     };
@@ -302,12 +340,14 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     host.animationUpdate=[&](unsigned fpsMode) {
         if(fpsMode>=animationFps.fps.size())throw std::runtime_error("Actual FPS manager mode range");
         publishCurrentModels();
-        const auto eventCamera=frameState.publishedEventCamera(host.input);
+        const auto& eventCameraPrefix=frameState.publishedEventCameraPrefix(host.input);
         const auto zoom=source_camera::Zoom{host.input.band,host.input.fraction,
             source_camera::A(float(host.input.band),source_camera::D(float(host.input.fraction),10000))};
-        const auto mode=source_far_main::currentMode(zoom);
+        // Independent animation events precede a draw's season preparation.
+        // Use this event's captured override, not the previous Main's season.
+        const auto mode=source_far_main::currentMode(zoom,host.input.mainModeOverride());
         bases.withAccessories([&](auto& cityAccessories,auto& areaAccessories) {
-            armies.updateAnimation(device.Get(),context.Get(),host.armyWorld,host.input,eventCamera,mode,
+            armies.updateAnimation(device.Get(),context.Get(),host.armyWorld,host.input,eventCameraPrefix,mode,
                 animationFps,fpsMode,cityAccessories,areaAccessories,host.animationState);
         });
         territory.recordMapUpdate(fpsMode);
@@ -398,7 +438,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             resources.directory(ResourceGroup::CloudAnimation),resources.directory(ResourceGroup::AmbientClouds),lightingTarget);
         beginAcceptedMain(initialCommonClock);
     }
-    TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain};
+    TerrainPass terrainPass{device.Get(),context.Get(),input,groupedTerrain,host.terrainPrograms};
     GBufferTargets geometryTargets{device.Get(),context.Get(),
         {width,height,resourceFormats,formats,depthFormat,targetObjectIds,surfaces,
             staticCamera.optics.reversedDepth}};
@@ -414,7 +454,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
                 frameState.season()?resources.directory(ResourceGroup::SeasonalResources):fs::path{});
             groundDetails.update(context.Get());
             terrainPass.prepareFrame(context.Get(),staticCamera);
-            shadows.prepareGpu(device.Get(),context.Get(),jointShadowInput/"gpu",groundDetails,terrainPass);
+            shadows.prepareGpu(device.Get(),context.Get(),jointShadowInput/"gpu",groundDetails,terrainPass,
+                host.primaryPassGpu?host.primaryPassGpu->shadow:nullptr,host.requirePrimaryGpuMedia);
 
         }
 
@@ -548,8 +589,11 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     auto ensurePrimaryForwardResources=[&]() {
         if(!primaryForwardReady) {
             const auto directory=resources.directory(ResourceGroup::ForwardLighting);
-            primaryForwardSource=prepareNativePrimaryForwardCurrentBankSource(directory);
-            primaryForwardGpu=prepareNativePrimaryForwardCurrentBankGpu(device.Get(),context.Get(),directory);
+            const auto media=host.primaryPassGpu?host.primaryPassGpu->forward:nullptr;
+            const auto metadata=media?std::shared_ptr<const NativePrimaryForwardMetadata>(media,&media->metadata):nullptr;
+            primaryForwardSource=prepareNativePrimaryForwardCurrentBankSource(directory,metadata,host.requirePrimaryGpuMedia);
+            primaryForwardGpu=prepareNativePrimaryForwardCurrentBankGpu(device.Get(),context.Get(),directory,
+                media,host.requirePrimaryGpuMedia);
 
             primaryForwardReady=true;
         }
@@ -841,6 +885,10 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             shadows.updateAcceptedFrame(context.Get(),sourceDepth,bases.populationChanged(),frameState.season(),staticCamera,groundDetails,terrainPass);
         }
         drawOpaqueGeometry();updateNativeDepthMirror(context.Get(),mainDepth,"59 new Main geometry");
+        // This private geometry/depth prefix has a complete dependency chain.
+        // Submit it before recording territory/reflection/HDR/water/post work.
+        // The eventual output-copy Flush, handoffs and fences remain required.
+        if(host.submitScenePrefix)host.submitScenePrefix();
 
         drawCurrentTerritory(60,1);
         publishThinSurface();
@@ -940,20 +988,30 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
             host.setDirectEffectLighting=[&](std::uint64_t id,const std::uint8_t* bytes,std::uint32_t count,std::int64_t ordinal) {currentEffects.setDirectLighting(device.Get(),id,{bytes,count},ordinal);};
             host.configureEffectLighting=[&](const std::uint8_t* bytes,std::uint32_t count) {currentEffects.configureLighting(device.Get(),{bytes,count});};
             host.setDirectEffectDraw=[&](std::uint64_t id,const San14CurrentEffectInputV1& input,std::int64_t ordinal) {currentEffects.setDirectDraw(device.Get(),id,input,ordinal);};
-            host.replaceAtmosphereResources=[&](const fs::path& root) {
-                auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),root,atmosphere.skyImages());
-                auto shared=cloudImages.textures;
-                const auto& installedSky=atmosphere.skyImages();
-                shared.insert(shared.end(),installedSky.begin(),installedSky.end());
-                auto skyImages=atmosphere.prepareImageReplacement(device.Get(),root/"main-sky-input",shared,
-                    cloudImages.atmosphere.renderingAtmosphere()!=nullptr);
-                auto weather=frameState.prepareWeatherResourceReplacement(root/"weather-fog-camera-input"/"initial"/"weather",
-                    cloudImages.atmosphere.selection().staticObjectKey);
-                // All preparation can fail without changing installed owners.
-                // These moves retain program, history, animation and clock state.
-                clouds.installAtmosphereResourceReplacement(std::move(cloudImages));
-                atmosphere.installImageReplacement(std::move(skyImages));
-                frameState.installWeatherResourceReplacement(std::move(weather));
+            host.replaceSeasonResources=[&](const fs::path& atmosphereRoot,const fs::path& patternRoot) {
+                std::optional<NativeShadowReceiverResources::PatternResourceReplacement> pattern;
+                if(!patternRoot.empty())pattern=shadows.preparePatternResourceReplacement(device.Get(),patternRoot);
+                if(!atmosphereRoot.empty()) {
+                    auto cloudImages=clouds.prepareAtmosphereResourceReplacement(device.Get(),atmosphereRoot,atmosphere.skyImages());
+                    auto shared=cloudImages.textures;
+                    const auto& installedSky=atmosphere.skyImages();
+                    shared.insert(shared.end(),installedSky.begin(),installedSky.end());
+                    auto skyImages=atmosphere.prepareImageReplacement(device.Get(),atmosphereRoot/"main-sky-input",shared,
+                        cloudImages.atmosphere.renderingAtmosphere()!=nullptr);
+                    auto weather=frameState.prepareWeatherResourceReplacement(atmosphereRoot/"weather-fog-camera-input"/"initial"/"weather",
+                        cloudImages.atmosphere.selection().staticObjectKey);
+                    // Pattern and every Atmosphere candidate have now prepared.
+                    // These no-throw moves retain program, history and clock state.
+                    clouds.installAtmosphereResourceReplacement(std::move(cloudImages));
+                    atmosphere.installImageReplacement(std::move(skyImages));
+                    frameState.installWeatherResourceReplacement(std::move(weather));
+                }
+                if(pattern) {
+                    // Previous GPU readers completed at the request boundary.
+                    // Retire the completed frame's borrowed CPU pointers too.
+                    primaryForwardFrame.draws.clear();
+                    shadows.installPatternResourceReplacement(std::move(*pattern));
+                }
             };
             co_yield RenderOutput{finalColor.Get(),staticCamera.prefix,completedMainRequests};
             const UINT baseFlags=commonBaseSettingsFlags;

@@ -7,6 +7,10 @@ public partial class Main
 {
     private MapCommanderCards? _commanderCards;
     private CommanderHudPublication? _commanderCardSource;
+    private DispatchHudPublication? _dispatchSource;
+    private IReadOnlyDictionary<int,OfficerPortraitRoute> _dispatchPortraits = new Dictionary<int,OfficerPortraitRoute>();
+    private int _dispatchPortraitVersion = -1;
+    private readonly MapRightHudState _rightHudState = new();
     private GameState? _commanderCardsWorld;
     private GameplaySession? _commanderCardsSession;
     private MapSceneView? _commanderCardsMap;
@@ -49,10 +53,11 @@ public partial class Main
                     _residentMap==currentMap&&ReferenceEquals(_commanderCardsWorld,_world))
                     currentMap.SetMapSummaryHover(view,officer is int person?new(MapSummaryHoverKind.Commander,person):null);
             };
-            view.Configure(_repository,_ui,CommanderCardInputAdmitted,
+            view.Configure(_repository,_ui,TryBorrowApplicationUiResources(view),_rightHudState,CommanderCardInputAdmitted,
                 slot=>RunUiAction(()=>TryFocusCommanderCard(slot), allowDuringPeriod: true),()=>RunUiAction(OpenCommanderSelectionPage),
                 (slot,tactic)=>RunUiAction(()=>RequestCommanderTactic(slot,tactic), allowDuringPeriod: true),
-                slot=>RunUiAction(()=>RequestCommanderAutomatic(slot), allowDuringPeriod: true),slot=>RunUiAction(()=>RemoveCommanderCard(slot)));
+                slot=>RunUiAction(()=>RequestCommanderAutomatic(slot), allowDuringPeriod: true),slot=>RunUiAction(()=>RemoveCommanderCard(slot)),
+                hex=>RunUiAction(()=> { if(CommanderCardInputAdmitted())map.FocusCommanderHex(hex); }, allowDuringPeriod:true));
             //The ordinary map action group shares this canvas and follows
             //the resident cards in the GUI tree, before later modal pages.
             map.MountContextActions(this,view,()=>!_advancingPeriod&&!_failed&&!_shuttingDown&&
@@ -64,6 +69,15 @@ public partial class Main
         var army=_campaignComposition.PrepareArmyQueries(world);
         if(changed||_commanderCardSource is null)
             _commanderCardSource=army.QueryCommanderHud(world,player,_advancingPeriod);
+        if(changed||_dispatchSource is null)
+        {
+            _dispatchSource=army.QueryDispatchHud(world,player);
+        }
+        if(changed||_dispatchPortraitVersion!=_repository.PortraitResourceVersion)
+        {
+            _dispatchPortraits=army.QueryOfficerPortraitRoutes(world,_dispatchSource.Rows.Select(row=>row.OfficerId).ToArray(),11);
+            _dispatchPortraitVersion=_repository.PortraitResourceVersion;
+        }
         var source=_commanderCardSource;
         var identity=source.Cards.Where(card=>card.OfficerId is not null)
             .Select(card=>(card.OfficerId!.Value,card.PortraitAppearanceIndex)).ToArray();
@@ -81,6 +95,7 @@ public partial class Main
             _commanderCardBindings=_preferences.KeyboardBindings;
         }
         _commanderCardsWorld=world;_commanderCardsSession=session;_commanderCardsMap=map;
+        _commanderCards.ApplyDispatch(_dispatchSource,_dispatchPortraits);
         _commanderCards.Apply(source,_commanderCardPortraits,_commanderShortcuts,
             !_advancingPeriod&&world.Phase==TurnPhase.Strategy,
             !_advancingPeriod&&world.Phase==TurnPhase.Strategy&&source.Capacity is >0&&source.UnresolvedInput is null,
@@ -151,7 +166,7 @@ public partial class Main
     {
         CloseCommanderSelectionPage();
         var view = _commanderCards; var map=_commanderCardsMap; _commanderCards = null;
-        _commanderCardSource = null; _commanderCardsWorld = null; _commanderCardsSession = null;
+        _commanderCardSource = null; _dispatchSource = null; _dispatchPortraits = new Dictionary<int,OfficerPortraitRoute>(); _dispatchPortraitVersion=-1; _commanderCardsWorld = null; _commanderCardsSession = null;
         _commanderCardsMap = null; _commanderCardBindings = null; _commanderKeyboardCatalog = null;
         _commanderCardPortraits = null;_commanderPortraitIdentity=[];_commanderPortraitVersion=-1;
         _commanderCardsLocale=null;RetireCommanderCardRequests();

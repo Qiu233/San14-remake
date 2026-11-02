@@ -30,7 +30,7 @@ public sealed partial class G1EffectGpuResources
         // of the actual current target remains an external renderer input.
         bool captureSprite = packet.RenderingType is 29 or 38;
         bool special = G1EffectSpecialTail.IsRenderingType(packet.RenderingType);
-        if (!special && packet.RenderingType is not (7 or 8 or 17 or 18 or 22 or 29 or 38 or 48 or 50 or 103 or 105 or 106 or 109 or 125 or 126 or 127))
+        if (!special && packet.RenderingType is not (7 or 8 or 17 or 18 or 22 or 23 or 29 or 38 or 48 or 50 or 103 or 105 or 106 or 109 or 125 or 126 or 127))
             missing.Add(new("TextureCallback", $"Effect pass {packet.RenderingType} needs its actual callback binding producer."));
         else if (special)
         {

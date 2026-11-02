@@ -91,9 +91,25 @@ public sealed partial class ArmyCampaignRuleAdapter
         BaseReference target, DistrictReference destination, ArmyReturnDistrictOperationQueries operation,
         TransferPersonReference? executor = null)
     {
+        var old = current.ReadBaseDistrictReference(target) ?? throw DistrictCreationMissing("old_Base_District");
+        _ = AssignDistrictAdministrationBaseCurrent(current, target, destination, operation, executor);
+        if (DistrictCreationKnown(current.ReadDistrictNativeValidity(old), "old_District_validity"))
+        {
+            int previous = DistrictCreationKnown(old.PhysicalSlot, "old_District");
+            operation.TouchedDistricts.Add(previous);
+            _ = ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(old, current, operation);
+        }
+    }
+
+    /// <summary>The shared26D2E0 assignment body only. Capture callers retain
+    /// their existing old-District2E9140 sequencing and publication owner.</summary>
+    internal static int[] AssignDistrictAdministrationBaseCurrent(SourceWorldContext current,
+        BaseReference target, DistrictReference destination, ArmyReturnDistrictOperationQueries operation,
+        TransferPersonReference? executor = null)
+    {
+        var assignedGates = new List<int>();
         int district = DistrictCreationKnown(destination.PhysicalSlot, "transfer_District");
         int force = DistrictCreationKnown(current.ReadDistrictForceSlot(destination), "transfer_District10");
-        var old = current.ReadBaseDistrictReference(target) ?? throw DistrictCreationMissing("old_Base_District");
         int location = DistrictCreationKnown(current.ReadBaseObjectLink(target), "Base4E");
         var originalArea = CurrentGateMapQueries.FindArea(target, current);
         int originalCityId = DistrictCreationKnown(current.ReadAreaValidityCode(originalArea), "Area34");
@@ -167,12 +183,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     CurrentGateMapQueries.FindCity(gate, current) == target) continue;
                 AssignGate(gate, DistrictCreationKnown(target.PhysicalSlot, "repair_City"));
             }
-        if (DistrictCreationKnown(current.ReadDistrictNativeValidity(old), "old_District_validity"))
-        {
-            int previous = DistrictCreationKnown(old.PhysicalSlot, "old_District");
-            operation.TouchedDistricts.Add(previous);
-            _ = ArmyReturnCommanderHomeUpdater.ApplyPrimaryOwned(old, current, operation);
-        }
+        return assignedGates.ToArray();
 
         void AssignGate(BaseReference gate, int city)
         {
@@ -189,6 +200,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.AssignAreaCity(area, city);
             operation.ChangedAreas.Add(DistrictCreationKnown(area.PhysicalSlot, "changed_Area"));
             operation.ChangedGates.Add(DistrictCreationKnown(gate.PhysicalSlot, "changed_Gate"));
+            assignedGates.Add(DistrictCreationKnown(gate.PhysicalSlot, "assigned_Gate"));
         }
         void ClearCommanderSelection(int person)
         {

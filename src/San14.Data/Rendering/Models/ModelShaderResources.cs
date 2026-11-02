@@ -59,6 +59,20 @@ public static class ModelShaderResources
         public readonly Dictionary<string, BindingCacheEntry> Entries = new(StringComparer.Ordinal);
     }
     private static readonly ConditionalWeakTable<GameResourceRepository, RepositoryBindingCache> BindingCaches = new();
+    private static readonly ConditionalWeakTable<LoadedObjects, ObjectIndex> ObjectIndices = new();
+    private sealed class ObjectIndex
+    {
+        internal readonly Dictionary<uint, (DokObject Object, int Count)> Objects = new();
+        internal ObjectIndex(LoadedObjects source)
+        {
+            foreach (var item in source.Document.Objects)
+            {
+                if (Objects.TryGetValue(item.ObjectId, out var found))
+                    Objects[item.ObjectId] = (found.Object, found.Count + 1);
+                else Objects.Add(item.ObjectId, (item, 1));
+            }
+        }
+    }
 
     public static LoadedModelShaderBindings LoadBindings(GameResourceRepository repository,
         LoadedModelTextureResources model) =>
@@ -94,6 +108,17 @@ public static class ModelShaderResources
         // Read the selected original/override every time before consulting the parse
         // cache. Changed bytes or source index provenance cannot reuse a stale catalog.
         LoadedRdbAsset source = repository.LoadRdbAsset("system", fileId);
+        return LoadBindingCatalog(repository, source);
+    }
+
+    // Material callers have already loaded the selected source through their
+    // repository scope. Reuse the same generation-aware parse cache, retaining
+    // those reads for normal override invalidation and dependency observation.
+    internal static ShaderBindingCatalog LoadPreparedBindingCatalog(GameResourceRepository repository, LoadedRdbAsset source)
+        => LoadBindingCatalog(repository, source).Catalog;
+
+    private static BindingCacheEntry LoadBindingCatalog(GameResourceRepository repository, LoadedRdbAsset source)
+    {
         RepositoryBindingCache cache = BindingCaches.GetValue(repository, _ => new());
         lock (cache.Gate)
         {
@@ -227,10 +252,20 @@ public static class ModelShaderResources
 
     private static DokObject Unique(LoadedObjects objects, uint id)
     {
-        DokObject[] rows = objects.Document.Objects.Where(item => item.ObjectId == id).ToArray();
-        if (id == 0 || rows.Length != 1)
-            throw Error(objects.Source.ResourceUri, $"object {id:X8} requires one exact source; found {rows.Length}");
-        return rows[0];
+        // Normal parsed declarations publish their owned read-only collection.
+        // Mutable caller-built documents preserve the original live lookup.
+        if (objects.Document.Objects is not System.Collections.ObjectModel.ReadOnlyCollection<DokObject>)
+        {
+            DokObject[] rows = objects.Document.Objects.Where(item => item.ObjectId == id).ToArray();
+            if (id == 0 || rows.Length != 1)
+                throw Error(objects.Source.ResourceUri, $"object {id:X8} requires one exact source; found {rows.Length}");
+            return rows[0];
+        }
+        ObjectIndex index = ObjectIndices.GetValue(objects, static source => new(source));
+        index.Objects.TryGetValue(id, out var found);
+        if (id == 0 || found.Count != 1)
+            throw Error(objects.Source.ResourceUri, $"object {id:X8} requires one exact source; found {found.Count}");
+        return found.Object;
     }
     private static DokProperty Field(DokObject item, uint hash, string context)
     {

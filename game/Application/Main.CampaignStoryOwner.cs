@@ -4,15 +4,15 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
-    // Both callers use the same normal-resource presentation stream. The
-    // selected command writes the actual world; a period owns its candidate.
+    // Each stopped operation retains its actual presentation candidate.
+    // Direct command events continue to use their session world.
     private static GameState StoryOwner(GameplaySession session) =>
-        session.PendingNormalPeriod?.Candidate ?? session.World;
+        session.PendingNormalPeriod?.Candidate ?? session.PendingManualTacticCandidate ?? session.PendingArmyProgressCandidate ?? session.PendingProgressCandidate ?? session.World;
     private static NormalTurnStoryPlayback? StoryPlayback(GameplaySession session) =>
         session.PendingNormalPeriod?.Candidate.NativeNormalTurnContinuation?.StoryPlayback ??
         session.PendingCampaignEventCommand?.Invocation;
     private static CampaignStoryRequest? PendingCampaignStory(GameplaySession session) =>
-        session.PendingNormalPeriod?.PendingStory ?? session.PendingCampaignEventCommand?.PendingStory;
+        session.PendingNormalPeriod?.PendingStory ?? session.PendingCampaignEventCommand?.PendingStory ?? session.PendingLegacyStory;
     private static NormalTurnStoryResultSummary? PendingCampaignStoryResult(GameplaySession session) =>
         session.PendingNormalPeriod?.PendingStoryResult ?? session.PendingCampaignEventCommand?.PendingResult;
     private static CampaignStoryForceRankContinuation? PendingCampaignStoryForceRank(GameplaySession session) =>
@@ -44,6 +44,12 @@ public partial class Main
         GameOrder? choice = null)
     {
         if (_advancingPeriod) return;
+        if (choice is null && session.PendingNormalPeriod is null &&
+            (session.PendingArmyProgressCandidate is not null || session.PendingManualTacticCandidate is not null))
+        {
+            if (session.CanRetryLegacyProgress) TryContinueLegacyManualProgress(session, composition);
+            return;
+        }
         _advancingPeriod = true;
         _periodAdvanceTask = ContinueCampaignStoryAsync(session, composition, choice);
     }

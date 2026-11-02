@@ -32,8 +32,29 @@ public sealed class BattleRemakeCurrentRegionFactor
         context = current ?? throw new ArgumentNullException(nameof(current));
         definitions = currentDefinitions ?? throw new ArgumentNullException(nameof(currentDefinitions));
         if (string.IsNullOrWhiteSpace(revision)) throw new InvalidDataException("Current region factor revision is missing.");
-        Revision = revision; remaining = unresolved;
+        Revision = revision; remaining = unresolved ?? new CurrentQueries(definitions);
     }
+    //TC2338E0 compares the saved current-player Force ordinal with the
+    //receiver ordinal. Production already owns that World field and the
+    //current policy panel reader; these are not UI selection or seed values.
+    private sealed class CurrentQueries(SourceWorldContext current) : IBattleRemakeCurrentRegionRemaining
+    {
+        public bool? ReadNativeForceIsPlayer(GameState state, int nativeForceSlot)
+        {
+            var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
+            if (player is null || current.ReadForcePhysicalSlot(player) is not int playerSlot) return null;
+            if (playerSlot == 0) return false;
+            var force = current.ReadForceTableReference(nativeForceSlot);
+            return force is not null && current.ReadForcePhysicalSlot(force) is int forceSlot
+                ? forceSlot == playerSlot : null;
+        }
+        public int? ReadActiveForcePolicy(GameState state, int nativeForceSlot, int nativeEffectIndex)
+        {
+            var force = current.ReadForceTableReference(nativeForceSlot);
+            return force is null ? null : current.BaseForceModifierReader?.Invoke(force, nativeEffectIndex);
+        }
+    }
+
     public float? Resolve(GameState state, UnitState army) => ResolveReceipt(state, army)?.Factor;
 
     public BattleRemakeCurrentRegionReceipt? ResolveReceipt(GameState state, UnitState army)

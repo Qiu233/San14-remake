@@ -18,6 +18,22 @@ public static class TerrainLodSelectionMath
         ArgumentNullException.ThrowIfNull(tree);
         ValidatePointAndScale(selectionPoint, distanceScale);
         ValidateTree(tree);
+        return SelectCore(tree, selectionPoint, distanceScale, distanceSelectionEnabled, outputCapacity);
+    }
+
+    // The retained planner validates its immutable resource topology once.
+    // Current camera inputs still pass their constant-time admission checks.
+    internal static IReadOnlyList<SpatialTreeNode> SelectPrepared(SpatialTreeDocument tree,
+        Vector3 selectionPoint, float distanceScale, bool distanceSelectionEnabled = true,
+        int outputCapacity = DefaultPrimaryCapacity)
+    {
+        ValidatePointAndScale(selectionPoint, distanceScale);
+        return SelectCore(tree, selectionPoint, distanceScale, distanceSelectionEnabled, outputCapacity);
+    }
+
+    private static IReadOnlyList<SpatialTreeNode> SelectCore(SpatialTreeDocument tree,
+        Vector3 selectionPoint, float distanceScale, bool distanceSelectionEnabled, int outputCapacity)
+    {
         if (outputCapacity < 0) throw new ArgumentOutOfRangeException(nameof(outputCapacity));
         var selected = new List<SpatialTreeNode>();
         Visit(0, 0);
@@ -79,7 +95,7 @@ public static class TerrainLodSelectionMath
             throw new InvalidDataException("Nonfinite or unsupported source LOD selection input.");
     }
 
-    private static void ValidateTree(SpatialTreeDocument tree)
+    internal static void ValidateTree(SpatialTreeDocument tree)
     {
         if (tree.LevelCount < 1 || tree.LevelCount > 15 || !float.IsFinite(tree.RootSize) || tree.RootSize <= 0)
             throw new InvalidDataException("Invalid ordinary source LOD tree.");

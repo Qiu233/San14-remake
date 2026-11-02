@@ -39,11 +39,12 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
         GameState world, ArmyCampaignRuleAdapter rules, int unitId, Func<int, Vector2?> project,
         Func<int, Vector2?> projectMarker, Func<bool> current,
         bool constructionAvailable, Action<UnitTargetMenuOption, IReadOnlyList<int>, int?, int> requested,
-        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged=null)
+        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged=null,
+        OrdinaryArmyMapEntry? initialSelection=null)
     {
         this.view = view; this.repository = repository; this.text = text; this.world = world; this.rules = rules;
         this.routePreviewChanged=routePreviewChanged;routeQuery=rules.CreateUnitDraftRouteQuery(world);
-        InitializeSelection(unitId); this.project = project; this.current = current;
+        InitializeSelection(unitId, initialSelection); this.project = project; this.current = current;
         this.constructionAvailable = constructionAvailable; this.requested = requested;
         view.ConfigureSourceRoute(repository, projectMarker); RefreshPoints();
     }
@@ -68,13 +69,10 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
                 publication.TargetHexId is int point && AppendWaypoint(point)) RefreshPoints();
             return;
         }
-        var captions = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         var entries = new List<ArmyCommandMenuEntry>();
         foreach (var option in publication.Options.Where(option => option.Included == true))
         {
-            var captionBank = option.ActionKey == "capture"
-                ? repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[0] : captions;
-            string caption = captionBank.Records[option.CaptionDataIndex].Text ?? throw new InvalidDataException("Missing unit command caption.");
+            string caption = UnitTargetMenuMessages.Caption(repository,text.SourceLocale,option);
             bool executable = option.Action is { } action &&
                 (PlayableWaypointMarch.IsSupportedAction(action) || action.ActionKey == "fire" && SelectedPartition == UnitSelectionPartition.Ordinary ||
                     action is { ActionKey: "capture", Target.Kind: DeploymentTargetKind.Unit } && SelectedPartition == UnitSelectionPartition.Ordinary) ||
@@ -100,7 +98,7 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
         }
         if (entries.Count == 0) return;
         var popup = new ArmyCommandMenu(); menu = popup; view.AddSourceMenu(popup);
-        popup.Configure(repository, text, entries, hint => { if (!disposed && menu == popup) view.ApplyHint(hint ?? text.Get("play_unit_target_hint")); });
+        popup.Configure(repository, text, entries, hint => { if (!disposed && menu == popup) view.ApplyHint(hint ?? text.Get("play_unit_target_hint")); }, resources: view.SourceResources);
         popup.Name = "UnitTargetCommandMenu";
         popup.TrackAnchor(() => current() && publication.TargetHexId is int target ? project(target) : null,
             view.ApplySourcePolicyPosition,
@@ -129,6 +127,7 @@ internal sealed partial class UnitTargetMenuPresenter : IDisposable
         "build" or "repair" or "demolish" => "000_cmn_icon_bt_build",
         "occupy" => "000_cmn_icon_bt_senryo",
         "fire" => "000_cmn_icon_bt_kakei",
+        "capture" => "000_cmn_icon_st_gihou",
         _ => null
     };
     private void UndoWaypoint()

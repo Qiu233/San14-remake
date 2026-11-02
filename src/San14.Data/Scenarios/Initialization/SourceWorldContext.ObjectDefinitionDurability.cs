@@ -10,7 +10,9 @@ public sealed partial class SourceWorldContext
         _objectDefinitionBaseDurability[physical] = value;
     }
 
-    public ushort? ReadObjectDefinitionBaseDurability(ObjectDefinitionReference definition) =>
-        _objectDefinitionBaseDurability.GetValueOrDefault(
-            MapPhysical(definition.PhysicalSlot, 31, "object definition base durability"));
+    public ushort? ReadObjectDefinitionBaseDurability(ObjectDefinitionReference definition)
+    {
+        int physical = MapPhysical(definition.PhysicalSlot, 31, "object definition base durability");
+        return _objectDefinitionBaseDurability.TryGetValue(physical, out var value) ? value : _initialObjectScalarRules?.ReadDurability(physical);
+    }
 }

@@ -40,7 +40,8 @@ internal sealed class TransportTargetPresenter : IDisposable
         Func<bool> current, Func<int, Vector2?> project, Func<int, Vector2?> projectMarker, Func<int> scrollSpeed,
         Action<DispatchTransportArmyOrder> accepted, Action back, Action<string> unavailable, Action<bool> modalChanged,
         Func<bool, int, Action<GameState>, bool>? saveDefaults = null,
-        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged = null)
+        Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged = null,
+        AdministrationPageChrome.Resources? uiResources=null)
     {
         this.view = view; this.repository = repository; this.text = text; this.world = world; this.rules = rules;
         this.source = source; this.force = force; this.current = current; this.project = project;
@@ -58,7 +59,7 @@ internal sealed class TransportTargetPresenter : IDisposable
         var city = world.Cities[source];
         view.Configure(repository, text, city, setup.SourceTroops ?? throw new InvalidDataException("Transport source troops are unknown."),
             setup.CommandBooks, [new(source, city.Name, [content])], [selection.OfficerId], scrollSpeed(),
-            ids => Select(ids.Contains(selection.OfficerId)), () => { }, RequestBack, scrollSpeed, transportMode: true);
+            ids => Select(ids.Contains(selection.OfficerId)), () => { }, RequestBack, scrollSpeed, transportMode: true,resources:uiResources);
         view.ApplyTransportResources(amounts.RemainingTroops, amounts.RemainingGold, amounts.RemainingSupplies,
             setup.CommandBooks, setup.CommandBooksAfter, setup.CommandBookCost);
         view.RegisterHeader(headers); view.ConfigureSourceRoute(repository, projectMarker);
@@ -66,7 +67,7 @@ internal sealed class TransportTargetPresenter : IDisposable
         options = new TransportTargetOptionsView(); view.AddPolicyPanel(options);
         options.InputAdmission=Admitted;
         options.HintChanged=hint=>{if(Admitted())view.ApplyHint(hint);};
-        options.Configure(repository, text, ChangeOption, SaveDefaults); RestoreOptions(); Refresh();
+        options.Configure(repository, text, ChangeOption, SaveDefaults,resources:view.SourceResources); RestoreOptions(); Refresh();
     }
     private bool Admitted() => !disposed && current() && confirmation is null;
     internal bool AllowPointer(int hex) => Admitted() && (uint)hex < (uint)(world.MapWidth * world.MapHeight);
@@ -125,7 +126,7 @@ internal sealed class TransportTargetPresenter : IDisposable
                 }, option.WaypointOrdinal)).ToArray();
         if (entries.Length == 0) return;
         var popup = new ArmyCommandMenu(); menu = popup; view.AddMapMenu(popup);
-        popup.Configure(repository, text, entries, value => { if (!disposed && menu == popup) view.ApplyHint(value); });
+        popup.Configure(repository, text, entries, value => { if (!disposed && menu == popup) view.ApplyHint(value); },resources:view.SourceResources);
         popup.TrackAnchor(() => current() && publication.TargetHexId is int target ? project(target) : null,
             PositionOptions, view.MenuFooterTop, policyAvoidanceHeight: 160);
     }
@@ -231,7 +232,7 @@ internal sealed class TransportTargetPresenter : IDisposable
         {
             if (disposed || confirmation != modal) return;
             confirmation = null; modal.Hide(); modal.QueueFree(); modalChanged(false); if (result && Admitted()) yes();
-        }); }
+        },resources:view.SourceResources); }
         catch { confirmation = null; modal.QueueFree(); modalChanged(false); throw; }
     }
     internal bool TryCancelOverlay()

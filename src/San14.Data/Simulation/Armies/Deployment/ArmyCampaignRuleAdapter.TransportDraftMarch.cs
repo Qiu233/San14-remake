@@ -16,8 +16,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         try
         {
-            if (startHex is < 0 or >= 48400 || goalHex is < 0 or >= 48400) throw TM("march-endpoints");
             var current = capture();
+            if (!current.ContainsMapHex(startHex) || !current.ContainsMapHex(goalHex)) throw TM("march-endpoints");
             var motion = ReadTransportDraftMotionCurrent(state, current, sourceCityId,
                 officerId, troops, navalFormationId);
             var goal = current.ReadHexTableReference(goalHex) ?? throw TM("march-goal-pointer");
@@ -101,8 +101,8 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         try
         {
-            if (startHex is < 0 or >= 48400 || goalHex is < 0 or >= 48400) throw TransportUnitQueryMissing("march-endpoints");
             var current = capture();
+            if (!current.ContainsMapHex(startHex) || !current.ContainsMapHex(goalHex)) throw TransportUnitQueryMissing("march-endpoints");
             if (!ValidateTransportSelectedSet(state, current, [unitId])) throw TransportUnitQueryMissing("march-type2-selection");
             var unit = state.Units[unitId];
             var army = new ArmyUnitReference(TransportReceiver(state, unit));

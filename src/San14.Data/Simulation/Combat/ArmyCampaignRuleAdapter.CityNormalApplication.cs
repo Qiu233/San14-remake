@@ -130,8 +130,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return new(NormalCityApplicationOutcome.NativeTargetSkipped, PublishRoles(working),
                     new(locationId, attackerArmyId, requestedLoss, 0, reward, null, null, null, null, false, Revision), null);
             if (current.ReadBaseObjectLink(target) is not ushort link || link != locationId ||
-                current.ReadBaseForceSlot(target) is not int forceSlot || forceSlot is < 1 or > 45 ||
-                current.ReadForceTableReference(forceSlot) is not { } force || current.ReadForceNativeValidity(force) != true ||
+                current.ReadBaseForceSlot(target) is not int forceSlot || forceSlot is < 0 or > 45 ||
+                current.ReadForceTableReference(forceSlot) is not { } force ||
+                forceSlot != 0 && current.ReadForceNativeValidity(force) != true ||
                 (isCity ? working.Cities[locationId].NativeReturnRuntime is null : working.Gates[locationId].NativeCombatRuntime is null))
                 return Unknown($"current.ordinary_{label}_Force_and_saved_runtime");
             //The independent ordinary campaign owns no570850 tutorial/
@@ -141,11 +142,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                 return Unknown("current.challenge_570850");
             int beforeTroops = Known(current.ReadBaseResource(target, BaseResourceKind.Troops), label + "3C");
             int applied = Math.Min(beforeTroops, requestedLoss);
-            if (beforeTroops <= 0 || applied < 0) return Unknown($"branch.{label}_zero_or_negative_troops");
-            NormalCityCapacityWriteReceipt debit = AdjustCurrentBaseCombatQuantity(BaseCombatQuantity.ReadyTroops,
-                beforeTroops, unchecked(-applied), () => BasePostLoad.ReadResourceCapacities(target, current).Troops);
-            if (debit.After <= 0 && !allowFatal) return Unknown($"branch.{label}_fatal_1745B0");
-            current.SetBaseResource(target, BaseResourceKind.Troops, debit.After);
+            if (beforeTroops < 0 || applied < 0) return Unknown($"branch.{label}_negative_troops");
+            NormalCityCapacityWriteReceipt? debit = null;
+            int afterDebit = beforeTroops;
+            //178EC0 skips169C00 when the original signed3C is zero. It still
+            //runs the wounded/morale suffix and the actual attacker's1745B0.
+            //Do not make a zero-delta setter or its capacity queries occur.
+            if (beforeTroops > 0)
+            {
+                debit = AdjustCurrentBaseCombatQuantity(BaseCombatQuantity.ReadyTroops,
+                    beforeTroops, unchecked(-applied), () => BasePostLoad.ReadResourceCapacities(target, current).Troops);
+                afterDebit = debit.After;
+            }
+            if (afterDebit <= 0 && !allowFatal) return Unknown($"branch.{label}_fatal_1745B0");
+            if (debit is not null) current.SetBaseResource(target, BaseResourceKind.Troops, afterDebit);
             var parameters = NormalArmyCombatApplicationSourceMath.ReadCurrent(working, _normalApplicationSeed)
                 ?? throw Missing("application_current_parameters");
             int selector = Known(BattleRemakeCurrentSettings.ReadSelectorE58(working), "settings_E58");
@@ -182,7 +192,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     adjacent = SourceDistance(hex, attackerHex) == (link < 52 ? 2 : 1);
                 }
                 int difficulty = selector != 0 ? Known(BattleRemakeCurrentSettings.ReadInt32(working, 0x28), "wounded_difficulty28") : 0;
-                bool governorForceValid = false;
+                bool governorForceValid = false, governorForceIsPlayer = false;
                 ushort governorFirst = Known(current.ReadPersonFirstLocation(governorPhysical!.Value), "Governor_E2_special_predicate");
                 if (governorFirst is >= 1 and <= 61 &&
                     (current.ReadPersonForce(governorPhysical.Value) ?? throw Missing("Governor_special_Force_pointer")).PhysicalSlot is >= 46 and <= 50)
@@ -195,14 +205,27 @@ public sealed partial class ArmyCampaignRuleAdapter
                         return Unknown("branch.Governor_special_Force");
                 }
                 if (selector != 0 && difficulty >= 3 && governorForceValid)
-                    return Unknown("current.wounded_2338E0_player_predicate");
+                {
+                    //TC2338E0/SC233B30 compare native Force identities after
+                    //the current World player getter; identity0 is not a player.
+                    var player = OwnedCurrentPlayerForce.ReadCurrentReference(working, current)
+                        ?? throw Missing("wounded_current_player_Force");
+                    int playerIdentity = Known(current.ReadForcePhysicalSlot(player), "wounded_player_Force_identity");
+                    if (playerIdentity != 0)
+                    {
+                        var governorForce = current.ReadPersonForce(governorPhysical.Value)
+                            ?? throw Missing("wounded_Governor_Force_pointer");
+                        governorForceIsPlayer = playerIdentity ==
+                            Known(current.ReadForcePhysicalSlot(governorForce), "wounded_Governor_Force_identity");
+                    }
+                }
                 //17D260 receives the raw Base44, terrain, null param5 and
                 //param6=0. Its effect6F window is genuinely disabled even
                 //though the actual attacking Army above is valid.
                 ratioInput = new(governorValid == true, charm, Known(current.ReadBaseMorale44(target), label + "_raw44"),
                     adjacent, true, category,
                     category == 1 ? NormalArmyCombatApplicationSourceMath.ReadCurrentTerrain1Addend(working) : null,
-                    selector, difficulty, governorForceValid, false, false, false, 0, 0, false);
+                    selector, difficulty, governorForceValid, governorForceIsPlayer, false, false, 0, 0, false);
                 ratio = NormalArmyCombatApplicationSourceMath.CalculateWoundedRatio(parameters.CurrentValues, ratioInput);
                 if (ratio is null || !float.IsFinite(ratio.Value) || ratio < 0)
                     return Unknown($"current.{label}_wounded_ratio_17D260");
@@ -228,11 +251,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                 //For positive troops and zero wounds the exact native f32
                 //fraction is1, so17D580 returns before any World draw. Null
                 //here is an unconsumed formal, not asserted World absence.
-                var sampler = finalWounded == 0 && debit.After > 0 ? null
+                var sampler = finalWounded == 0 && afterDebit > 0 ? null
                     : Context(current, operationSampler).ReadCurrentSamplerWorld(working)
                         ?? throw Missing("current_cycle_sampler_world");
                 moraleLoss = NormalArmyCombatApplicationSourceMath.CalculateBaseMoraleLoss(parameters.CurrentValues,
-                    finalWounded, debit.After, leadership, applied, sampler);
+                    finalWounded, afterDebit, leadership, applied, sampler);
                 if (moraleLoss.Loss > 0)
                 {
                     int firstCap = BasePostLoad.ReadMoraleUpper(force, current);
@@ -266,7 +289,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             //publisher also projects district/governor/person fields and is
             //not this source operation's writer.
             working = PublishCurrentBaseCombatQuantities(working, current, target,
-                troopsWritten: true, woundedWritten: channel, moraleWritten: moraleWrite is not null);
+                troopsWritten: debit is not null, woundedWritten: channel, moraleWritten: moraleWrite is not null);
             if (admission is not null)
                 working = working with { PendingCombatSettlements = current.OwnedDestructionQueue };
             working = PublishRoles(working);

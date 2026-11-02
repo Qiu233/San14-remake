@@ -13,6 +13,7 @@ public partial class Main
         internal readonly int Course = course;
         internal readonly CancellationTokenSource Lifetime = new();
         internal TutorialLessonPreparation? Prepared;
+        internal GameResourceRepository? Repository;
         internal bool Preparing = true, Retired;
     }
 
@@ -42,8 +43,7 @@ public partial class Main
         RetireTutorialPreparation();
         if (_tutorialSelection != view || _repository is null) return;
         var owner = new TutorialSelectionPreparation(view, course); _tutorialPreparation = owner;
-        string sourceDirectory = _repository.SourceDirectory;
-        string? overridesDirectory = _repository.OverrideDirectory;
+        var resourceSources = CaptureCampaignResourceSources();
         var inputs = new TutorialPreparationInputs(1, new(_presentationRandom.State), CaptureApplicationCrtRandom(),
             _preferences.Voice.Capture(), _newGameOptions);
         _ = PrepareAsync();
@@ -53,20 +53,22 @@ public partial class Main
             try
             {
                 await tutorialPreparationGate.WaitAsync(owner.Lifetime.Token);
-                TutorialLessonPreparation result;
+                (TutorialLessonPreparation Prepared, GameResourceRepository Repository) result;
                 try
                 {
                     result = await Task.Run(() =>
                     {
                         owner.Lifetime.Token.ThrowIfCancellationRequested();
-                        var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
-                        return catalog.PrepareLesson(repository, course, inputs);
+                        var repository = resourceSources.CreateReadScope();
+                        return (catalog.PrepareLesson(repository, course, inputs), repository);
                     }, owner.Lifetime.Token);
                 }
                 finally { tutorialPreparationGate.Release(); }
                 if (!IsTutorialPreparationCurrent(owner)) return;
-                owner.Prepared = result; view.ApplyPreparation(result);
-                if (result.UnresolvedOwner is null && course is >= 0 and <= 7) BeginTutorialLesson(owner, result);
+                owner.Prepared = result.Prepared; owner.Repository = result.Repository;
+                view.ApplyPreparation(result.Prepared);
+                if (result.Prepared.UnresolvedOwner is null && course is >= 0 and <= 7)
+                    BeginTutorialLesson(owner, result.Prepared);
             }
             catch (OperationCanceledException) when (owner.Lifetime.IsCancellationRequested) { }
             catch (Exception error)
@@ -89,7 +91,7 @@ public partial class Main
     {
         var owner = _tutorialPreparation; _tutorialPreparation = null;
         if (owner is null || owner.Retired) return;
-        owner.Retired = true; owner.Lifetime.Cancel(); owner.Prepared = null;
+        owner.Retired = true; owner.Lifetime.Cancel(); owner.Prepared = null; owner.Repository = null;
         if (!owner.Preparing) owner.Lifetime.Dispose();
     }
 

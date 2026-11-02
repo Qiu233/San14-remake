@@ -5,9 +5,6 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     private ScenarioSelectionView? _scenarioSelection;
-    private MapFont? _scenarioFont;
-    private UiAssets? _scenarioAssets;
-    private Shader? _scenarioShader;
     private Button _chooseScenario = null!;
 
     private void OpenScenarioSelection()
@@ -32,17 +29,15 @@ public partial class Main
                 // comparison. Serialized CE edition values take precedence.
                 "CE" => 2, "PK" => 1, _ => 0
             });
-        _scenarioFont = new(repository, locale);
-        _scenarioAssets = new(repository);
-        _scenarioShader = UiSourceSprite.CreateShader();
-        var sprites = new LocalizedUiSpriteSource(repository);
         var names = ArmyMapUiSources.Create();
         var view = new ScenarioSelectionView { Name = "ScenarioSelection" };
         _scenarioSelection = view;
         AddChild(view);
         try
         {
-            view.ConfigureOriginalCatalog(repository, _scenarioAssets, _scenarioShader, _scenarioFont, locale,
+            var resources = TryBorrowApplicationUiResources(view);
+            var sprites = resources.Assets.DeclaredSprites;
+            view.ConfigureOriginalCatalog(repository, resources.Assets, resources.SpriteShader, resources.Font, locale,
                 catalog, (_, person) =>
                 {
                     // First playable UI pass: show the installed header's stock
@@ -72,9 +67,6 @@ public partial class Main
         var view = _scenarioSelection;
         _scenarioSelection = null;
         if (view is not null && GodotObject.IsInstanceValid(view)) view.Abandon();
-        _scenarioFont?.Dispose(); _scenarioFont = null;
-        _scenarioAssets?.Dispose(); _scenarioAssets = null;
-        _scenarioShader?.Dispose(); _scenarioShader = null;
         if (!_failed && !_shuttingDown)
         {
             _browserContent.ProcessMode = ProcessModeEnum.Inherit;

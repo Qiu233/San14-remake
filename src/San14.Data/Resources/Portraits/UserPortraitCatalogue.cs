@@ -58,7 +58,14 @@ public sealed partial class GameResourceRepository
     private IReadOnlyDictionary<uint, PortraitPlatformEntitlement> _portraitEntitlements =
         new Dictionary<uint, PortraitPlatformEntitlement>();
 
-    public int PortraitResourceVersion => _portraitResourceVersion;
+    public int PortraitResourceVersion
+    {
+        get
+        {
+            SynchronizeResidentInvalidation();
+            return _portraitResourceVersion;
+        }
+    }
     //57DDF0 ->57E290 ->3F9410 uses CSIDL_PERSONAL, then these exact components.
     //GetFolderPath respects the system's redirected Documents location.
     public string? UserPortraitDirectory
@@ -91,16 +98,21 @@ public sealed partial class GameResourceRepository
     /// Owners holding UI sprite/catalog snapshots recreate them after this call.</summary>
     public void InvalidatePortraitResources()
     {
-        _userPortraits = null; _portraitContent = null; _specialPersonCapabilities = null;
-        _portraitLinkBins.Clear(); _portraitLinkBinTextures.Clear();
-        _portraitResourceVersion++;
+        // The externally editable DLC metadata uses the normal resident source
+        // path. Invalidate only the metadata files this catalog actually read.
+        _residentSources.InvalidatePortraitSources();
+        SynchronizeResidentInvalidation();
     }
 
-    public PortraitContentCatalogue LoadPortraitContent() => _portraitContent ??=
-        PortraitContentCatalogue.Load(this, _portraitEntitlements);
+    public PortraitContentCatalogue LoadPortraitContent()
+    {
+        SynchronizeResidentInvalidation();
+        return _portraitContent ??= PortraitContentCatalogue.Load(this, _portraitEntitlements);
+    }
 
     public UserPortraitCatalogue LoadUserPortraits()
     {
+        SynchronizeResidentInvalidation();
         if (_userPortraits is not null) return _userPortraits;
         const string relative = "ADD_FACE/ManageData.s14";
         string? path = FindUserPortraitFile(relative);
@@ -115,11 +127,13 @@ public sealed partial class GameResourceRepository
         if (!relative.StartsWith("ADD_FACE/", StringComparison.Ordinal))
             throw new ArgumentException("Not a user portrait resource.", nameof(relative));
         string? replacement = _overrides.Find(id);
-        if (replacement is not null) return replacement;
         string? root = UserPortraitDirectory;
-        if (root is null) throw new InvalidDataException("officer-editor.portrait.user_documents_directory");
-        string path = Path.Combine(root, relative[9..].Replace('/', Path.DirectorySeparatorChar));
-        return File.Exists(path) ? path : null;
+        string? path = root is null ? replacement : Path.Combine(root, relative[9..].Replace('/', Path.DirectorySeparatorChar));
+        if (path is null) throw new InvalidDataException("officer-editor.portrait.user_documents_directory");
+        // Track the real requested registration/image, even when absent. This
+        // observes its later creation without scanning the external face tree.
+        TrackPortraitSource(id, path, replacement);
+        return replacement ?? (File.Exists(path) ? path : null);
     }
 
     internal (byte[] Bytes, SourceProvenance Provenance) ReadUserPortraitFile(string relative)
@@ -127,7 +141,11 @@ public sealed partial class GameResourceRepository
         var id = GameResourceId.File(relative);
         string path = FindUserPortraitFile(relative) ?? throw new FileNotFoundException(
             "User portrait resource is missing: " + id);
+        string fallback = UserPortraitDirectory is { } root
+            ? Path.Combine(root, relative[9..].Replace('/', Path.DirectorySeparatorChar)) : path;
+        var generation = BeginResourceRead(id, fallback, path);
         byte[] bytes = File.ReadAllBytes(path);
+        ObserveResidentRead(generation);
         var provenance = new SourceProvenance(relative, bytes.LongLength,
             Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)))
         {

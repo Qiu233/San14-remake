@@ -23,6 +23,10 @@ internal sealed class D3D11MapCpuResources : IDisposable
     internal string ArmyMaterialDirectory => Path.Combine(Inputs, "army-visual-input", "material-source");
     internal string FlagMaterialDirectory => Path.Combine(Inputs, "city-accessory-input", "material-source");
     internal D3D11SceneMediaPreparation SceneMedia { get; private init; } = null!;
+    internal D3D11TerrainPreparedPrograms? TerrainPrograms { get; private init; }
+    internal D3D11PrimaryGpuMediaSource? PrimaryGpuMedia { get; private init; }
+    internal MapEnvironmentStaticResources? EnvironmentStatic { get; private init; }
+    internal MapRouteStaticResources? RouteMedia { get; private init; }
     internal SkyCloudProgramResources CloudPrograms { get; private init; } = null!;
     internal GroundDetailResources GroundDetails { get; private init; } = null!;
     internal HeightFogProgramResources FogPrograms { get; private init; } = null!;
@@ -63,13 +67,30 @@ internal sealed class D3D11MapCpuResources : IDisposable
             repository => D3D11CurrentSeasonResources.LoadScenarioPreviewSourceReadyCpu(repository, previewSeason, frame),
             locale, source, width, height, scenarioKey, token);
 
+    internal static D3D11MapCpuResources Prepare(MapStaticSceneResources sources,
+        MainMapCameraFrame frame, NativeMapSeasonState nativeSeason, string locale, string source,
+        int width, int height, string scenarioKey, CancellationToken token)
+        => PrepareCore(sources.Root.SourceDirectory, sources.Root.OverrideDirectory, sources.Terrain.Terrain, frame,
+            repository => D3D11CurrentSeasonResources.LoadSourceReadyCpu(repository, nativeSeason, frame),
+            locale, source, width, height, scenarioKey, token, sources);
+
+    internal static D3D11MapCpuResources PrepareScenarioPreview(MapStaticSceneResources sources,
+        MainMapCameraFrame frame, MapSeasonScenarioPreviewFrame previewSeason, string locale, string source,
+        int width, int height, string scenarioKey, CancellationToken token)
+        => PrepareCore(sources.Root.SourceDirectory, sources.Root.OverrideDirectory, sources.Terrain.Terrain, frame,
+            repository => D3D11CurrentSeasonResources.LoadScenarioPreviewSourceReadyCpu(repository, previewSeason, frame),
+            locale, source, width, height, scenarioKey, token, sources);
+
     private static D3D11MapCpuResources PrepareCore(string sourceDirectory, string? overrideDirectory,
         LoadedTerrainSceneResources terrainSources, MainMapCameraFrame frame,
         Func<GameResourceRepository, D3D11CurrentSeasonResources> loadSeason, string locale, string source,
-        int width, int height, string scenarioKey, CancellationToken token)
+        int width, int height, string scenarioKey, CancellationToken token, MapStaticSceneResources? staticSources = null)
     {
         token.ThrowIfCancellationRequested();
-        var repository = new GameResourceRepository(sourceDirectory, overrideDirectory);
+        if (staticSources is not null && (staticSources.Media.Locale != locale ||
+            !ReferenceEquals(staticSources.Terrain.Terrain, terrainSources)))
+            throw new InvalidDataException("The Native map opening differs from its loaded static source.");
+        var repository = staticSources?.CreateReadScope() ?? new GameResourceRepository(sourceDirectory, overrideDirectory);
         var scene = terrainSources.Scene;
         string inputs = Path.GetDirectoryName(source)
             ?? throw new InvalidDataException("Native map preparation has no output parent.");
@@ -77,10 +98,13 @@ internal sealed class D3D11MapCpuResources : IDisposable
         RenderResourceContext.Batch? resourceSeasonBatch = null;
         try
         {
+            staticSources?.PrimaryGpuMedia.WriteOpeningReference(inputs, locale);
             // These banks are produced from this scene and accepted camera.
             // They are outputs of this opening, never an offline-package input.
-            var sceneMedia = D3D11SceneMediaPreparation.Prepare(repository, terrainSources,
-                frame.Camera, source, width, height);
+            var sceneMedia = staticSources is null
+                ? D3D11SceneMediaPreparation.Prepare(repository, terrainSources, frame.Camera, source, width, height)
+                : D3D11SceneMediaPreparation.PrepareOpening(repository, staticSources.Media, frame.Camera,
+                    source, width, height, staticSources.TerrainPrograms);
             token.ThrowIfCancellationRequested();
             var cloudPrograms = SkyCloudProgramResources.Load(repository, sceneMedia.Renderer);
             var groundDetails = GroundDetailResources.Prepare(repository, scene,
@@ -102,6 +126,13 @@ internal sealed class D3D11MapCpuResources : IDisposable
 
             resourceContext = RenderResourceContext.LoadCurrentMap(repository, scene,
                 seasonResources.Source.CameraSource.Season.Resources.Action, out resourceSeasonBatch);
+            if (staticSources is not null)
+            {
+                // Verify the actual opening namespace against the declaration
+                // loaded at startup. A miss is a missing closure, not lazy I/O.
+                _ = staticSources.RouteMedia.Require(resourceContext);
+                staticSources.RouteMedia.WriteOpeningReference(inputs);
+            }
             var rainProvider = RainDropProviderSource.Load(repository, resourceContext);
             var specialEffectInputs = D3D11SpecialEffectEncoding.Create(repository, seasonResources.InitialCommonSettings);
             resourceContext.WriteNativeInputs(Path.Combine(inputs, "resource-context-input"));
@@ -114,11 +145,14 @@ internal sealed class D3D11MapCpuResources : IDisposable
                 CommonRenderResources.ImportSettings(initialCommonObjects),
                 frame.Camera.FrameNumber, "map-model/settings", "map-model/common", "map-model/view", "initial-resource-preparation");
             var initialContext = MainMapContextOwnerSource.LoadFreshHostDefaults(locale);
-            D3D11SdfInputPreparation.PrepareFreshNormalMain(repository, initialContext,
-                DefaultView0Source.LoadDeclarationDefaults(repository), initialCommonObjects)
-                .WriteNativeInputs(Path.Combine(inputs, "sdf-source-input"));
+            if (staticSources is null)
+                D3D11SdfInputPreparation.PrepareFreshNormalMain(repository, initialContext,
+                    DefaultView0Source.LoadDeclarationDefaults(repository), initialCommonObjects)
+                    .WriteNativeInputs(Path.Combine(inputs, "sdf-source-input"));
             var records = MapSourceCreatedWorldKind1Publication.ReadSeasonSourceRecords(seasonResources.Source.DirectionalDeclarations);
-            var primaryTemplates = D3D11CityGateTemplateBank.Prepare(repository, scene, frame.Camera,
+            var primarySources = staticSources?.PrimaryModels ?? D3D11CityGateStaticResources.Prepare(repository, scene,
+                Path.Combine(inputs, "base-visual-world-input", "primary-templates", "static-media"), token);
+            var primaryTemplates = D3D11CityGateTemplateBank.Prepare(primarySources, frame.Camera,
                 initialModelCommon, initialContext.ContextFlags3E4, records,
                 sceneMedia.FieldModels.ShaderTableOwners, Path.Combine(inputs, "base-visual-world-input", "primary-templates"));
             primaryTemplates.WriteNativeInputs();
@@ -152,11 +186,16 @@ internal sealed class D3D11MapCpuResources : IDisposable
             var scenario = repository.LoadScenario(scenarioMetadata);
             var map = repository.LoadCeMap();
             token.ThrowIfCancellationRequested();
+            staticSources?.RequireCurrentRevision();
 
             return new()
             {
                 Repository = repository, Scene = scene, Source = source, Inputs = inputs,
                 Locale = locale, Width = width, Height = height,
+                TerrainPrograms = staticSources?.TerrainPrograms,
+                PrimaryGpuMedia = staticSources?.PrimaryGpuMedia,
+                EnvironmentStatic = staticSources?.EnvironmentStatic,
+                RouteMedia = staticSources?.RouteMedia,
                 SceneMedia = sceneMedia, CloudPrograms = cloudPrograms, GroundDetails = groundDetails,
                 FogPrograms = fogPrograms, FogAcceleration = fogAcceleration, SkyPrograms = skyPrograms,
                 SeasonResources = seasonResources, SeasonLibrary = seasonLibrary,

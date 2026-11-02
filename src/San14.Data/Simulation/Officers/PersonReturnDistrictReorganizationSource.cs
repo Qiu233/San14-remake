@@ -20,6 +20,13 @@ internal sealed class ArmyReturnDistrictOperationQueries(IArmyReturnGovernorCurr
     //The enclosing capture supplies its actual293BD0 recipient and sink.
     //Other District operations retain their existing unregister execution.
     internal Func<int, GameState>? ForceRetirementHandler { get; init; }
+    //A positive player's240DB0 service callback publishes only into this
+    //operation's current candidate, never a standalone profile or prior World.
+    internal void RefreshPersonnelMilestoneCurrent(int first, int second, int third)
+    {
+        var owner = Package ?? throw new InvalidDataException("person-return.district.personnel_milestone_owner");
+        Publish(owner.RefreshPersonnelMilestoneCurrent(Latest(), current, first, second, third));
+    }
     public ArmyReturnGovernorComparatorFields? ReadCurrentComparatorFields(int person) => queries.ReadCurrentComparatorFields(person);
     public int? ReadCurrentAssociatedVirtual98(PersonLinkedEntityReference reference) => queries.ReadCurrentAssociatedVirtual98(reference);
     internal int Leadership(int person) => Package?.ReadReturnDistrictLeadership(Latest(), current, person)
@@ -174,8 +181,14 @@ internal static class PersonReturnDistrictReorganizationSource
             byte serving = K(current.ReadPersonStatus(person), "merge_PersonE6");
             if (serving is not (>= 1 and <= 4) && serving != 6) continue;
             var results = new List<PersonAssignmentPrecallResult>();
-            PersonDistrictTransfer.Apply(person, to, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
-                results, result => operation.Assignment(person, result)));
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = operation.RefreshPersonnelMilestoneCurrent;
+            try
+            {
+                PersonDistrictTransfer.Apply(person, to, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
+                    results, result => operation.Assignment(person, result)));
+            }
+            finally { current.TransferServiceRefresher = previousRefresh; }
             if (serving is >= 1 and <= 4)
             {
                 var linked = current.ReadPersonLinkedEntity(person) ?? throw Missing("merge_associated");

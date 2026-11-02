@@ -15,8 +15,7 @@ public sealed class TerrainMeshCache : IDisposable
         int capacity = 512)
     {
         if (prototype.Source != height.Terrain || capacity < 1 || prototype.Patches.Count == 0 ||
-            prototype.Patches.Any(patch => !patch.Mesh.GetMeta("original_initial_height_adapter", false).AsBool() ||
-                !patch.Mesh.HasMeta("source_patch_edge_flags")))
+            !prototype.UsesInitialHeightAdapter)
             throw new InvalidDataException("Terrain geometry cache source or capacity differs.");
         (_prototype, _height, _capacity) = (prototype, height, capacity);
         foreach (TerrainPatch patch in prototype.Patches)
@@ -32,8 +31,9 @@ public sealed class TerrainMeshCache : IDisposable
         if (missing.Rows.Count != 0)
         {
             // Validate the full selection once, then prepare only uncached patches.
-            TerrainMeshResult batch = TerrainMesh.Upload(
-                TerrainMeshPreparation.Prepare(_prototype.Source, _height, missing));
+            var prepared = TerrainMeshPreparation.Prepare(_prototype.Source, _height, missing);
+            TerrainMeshResult batch = _prototype.HasGpuMeshes
+                ? TerrainMesh.Upload(prepared) : TerrainMesh.RetainCpu(prepared);
             _batches.Add(batch);
             foreach (TerrainPatch patch in batch.Patches) _patches.Add(Key(patch), patch);
         }
@@ -56,7 +56,7 @@ public sealed class TerrainMeshCache : IDisposable
     }
 
     private static (int Node,uint Flags) Key(TerrainPatch patch) =>
-        (patch.SourceNode.Index, checked((uint)patch.Mesh.GetMeta("source_patch_edge_flags").AsInt64()));
+        (patch.SourceNode.Index, patch.EdgeFlags);
     public void Dispose()
     {
         if (_disposed) return;

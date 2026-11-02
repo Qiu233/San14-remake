@@ -13,8 +13,21 @@ internal sealed partial class UnitTargetMenuPresenter
     private IReadOnlyList<UnitSelectionMember> selectionCandidates = [];
     private readonly List<UnitSelectionMember> selectionHits = [];
 
-    private void InitializeSelection(int unitId)
+    private void InitializeSelection(int unitId, OrdinaryArmyMapEntry? initial)
     {
+        if (initial is not null)
+        {
+            if (initial.CanOpen != true || initial.PageDistrictId is not int pageDistrict || initial.Rows.Count == 0 ||
+                initial.Rows[0].Army.UnitId != unitId)
+                throw new InvalidDataException("The ordinary Army entry has no current initial vector.");
+            var members = initial.Rows.Select(row => Member(row.Army.UnitId,
+                row.Page.Partition ?? throw new InvalidDataException("Initial Army partition is unavailable."),
+                row.Army.CurrentHexId ?? throw new InvalidDataException("Initial Army Hex is unavailable."), row.Page)
+                ?? throw new InvalidDataException("Initial Army route seed is unavailable.")).ToArray();
+            selectionDistrict = pageDistrict;
+            Selection.Initialize(members, initial.InitiallySelected);
+            return;
+        }
         var query = rules.QueryUnitSelectionRows(world, [unitId]);
         var row = query.Rows.SingleOrDefault() ?? throw new InvalidDataException(query.UnresolvedInput ?? "Army selection row is missing.");
         if (row.NativeValid != true || row.DistrictPhysicalSlot is not int district || Member(row) is not { } member)

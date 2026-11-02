@@ -33,12 +33,14 @@ public sealed record ArmyReceiverSourceSlot(int PhysicalSlot, ushort? Commander1
 public sealed record ArmyLifecycleSourceState(string Revision, string Language, string RuleVersion,
     string SourceScenarioUri, string SourceScenarioSha256)
 {
-    private IReadOnlyList<ArmyReceiverSourceSlot> _slots = Array.Empty<ArmyReceiverSourceSlot>();
+    private static readonly ArmyReceiverSourceSlots EmptySlots = new([]);
+    private ArmyReceiverSourceSlots _slots = EmptySlots;
+    internal ArmyReceiverSourceDirectory ReceiverDirectory => _slots.Directory;
     private IReadOnlyList<byte?>? _flags;
     public IReadOnlyList<ArmyReceiverSourceSlot> Slots
     {
         get => _slots;
-        init => _slots = Array.AsReadOnly(value.ToArray());
+        init => _slots = new(value.ToArray());
     }
     public IReadOnlyList<byte?>? ArmyFlags150
     {

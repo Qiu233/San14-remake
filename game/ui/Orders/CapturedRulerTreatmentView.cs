@@ -7,6 +7,7 @@ using San14.Data.Formats;
 /// suspended operation. Closing or invalidating this view supplies no result.</summary>
 internal partial class CapturedRulerTreatmentView : Control
 {
+    // All static resources are borrowed from the application owner.
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
@@ -16,7 +17,8 @@ internal partial class CapturedRulerTreatmentView : Control
     private Action<CapturedRulerDisposition>? replied;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, OfficerDetailPublication officer,
-        CapturedRulerTreatmentRequest request, Func<bool> admitted, Action<CapturedRulerDisposition> replied)
+        CapturedRulerTreatmentRequest request, Func<bool> admitted, Action<CapturedRulerDisposition> replied,
+        AdministrationPageChrome.Resources resources)
     {
         this.admitted = admitted; this.replied = replied;
         Name = "CapturedRulerTreatment"; ZIndex = 96; MouseFilter = MouseFilterEnum.Stop;
@@ -24,8 +26,8 @@ internal partial class CapturedRulerTreatmentView : Control
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var detail = new OfficerDetailsView { Size = new(1920, 1080) }; canvas.AddChild(detail);
-        detail.Configure(repository, officer, text, () => { }, admitted, showNavigation: false);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        detail.Configure(repository, officer, text, () => { }, admitted, showNavigation: false,resources:resources);
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         var data = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Data(int id) => data.Records[id].Text ?? throw new InvalidDataException("Missing captured ruler caption.");
         var title = new UiSourceHeader(); canvas.AddChild(title);
@@ -87,5 +89,5 @@ internal partial class CapturedRulerTreatmentView : Control
         canvas.Scale = Vector2.One * scale;
         canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
-    public override void _ExitTree() { replied = null; admitted = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree() { replied = null; admitted = null; }
 }

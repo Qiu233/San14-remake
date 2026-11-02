@@ -140,6 +140,8 @@ public static class PlayableSkeleton
         commands = new ArmyCautionOrders(commands, armyCreationRules as IArmyCautionCommandRules);
         commands = new ArmyGroupPurposeOrders(commands, armyCreationRules as IArmyGroupPurposeExecution);
         commands = new ArmyInstructionOrders(commands, armyCreationRules as IArmyInstructionExecution);
+        commands = new ArmyReturnCaptiveOrders(commands, nativePeriodContinuationRules as IArmyReturnCaptiveRules
+            ?? armyCreationRules as IArmyReturnCaptiveRules);
         commands = new RulerDecisionOrders(commands, nativePeriodContinuationRules as INormalPeriodCapturedRulerRules,
             nativePeriodContinuationRules as IRulerSuccessionRules ?? armyCreationRules as IRulerSuccessionRules);
         commands = new CurrentWorldEditOrders(commands, armyCreationRules as ICurrentWorldEditExecution);

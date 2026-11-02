@@ -19,8 +19,10 @@ public sealed partial class OwnedArmyDestructionStage
                 TalentCommandPresentationOperation.SoundCue, announcement.SoundId, null, null, null, null) });
             return (state, false);
         }
-        if (!allowPause || state.NativePeriodContinuation is null)
-            throw Missing("hired_capture_normal_period_host");
+        //Both normal periods and the saved legacy Army operation hold the
+        //actual stage13/25 candidate. The caller's pause capability owns this
+        //checkpoint; a normal-period preparation is not a captive rule.
+        if (!allowPause) throw Missing("hired_capture_presentation_owner");
         var saved = checkpoint();
         if (saved.ResumePoint != ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement ||
             saved.SpecialCommanderReclaim || saved.ReclaimDefeatedCommander != false)

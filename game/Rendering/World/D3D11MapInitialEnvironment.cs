@@ -26,6 +26,9 @@ internal sealed record D3D11MapInitialEnvironment(
         token.ThrowIfCancellationRequested();
         try
         {
+            // Fixed media was published before Title admission. Only this
+            // opening's current resources remain in the opening directory.
+            cpu.EnvironmentStatic?.WriteOpeningReference(inputs);
             groundDetails.WriteNativeInputs(inputs, current.Rgb.Inputs.MainPostSelection!.AppFlags);
             token.ThrowIfCancellationRequested();
             var globalFog=current.Lights.First(light=>(light.GroupMask&0x80)!=0).State;
@@ -38,7 +41,8 @@ internal sealed record D3D11MapInitialEnvironment(
                 current.Lights.First(light=>(light.GroupMask&0x80)!=0).State);
             cloudMedia.WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
-            D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
+            if (cpu.EnvironmentStatic is null)
+                D3D11CloudPatternProgramMedia.Prepare(cloudMedia.Resources).WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
             ambientResources = D3D11AmbientRenderResources.Load(repository,current.Present,cpu.SeasonResources.Source.Locale);
             ambientResources.WriteNativeInputs(inputs);
@@ -48,8 +52,9 @@ internal sealed record D3D11MapInitialEnvironment(
                 current.Present.AcceptedSeasonCamera.Inputs.Source, images);
             atmosphereResources.WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
-            D3D11PatternRenderResources.Load(repository,ambientResources.Declaration,cpu.SeasonResources.Source.Locale)
-                .WriteNativeInputs(inputs);
+            if (cpu.EnvironmentStatic is null)
+                D3D11PatternRenderResources.Load(repository,ambientResources.Declaration,cpu.SeasonResources.Source.Locale)
+                    .WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
             skyResources = SkyMainResourceOwner.CreateFresh(repository, current.Present, skyPrograms, images);
             atmosphereOwner = new(atmosphereResources, images, skyResources, null);
@@ -80,9 +85,11 @@ internal sealed record D3D11MapInitialEnvironment(
             var initialMainNumeric = D3D11MainCameraInitialNumericInputs.Create(repository, currentMain);
             initialMainNumeric.WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
-            ShadowReceiverResources.Load(repository).WriteNativeInputs(inputs);
+            if (cpu.EnvironmentStatic is null)
+                ShadowReceiverResources.Load(repository).WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
-            ShadowReceiverSamplerEncoding.WriteNativeInputs(repository, cpu.Locale, inputs);
+            if (cpu.EnvironmentStatic is null)
+                ShadowReceiverSamplerEncoding.WriteNativeInputs(repository, cpu.Locale, inputs);
             token.ThrowIfCancellationRequested();
             receiverPatterns = ShadowReceiverPatternResources.Load(repository, starPackage, cpu.Locale,
                 cpu.SeasonResources.PatternTextures);
@@ -100,7 +107,8 @@ internal sealed record D3D11MapInitialEnvironment(
             ScreenMapResources.PrepareNormal(repository,
                 current.Present.CapturePreparedCamera(),cpu.Locale).WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
-            ContactOcclusionResources.Load(repository,cpu.Locale).WriteNativeInputs(inputs);
+            if (cpu.EnvironmentStatic is null)
+                ContactOcclusionResources.Load(repository,cpu.Locale).WriteNativeInputs(inputs);
             token.ThrowIfCancellationRequested();
             D3D11HdrResourceBindings.WriteProducerTargets(repository,
                 Path.Combine(inputs, "hdr-bank"),
@@ -138,7 +146,7 @@ internal sealed record D3D11MapInitialEnvironment(
                 current, inputs, cpu.Width, cpu.Height,sceneColor);
             D3D11PrimaryForwardInputs.WriteFreshNativeInputs(repository,
                 cpu.PrimaryTemplates, cpu.SeasonResources, current, inputs,
-                cpu.Width, cpu.Height);
+                cpu.Width, cpu.Height,staticCpu:cpu.PrimaryGpuMedia?.RequireForward(cpu.Locale));
             token.ThrowIfCancellationRequested();
             return new(atmosphereOwner!,skyResources!,atmosphereResources!,starResources,
                 ambientResources!,cloudMedia!,cloudResources!,receiverPatterns!,normalPost);

@@ -19,7 +19,7 @@ public partial class Main
         view.Configure(_repository ?? throw new InvalidDataException("city-information.resource_owner"),
             page, _ui, Return, mapBackdrop,
             PrepareDetailSelection(rules, world, InformationListKind.Cities, cityId, selectionIds) with { InitialNameSortAscending = initialNameSortAscending },
-            id => RunUiAction(() => view.Apply(report is null ? rules.QueryCityInformation(world, id) : rules.QueryCityInformation(report, id))));
+            id => RunInspectionUiAction(world, () => view.Apply(report is null ? rules.QueryCityInformation(world, id) : rules.QueryCityInformation(report, id))));
         void Return()
         {
             returnSelection?.Invoke(view.ReadSelectionReturn());

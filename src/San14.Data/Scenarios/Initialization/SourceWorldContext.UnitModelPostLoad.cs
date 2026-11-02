@@ -28,9 +28,9 @@ public sealed partial class SourceWorldContext
     public ushort? ReadArmyUnitRawHex2A(ArmyUnitReference army)
         => _armyUnitHexes2A.GetValueOrDefault(MapPhysical(army.PhysicalSlot, 501, "army raw2A"));
     public ushort? ReadHexRaw1C(HexReference hex)
-        => _armyMapOccupancy?.ReadSourceWord(MapPhysical(hex.PhysicalSlot, 48400, "hex raw1C"));
+        => _armyMapOccupancy?.ReadSourceWord(MapPhysical(hex.PhysicalSlot, MapTileCount, "hex raw1C"));
     public void SetHexRaw1C(int physical, ushort? value)
-    { Check(physical, 48400, "hex raw1C receiver"); (_armyMapOccupancy ??= new()).WriteSourceWord(physical, value); }
+    { Check(physical, MapTileCount, "hex raw1C receiver"); (_armyMapOccupancy ??= new()).WriteSourceWord(physical, value); }
     public UnitModelReference? ReadUnitModelPointer(RegistryObjectReference receiver)
     { _ = UnitModelPhysical(receiver); return _unitModelPointers.GetValueOrDefault(receiver); }
     public void SetUnitModelPointer(RegistryObjectReference receiver, UnitModelReference? model)
@@ -91,7 +91,7 @@ public sealed partial class SourceWorldContext
                 int physical = MapPhysical(army.PhysicalSlot, 501, "army physical identity");
                 var hex = UnitModelContext().ReadHexTableReference(raw <= 48399 ? raw : 0)
                     ?? throw new InvalidDataException("Current army map-write hex pointer is unknown.");
-                if (hex.PhysicalSlot.HasValue) { SetHexRaw1C(MapPhysical(hex.PhysicalSlot, 48400, "army map-write hex"), (ushort)Math.Clamp(physical, 1, 500)); writes++; }
+                if (hex.PhysicalSlot.HasValue) { SetHexRaw1C(MapPhysical(hex.PhysicalSlot, MapTileCount, "army map-write hex"), (ushort)Math.Clamp(physical, 1, 500)); writes++; }
             }
             node = ReadRegistryNodeNext(node) ?? throw new InvalidDataException("Current army map-write next is unknown.");
         }

@@ -10,10 +10,10 @@ public sealed record DeploymentTargetAnchor(int HexId, Vector3? GroundWorld,
 /// or its resources/Field edits change. Camera/world changes retain this cache.</summary>
 public sealed class DeploymentTargetAnchorSource
 {
-    private readonly MainMapCameraTerrainSource terrain;
+    private readonly MapStaticModelGroundHeightSource terrain;
     private readonly Dictionary<int, float> heights = [];
-    public MainMapCameraTerrainSource Terrain => terrain;
-    public DeploymentTargetAnchorSource(MainMapCameraTerrainSource currentTerrain) =>
+    public MapStaticModelGroundHeightSource Terrain => terrain;
+    public DeploymentTargetAnchorSource(MapStaticModelGroundHeightSource currentTerrain) =>
         terrain = currentTerrain ?? throw new ArgumentNullException(nameof(currentTerrain));
 
     public DeploymentTargetAnchor Query(int hexId)
@@ -27,9 +27,9 @@ public sealed class DeploymentTargetAnchorSource
             float x = (float)planar.X, z = (float)planar.Z;
             if (!heights.TryGetValue(hexId, out float y) || !(y > 0f))
             {
-                // Current Scene Landscape and its exact prepared BA9890
-                // wrapper/grid are held by the existing camera terrain owner.
-                float ground = terrain.Query(x, z);
+                //1889A0 samples the current Scene Landscape Field+B0 in
+                //world coordinates, before the separate camera centering edit.
+                float ground = UnitWorldGroundHeight.QueryA0B830(terrain.Grid, x, z);
                 y = 445f > ground ? 445f : ground;
                 heights[hexId] = y;
             }

@@ -35,6 +35,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
+        //Advice reuses selection with an explicit nonmutating text consumer.
+        private readonly Func<BaseNearbyEnemyReportFormattingInputs,string>? textOnly;
         private readonly List<BaseNearbyEnemyReportEntry> entries=[];
         private bool entered,completed;
         private BaseNearbyEnemyReportFormattingInputs? formatting;
@@ -43,10 +45,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         public BaseNearbyEnemyReportSnapshot Snapshot => new(entries.ToImmutableArray(),completed,formatting,formattedText);
 
         internal BaseNearbyEnemyReportContentOperation(ArmyCampaignRuleAdapter package,GameState state,
-            SourceWorldContext current,WorldIndexContext pool)
+            SourceWorldContext current,WorldIndexContext pool, Func<BaseNearbyEnemyReportFormattingInputs,string>? textOnly = null)
         {
             if(!ReferenceEquals(pool.ArmyReturnOwner,current)||!pool.OwnsArmyReturnProfile())throw Missing("same_current_pool");
-            this.package=package;State=state;this.current=current;this.pool=pool;
+            this.package=package;State=state;this.current=current;this.pool=pool; this.textOnly=textOnly;
         }
 
         public BaseNearbyEnemyReportSnapshot Produce(TransferPersonReference speaker,
@@ -93,7 +95,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     ushort person1=ordinal==0?(ushort)5014:
                         K(current.ReadForceRecord(P(force.PhysicalSlot,"message_Force"))?.RawRuler10,"message_ruler10");
                     formatting=new(person0,base0,person1);
-                    string text=package.FormatActionBaseNearbyReport(State,current,formatting,value=>State=value).Text;
+                    string text=textOnly is {} render ? render(formatting) : package.FormatActionBaseNearbyReport(State,current,formatting,value=>State=value).Text;
                     formattedText=text;
                     ushort recordSpeaker=Identity(speaker);
                     int marker=ReadReportBaseMarker(current,receiver,Missing);

@@ -1,5 +1,6 @@
 using Godot;
 using San14.Data;
+using San14.Client.Gameplay;
 
 public partial class Main
 {
@@ -12,6 +13,8 @@ public partial class Main
     private bool _environmentKeepDisplay, _environmentDisplayChanged;
     private MapSceneView? _environmentCgMap;
     private CgQuality? _environmentCgEntry;
+    private CampaignPeriodPlayback? _environmentCgPeriod;
+    private bool _environmentCgClosing;
     private bool _environmentCgChanged, _environmentKeepCg;
     private SceneTreeTimer? _environmentResolutionTimer;
     private Action? _environmentResolutionTimeout;
@@ -28,8 +31,9 @@ public partial class Main
         var map=_mapSystemMap;
         var session=fromTitle?_session:_mapSystemSession;
         if(!fromTitle&&(parent is null||session is null||!ReferenceEquals(_session,session)||
-            !ReferenceEquals(_mapSystemWorld,session.World)||!ReferenceEquals(_world,session.World)||_residentMap!=map))return;
-        var world = session?.World;
+            _mapSystemWorld is not { } inspectionWorld||!IsInspectionWorldCurrent(session,inspectionWorld)||_residentMap!=map))return;
+        var world = fromTitle ? session?.World : _mapSystemWorld;
+        bool periodInspection = !fromTitle && _mapSystemPeriodInspection;
         var entry = _preferences.Navigation;
         var audioEntry = _preferences.Audio;
         var listEntry = _preferences.ListScroll;
@@ -40,6 +44,9 @@ public partial class Main
         var presentationEntry = _preferences.Presentation;
         var speakerBinding = _sceneAudioBinding;
         GameAudioSpeakerLayout? speakerEntry = speakerBinding?.CurrentSpeakerLayout;
+        _environmentCgPeriod = periodInspection && _periodPlayback is {} period &&
+            map?.BeginPeriodCgQualityInspection(period) == true ? period : null;
+        _environmentCgClosing = false;
         var cgQualities = map?.SupportedCgQualities ?? Enum.GetValues<CgQuality>();
         CgQuality? cgEntry = map is null ? _preferences.CgQuality ?? CgQuality.Normal
             : cgQualities.Count == 0 ? null : map.ReadCgQuality();
@@ -57,16 +64,20 @@ public partial class Main
         try
         {
             view.Configure(_repository, _ui, entry, audioEntry, listEntry, automaticSavingEntry,
-                () => RunUiAction(RequestBack), () => RunUiAction(Apply), () => RunUiAction(RequestDefaults),
+                () => RunEnvironmentAction(RequestBack), () => RunEnvironmentAction(Apply), () => RunEnvironmentAction(RequestDefaults),
                 audio => { if (Current()) _uiAudioFeedback?.SetVolumes(audio); },
                 () => { if (Current()) _uiAudioFeedback?.PlayEffectsPreview(); }, voiceEntry, automaticMessageAdvanceEntry,
                 keyboardEntry, presentationEntry, displayEntry?.Preferences, displayHost?.Resolutions,
-                displayHost is null ? null : value => RunUiAction(() => PreviewDisplay(value)),
+                displayHost is null ? null : value => RunEnvironmentAction(() => PreviewDisplay(value)),
                 cgEntry, cgQualities, quality =>
                 {
                     if (!Current()) return false;
                     bool accepted = map?.ApplyCgQuality(quality) ?? true;
-                    if (accepted) _environmentCgChanged = true;
+                    if (accepted)
+                    {
+                        _environmentCgChanged = true;
+                        if (map?.IsCgQualityRebuilding == true) ObserveCgPreparation();
+                    }
                     return accepted;
                 }, speakerEntry, fromTitle, layout => speakerBinding?.QuerySpeakerLayoutAvailability(layout)
                     ?? new SpeakerLayoutAvailability(false, "environment.speaker_layout.current_audio_owner"),
@@ -77,10 +88,30 @@ public partial class Main
 
         bool Current()
         {
-            var expected = fromTitle ? world : _mapSystemWorld;
             return !_failed && !_shuttingDown && _environmentSettings == view &&
                 (fromTitle?_titleMenu==title&&_playerForceId is null:_mapSystemMenu==parent&&_residentMap==map) &&
-                ReferenceEquals(_session, session) && ReferenceEquals(session?.World, expected) && ReferenceEquals(_world, expected);
+                ReferenceEquals(_session, session) && (fromTitle
+                    ? ReferenceEquals(session?.World, world) && ReferenceEquals(_world, world)
+                    : session is not null && _mapSystemWorld is { } queryWorld && IsInspectionWorldCurrent(session, queryWorld));
+        }
+
+        async void ObserveCgPreparation()
+        {
+            // Keep Config's actual checkpoint borrowed until the new output
+            // has passed the existing real Canvas acceptance gate.
+            view.SetBusy(true);
+            try { await map!.WaitForCgQualityPreparationAsync(); }
+            catch (Exception error)
+            {
+                if (Current()) view.ApplyNotice(_ui.Get("settings_save_failed"));
+                if (!_shuttingDown) GD.PushWarning(error.ToString());
+            }
+            finally { if (Current() && !_environmentCgClosing) view.SetBusy(false); }
+        }
+
+        void RunEnvironmentAction(Action action)
+        {
+            if (Current()) RunUiAction(action, allowDuringPeriod: periodInspection);
         }
 
         void RequestBack()
@@ -123,6 +154,11 @@ public partial class Main
                     attemptedSpeakerChange = true;
                     await speakerBinding.ApplySpeakerLayoutAsync(layout, _ui.SourceLocale,
                         _preferences.MusicSelection, cancellation.Token);
+                    if (!Current()) return;
+                }
+                if (map is not null && (_environmentCgChanged || map.IsCgQualityRebuilding))
+                {
+                    await map.WaitForCgQualityPreparationAsync();
                     if (!Current()) return;
                 }
                 _preferences.Save(view.Draft, view.AudioDraft, view.ListScrollDraft, view.AutomaticSavingDraft,
@@ -179,7 +215,7 @@ public partial class Main
             {
                 var resolutionMessage = new EnvironmentResolutionMessage(_repository!, _ui.SourceLocale);
                 question.ConfigureWrappedMessage(_repository!, _ui,
-                    resolutionMessage.Format(15), accepted => RunUiAction(() =>
+                    resolutionMessage.Format(15), accepted => RunEnvironmentAction(() =>
                     {
                         if (!Current() || _environmentConfirmation != question) return;
                         StopEnvironmentResolutionTimeout();
@@ -228,7 +264,7 @@ public partial class Main
             var question = new DeploymentTargetConfirmation(); _environmentConfirmation = question; AddChild(question);
             try
             {
-                question.ConfigureGameMessage(_repository!, _ui, message, confirmed => RunUiAction(() =>
+                question.ConfigureGameMessage(_repository!, _ui, message, confirmed => RunEnvironmentAction(() =>
                 {
                     if (!Current() || _environmentConfirmation != question) return;
                     _environmentConfirmation = null; question.Abandon(); question.QueueFree();
@@ -251,6 +287,7 @@ public partial class Main
 
     private void ApplyCommittedCgQuality(MapSceneView map)
     {
+        map.SetApplicationNativeMapDevice(RequireApplicationNativeMapDevice());
         if (_preferences.CgQuality is { } quality && !map.ApplyCgQuality(quality))
             GD.PushWarning(map.CgQualityChangeUnavailableReason ?? "environment.CG_quality.initial_owner");
     }
@@ -265,6 +302,48 @@ public partial class Main
 
     private void CloseEnvironmentSettings(bool resumeParent = true)
     {
+        if (resumeParent && _environmentSettings is {} view && _environmentCgMap is {} map &&
+            GodotObject.IsInstanceValid(map) && ReferenceEquals(_residentMap, map) &&
+            (_environmentCgChanged || map.IsCgQualityRebuilding))
+        {
+            if (_environmentCgClosing) return;
+            _environmentCgClosing = true;
+            view.SetBusy(true);
+            _ = CloseEnvironmentAfterCgPreparationAsync(view, map);
+            return;
+        }
+        CloseEnvironmentSettingsCore(resumeParent);
+    }
+
+    private async Task CloseEnvironmentAfterCgPreparationAsync(EnvironmentSettingsView view, MapSceneView map)
+    {
+        try
+        {
+            // Cancel requests the real entry quality through the same latest-
+            // request loop, then waits before the parent may release its World.
+            if (_environmentCgChanged && !_environmentKeepCg && _environmentCgEntry is {} entry &&
+                !map.ApplyCgQuality(entry))
+                throw new InvalidOperationException(map.CgQualityChangeUnavailableReason ?? "environment.CG_quality.restore_owner");
+            await map.WaitForCgQualityPreparationAsync();
+            if (_environmentSettings != view) return;
+            _environmentCgChanged = false;
+            CloseEnvironmentSettingsCore(resumeParent: true);
+        }
+        catch (Exception error)
+        {
+            if (_environmentSettings == view)
+            {
+                _environmentCgClosing = false;
+                view.SetBusy(false);
+                view.ApplyNotice(_ui.Get("settings_save_failed"));
+            }
+            if (!_shuttingDown) GD.PushWarning(error.ToString());
+        }
+    }
+
+    private void CloseEnvironmentSettingsCore(bool resumeParent)
+    {
+        _environmentCgClosing = false;
         _environmentApplyCancellation?.Cancel(); _environmentApplyCancellation = null;
         StopEnvironmentResolutionTimeout();
         var question = _environmentConfirmation; _environmentConfirmation = null;
@@ -277,10 +356,13 @@ public partial class Main
             displayHost.Restore(displayEntry);
         _environmentKeepDisplay = false; _environmentDisplayChanged = false;
         var cgMap = _environmentCgMap; var cgEntry = _environmentCgEntry;
+        var cgPeriod = _environmentCgPeriod; _environmentCgPeriod = null;
         _environmentCgMap = null; _environmentCgEntry = null;
         if (_environmentCgChanged && !_environmentKeepCg && cgMap is not null && cgEntry is { } quality &&
             GodotObject.IsInstanceValid(cgMap) && ReferenceEquals(_residentMap, cgMap) && !cgMap.ApplyCgQuality(quality))
             GD.PushWarning(cgMap.CgQualityChangeUnavailableReason ?? "environment.CG_quality.restore_owner");
+        if (cgPeriod is not null && cgMap is not null && GodotObject.IsInstanceValid(cgMap))
+            cgMap.EndPeriodCgQualityInspection(cgPeriod);
         _environmentCgChanged = false; _environmentKeepCg = false;
         // Edits preview through the shared mixer. Apply has already replaced
         // the committed preferences; every other close restores their entry mix.

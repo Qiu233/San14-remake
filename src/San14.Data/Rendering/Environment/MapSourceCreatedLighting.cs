@@ -107,6 +107,7 @@ public sealed partial class MapSourceCreatedLightingPacket
         SourceLightClassId=accepted.SourceLightClassId;
         directionalConstruction=accepted.directionalConstruction;
         directionalProviderFrame=accepted.directionalProviderFrame;
+        selectedDirectionalProviderFrame=accepted.selectedDirectionalProviderFrame;
         Optics=accepted.Optics;
         directionalCameraApplied=accepted.directionalCameraApplied;
         directionalRowsSwapped=accepted.directionalRowsSwapped;

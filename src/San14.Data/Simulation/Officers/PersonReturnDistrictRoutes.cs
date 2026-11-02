@@ -17,21 +17,24 @@ internal static partial class ArmyRouteSearch
             ?? throw new InvalidDataException("person-return.district-route.Force_validity");
         int actualForce = validForce ? current.ReadForcePhysicalSlot(reference)
                 ?? throw new InvalidDataException("person-return.district-route.Force_identity") : 0;
-        int start = current.ReadBaseCurrentHexIndex(source), goal = current.ReadBaseCurrentHexIndex(target);
-        if ((uint)start >= Count || (uint)goal >= Count) return [];
-        var query = new Queries(state, current, new DistrictBaseMovement(actualForce),
+        if (ArmyMarchSourceAdapter.ReadBaseMapDestination(state, current, source) is not
+                { Kind: ArmyMarchDestinationKind.Hex, HexId: int start } ||
+            ArmyMarchSourceAdapter.ReadBaseMapDestination(state, current, target) is not
+                { Kind: ArmyMarchDestinationKind.Hex, HexId: int goal }) return [];
+        if (!current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) return [];
+        var query = new Queries(state, current, new DistrictBaseMovement(actualForce, current.MapTileCount),
             start, goal, 0, 0, null, 4);
         try { return Search(query, out _, out _, hasArmyDescriptor: false); }
         catch (MissingOwner error) { throw new InvalidDataException(error.Message, error); }
     }
 
-    private sealed class DistrictBaseMovement(int force) : Movement
+    private sealed class DistrictBaseMovement(int force, int noHomeHex) : Movement
     {
         internal override bool AvoidHostile => false;
         internal override byte LandFormation => 0;
         internal override byte NavalFormation => 0;
         internal override int Force => force;
-        internal override int HomeHex => Count;
+        internal override int HomeHex => noHomeHex;
         internal override bool WallPermission => true;
         internal override byte? Action => null;
         internal override bool HasNoDestination => true;

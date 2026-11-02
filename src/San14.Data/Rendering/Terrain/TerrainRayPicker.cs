@@ -6,6 +6,13 @@ namespace San14.Data;
 /// object keeps a picking snapshot alive independently of graphics resources.</summary>
 public sealed class TerrainTriangleGeometry
 {
+    // Contiguous source triangles keep their original traversal and tie order.
+    // The balanced bounds tree is built with the immutable upload geometry.
+    internal const int TrianglesPerLeaf = 32;
+    private readonly TerrainTriangleBounds[] triangleBounds;
+    internal int TriangleLeafBase { get; }
+    internal ReadOnlySpan<TerrainTriangleBounds> TriangleBounds => triangleBounds;
+
     internal TerrainTriangleGeometry(Vector3[] positions, int[] indices)
     {
         Positions = positions;
@@ -20,6 +27,34 @@ public sealed class TerrainTriangleGeometry
         // A float AABB end is reconstructed from its origin and size. Keep
         // that rounding conservative rather than moving a known vertex outside.
         Maximum = Vector3.Max(maximum, minimum + (maximum - minimum));
+        if (indices.Length % 3 != 0)
+            throw new InvalidDataException("Terrain picking requires complete source triangles.");
+        int leafCount = (indices.Length / 3 + TrianglesPerLeaf - 1) / TrianglesPerLeaf;
+        int leafBase = 1;
+        while (leafBase < leafCount) leafBase = checked(leafBase * 2);
+        TriangleLeafBase = leafBase;
+        triangleBounds = new TerrainTriangleBounds[checked(leafBase * 2)];
+        Array.Fill(triangleBounds, new(new(float.PositiveInfinity), new(float.NegativeInfinity)));
+        for (int leaf = 0; leaf < leafCount; leaf++)
+        {
+            Vector3 lower = new(float.PositiveInfinity), upper = new(float.NegativeInfinity);
+            int begin = leaf * TrianglesPerLeaf * 3;
+            int end = begin + Math.Min(TrianglesPerLeaf * 3, indices.Length - begin);
+            for (int index = begin; index < end; index++)
+            {
+                var point = positions[indices[index]];
+                lower = Vector3.Min(lower, point);
+                upper = Vector3.Max(upper, point);
+            }
+            triangleBounds[leafBase + leaf] = new(lower, upper);
+        }
+        for (int node = leafBase - 1; node > 0; node--)
+        {
+            var left = triangleBounds[node * 2];
+            var right = triangleBounds[node * 2 + 1];
+            triangleBounds[node] = new(Vector3.Min(left.Minimum, right.Minimum),
+                Vector3.Max(left.Maximum, right.Maximum));
+        }
     }
 
     public ReadOnlyMemory<Vector3> Positions { get; }
@@ -27,6 +62,8 @@ public sealed class TerrainTriangleGeometry
     public Vector3 Minimum { get; }
     public Vector3 Maximum { get; }
 }
+
+internal readonly record struct TerrainTriangleBounds(Vector3 Minimum, Vector3 Maximum);
 
 public readonly record struct TerrainRayHit(Vector3 Position, double Distance, int PatchIndex, int TriangleIndex);
 
@@ -59,22 +96,43 @@ public sealed class TerrainRayPicker
         double dx = direction.X / norm, dy = direction.Y / norm, dz = direction.Z / norm;
         double nearest = maximumDistance;
         bool found = false;
+        // An int-indexed balanced tree has fewer than 32 levels. Push the
+        // right child first so leaves retain source triangle order.
+        Span<int> pending = stackalloc int[32];
         for (int patchIndex = 0; patchIndex < patches.Length; patchIndex++)
         {
             TerrainTriangleGeometry patch = patches[patchIndex];
-            if (!IntersectsBounds(patch, origin, dx, dy, dz, nearest)) continue;
+            if (!IntersectsBounds(patch.Minimum, patch.Maximum, origin, dx, dy, dz, nearest)) continue;
             ReadOnlySpan<Vector3> positions = patch.Positions.Span;
             ReadOnlySpan<int> indices = patch.Indices.Span;
-            for (int index = 0; index < indices.Length; index += 3)
+            var bounds = patch.TriangleBounds;
+            int pendingCount = 1;
+            pending[0] = 1;
+            while (pendingCount > 0)
             {
-                Vector3 a = positions[indices[index]], b = positions[indices[index + 1]], c = positions[indices[index + 2]];
-                if (!IntersectTriangle(origin, dx, dy, dz, a, b, c, nearest, out double distance)) continue;
-                Vector3 position = new((float)(origin.X + dx * distance), (float)(origin.Y + dy * distance),
-                    (float)(origin.Z + dz * distance));
-                if (!IsFinite(position)) continue;
-                nearest = distance;
-                hit = new(position, distance, patchIndex, index / 3);
-                found = true;
+                int node = pending[--pendingCount];
+                var box = bounds[node];
+                if (box.Minimum.X == float.PositiveInfinity ||
+                    !IntersectsBounds(box.Minimum, box.Maximum, origin, dx, dy, dz, nearest)) continue;
+                if (node < patch.TriangleLeafBase)
+                {
+                    pending[pendingCount++] = node * 2 + 1;
+                    pending[pendingCount++] = node * 2;
+                    continue;
+                }
+                int begin = (node - patch.TriangleLeafBase) * TerrainTriangleGeometry.TrianglesPerLeaf * 3;
+                int end = begin + Math.Min(TerrainTriangleGeometry.TrianglesPerLeaf * 3, indices.Length - begin);
+                for (int index = begin; index < end; index += 3)
+                {
+                    Vector3 a = positions[indices[index]], b = positions[indices[index + 1]], c = positions[indices[index + 2]];
+                    if (!IntersectTriangle(origin, dx, dy, dz, a, b, c, nearest, out double distance)) continue;
+                    Vector3 position = new((float)(origin.X + dx * distance), (float)(origin.Y + dy * distance),
+                        (float)(origin.Z + dz * distance));
+                    if (!IsFinite(position)) continue;
+                    nearest = distance;
+                    hit = new(position, distance, patchIndex, index / 3);
+                    found = true;
+                }
             }
         }
         return found;
@@ -83,12 +141,12 @@ public sealed class TerrainRayPicker
     private static bool IsFinite(Vector3 vector) =>
         float.IsFinite(vector.X) && float.IsFinite(vector.Y) && float.IsFinite(vector.Z);
 
-    private static bool IntersectsBounds(TerrainTriangleGeometry bounds, Vector3 origin,
+    private static bool IntersectsBounds(Vector3 lower, Vector3 upper, Vector3 origin,
         double dx, double dy, double dz, double maximum)
     {
         double minimum = 0;
-        return Axis(origin.X, dx, bounds.Minimum.X, bounds.Maximum.X) &&
-            Axis(origin.Y, dy, bounds.Minimum.Y, bounds.Maximum.Y) && Axis(origin.Z, dz, bounds.Minimum.Z, bounds.Maximum.Z);
+        return Axis(origin.X, dx, lower.X, upper.X) &&
+            Axis(origin.Y, dy, lower.Y, upper.Y) && Axis(origin.Z, dz, lower.Z, upper.Z);
         bool Axis(double from, double direction, double lower, double upper)
         {
             lower -= BoundsPadding; upper += BoundsPadding;

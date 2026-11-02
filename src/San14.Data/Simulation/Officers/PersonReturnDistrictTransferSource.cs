@@ -73,9 +73,17 @@ internal static class PersonReturnDistrictTransferSource
                     }
                     if (!transfer) continue;
                     var results = new List<PersonAssignmentPrecallResult>();
-                    PersonDistrictTransfer.Apply(resident, requested,
-                        ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, results,
-                            result => receiveAssignment(resident, result)));
+                    var previousRefresh = current.TransferServiceRefresher;
+                    current.TransferServiceRefresher = (first, second, third) =>
+                        (queries as ArmyReturnDistrictOperationQueries ?? throw Missing("personnel_milestone_operation_owner"))
+                        .RefreshPersonnelMilestoneCurrent(first, second, third);
+                    try
+                    {
+                        PersonDistrictTransfer.Apply(resident, requested,
+                            ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current, results,
+                                result => receiveAssignment(resident, result)));
+                    }
+                    finally { current.TransferServiceRefresher = previousRefresh; }
                     observe("26D2E0.240DB0.Person" + resident);
                 }
         }

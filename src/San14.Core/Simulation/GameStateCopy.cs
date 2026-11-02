@@ -55,6 +55,7 @@ public static class GameStateCopy
         PersonnelHire = value.PersonnelHire,
         // Decision continuations contain immutable operands and immutable candidate lists.
         ArmyDefeatContinuation = value.ArmyDefeatContinuation,
+        ArmyReturnCaptiveContinuation = value.ArmyReturnCaptiveContinuation, //Immutable held operands and batches.
         BaseCaptureContinuation = value.BaseCaptureContinuation,
         AutomaticEmperorCapture = value.AutomaticEmperorCapture,
         StoryForceTransferContinuation = value.StoryForceTransferContinuation,

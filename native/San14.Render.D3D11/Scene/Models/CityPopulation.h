@@ -3,6 +3,7 @@
 // requests perform no original-file reads or device-object creation.
 #pragma once
 #include "../../Runtime/PreparedFileInput.h"
+#include "../../Device/PrimaryModelGpuMedia.h"
 #include <map>
 #include "CityPopulationInputs.h"
 struct NativeCityPopulationSource : NativeCityTemplateBank {
@@ -12,12 +13,14 @@ struct NativeCityPopulationSource : NativeCityTemplateBank {
     std::vector<std::string> identities;
     NativeModelCollectionCaller caller;
 };
-inline void updateNativeCityPopulationSource(NativeCityPopulationSource& source,const std::vector<NativePrimaryUpdate>& current) {
+inline bool updateNativeCityPopulationSource(NativeCityPopulationSource& source,const std::vector<NativePrimaryUpdate>& current) {
     if(current.size()!=source.worlds.size())throw std::runtime_error("Current primary population must retain every source owner identity");
     // Validate before replacing the current catalog; missing/new source assets
     // are explicit import/reload boundaries, not silently retained old poses.
+    bool physicalBindingsChanged=false;
     for(std::size_t i=0;i<current.size();++i){const auto& r=current[i];
         if(r.index!=i||r.asset>=source.assets.size()||(r.mode!=0&&r.mode!=3))throw std::runtime_error("Current primary source owner/asset/frustum identity is unclosed");
+        physicalBindingsChanged|=source.currentAssets[i]!=r.asset||source.present[i]!=r.present;
         const auto& a=source.assets[r.asset];if(r.draws.size()!=(r.present?a.draws.size():0))throw std::runtime_error("Current primary complete LOCAL/World rows absent");
         if(r.world.exclusion78!=a.exclusion)throw std::runtime_error("Actual current primary light exclusion changed; complete source record routing required");
         for(std::size_t d=0;d<r.draws.size();++d)if(r.draws[d].draw!=a.draws[d].draw)throw std::runtime_error("Current primary actual draw publication order differs");
@@ -32,6 +35,7 @@ inline void updateNativeCityPopulationSource(NativeCityPopulationSource& source,
             p.instanceIndex=unsigned(i);p.drawIndex=asset.draw;p.templateIndex=asset.templateIndex;p.tableOwner=asset.table;p.vertex=prepareNativePrimaryVertex(asset,r.draws[d]);p.pixel=asset.pixel;
             source.catalog.primitives.push_back(p);}
     }
+    return physicalBindingsChanged;
 }
 inline NativeCityPopulationSource prepareNativeCityPopulationSource(NativeCityTemplateBank bank,
     const std::vector<NativePrimaryUpdate>& current) {
@@ -61,49 +65,69 @@ inline NativeCityPopulationPlan selectNativeCityPopulation(const NativeCityPopul
 
 struct NativeCityPopulation {
     NativeCityPopulationSource source;
+    std::shared_ptr<const San14::Render::NativePrimaryModelGpuMedia> immutableMedia;
     NativeModelInputs templates,currentModels;
     std::vector<ComPtr<ID3D11Buffer>> vertexConstants,pixelConstants;
+    bool physicalBindingsPending=false;
 };
 
-// Declaration/geometry/texture device pools are import-once, keyed by actual
-// source resource paths or D3D descriptors. No per-owner mesh/image copies.
-inline NativeModelInputs prepareNativeCityPopulationTemplates(ID3D11Device* device,const NativeCityTemplateBank& source,const fs::path& directory) {
-    NativeModelInputs out;
-    std::map<std::string,ComPtr<ID3D11Buffer>> vertices,indices;
-    std::map<std::uint64_t,ComPtr<ID3D11VertexShader>> vertexShaders;
-    std::map<std::uint64_t,ComPtr<ID3D11PixelShader>> pixelShaders;
-    std::map<std::string,ComPtr<ID3D11InputLayout>> layouts;
-    std::map<std::string,ComPtr<ID3D11ShaderResourceView>> textures;
-    std::map<std::array<unsigned,13>,ComPtr<ID3D11SamplerState>> samplers;
-    std::map<std::array<unsigned,3>,ComPtr<ID3D11RasterizerState>> rasters;
-    std::map<std::array<unsigned,4>,ComPtr<ID3D11DepthStencilState>> depths;
+// Standalone/legacy devices retain an explicit import path. Application
+// sharedScenes supplies a startup bank and must never call this fallback.
+inline std::shared_ptr<const San14::Render::NativePrimaryModelGpuMedia>
+loadNativeCityPopulationMedia(ID3D11Device* device,const NativeCityTemplateBank& source,const fs::path& directory) {
+    std::vector<San14::Render::NativePrimaryModelGpuDrawSource> declarations;
     NativePreparedInputFile list(directory/"models.txt");std::string relative;
-    while(list>>relative){const auto index=out.draws.size();const auto& metadata=source.templates.at(index);fs::path dir=directory/relative;NativeModelDraw d;
-        const auto vsKey=(std::uint64_t(metadata.shaderFile)<<32)|metadata.vs,psKey=(std::uint64_t(metadata.shaderFile)<<32)|metadata.ps;
-        auto v=load(dir/"vs.dxbc");auto& vs=vertexShaders[vsKey];if(!vs)check(device->CreateVertexShader(v.data(),v.size(),nullptr,&vs),"Primary original shared VS");d.vs=vs;
-        auto& ps=pixelShaders[psKey];if(!ps){auto p=load(dir/"ps.dxbc");check(device->CreatePixelShader(p.data(),p.size(),nullptr,&ps),"Primary original shared PS");}d.ps=ps;
-        struct Element{std::string name;unsigned index,format,slot,offset;};std::vector<Element> elements;Element e;NativePreparedInputFile layout(dir/"layout.txt");
-        std::string layoutKey=std::to_string(vsKey);while(layout>>e.name>>e.index>>e.format>>e.slot>>e.offset){elements.push_back(e);layoutKey+="/"+e.name+":"+std::to_string(e.index)+":"+std::to_string(e.format)+":"+std::to_string(e.slot)+":"+std::to_string(e.offset);}
-        auto& il=layouts[layoutKey];if(!il){std::vector<D3D11_INPUT_ELEMENT_DESC> desc;for(const auto& a:elements)desc.push_back({a.name.c_str(),a.index,DXGI_FORMAT(a.format),a.slot,a.offset,D3D11_INPUT_PER_VERTEX_DATA,0});
-            check(device->CreateInputLayout(desc.data(),UINT(desc.size()),v.data(),v.size(),&il),"Primary original shared layout");}d.layout=il;
-        unsigned slot,stride;std::string file;NativePreparedInputFile streams(dir/"streams.txt");while(streams>>slot>>stride>>file){if(slot!=d.vertexBuffers.size())throw std::runtime_error("Primary original stream order differs");
-            auto path=nativePreparedFilePath(dir/file);auto& vb=vertices[path.string()];if(!vb)vb=buffer(device,load(path),D3D11_BIND_VERTEX_BUFFER);d.vertexBuffers.push_back(vb);d.strides.push_back(stride);}
-        unsigned fill,cull,front,test,write,compare,stencil;NativePreparedInputFile draw(dir/"draw.txt");
-        draw>>d.indexCount>>d.indexStart>>d.baseVertex>>d.topology>>d.indexBits>>file>>fill>>cull>>front>>test>>write>>compare>>stencil;
-        if(!draw)throw std::runtime_error("Primary original draw metadata absent");if(stencil)draw>>d.stencilReference;
-        auto path=nativePreparedFilePath(dir/file);auto& ib=indices[path.string()];if(!ib)ib=buffer(device,load(path),D3D11_BIND_INDEX_BUFFER);d.indices=ib;
-        auto& rs=rasters[{fill,cull,front}];if(!rs){D3D11_RASTERIZER_DESC r{};r.FillMode=D3D11_FILL_MODE(fill);r.CullMode=D3D11_CULL_MODE(cull);r.FrontCounterClockwise=front;r.DepthClipEnable=TRUE;check(device->CreateRasterizerState(&r,&rs),"Primary source shared raster");}d.raster=rs;
-        auto& ds=depths[{test,write,compare,stencil}];if(!ds){D3D11_DEPTH_STENCIL_DESC r{};r.DepthEnable=test;r.DepthWriteMask=write?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;r.DepthFunc=D3D11_COMPARISON_FUNC(compare);r.StencilEnable=stencil;r.StencilReadMask=r.StencilWriteMask=255;
-            r.FrontFace.StencilFunc=D3D11_COMPARISON_ALWAYS;r.FrontFace.StencilFailOp=r.FrontFace.StencilDepthFailOp=D3D11_STENCIL_OP_KEEP;r.FrontFace.StencilPassOp=D3D11_STENCIL_OP_REPLACE;r.BackFace=r.FrontFace;check(device->CreateDepthStencilState(&r,&ds),"Primary source shared depth/stencil");}d.depth=ds;
-        unsigned resource,view;NativePreparedInputFile tex(dir/"textures-native.txt");while(tex>>slot>>resource>>view>>file){if(slot>=16)throw std::runtime_error("Primary texture slot");auto p=nativePreparedFilePath(dir/file);
-            auto& t=textures[p.string()+"/"+std::to_string(resource)+"/"+std::to_string(view)];if(!t)t=loadNativeModelTexture(device,p,DXGI_FORMAT(resource),DXGI_FORMAT(view));d.textures[slot]=t;}
-        NativePreparedInputFile sampler(dir/"samplers-native.txt");while(sampler>>slot>>file){if(slot>=16)throw std::runtime_error("Primary sampler slot");auto b=load(dir/file);if(b.size()!=52)throw std::runtime_error("Primary sampler descriptor");
-            std::array<unsigned,13> key{};std::memcpy(key.data(),b.data(),52);auto& s=samplers[key];if(!s){D3D11_SAMPLER_DESC descriptor{};std::memcpy(&descriptor,b.data(),52);check(device->CreateSamplerState(&descriptor,&s),"Primary original shared sampler");}d.samplers[slot]=s;}
-        out.draws.push_back(d);
+    if(!list)throw std::runtime_error("Primary complete model list is absent");
+    while(list>>relative) {
+        const auto& metadata=source.templates.at(declarations.size());
+        const auto current=directory/fs::u8path(relative);
+        San14::Render::NativePrimaryModelGpuDrawSource draw;
+        draw.shaderFile=metadata.shaderFile;draw.vertexProgram=metadata.vs;draw.pixelProgram=metadata.ps;
+        draw.relativeDirectory=relative;draw.mediaDirectory=nativeModelMediaDirectory(current);
+        NativePreparedInputFile geometry(current/"draw.txt");
+        San14::Render::readNativePrimaryModelGpuGeometry(geometry,draw);
+        declarations.push_back(std::move(draw));
     }
-    if(out.draws.size()!=source.templates.size())throw std::runtime_error("Primary complete template catalog differs");
-    D3D11_BLEND_DESC bd{};bd.IndependentBlendEnable=TRUE;for(unsigned i=0;i<5;++i){bd.RenderTarget[i].BlendEnable=FALSE;bd.RenderTarget[i].RenderTargetWriteMask=15;}
-    check(device->CreateBlendState(&bd,&out.blend),"Primary original five MRT blend");return out;
+    if(declarations.size()!=source.templates.size())throw std::runtime_error("Primary complete template catalog differs");
+    return San14::Render::NativePrimaryModelGpuMedia::load(device,declarations);
+}
+
+// Copy only immutable COM references, then create this view's actual source
+// depth/stencil state. No programs, streams or texture files are read here.
+inline NativeModelInputs prepareNativeCityPopulationTemplates(ID3D11Device* device,const NativeCityTemplateBank& source,
+        const fs::path& directory,const San14::Render::NativePrimaryModelGpuMedia& media) {
+    if(media.draws.size()!=source.templates.size())throw std::runtime_error("Resident Primary GPU catalog differs from current source templates");
+    NativeModelInputs out;out.blend=media.blend;out.draws.reserve(media.draws.size());
+    std::map<std::array<unsigned,4>,ComPtr<ID3D11DepthStencilState>> depths;
+    for(std::size_t index=0;index<media.draws.size();++index) {
+        const auto& immutable=media.draws[index];
+        NativeModelDraw draw;draw.vs=immutable.vertex;draw.ps=immutable.pixel;draw.layout=immutable.layout;
+        draw.vertexBuffers=immutable.vertexBuffers;draw.strides=immutable.strides;draw.indices=immutable.indices;
+        draw.textures=immutable.textures;draw.samplers=immutable.samplers;draw.raster=immutable.raster;
+        draw.indexCount=immutable.indexCount;draw.indexStart=immutable.indexStart;draw.baseVertex=immutable.baseVertex;
+        draw.topology=immutable.topology;draw.indexBits=immutable.indexBits;
+        NativePreparedInputFile input(directory/fs::u8path(immutable.relativeDirectory)/"draw.txt");
+        // Skip the resource prefix to reach this view's current depth state.
+        // Its immutable geometry was admitted by the startup generation owner.
+        unsigned indexCount{},indexStart{},topology{},indexBits{},fill{},cull{},front{};INT baseVertex{};std::string indexFile;
+        input>>indexCount>>indexStart>>baseVertex>>topology>>indexBits>>indexFile>>fill>>cull>>front;
+        unsigned test{},write{},compare{},stencil{};input>>test>>write>>compare>>stencil;
+        if(stencil)input>>draw.stencilReference;
+        if(!input)throw std::runtime_error("Current Primary depth/stencil metadata is absent");
+        auto& state=depths[{test,write,compare,stencil}];
+        if(!state) {
+            D3D11_DEPTH_STENCIL_DESC description{};description.DepthEnable=test;
+            description.DepthWriteMask=write?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;
+            description.DepthFunc=D3D11_COMPARISON_FUNC(compare);description.StencilEnable=stencil;
+            description.StencilReadMask=description.StencilWriteMask=255;
+            description.FrontFace.StencilFunc=D3D11_COMPARISON_ALWAYS;
+            description.FrontFace.StencilFailOp=description.FrontFace.StencilDepthFailOp=D3D11_STENCIL_OP_KEEP;
+            description.FrontFace.StencilPassOp=D3D11_STENCIL_OP_REPLACE;description.BackFace=description.FrontFace;
+            check(device->CreateDepthStencilState(&description,&state),"Primary view-private depth/stencil");
+        }
+        draw.depth=state;out.draws.push_back(std::move(draw));
+    }
+    return out;
 }
 inline void connectNativeCityPopulationCurrentModels(NativeCityPopulation& owner) {
     owner.currentModels.draws.clear();owner.currentModels.blend=owner.templates.blend;
@@ -112,15 +136,28 @@ inline void connectNativeCityPopulationCurrentModels(NativeCityPopulation& owner
         model.identity=owner.source.identities[instance.index]+"/draw-"+std::to_string(p.drawIndex);owner.currentModels.draws.push_back(model);}
 }
 inline NativeCityPopulation prepareNativeCityPopulation(ID3D11Device* device,const fs::path& directory,
-    const std::vector<NativePrimaryUpdate>& current) {
+    const std::vector<NativePrimaryUpdate>& current,
+    std::shared_ptr<const San14::Render::NativePrimaryModelGpuMedia> sharedMedia={},bool requireResident=false) {
+    if(requireResident&&!sharedMedia)throw std::runtime_error("Shared scenes require Primary GPU media loaded at startup");
     NativeCityPopulation r;r.source=prepareNativeCityPopulationSource(readNativeCityTemplateBank(directory),current);
-    r.templates=prepareNativeCityPopulationTemplates(device,r.source,directory);
+    r.immutableMedia=sharedMedia?std::move(sharedMedia):loadNativeCityPopulationMedia(device,r.source,directory);
+    r.templates=prepareNativeCityPopulationTemplates(device,r.source,directory,*r.immutableMedia);
     std::array<char,160> zeroVertex{};std::array<char,80> zeroPixel{};const auto n=r.source.worlds.size()*r.source.maxDraws;
     r.vertexConstants.reserve(n);r.pixelConstants.reserve(n);for(std::size_t i=0;i<n;++i){r.vertexConstants.push_back(modelContinuousConstantBuffer(device,zeroVertex.data(),160));r.pixelConstants.push_back(modelContinuousConstantBuffer(device,zeroPixel.data(),80));}
     connectNativeCityPopulationCurrentModels(r);return r;
 }
-inline void updateNativeCityPopulation(NativeCityPopulation& owner,const std::vector<NativePrimaryUpdate>& current) {
-    updateNativeCityPopulationSource(owner.source,current);connectNativeCityPopulationCurrentModels(owner); // existing COM owners, no new device objects.
+inline bool updateNativeCityPopulation(NativeCityPopulation& owner,const std::vector<NativePrimaryUpdate>& current) {
+    // This owner imports its templates and allocates each resident CB once.
+    // World/OBB/mode/constant bytes always publish; only asset/presence changes
+    // alter the validated draw topology and its physical template/CB slots.
+    const bool retry=owner.physicalBindingsPending;
+    // An exceptional publication may already have changed the CPU source.
+    // Keep its connection pending until the complete GPU description succeeds.
+    owner.physicalBindingsPending=true;
+    const bool changed=updateNativeCityPopulationSource(owner.source,current)||retry;
+    if(changed)connectNativeCityPopulationCurrentModels(owner);
+    owner.physicalBindingsPending=false;
+    return changed;
 }
 inline NativeCityModelQueues updateSelectNativeCityPopulation(ID3D11DeviceContext* context,const NativeCityPopulation& owner,const NativeCityPopulationPlan& plan) {
     auto selected=updateSelectNativeModelContinuous(context,plan.models,owner.currentModels);NativeCityModelQueues r;r.ordinary54.blend=r.alpha55.blend=selected.blend;

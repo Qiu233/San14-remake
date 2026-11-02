@@ -129,7 +129,7 @@ public partial class Main
         var notice = new ResourceNoticeWorkspace(session, owner, map);
         _resourceNotice = notice;
         RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
-        map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(false); HideDeploymentHud();
+        map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
         _ = PresentAsync();
         return true;
 

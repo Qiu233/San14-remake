@@ -18,7 +18,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         { return AreaAdministrationQuery<EnemyFootholdCommandMenuProjection>.Unknown(missing.Message); }
     }
 
-    private sealed class EnemyFootholdMenuRead
+    private sealed partial class EnemyFootholdMenuRead
     {
         private readonly ArmyCampaignRuleAdapter adapter;
         private readonly GameState state;

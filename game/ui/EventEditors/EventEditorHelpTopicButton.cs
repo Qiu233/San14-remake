@@ -7,6 +7,8 @@ internal partial class EventEditorHelpTopicButton : UiSourceButton
 {
     private Rect2 hit;
     private Action? selected;
+    private UiSourceText caption = null!;
+    private Control? marker17, marker18;
     private bool abandoned;
 
     public override bool _HasPoint(Vector2 point) => !abandoned && SourceInputAdmitted && hit.HasPoint(point);
@@ -28,7 +30,7 @@ internal partial class EventEditorHelpTopicButton : UiSourceButton
             foreach (int node in artwork[index])
                 source.Art(state, node, source.Rectangle(node), assets, shader);
         }
-        var caption = source.Text(this, 16, default, "", font);
+        caption = source.Text(this, 16, default, "", font);
         var profile = MapFontProfile.FromNode(source.Nodes[16], source.Source.Source.ResourceUri);
         var presets = MapTextPresets.Create();
         //848E90 sets preset 8;84B140/84B1B0 change focus preset 9 back to 8.
@@ -39,8 +41,18 @@ internal partial class EventEditorHelpTopicButton : UiSourceButton
             caption.QueueRedraw();
         });
         caption.SetKnownColourLine(title);
+        marker17 = source.Art(this, 17, source.Rectangle(17), assets, shader);
+        marker18 = source.Art(this, 18, source.Rectangle(18), assets, shader);
+        marker17.Hide(); marker18.Hide();
         Pressed += () => { if (!abandoned && !Disabled && SourceInputAdmitted) this.selected?.Invoke(); };
         SetMeta("source_layout", source.Source.Source.ResourceUri);
+    }
+
+    internal void BindTitle(string value, bool showMarker17 = false, bool showMarker18 = false)
+    {
+        caption.SetKnownColourLine(value);
+        if (marker17 is not null) marker17.Visible = showMarker17 && !showMarker18;
+        if (marker18 is not null) marker18.Visible = showMarker18;
     }
 
     internal void Abandon()

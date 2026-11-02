@@ -4,17 +4,19 @@ public sealed partial class MapSourceCreatedLightingPacket
 {
     private readonly DirectionalLightConstructionPacket? directionalConstruction;
     private readonly DirectionalProviderCallerCurrentFrame? directionalProviderFrame;
+    private readonly DirectionalProviderCurrentFrame? selectedDirectionalProviderFrame;
+    public DirectionalLightConstructionPacket? SelectedDirectionalConstruction => selectedDirectionalProviderFrame?.SelectedConstruction ?? directionalConstruction;
     private readonly bool directionalCameraApplied, directionalRowsSwapped;
 
     internal MapSourceCreatedLightingPacket(MapSourceCreatedDirectionalLightingSource source,
         MapSourceCreatedLightingFrameInputs input, byte[] camera,
         CameraDirectionalLightDataPacket local, DeferredSceneInputs scene,
-        DirectionalProviderCallerCurrentFrame? providerFrame=null)
+        DirectionalProviderCallerCurrentFrame? providerFrame=null,DirectionalProviderCurrentFrame? selectedFrame=null)
     {
         var present = input.PresentSeasonCamera!;
         var actualCamera = present.AcceptedSeasonCamera.Inputs.MainFrame.Camera;
         directionalConstruction = source.Construction;
-        directionalProviderFrame=providerFrame;
+        directionalProviderFrame=providerFrame;selectedDirectionalProviderFrame=selectedFrame;
         SourceLightClassId = DirectionalLightSource.SourceClass;
         FrameNumber = input.FrameNumber; Binding = input.Binding;
         SourceIdentity = source.Identity;
@@ -41,16 +43,21 @@ public static partial class MapSourceCreatedLighting
     /// with the owner that selected that object.</summary>
     internal static MapSourceCreatedLightingPacket PrepareDirectional(
         MapSourceCreatedDirectionalLightingSource source, MapSourceCreatedLightingFrameInputs input)
-        =>PrepareDirectionalCore(source,input,null);
+        =>PrepareDirectionalCore(source,input,null,null);
 
     internal static MapSourceCreatedLightingPacket PrepareDirectional(
         MapSourceCreatedDirectionalLightingSource source,MapSourceCreatedLightingFrameInputs input,
         DirectionalProviderCallerCurrentFrame providerFrame)
-        =>PrepareDirectionalCore(source,input,providerFrame??throw new ArgumentNullException(nameof(providerFrame)));
+        =>PrepareDirectionalCore(source,input,providerFrame??throw new ArgumentNullException(nameof(providerFrame)),null);
+
+    internal static MapSourceCreatedLightingPacket PrepareDirectional(
+        MapSourceCreatedDirectionalLightingSource source,MapSourceCreatedLightingFrameInputs input,
+        DirectionalProviderCurrentFrame selected)
+        =>PrepareDirectionalCore(source,input,null,selected??throw new ArgumentNullException(nameof(selected)));
 
     private static MapSourceCreatedLightingPacket PrepareDirectionalCore(
         MapSourceCreatedDirectionalLightingSource sourceOwner,MapSourceCreatedLightingFrameInputs input,
-        DirectionalProviderCallerCurrentFrame? providerFrame)
+        DirectionalProviderCallerCurrentFrame? providerFrame,DirectionalProviderCurrentFrame? selectedFrame)
     {
         ArgumentNullException.ThrowIfNull(sourceOwner); ArgumentNullException.ThrowIfNull(input);
         var source = sourceOwner.Construction;
@@ -70,7 +77,14 @@ public static partial class MapSourceCreatedLighting
             throw new InvalidDataException("Directional lighting has conflicting current scene writers.");
         byte[] camera = present.PreparedCameraPrefix.ToArray();
         CameraDirectionalLightDataPacket local;
-        if(providerFrame is not null)
+        if(selectedFrame is not null)
+        {
+            if(!ReferenceEquals(selectedFrame.RegisteredRoot,source)||!ReferenceEquals(selectedFrame.AcceptedPresent,present))
+                throw new InvalidDataException("Selected Directional frame differs from this registered root and same accepted Main.");
+            var result=selectedFrame.CurrentCamera;
+            local=new(result.PreparedBytes.ToArray(),result.Applied,result.SourceHighBitSwappedRows);
+        }
+        else if(providerFrame is not null)
         {
             if(!ReferenceEquals(providerFrame.RegisteredRoot,source)||providerFrame.Caller.FrameNumber!=input.FrameNumber)
                 throw new InvalidDataException("Directional provider frame does not belong to this physical root and accepted frame.");
@@ -90,7 +104,7 @@ public static partial class MapSourceCreatedLighting
             Fog = input.SelectedSharedFogOwnerEnabled is bool enabled
                 ? DeferredSceneConstants.ReadSharedFog(prefix, enabled) : input.AdditionalSceneInputs.Fog
         };
-        return new(sourceOwner, input, camera, local, scene,providerFrame);
+        return new(sourceOwner, input, camera, local, scene,providerFrame,selectedFrame);
     }
 
     internal static CameraDirectionalLightDataPacket ApplyDirectionalCamera(

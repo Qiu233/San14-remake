@@ -45,4 +45,30 @@ public static class TerrainLodEdgeMath
         if (node.Level < 0 || node.GridX < 0 || node.GridY < 0)
             throw new InvalidDataException("Invalid original LOD adjacency coordinates.");
     }
+
+    // A complete prepared tree has unique grid coordinates. Look up the
+    // eight possible coarse neighbors, reading their current candidate state
+    // so earlier culls and later untested rows retain the source semantics.
+    internal static uint ComputePrepared(SpatialTreeNode current,
+        IReadOnlyList<TerrainLodEdgeCandidate> candidates,
+        IReadOnlyDictionary<(int Level, int X, int Y), int> coordinates)
+    {
+        uint flags = 0;
+        for (int difference = 1; difference <= 2; difference++)
+        {
+            int width = 1 << difference;
+            int x = current.GridX >> difference, y = current.GridY >> difference;
+            int mx = current.GridX & (width - 1), my = current.GridY & (width - 1);
+            int level = current.Level + difference;
+            uint value = 1u << (difference - 1);
+            if (my == 0 && Eligible(level, x, y - 1)) flags |= value;
+            if (my == width - 1 && Eligible(level, x, y + 1)) flags |= value << 4;
+            if (mx == 0 && Eligible(level, x - 1, y)) flags |= value << 8;
+            if (mx == width - 1 && Eligible(level, x + 1, y)) flags |= value << 12;
+        }
+        return flags;
+
+        bool Eligible(int level, int x, int y) => coordinates.TryGetValue((level, x, y), out int index) &&
+            candidates[index].State == 4 && candidates[index].RuntimeDistance >= 0;
+    }
 }

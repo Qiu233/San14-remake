@@ -14,6 +14,7 @@ internal partial class MapInformationBrowserView : DetailsView
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private UiSourceHeaderStack headers = null!;
+    private AdministrationPageChrome.Resources resources = null!;
     private Func<int>? scrollSpeed;
     private Func<bool>? admitted;
     private bool abandoned;
@@ -24,18 +25,21 @@ internal partial class MapInformationBrowserView : DetailsView
         UiSourceHeaderStack headers, Func<bool> admitted,
         Func<int, IReadOnlyList<MapInformationMenuEntry>> readMenu,
         Action<int, int> selected, Action history, Action close, Func<int> scrollSpeed,
-        string guide, string returnHint, bool historyEnabled, int initialTab, IReadOnlyList<bool> tabEnabled)
+        string guide, string returnHint, bool historyEnabled, int initialTab, IReadOnlyList<bool> tabEnabled,
+        AdministrationPageChrome.Resources resources)
     {
         this.repository = repository; this.text = text; this.headers = headers;
         this.admitted = admitted; this.scrollSpeed = scrollSpeed;
-        ConfigureSourcePage("MapInformationBrowser", null, close);
+        this.resources = resources;
         backdrop = ConfigureCommonBackdrop(repository);
         menu = new(); AddChild(menu);
         menu.Configure(repository, text, () => ReadAdmission() && list is null && detail is null,
-            readMenu, () => base.RequestClose(), selected, history, guide, returnHint, historyEnabled, initialTab, tabEnabled);
+            readMenu, () => base.RequestClose(), selected, history, guide, returnHint, historyEnabled, initialTab, tabEnabled, resources);
+        ConfigureSourcePage("MapInformationBrowser", menu.SourceHeader, close);
+        ConfigureReturnTransition(resources.Assets.SourceLayout(0xF9C5DB14), menu.MotionGroups);
     }
 
-    private bool ReadAdmission() => !abandoned && IsVisibleInTree() && !IsQueuedForDeletion() &&
+    private bool ReadAdmission() => !abandoned && CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion() &&
         (admitted?.Invoke() ?? false);
 
     internal void ShowList(string title, IReadOnlyList<MapInformationListColumn> columns,
@@ -48,7 +52,7 @@ internal partial class MapInformationBrowserView : DetailsView
         {
             child.Configure(repository, text, title, columns, rows,
                 () => ReadAdmission() && list == child && detail is null,
-                ReturnFromList, inspect, scrollSpeed!, sort, notice);
+                ReturnFromList, inspect, scrollSpeed!, sort, notice, resources: resources);
             child.RegisterHeader(headers);
             menu.SetBusy(true); menu.Hide();
         }
@@ -71,6 +75,7 @@ internal partial class MapInformationBrowserView : DetailsView
         else { menu.SetBusy(true); menu.Hide(); }
         try
         {
+            child.TransitionFailure = TransitionFailure;
             child.BorrowCommonBackdrop(backdrop);
             configure(() => { if (detail == child) ReturnFromDetail(); });
             child.RegisterHeader(headers);
@@ -103,9 +108,10 @@ internal partial class MapInformationBrowserView : DetailsView
         }
         if (child is not null) details.RemoveAt(details.Count - 1);
         if (child is not null) { child.Hide(); child.GetParent()?.RemoveChild(child); child.QueueFree(); }
-        if (!abandoned && detail is { } previous) { previous.ProcessMode = ProcessModeEnum.Inherit; previous.Show(); }
+        if (!abandoned && detail is { } previous)
+        { previous.ProcessMode = ProcessModeEnum.Inherit; previous.Show(); previous.ResumeSourceForeground(); }
         else if (!abandoned && list is { } parent) { parent.ProcessMode = ProcessModeEnum.Inherit; parent.Show(); }
-        else if (!abandoned) { menu.SetBusy(false); menu.Show(); }
+        else if (!abandoned) { menu.SetBusy(false); menu.Show(); ResumeSourceForeground(); }
     }
 
     private void ReturnFromList()
@@ -113,7 +119,7 @@ internal partial class MapInformationBrowserView : DetailsView
         while (details.Count != 0) ReturnFromDetail();
         var child = list; list = null;
         if (child is not null) { child.Abandon(); child.GetParent()?.RemoveChild(child); child.QueueFree(); }
-        if (!abandoned) { menu.SetBusy(false); menu.Show(); }
+        if (!abandoned) { menu.SetBusy(false); menu.Show(); ResumeSourceForeground(); }
     }
 
     internal override void RequestClose()

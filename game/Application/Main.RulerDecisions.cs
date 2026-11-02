@@ -5,12 +5,13 @@ using San14.Client.Gameplay;
 
 public partial class Main
 {
-    private sealed class RulerDecisionWorkspace(GameplaySession session, GameState world, CampaignComposition composition, MapSceneView map)
+    private sealed class RulerDecisionWorkspace(GameplaySession session, GameState world, CampaignComposition composition, MapSceneView map, bool mapFocused)
     {
         internal readonly GameplaySession Session = session;
         internal readonly GameState World = world;
         internal readonly CampaignComposition Composition = composition;
         internal readonly MapSceneView Map = map;
+        internal readonly bool MapFocusedBeforeDecision = mapFocused;
         internal Control? View;
         internal Action? Abandon;
         internal DeploymentNarrationView? Warning;
@@ -33,8 +34,22 @@ public partial class Main
         var successor = world.PersonDeathContinuation?.PendingSuccession;
         var prisoner = world.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ?? world.BaseCaptureContinuation?.PendingCapturedRulerTreatment;
         var emperor = session.PendingEmperorCaptureDecision;
-        if (successor is null && prisoner is null && emperor is null) return false;
-        var owner = new RulerDecisionWorkspace(session, world, composition, map); _rulerDecision = owner;
+        var captives = world.ArmyReturnCaptiveContinuation;
+        bool captiveDecision=captives?.PendingSelection is not null||captives?.ExecutionConfirmation is not null||captives?.PendingPresentation is not null;
+        if (successor is null && prisoner is null && emperor is null && !captiveDecision) return false;
+        if (successor is null && captives?.PendingPresentation is { } presentation)
+        {
+            // Existing personnel playback consumes each real request before
+            // this continuation gate. Never supply a presentation receipt here.
+            if (world.CampaignEffectRequests?.PendingBatches.Any(batch=>batch.Sequence==presentation.EffectBatchSequence)==true)
+                return true;
+            if (presentation.CapturingForceId!=player)throw new InvalidDataException("Captive presentation belongs to another force.");
+            if(ReferenceEquals(_automaticCaptivePresentationAttempt,presentation))return true;
+            _automaticCaptivePresentationAttempt=presentation;
+            ContinueCampaignStory(session,composition,new CompleteArmyReturnCaptivePresentationOrder(player,presentation.BatchId,presentation.Round));
+            return true;
+        }
+        var owner = new RulerDecisionWorkspace(session, world, composition, map, _mapFocused); _rulerDecision = owner;
         try
         {
             RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
@@ -53,7 +68,13 @@ public partial class Main
                 AddChild(view);
                 view.Configure(_repository!, _ui, ReadCurrentOfficerDetail(world, prisoner.OfficerId),
                     prisoner, () => IsRulerDecisionCurrent && !_advancingPeriod,
-                    choice => RunUiAction(() => Submit(new ConfirmCapturedRulerTreatmentOrder(player, prisoner.OfficerId, choice))));
+                    choice => RunUiAction(() => Submit(new ConfirmCapturedRulerTreatmentOrder(player, prisoner.OfficerId, choice))),
+                    TryBorrowApplicationUiResources(view));
+            }
+            else if (captives is not null)
+            {
+                if(captives.CapturingForceId!=player)throw new InvalidDataException("Captive batch belongs to another force.");
+                OpenArmyReturnCaptiveDecision(owner,captives,player,Submit);
             }
             else if (emperor is not null)
             {
@@ -133,6 +154,14 @@ public partial class Main
         owner.Abandon?.Invoke();
         foreach (var view in new Control?[] { owner.Warning, owner.View })
             if (view is not null) { view.Hide(); view.GetParent()?.RemoveChild(view); view.QueueFree(); }
-        if (GodotObject.IsInstanceValid(owner.Map) && ReferenceEquals(_residentMap, owner.Map)) owner.Map.SetDetailsOpen(IsStoryPresentationCurrent || HasCreatedEventPlayback, keepMapVisible: true);
+        if (GodotObject.IsInstanceValid(owner.Map) && ReferenceEquals(_residentMap, owner.Map))
+        {
+            owner.Map.SetDetailsOpen(IsStoryPresentationCurrent || HasCreatedEventPlayback, keepMapVisible: true);
+            // Restore the focus this modal borrowed. A replaced campaign or
+            // shutting-down application owns its own presentation state.
+            if (!_failed && !_shuttingDown && ReferenceEquals(_session, owner.Session) &&
+                ReferenceEquals(_campaignComposition, owner.Composition))
+                SetMapFocus(owner.MapFocusedBeforeDecision);
+        }
     }
 }

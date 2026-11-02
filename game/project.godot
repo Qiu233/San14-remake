@@ -3,6 +3,7 @@ config_version=5
 [application]
 config/name="San14 Remake"
 run/main_scene="res://Main.tscn"
+run/max_fps=60
 config/features=PackedStringArray("4.7", "Mobile", "C#")
 
 [display]
@@ -14,6 +15,9 @@ window/stretch/mode="canvas_items"
 renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
 rendering_device/driver.windows="d3d12"
+
+[audio]
+driver/mix_rate=48000
 
 [dotnet]
 project/assembly_name="San14.Client"

@@ -6,7 +6,6 @@ namespace San14.Data;
 /// ordinary and transport writers; their distinct hostile-terrain gates remain explicit.</summary>
 internal static partial class ArmyRouteSearch
 {
-    private const int Count = 48400;
     internal static int[] Search(GameState state, SourceWorldContext current, UnitState army, int start, int goal, byte kind, ushort identity,
         int? registeredSearchArmyPhysical, out int expanded, byte searchFlags = 1,
         IReadOnlySet<int>? excludedHexIds = null, bool penalizeSurface7 = false, Func<int, byte?>? readHexForce = null)
@@ -21,12 +20,14 @@ internal static partial class ArmyRouteSearch
     internal static int[] Search(Queries query, out int expanded, out int totalCost, bool hasArmyDescriptor = true)
     {
         expanded = 0; totalCost = 0;
+        if (!query.ContainsHex(query.Start) || !query.ContainsHex(query.Goal))
+            throw new InvalidDataException("Route endpoint is outside the current map.");
         if (!query.AdmitGoal()) return [];
         float baseCost = query.TerrainCost(query.Surface(2));
         float mobility = !query.UniformCost && hasArmyDescriptor ? query.Mobility(query.LandFormation, 2) : baseCost;
         float heuristicDenominator = baseCost <= mobility ? baseCost : mobility;
-        var nodes = new Node?[Count];
-        Node? root = new(query.Goal, 0, null) { Priority = InitialPriority(query.Goal, query.Start), Open = true };
+        var nodes = new Node?[query.TileCount];
+        Node? root = new(query.Goal, 0, null) { Priority = InitialPriority(query.Goal, query.Start, query.MapWidth), Open = true };
         nodes[query.Goal] = root;
         while (root is not null)
         {
@@ -40,8 +41,8 @@ internal static partial class ArmyRouteSearch
             }
             for (int direction = 1; direction <= 6; direction++)
             {
-                int neighbor = PersonReturnPathSource.Neighbor(at.Hex, direction);
-                if (neighbor == Count || !query.HexPresent(neighbor)) continue;
+                int neighbor = query.Neighbor(at.Hex, direction);
+                if (neighbor == query.TileCount || !query.HexPresent(neighbor)) continue;
                 int cost = query.BaseEdge(neighbor);
                 if (neighbor != query.Start)
                 {
@@ -62,7 +63,7 @@ internal static partial class ArmyRouteSearch
                     if (next.Open) Remove(ref root, next); //18B020 while old priority is still present.
                     next.Cost = cost; next.Parent = at; next.Closed = false;
                 }
-                next.Priority = query.UniformCost ? cost : unchecked(cost + NativeInt((float)Distance(neighbor, query.Start) *
+                next.Priority = query.UniformCost ? cost : unchecked(cost + NativeInt((float)Distance(neighbor, query.Start, query.MapWidth) *
                     (baseCost / heuristicDenominator)));
                 Insert(ref root, next); next.Open = true;
             }
@@ -116,17 +117,20 @@ internal static partial class ArmyRouteSearch
         else { Node last = replacement; while (last.Right is not null) last = last.Right; last.Right = target.Right; }
         target.Left = target.Right = null; return replacement;
     }
-    private static int InitialPriority(int first, int second)
+    private static int InitialPriority(int first, int second, int width)
     {
         //2AF2C0 returns column and row. 18B160 uses two abs differences,
         //whereas later priority updates use actual2AAC90 hex distance.
-        int x1 = first % 220, x2 = second % 220;
-        return Math.Abs(x1 - x2) + Math.Abs(first / 220 - second / 220);
+        int x1 = first % width, x2 = second % width;
+        return Math.Abs(x1 - x2) + Math.Abs(first / width - second / width);
     }
-    internal static int Distance(int first, int second)
+    // Existing original-profile callers keep their explicit source geometry.
+    // Current route queries supply the bound map width instead.
+    internal static int Distance(int first, int second) => Distance(first, second, SourceWorldContext.OriginalMapWidth);
+    internal static int Distance(int first, int second, int width)
     {
-        int x1 = first % 220, x2 = second % 220;
-        int dx = Math.Abs(x2 - x1), dy = Math.Abs(2 * (second / 220 - first / 220) -
+        int x1 = first % width, x2 = second % width;
+        int dx = Math.Abs(x2 - x1), dy = Math.Abs(2 * (second / width - first / width) -
             (x1 % 2 == 0 ? 1 : 0) + (x2 % 2 == 0 ? 1 : 0));
         return dy < dx ? dx : dx + (dy - dx) / 2;
     }

@@ -13,17 +13,19 @@ internal sealed class UiSourceButtonStateProfile
     private readonly Dictionary<int,uint> blends=[];
     internal IReadOnlyList<(string Name,float Start,float End)> Actions { get; }
 
-    internal UiSourceButtonStateProfile(LoadedLayout layout)
+    internal UiSourceButtonStateProfile(LoadedLayout layout, IReadOnlyList<string>? actionNames = null)
     {
+        var names=actionNames??Names;
+        if(names.Count!=5)throw new ArgumentException("Button profile requires five source actions.",nameof(actionNames));
         this.layout=layout;nodes=LcskNodeReader.Read(layout.Layout);
-        var clips=LcskAnimationReader.Read(layout.Layout,Names.ToHashSet(StringComparer.Ordinal))
+        var clips=LcskAnimationReader.Read(layout.Layout,names.ToHashSet(StringComparer.Ordinal))
             .ToDictionary(clip=>clip.Name,StringComparer.Ordinal);
-        alphas=new byte[Names.Length][];
+        alphas=new byte[names.Count][];
         var actions=new List<(string,float,float)>();
-        for(int state=0;state<Names.Length;state++)
+        for(int state=0;state<names.Count;state++)
         {
-            if(!clips.TryGetValue(Names[state],out var clip))
-                throw new InvalidDataException("button.state_art.missing_exact_action."+Names[state]);
+            if(!clips.TryGetValue(names[state],out var clip))
+                throw new InvalidDataException("button.state_art.missing_exact_action."+names[state]);
             actions.Add((clip.Name,clip.StartFrame,clip.EndFrame));
             var own=nodes.Select(AuthoredAlpha).ToArray();
             foreach(var track in clip.Tracks)

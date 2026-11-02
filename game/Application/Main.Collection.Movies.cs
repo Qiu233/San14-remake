@@ -23,7 +23,7 @@ public partial class Main
                 () => _preferences.Audio.Movie / 100f,
                 () => _sceneAudioBinding?.BeginCollectionMovie(),
                 restore => _sceneAudioBinding?.EndCollectionMovie(restore && !_failed && !_shuttingDown),
-                CurrentMoviePlaybackEnabled);
+                CurrentMoviePlaybackEnabled, resources: TryBorrowApplicationUiResources(view));
         }
         catch { CloseCollectionMovies(true); throw; }
     }

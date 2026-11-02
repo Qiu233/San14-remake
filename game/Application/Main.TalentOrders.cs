@@ -89,7 +89,7 @@ public partial class Main
                 () => RunPlayAction(()=>ConfirmTalentOrders(keepOpen:true)),
                 () => RunUiAction(OpenTalentTargetSelection), () => RunUiAction(OpenTalentExecutorSelection),
                 mode=>RunUiAction(()=>{if(CanEditTalentOrders)ChangeTalentDraft(()=>_talentUiDraft!.SetRecruitMode(mode));}),
-                ()=>RunUiAction(()=>{if(CanEditTalentOrders&&_talentUiKind==TalentOrderKind.Search){CloseTalentOrders();OpenTalentAutoSearch();}}));
+                ()=>RunUiAction(()=>{if(CanEditTalentOrders&&_talentUiKind==TalentOrderKind.Search){CloseTalentOrders();OpenTalentAutoSearch();}}), TryBorrowMapUiResources(view));
             RefreshTalentOrders();
             if (kind == TalentOrderKind.Search) ObserveTutorialInformation(19);
             BindCurrentTutorialTalentSearch();
@@ -191,7 +191,7 @@ public partial class Main
                     _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
                     if (chosen is int target) ChangeTalentDraft(() => draft.SelectRecruitTarget(target));
                     else RefreshTalentOrders();
-                }), CurrentListScrollSpeed);
+                }), CurrentListScrollSpeed, TryBorrowMapUiResources(selector));
         }
         catch
         { _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }
@@ -221,7 +221,7 @@ public partial class Main
                     _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show();
                     if (chosen is not null) ChangeTalentDraft(() => draft.ApplyRecruitExecutorSelection(chosen));
                     else RefreshTalentOrders();
-                }), CurrentListScrollSpeed);
+                }), CurrentListScrollSpeed, TryBorrowMapUiResources(selector));
         }
         catch
         { _talentPersons = null; selector.Abandon(); selector.QueueFree(); _talentOrdersView!.Show(); RefreshTalentOrders(); throw; }

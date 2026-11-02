@@ -9,6 +9,10 @@ public sealed record OfficerDetailPublication(int OfficerId, int PhysicalSlot, s
     OfficerDetailRelations Relations, ImmutableArray<AreaAdministrationOfficerAbility> Abilities,
     ImmutableArray<OfficerDetailTrait> Traits, ImmutableArray<string> UnresolvedOwners)
 {
+    /// <summary>The source inspector selected its known-invalid placeholder,
+    /// rather than a playable officer. Its chart is hidden, not a zero officer.</summary>
+    public bool IsNeutral { get; init; }
+
     /// <summary>The current Person's actual detail-page count. Source15E
     /// bit14 removes the third page; absent knowledge must not imply three.</summary>
     public AreaAdministrationQuery<int> PageCount { get; init; }

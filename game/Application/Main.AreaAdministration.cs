@@ -11,6 +11,7 @@ public partial class Main
     private MapSceneView? _administrationMap;
     private GameState? _administrationWorld;
     private GameplaySession? _administrationSession;
+    private Action? _administrationReturned;
     private AreaAdministrationQuery<AreaAdministrationHandover>? _administrationHandover;
     private long _administrationHandoverRevision=-1;
     private bool HasAdministrationPage => HasAdministrationPageExceptStory || HasStoryPresentation;
@@ -29,26 +30,35 @@ public partial class Main
         !_failed&&!_shuttingDown&&_session==session&&_administrationSession==session&&_residentMap==map&&
         _administrationWorld is { } world&&ReferenceEquals(_world,world)&&ReferenceEquals(session.World,world)&&_administrationMap==map;
 
-    private void OpenAreaAdministration(int cityId, int? initialAreaId = null)
+    private void OpenAreaAdministration(int cityId, int? initialAreaId = null,Action? returned=null)
     {
         if(HasAdministrationPage||HasMilitaryOrderPage||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||_detailsView is not null||_repository is null||
             _session is not { } session||_world is not { } world||_campaignComposition is not { } composition||_residentMap is not { IsPlayableMapReady:true } map||
             !ReferenceEquals(session.World,world)||_playerForceId is not int force||!world.Cities.ContainsKey(cityId)||
             !San14.Client.Gameplay.DeploymentBatchView.CanComposeAt(world,force,cityId))return;
+        if (world.Cities[cityId].HexId is not int cityHex)
+        {AdministrationUnavailable("area-map.city_hex");return;}
         var opened=composition.PrepareArmyQueries(world).OpenAreaAdministrationDraft(world,cityId);
         if(!opened.Available){AdministrationUnavailable(opened.UnresolvedInput!);return;}
         _administrationSession=session;_administrationWorld=world;_administrationMap=map;
+        _administrationReturned=returned;
         var view=new AreaAdministrationParentView();_administrationParent=view;AddChild(view);
         try
         {
-            map.BeginAdministrationMapDisplay(opened.Value!);
+            var resources = TryBorrowApplicationUiResources(view)
+                ?? throw new InvalidOperationException("area-map.application_resources");
             map.SetMapSummaryMode(MapSummarySelectionMode.Domestic);
             SetMapFocus(true);map.CloseCityCommandMenu();HideDeploymentHud();
             _administrationPresenter=new(view,_repository,_ui,opened.Value!,
                 ()=>IsAdministrationCurrent(session,map)&&_administrationParent==view,RunUiAction,
                 ()=>ReturnFromAdministration(session,map,view,cityId),
                 ()=>RunPlayAction(()=>PrepareAdministrationCommit(session,map,cityId,force,view)),
-                enabled=>SetAdministrationMapInput(map,enabled),AdministrationUnavailable,_presentationRandom.Next,CurrentListScrollSpeed);
+                enabled=>SetAdministrationMapInput(map,enabled),AdministrationUnavailable,_presentationRandom.Next,CurrentListScrollSpeed,resources);
+            if (!map.BeginAdministrationMapDisplay(opened.Value!,cityHex,_repository,resources,AdministrationUnavailable))
+            {
+                ReturnFromAdministration(session,map,view,cityId);
+                return;
+            }
             if (initialAreaId is int areaId)
             {
                 if (_tutorialLesson is { } lesson) BindTutorialAdministration(lesson);
@@ -69,6 +79,7 @@ public partial class Main
         map.SetCommandTargetPicker(hex=>_administrationPresenter?.PickMapTarget(hex),
             hex=>_administrationPresenter?.AllowMapPointer(hex)==true);
         map.SetDetailsOpen(!enabled,keepMapVisible:true);HideDeploymentHud();
+        map.RefreshAdministrationMapInput();
     }
 
     private void PrepareAdministrationCommit(GameplaySession session,MapSceneView map,int city,int force,
@@ -98,13 +109,13 @@ public partial class Main
         }
         var speech=handover.Narration??throw new InvalidDataException("Administration handover text is unavailable.");
         var route=speech.PortraitRoute??throw new InvalidDataException("Administration standing portrait is unavailable.");
-        var sprites=new LocalizedUiSpriteSource(_repository!);
-        var layers=route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration=new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };_administrationNarration=narration;AddChild(narration);
         try
         {
+            var resources=TryBorrowApplicationUiResources(narration)??throw new InvalidOperationException("Narration requires its prepared application resources.");
+            var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
             presenter.SetBusy(true);
-            narration.Configure(_repository!,_ui,speech.SpeakerName,speech.Text,layers,()=>RunPlayAction(()=>
+            narration.Configure(_repository!,_ui,speech.SpeakerName,speech.Text,layers,resources,()=>RunPlayAction(()=>
             {
                 if(_administrationNarration!=narration)return;
                 if(!IsAdministrationCurrent(session,map)||_administrationPresenter!=presenter||draft.Revision!=handover.DraftRevision)
@@ -136,9 +147,11 @@ public partial class Main
     {
         if(!IsAdministrationCurrent(session,map)||_administrationParent!=view)return;
         var world=session.World;
+        var returned=_administrationReturned;
         CloseAreaAdministration();
         if(_failed||_shuttingDown||_session!=session||!ReferenceEquals(_world,world)||!ReferenceEquals(session.World,world)||_residentMap!=map)return;
         SetMapFocus(true);
+        if(returned is not null){returned();return;}
         if(world.Cities[city].HexId is int hex)SelectMapTarget(hex);
         map.ReopenCityCommandMenu(city);
     }
@@ -146,6 +159,7 @@ public partial class Main
     {
         if(!HasAdministrationPage&&_administrationMap is null&&_administrationPresenter is null)return;
         var map=_administrationMap;_administrationMap=null;_administrationWorld=null;_administrationSession=null;
+        _administrationReturned=null;
         var presenter=_administrationPresenter;var parent=_administrationParent;
         _administrationPresenter=null;_administrationParent=null;
         _administrationHandover=null;_administrationHandoverRevision=-1;

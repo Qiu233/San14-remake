@@ -87,16 +87,19 @@ public sealed class G1EffectEmitterRuntime
     public void PrepareFrame(float deltaSeconds, Matrix4x4 actualWorldTransform,
         Func<int, int, Matrix4x4?>? transformProvider = null)
     {
-        Matrix4x4? primary;
-        if (Frame.PrimaryBindingSlot < 0) primary = null;
-        else if (Frame.PrimaryBindingSlot == 0 && Frame.PrimaryNode == 0) primary = actualWorldTransform;
-        else primary = transformProvider?.Invoke(Frame.PrimaryBindingSlot, Frame.PrimaryNode) ??
-            throw new NotSupportedException($"Outer emitter has no actual transform provider for slot {Frame.PrimaryBindingSlot}, node {Frame.PrimaryNode}.");
+        Matrix4x4? primary = Resolve(Frame.PrimaryBindingSlot, Frame.PrimaryNode);
         // Mode 0111 takes every component from the primary owner; the unused
         // secondary binding must not cause an unrelated provider lookup.
-        Frame.Update(primary, deltaSeconds, false);
+        Matrix4x4? secondary = Frame.RequiresSecondaryTransform
+            ? Resolve(Frame.SecondaryBindingSlot, Frame.SecondaryNode) : null;
+        Frame.Update(primary, secondary, deltaSeconds, false);
         Frame.WriteTo(current);
         framePrepared = true;
+
+        Matrix4x4? Resolve(int slot, int node) => slot < 0 ? null
+            : slot == 0 && node == 0 ? actualWorldTransform
+            : transformProvider?.Invoke(slot, node) ??
+                throw new NotSupportedException($"Outer emitter has no actual transform provider for slot {slot}, node {node}.");
     }
 
     public G1EffectEmitterStep Advance(float deltaSeconds, float moduleStrength, Matrix4x4 actualWorldTransform)

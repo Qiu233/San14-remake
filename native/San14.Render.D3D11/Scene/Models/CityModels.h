@@ -23,6 +23,9 @@ struct NativeCityModelPlan {
 struct NativeCityModelQueues {
     NativeModelInputs ordinary54,alpha55;
 };
+struct NativeCityModelReferenceQueues {
+    NativeModelDrawReferences ordinary54,alpha55;
+};
 
 inline NativeCityModelSource prepareNativeCityModelSource(const fs::path& directory) {
     NativeCityModelSource r;r.catalog=prepareNativeModelContinuous(directory);
@@ -76,28 +79,27 @@ inline NativeCityModelQueues updateSelectNativeCityModels(ID3D11DeviceContext* c
 // Exact ties retain the explicit owned publication order: Field then City.
 // The input Field plan must describe exactly its current selected draw list;
 // a late-filtered subset supplies its matching plan rather than losing keys.
-inline NativeCityModelQueues mergeNativeCityModelsWithField54(
+template<class ResolveCityDraw>
+inline NativeCityModelReferenceQueues mergeNativeModelDrawReferencesWithField54(
     const NativeModelContinuousPlan& fieldPlan,const NativeModelInputs& fieldModels,
-    const NativeCityModelSource& citySource,const NativeCityModelPlan& cityPlan,
-    const NativeCityModelQueues& cityModels) {
+    const NativeModelContinuousPlan& cityPlan,ResolveCityDraw&& resolveCityDraw,
+    ID3D11BlendState* cityBlend,const NativeModelConstantSubmission* constants=nullptr) {
     if(fieldPlan.draws.size()!=fieldModels.draws.size())throw std::runtime_error("Field54/55 merge needs matching selected source keys");
-    struct Row {const NativeModelContinuousDraw* key;const NativeModelDraw* draw;};
+    struct Row {const NativeModelContinuousDraw* key;NativeModelDrawReference draw;};
     std::vector<Row> fieldOpaque,cityOpaqueRows,cityAlphaRows,alpha;
     for(size_t i=0;i<fieldPlan.draws.size();++i) {
         const auto& key=fieldPlan.draws[i];
         if(key.queue!=54&&key.queue!=55)throw std::runtime_error("Field normal queue is outside54/55");
-        (key.queue==54?fieldOpaque:alpha).push_back({&key,&fieldModels.draws[i]});
+        (key.queue==54?fieldOpaque:alpha).push_back({&key,NativeModelDrawReference{&fieldModels.draws[i]}});
     }
     const bool fieldHasAlpha=!alpha.empty();
-    size_t cityOpaque=0,cityAlpha=0;
-    for(const auto& key:cityPlan.models.draws) {
-        const auto queue=citySource.queues.at(key.primitiveIndex);
-        if(queue==54)cityOpaqueRows.push_back({&key,&cityModels.ordinary54.draws.at(cityOpaque++)});
-        else if(queue==55)cityAlphaRows.push_back({&key,&cityModels.alpha55.draws.at(cityAlpha++)});
+    for(std::size_t selectedIndex=0;selectedIndex<cityPlan.draws.size();++selectedIndex) {
+        const auto& key=cityPlan.draws[selectedIndex];
+        const auto [queue,draw]=resolveCityDraw(key,selectedIndex);
+        if(queue==54)cityOpaqueRows.push_back({&key,draw});
+        else if(queue==55)cityAlphaRows.push_back({&key,draw});
         else throw std::runtime_error("City normal queue is outside54/55");
     }
-    if(cityOpaque!=cityModels.ordinary54.draws.size()||cityAlpha!=cityModels.alpha55.draws.size())
-        throw std::runtime_error("City54/55 merge needs matching selected source keys");
     // Actual ascending stable descriptor passes. Publication ties retain Field
     // before City, as in the former ordinary54 merge. Alpha uses its own list.
     auto order=[](std::vector<Row>& rows,const std::vector<unsigned>& fields) {
@@ -130,12 +132,38 @@ inline NativeCityModelQueues mergeNativeCityModelsWithField54(
         if(fieldPlan.alphaSortFields.empty())throw std::runtime_error("Field55 actual Alpha descriptor absent");
         order(alpha,fieldPlan.alphaSortFields);
     }
-    NativeCityModelQueues r;
-    r.ordinary54.blend=fieldModels.blend?fieldModels.blend:cityModels.ordinary54.blend;
-    r.alpha55.blend=fieldModels.blend?fieldModels.blend:cityModels.alpha55.blend;
-    for(const auto& row:opaque)r.ordinary54.draws.push_back(*row.draw);
-    for(const auto& row:alpha)r.alpha55.draws.push_back(*row.draw);
+    NativeCityModelReferenceQueues r;
+    r.ordinary54.constantContext=r.alpha55.constantContext=constants?constants->context:nullptr;
+    r.ordinary54.blend=r.alpha55.blend=fieldModels.blend?fieldModels.blend.Get():cityBlend;
+    r.ordinary54.draws.reserve(opaque.size());r.alpha55.draws.reserve(alpha.size());
+    for(const auto& row:opaque)r.ordinary54.draws.push_back(row.draw);
+    for(const auto& row:alpha)r.alpha55.draws.push_back(row.draw);
     return r;
+}
+
+// Existing standalone owning consumers use the same ordering kernel.
+inline NativeCityModelQueues mergeNativeCityModelsWithField54(
+    const NativeModelContinuousPlan& fieldPlan,const NativeModelInputs& fieldModels,
+    const NativeCityModelSource& citySource,const NativeCityModelPlan& cityPlan,
+    const NativeCityModelQueues& cityModels) {
+    size_t cityOpaque=0,cityAlpha=0;
+    auto refs=mergeNativeModelDrawReferencesWithField54(fieldPlan,fieldModels,cityPlan.models,
+        [&](const NativeModelContinuousDraw& key,std::size_t) {
+            const auto queue=citySource.queues.at(key.primitiveIndex);
+            const NativeModelDraw* draw=nullptr;
+            if(queue==54)draw=&cityModels.ordinary54.draws.at(cityOpaque++);
+            else if(queue==55)draw=&cityModels.alpha55.draws.at(cityAlpha++);
+            return std::pair{queue,NativeModelDrawReference{draw}};
+        },cityModels.ordinary54.blend.Get());
+    if(cityOpaque!=cityModels.ordinary54.draws.size()||cityAlpha!=cityModels.alpha55.draws.size())
+        throw std::runtime_error("City54/55 merge needs matching selected source keys");
+    NativeCityModelQueues result;
+    result.ordinary54.blend=refs.ordinary54.blend;
+    result.alpha55.blend=fieldModels.blend?fieldModels.blend:cityModels.alpha55.blend;
+    result.ordinary54.draws.reserve(refs.ordinary54.draws.size());result.alpha55.draws.reserve(refs.alpha55.draws.size());
+    for(const auto& draw:refs.ordinary54.draws)result.ordinary54.draws.push_back(nativeModelResource(draw));
+    for(const auto& draw:refs.alpha55.draws)result.alpha55.draws.push_back(nativeModelResource(draw));
+    return result;
 }
 
 // The same 19 original geometry owners are accessible through allModels for

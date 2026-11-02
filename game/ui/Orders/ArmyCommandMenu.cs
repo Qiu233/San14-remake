@@ -11,6 +11,7 @@ internal partial class ArmyCommandMenu : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private readonly List<(UiSourceListCheckboxButton Button, bool Enabled)> buttons = [];
     private Action<string?>? narration;
     private Func<Vector2?>? project;
@@ -19,16 +20,19 @@ internal partial class ArmyCommandMenu : Control
     private bool finished, busy;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        IReadOnlyList<ArmyCommandMenuEntry> entries, Action<string?> hintChanged)
+        IReadOnlyList<ArmyCommandMenuEntry> entries, Action<string?> hintChanged,
+        AdministrationPageChrome.Resources? resources = null)
     {
         if (entries.Count is < 1 or > 7) throw new ArgumentOutOfRangeException(nameof(entries));
         Name = "ArmyCommandMenu"; MouseFilter = MouseFilterEnum.Ignore; Size = new(154, 338);
         narration = hintChanged;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository); font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         // The root retains its authored height. The independent Window node
         // starts at14 and grows46 for each appended row (7D7150/7C4BF0).
         windowHeight = 14 + 46 * entries.Count;
-        var source = new UiSourceLayout(repository, 0xA7513A25);
+        var source = assets.SourceLayout(0xA7513A25);
         var window = source.ResizedSubtree(1, new(154, windowHeight), true);
         window.Art(this, 1, window.Rectangle(1), assets, shader);
         for (int index = 0; index < entries.Count; index++)
@@ -89,7 +93,7 @@ internal partial class ArmyCommandMenu : Control
     {
         narration?.Invoke(null); policyPositioned?.Invoke(null); project = null; narration = null; policyPositioned = null;
         foreach (var row in buttons) row.Button.Abandon();
-        font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
     }
 }
 
@@ -98,13 +102,15 @@ internal partial class ArmyCommandMenuButton : UiSourceListCheckboxButton
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, MapFont font,
         string caption, string? icon, int? ordinal, Action released)
     {
-        var wrapper = new UiSourceLayout(repository, 0xA7DA0617);
+        var wrapper = assets.SourceLayout(0xA7DA0617);
         base.Configure(repository, assets, shader, font, new(124, 48), caption, released, wrapper.Rectangle(2));
         var palettes = MapSpritePalettes.Create();
         if (icon is not null)
         {
             wrapper.Art(this, 3, wrapper.Rectangle(3), assets, shader, palettes[9]);
-            wrapper.Art(this, 4, wrapper.Rectangle(4), assets, shader, palettes[10], icon);
+            //8A9660's false-report enum03F6 is in the original PK Common atlas.
+            wrapper.Art(this, 4, wrapper.Rectangle(4), assets, shader, palettes[10], icon,
+                expansionCommonSprite: icon == "000_cmn_icon_st_gihou");
         }
         else if (ordinal is int number)
             wrapper.Text(this, 5, default, number.ToString(System.Globalization.CultureInfo.InvariantCulture), font,

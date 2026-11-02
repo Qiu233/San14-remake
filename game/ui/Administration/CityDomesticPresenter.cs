@@ -54,6 +54,8 @@ internal sealed class CityDomesticPresenter : IDisposable
         unavailable(result.UnresolvedInput ?? "city-domestic.unavailable"); return false;
     }
 
+    internal void OpenSuggestedDuty(CityDomesticDuty duty)=>Run(()=>Choose(duty));
+
     internal void Refresh()
     {
         if (!Active || selection is not null) return;

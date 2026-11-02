@@ -14,9 +14,9 @@ internal partial class DiplomacyPrisonerSelectionView : Control
     private Control headerHost = null!, rowsHost = null!;
     private UiSourceScrollbar scroll = null!;
     private UiSourceBottomButton selectAll = null!;
-    private readonly List<RowDisplay> pool = [];
+    private readonly Dictionary<int, UiSourceTablePage<RowDisplay>> tables = [];
+    private UiSourceTablePage<RowDisplay>? activeTable;
     private readonly List<int> selected = [];
-    private readonly Dictionary<int, UiSourceColumnButton> headers = [];
     private readonly Dictionary<int, Dictionary<int, bool>> directions = [];
     private readonly Dictionary<int, (int Column, bool Ascending)> arrows = [];
     private readonly List<UiSourceTabButton> tabs = [];
@@ -76,7 +76,6 @@ internal partial class DiplomacyPrisonerSelectionView : Control
         chrome.Canvas.AddChild(scroll);
         scroll.Configure(repository,chrome.Assets,chrome.SpriteShader,Math.Max(0,pages.CurrentOfficerIds.Length*48-596),scrollSpeed(),
             _ => PositionRows(),currentScrollSpeed:scrollSpeed);
-        rowsHost.GuiInput += input => {if(ReadAdmission())scroll.HandleWheel(input);};
         var footer = new UiSourceLayout(repository,0xD8913AB2);
         selectAll = new() {Name="DiplomacyPrisonerSelectAll",Position=footer.Rectangle(14,new(0,904)).Position,InputAdmission=ReadAdmission};
         chrome.Canvas.AddChild(selectAll);
@@ -96,19 +95,108 @@ internal partial class DiplomacyPrisonerSelectionView : Control
     private void ShowGroup(int index)
     {
         if(abandoned||activeGroup==index)return;
-        foreach(var heading in headers.Values){heading.InputAdmission=null;heading.Disabled=true;}
-        headers.Clear();
-        foreach(var display in pool){display.Button.InputAdmission=null;display.Button.Disabled=true;}
-        pool.Clear();Clear(headerHost);Clear(rowsHost);
-        activeGroup=index;columns=pages.Groups[index].Columns.Where(column=>column.Visible).ToArray();
-        publication=pages.ReadPage(index);
+        var nextColumns=pages.Groups[index].Columns.Where(column=>column.Visible).ToArray();
+        var nextPublication=pages.ReadPage(index);
         var slots=pages.Groups[index].Columns.Select((column,slot)=>(column.Id,slot)).ToDictionary(value=>value.Id,value=>value.slot);
-        sourceSlots=columns.Select(column=>slots[column.Id]).ToArray();
-        unsortable=columns.Where((column,slot)=>!column.CanSort||publication.Rows.Any(row=>row.Cells[sourceSlots[slot]].SortUnresolvedOwner is not null))
+        var nextSourceSlots=nextColumns.Select(column=>slots[column.Id]).ToArray();
+        var nextUnsortable=nextColumns.Where((column,slot)=>!column.CanSort||nextPublication.Rows.Any(row=>row.Cells[nextSourceSlots[slot]].SortUnresolvedOwner is not null))
             .Select(column=>column.Id).ToHashSet();
         if(!directions.TryGetValue(index,out var next))directions.Add(index,next=[]);
-        foreach(var column in columns)next.TryAdd(column.Id,column.InitialAscending);
-        foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==index;
+        foreach(var column in nextColumns)next.TryAdd(column.Id,column.InitialAscending);
+        var previous=(Table:activeTable,Group:activeGroup,Columns:columns,Publication:publication,Slots:sourceSlots,Unsortable:unsortable,SelectAllDisabled:selectAll.Disabled);
+        Variant? previousPageIssue=HasMeta("diplomacy_prisoner_page_issue")?(Variant?)GetMeta("diplomacy_prisoner_page_issue"):(Variant?)null;
+        Variant? previousActivePage=HasMeta("diplomacy_prisoner_active_page")?(Variant?)GetMeta("diplomacy_prisoner_active_page"):(Variant?)null;
+        bool created=false;
+        if(!tables.TryGetValue(index,out var table))
+        {
+            table=CreateTable(index,nextColumns,nextPublication.Rows.Length);
+            created=true;
+        }
+        try
+        {
+            // A hidden page cannot publish stale row events while the next page binds.
+            activeTable=null;previous.Table?.SetActive(false);
+            activeTable=table;activeGroup=index;columns=nextColumns;
+            publication=nextPublication;sourceSlots=nextSourceSlots;unsortable=nextUnsortable;
+            foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==index;
+            foreach(var (column,heading) in table.Headers)
+                heading.ApplySortDirection(arrows.TryGetValue(index,out var arrow)&&arrow.Column==column ? arrow.Ascending : null);
+            PositionRows();RefreshSelection();
+            table.SetActive(true);
+            if(publication.UnresolvedOwner is { } missing){chrome.ApplyDefaultHint(defaultHint);SetMeta("diplomacy_prisoner_page_issue",missing);}
+            else {chrome.ApplyDefaultHint(defaultHint);if(HasMeta("diplomacy_prisoner_page_issue"))RemoveMeta("diplomacy_prisoner_page_issue");}
+            SetMeta("diplomacy_prisoner_active_page",index);
+
+            // Only a fully bound first visit becomes a retained page.
+            if(created)tables.Add(index,table);
+        }
+        catch
+        {
+            activeTable=null;
+            activeGroup=previous.Group;columns=previous.Columns;publication=previous.Publication;
+            sourceSlots=previous.Slots;unsortable=previous.Unsortable;
+            // Cleanup or presentation callbacks must not replace the original binding error.
+            try { table.SetActive(false); } catch { }
+            if(created)DiscardTable(table);
+            activeTable=previous.Table;
+            try
+            {
+                foreach(var tab in tabs)tab.Selected=tabs.IndexOf(tab)==activeGroup;
+                selectAll.Disabled=previous.SelectAllDisabled;
+                selectAll.ApplyCaption(previous.Table is not null&&(selected.Count>=maximum||selected.Count>=eligibleCount)?clearCaption:selectCaption);
+                chrome.ApplyReturn(!busy&&returnAllowed);chrome.ApplyDecision(previous.Table is not null&&!busy,true);
+
+                chrome.ApplyDefaultHint(defaultHint);
+
+            }
+            catch { }
+            try { previous.Table?.SetActive(true); } catch { }
+            try
+            {
+                if(previousPageIssue is { } pageIssue)SetMeta("diplomacy_prisoner_page_issue",pageIssue);
+                else if(HasMeta("diplomacy_prisoner_page_issue"))RemoveMeta("diplomacy_prisoner_page_issue");
+                if(previousActivePage is { } activePage)SetMeta("diplomacy_prisoner_active_page",activePage);
+                else if(HasMeta("diplomacy_prisoner_active_page"))RemoveMeta("diplomacy_prisoner_active_page");
+            }
+            catch { }
+            throw;
+        }
+    }
+
+    private UiSourceTablePage<RowDisplay> CreateTable(int index, OfficerInformationColumn[] columns, int rowCount)
+    {
+        var pageHeaders=new Control {Name="DiplomacyPrisonerPersonHeadersPage"+index,Size=headerHost.Size,MouseFilter=MouseFilterEnum.Pass};
+        var pageRows=new Control {Name="DiplomacyPrisonerPersonRowsPage"+index,Size=rowsHost.Size,MouseFilter=MouseFilterEnum.Pass};
+        var table=new UiSourceTablePage<RowDisplay>(pageHeaders,pageRows);
+        table.SetActive(false);
+        try
+        {
+            headerHost.AddChild(pageHeaders);rowsHost.AddChild(pageRows);
+            pageRows.GuiInput+=input=>{if(ReferenceEquals(activeTable,table)&&ReadAdmission())scroll.HandleWheel(input);};
+            BuildTable(table,columns,rowCount);
+            return table;
+        }
+        catch
+        {
+            DiscardTable(table);
+            throw;
+        }
+    }
+
+    private static void DiscardTable(UiSourceTablePage<RowDisplay> table)
+    {
+        // Each host owns its partial children, including a control whose Configure failed.
+        foreach(var host in new[] {table.HeaderHost,table.RowsHost})
+        {
+            try { host.GetParent()?.RemoveChild(host); } catch { }
+            try { host.QueueFree(); } catch { }
+        }
+    }
+
+    private void BuildTable(UiSourceTablePage<RowDisplay> table, OfficerInformationColumn[] columns, int rowCount)
+    {
+        var headerHost=table.HeaderHost;var rowsHost=table.RowsHost;
+        var headers=table.Headers;var pool=table.Items;
         int[] bodyWidths=columns.Select(column=>column.Width).ToArray();int x=48;
         AddHeader(-1,Message(0x628),0,48);
         for(int slot=0;slot<columns.Length;slot++)
@@ -119,39 +207,33 @@ internal partial class DiplomacyPrisonerSelectionView : Control
         }
         var rowColumns=columns.Select((column,index)=>new DeploymentPersonColumn(column.Id,bodyWidths[index],column.CaptionMessageId,
             (byte)(((column.CellFormat-3)<<4)|1),(byte)(column.CellFormat-2),column.InitialAscending)).ToArray();
-        for(int i=0;i<Math.Min(14,publication.Rows.Length);i++)
+        for(int i=0;i<Math.Min(14,rowCount);i++)
         {
-            var button=new UiSourcePersonRow {Name="DiplomacyPrisonerVisiblePersonRow"+i,InputAdmission=ReadAdmission};
+            var button=new UiSourcePersonRow {Name="DiplomacyPrisonerVisiblePersonRow"+i,InputAdmission=()=>ReferenceEquals(activeTable,table)&&ReadAdmission()};
             rowsHost.AddChild(button);
+            var display=new RowDisplay(button);pool.Add(display);
             button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,Message(0x628),rowColumns,
                 columns.Select(_=>new DeploymentPersonCell("")).ToArray(),1464);
-            var display=new RowDisplay(button);pool.Add(display);
-            button.GuiInput+=input=>{if(ReadAdmission())scroll.HandleWheel(input);};
+            button.GuiInput+=input=>{if(ReferenceEquals(activeTable,table)&&ReadAdmission())scroll.HandleWheel(input);};
             button.Pressed+=()=>
             {
-                if(!ReadAdmission()||display.Entry is not { } row||button.Disabled)return;
+                if(!ReferenceEquals(activeTable,table)||!ReadAdmission()||display.Entry is not { } row||button.Disabled)return;
                 if(!selected.Remove(row.OfficerId)&&selected.Count<maximum)selected.Add(row.OfficerId);
                 RefreshSelection();
             };
         }
-        foreach(var (column,heading) in headers)
-            heading.ApplySortDirection(arrows.TryGetValue(index,out var arrow)&&arrow.Column==column ? arrow.Ascending : null);
-        PositionRows();RefreshSelection();
-        if(publication.UnresolvedOwner is { } missing){chrome.ApplyDefaultHint(defaultHint);SetMeta("diplomacy_prisoner_page_issue",missing);}
-        else {chrome.ApplyDefaultHint(defaultHint);if(HasMeta("diplomacy_prisoner_page_issue"))RemoveMeta("diplomacy_prisoner_page_issue");}
-        SetMeta("diplomacy_prisoner_active_page",index);
 
         void AddHeader(int id,string caption,int left,int width)
         {
-            var button=new UiSourceColumnButton {Name="DiplomacyPrisonerPersonColumn"+id,Position=new(left,0),Size=new(width,48),InputAdmission=ReadAdmission};
+            var button=new UiSourceColumnButton {Name="DiplomacyPrisonerPersonColumn"+id,Position=new(left,0),Size=new(width,48),InputAdmission=()=>ReferenceEquals(activeTable,table)&&ReadAdmission()};
             headerHost.AddChild(button);headers.Add(id,button);
             button.Configure(repository,chrome.Assets,chrome.SpriteShader,chrome.Font,caption,personList:true);
-            button.Pressed+=()=>SortColumn(id);
+            button.Pressed+=()=>{if(ReferenceEquals(activeTable,table)&&ReadAdmission())SortColumn(id);};
         }
     }
     private void SortColumn(int column)
     {
-        if(!ReadAdmission()||publication is null||headers[column].Disabled)return;
+        if(!ReadAdmission()||publication is null||activeTable is not { } table||table.Headers[column].Disabled)return;
         bool ascending;
         if(column<0)
         {
@@ -168,12 +250,13 @@ internal partial class DiplomacyPrisonerSelectionView : Control
             foreach(var group in pages.Groups)arrows[group.Index]=group.Index==activeGroup ? (column,ascending) : (-2,false);
         }
         publication=pages.ReadPage(activeGroup);
-        foreach(var (id,heading) in headers)heading.ApplySortDirection(id==column?ascending:null);
+        foreach(var (id,heading) in table.Headers)heading.ApplySortDirection(id==column?ascending:null);
         PositionRows();RefreshSelection();
     }
     private void PositionRows()
     {
-        if(publication is null)return;
+        if(publication is null||activeTable is not { } table)return;
+        var pool=table.Items;
         int first=scroll.Value/48;
         for(int slot=0;slot<pool.Count;slot++)
         {
@@ -197,16 +280,16 @@ internal partial class DiplomacyPrisonerSelectionView : Control
     }
     private void RefreshSelection()
     {
-        foreach(var display in pool)
+        if(activeTable is not { } table)return;
+        foreach(var display in table.Items)
             if(display.Entry is { } row){display.Button.Selected=selected.Contains(row.OfficerId);display.Button.Disabled=busy||!RowAllowed(row.OfficerId)||!display.Button.Selected&&selected.Count>=maximum;}
-        foreach(var (id,heading) in headers)
+        foreach(var (id,heading) in table.Headers)
             heading.Disabled=busy||unsortable.Contains(id);
         if(selectAll is not null){selectAll.Disabled=busy||maximum==0||eligibleCount==0;selectAll.ApplyCaption(selected.Count>=maximum||selected.Count>=eligibleCount?clearCaption:selectCaption);}
         chrome.ApplyReturn(!busy&&returnAllowed);chrome.ApplyDecision(!busy,true);
     }
     private string Message(int id)=>repository.LoadMessages(text.SourceLocale,San14.Data.Formats.MessageKind.Data).Messages.Sections[1].Records[id].Text
         ??throw new InvalidDataException("Missing diplomacy prisoner caption.");
-    private static void Clear(Control parent){foreach(Node child in parent.GetChildren()){parent.RemoveChild(child);child.QueueFree();}}
     private bool ReadAdmission()=>!abandoned&&!busy&&closed is not null&&IsVisibleInTree()&&CanProcess()&&(admitted?.Invoke()??false);
     internal void SetBusy(bool value){if(!abandoned){busy=value;RefreshSelection();}}
     private bool RowAllowed(int id)=>rowAdmission?.Invoke(id)??true;
@@ -221,8 +304,13 @@ internal partial class DiplomacyPrisonerSelectionView : Control
     internal void Abandon()
     {
         if(abandoned)return;abandoned=true;closed=null;admitted=null;rowAdmission=null;
-        foreach(var display in pool){display.Button.InputAdmission=null;display.Button.Disabled=true;}
-        foreach(var header in headers.Values){header.InputAdmission=null;header.Disabled=true;}
+        activeTable=null;
+        foreach(var table in tables.Values)
+        {
+            table.SetActive(false);
+            foreach(var display in table.Items){display.Button.InputAdmission=null;display.Button.Disabled=true;}
+            foreach(var header in table.Headers.Values){header.InputAdmission=null;header.Disabled=true;}
+        }
         foreach(var tab in tabs){tab.InputAdmission=null;tab.Disabled=true;}
         if(selectAll is not null){selectAll.InputAdmission=null;selectAll.Disabled=true;}
         scroll?.SetProcessInput(false);chrome?.Abandon();Hide();

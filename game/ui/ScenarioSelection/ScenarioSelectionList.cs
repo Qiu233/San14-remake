@@ -35,7 +35,7 @@ internal partial class ScenarioSelectionList : Control
         Size = source.Rectangle(0).Size;
         MouseFilter = MouseFilterEnum.Ignore;
         source.Art(this, 1, source.Rectangle(1), assets, shader);
-        source.Art(this, 2, source.Rectangle(2), assets, shader);
+        source.Art(this, 2, source.Rectangle(2), assets, shader, sourceMaterial: true);
         var sprites = new LocalizedUiSpriteSource(repository);
         string language = locale switch { "TC" => "tw", "SC" => "ch", _ => throw new ArgumentOutOfRangeException(nameof(locale)) };
         LoadedSprite Art(string name) => sprites.LoadTexturePackSprite("texture_lang_" + language, language + "_" + name);

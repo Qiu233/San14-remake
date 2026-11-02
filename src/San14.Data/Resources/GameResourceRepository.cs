@@ -28,7 +28,10 @@ public sealed record LoadedScenario(S14Entry Metadata, ScenarioCityPreview Snaps
 public sealed record LoadedPolicies(S14PolicyCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedDoctrines(S14DoctrineCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedCreditEffects(S14CreditEffectCatalog Catalog, SourceProvenance Source);
-public sealed record LoadedTerrainTypes(S14TerrainTypeCatalog Catalog, SourceProvenance Source);
+public sealed record LoadedTerrainTypes(S14TerrainTypeCatalog Catalog, SourceProvenance Source)
+{
+    internal InitialTerrainRuleDefinitions? InitialValues { get; init; }
+}
 public sealed record LoadedRankPersonCapacities(RankPersonCapacityCatalog Catalog,SourceProvenance Source);
 public sealed record LoadedBaseParameters(BaseParameterCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedCreditRanks(S14CreditRankCatalog Catalog, SourceProvenance Source);
@@ -36,8 +39,15 @@ public sealed record LoadedDoctrinePanels(S14DoctrinePanelCatalog Catalog, Sourc
 public sealed record LoadedSceneries(S14SceneryCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedPersonalities(S14PersonalityCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedSkillDefinitions(S14FormationCatalog Formations, S14GemCatalog Gems,
-    SourceProvenance Source);
-public sealed record LoadedObjectDefinitions(S14ObjectDefinitionCatalog Catalog, SourceProvenance Source);
+    SourceProvenance Source)
+{
+    //Published with this resource generation; callers cannot edit the values.
+    internal InitialSkillDefinitionValues? InitialValues { get; init; }
+}
+public sealed record LoadedObjectDefinitions(S14ObjectDefinitionCatalog Catalog, SourceProvenance Source)
+{
+    internal InitialObjectRuleDefinitions? InitialValues { get; init; }
+}
 public sealed record LoadedForceNameDefinitions(S14ForceNameDefinitionCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedItemDefinitions(S14ItemDefinitionCatalog Catalog, SourceProvenance Source);
 public sealed record LoadedScenarioItems(S14ScenarioItemCatalog Catalog, SourceProvenance Source);
@@ -57,6 +67,8 @@ public sealed record LoadedTexture(RgbaTexture Texture, string SourceContainerPa
     public G1TextureImage? SourceImage { get; init; }
 }
 
+/// <summary>A resident read-only source snapshot. Parsers borrow Bytes;
+/// transforms and editable documents own their separate output buffers.</summary>
 public sealed record LoadedRdbAsset(byte[] Bytes, string ResourceUri, string SourceContainerPath,
     uint FileId, string DecodedSha256, SourceProvenance IndexSource,
     SourceProvenance? OverrideSource)
@@ -107,12 +119,20 @@ public sealed partial class GameResourceRepository
     public const string DefaultSource =
         @"C:\Program Files (x86)\Steam\steamapps\common\Romance_of_the_Three_Kingdoms_14";
 
+    // Desktop launchers may still have the environment from before the
+    // user configured the install directory. Resolve the saved user value
+    // once at construction while preserving explicit/process precedence.
+    internal static string ResolveConfiguredSourceDirectory(string? requested) =>
+        requested ?? Environment.GetEnvironmentVariable("SAN14_SOURCE_DIR")
+        ?? Environment.GetEnvironmentVariable("SAN14_SOURCE_DIR", EnvironmentVariableTarget.User)
+        ?? DefaultSource;
+
     private readonly ResourceOverrides _overrides;
     private readonly Dictionary<string, SourceProvenance> _readFiles =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, RdbIndex> _indices =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Dictionary<uint, RdbRecord>> _assetRecords =
+    private readonly Dictionary<string, IReadOnlyDictionary<uint, RdbRecord>> _assetRecords =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, RdbSpriteDirectory> _spriteDirectories =
         new(StringComparer.OrdinalIgnoreCase);
@@ -131,10 +151,15 @@ public sealed partial class GameResourceRepository
 
     public GameResourceRepository(string? sourceDirectory, string? overridesDirectory,
         Action<ResourceReadGeneration>? readGeneration)
+        : this(sourceDirectory, overridesDirectory, readGeneration, new ResidentSourceCache()) { }
+
+    private GameResourceRepository(string? sourceDirectory, string? overridesDirectory,
+        Action<ResourceReadGeneration>? readGeneration, ResidentSourceCache residentSources)
     {
+        _residentSources = residentSources;
+        _observedResidentRevision = residentSources.Revision;
         _readGeneration = readGeneration;
-        string location = sourceDirectory ?? Environment.GetEnvironmentVariable("SAN14_SOURCE_DIR")
-            ?? DefaultSource;
+        string location = ResolveConfiguredSourceDirectory(sourceDirectory);
         SourceDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(location));
         _overrides = new ResourceOverrides(overridesDirectory ??
             Environment.GetEnvironmentVariable("SAN14_OVERRIDE_DIR"));
@@ -153,6 +178,7 @@ public sealed partial class GameResourceRepository
     {
         get
         {
+            SynchronizeResidentInvalidation();
             if (_scenarioDocuments is null) DiscoverScenarios();
             return _scenarioDocuments!;
         }
@@ -162,6 +188,7 @@ public sealed partial class GameResourceRepository
     {
         get
         {
+            SynchronizeResidentInvalidation();
             if (_effectiveScenarios is null) DiscoverScenarios();
             return _effectiveScenarios!;
         }
@@ -178,6 +205,7 @@ public sealed partial class GameResourceRepository
     /// Loads one original message file on demand. Variant names select installed filenames;
     /// they do not infer an unverified PK/CE text overlay from table sizes or record IDs.
     /// Overrides contain the full zp1 file and malformed overrides are reported without fallback.
+    /// The returned document is a repository-owned read-only snapshot. Editors create separate buffers.
     /// </summary>
     public LoadedMessages LoadMessages(string locale, MessageKind kind,
         MessageVariant variant = MessageVariant.ExCe)
@@ -197,28 +225,10 @@ public sealed partial class GameResourceRepository
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
         };
         string relative = $"0001_{locale}/{basename}{suffix}.bin";
-        UiResourceRevision revision = UiRevision(GameResourceId.File(relative), SourcePath(relative));
-        LoadedMessages cached;
-        lock (_uiResourceCacheGate)
-        {
-            if (_uiMessages.TryGetValue(relative, out var entry) && entry.Revision == revision)
-                return CopyUiMessages(entry.Messages);
-        }
-        (byte[] bytes, SourceProvenance source) = ReadSource(relative);
-        try
-        {
-            Zp1Document container = Zp1Reader.Read(bytes);
-            MessageDocument messages = MessageTableReader.Read(container.DecodedPayload, kind);
-            string decodedHash = Convert.ToHexString(SHA256.HashData(container.DecodedPayload));
-            cached = new LoadedMessages(messages, container, source, decodedHash);
-            lock (_uiResourceCacheGate) _uiMessages[relative] = (revision, cached);
-            return CopyUiMessages(cached);
-        }
-        catch (InvalidDataException error)
-        {
-            throw new InvalidDataException($"Original messages failed to load: {source.ResourceUri} " +
-                $"({source.PhysicalPath}). {error.Message}", error);
-        }
+        // Every scope observes its actual resident source before borrowing
+        // a parsed snapshot. Shared cache hits never inherit another ledger.
+        var source = ReadResidentFile(relative);
+        return _residentSources.Ui.Messages(source, kind);
     }
 
     /// <summary>
@@ -302,17 +312,17 @@ public sealed partial class GameResourceRepository
     }
 
     /// <summary>Loads fixed CTerrainData through the original-file URI and override resolver.</summary>
-    public LoadedTerrainTypes LoadTerrainTypes(string relativePath)
+    public LoadedTerrainTypes LoadTerrainTypes(string relativePath) =>
+        CopyTerrainTypesForReader(LoadArmyTerrainTypes(relativePath));
+
+    internal LoadedTerrainTypes LoadArmyTerrainTypes(string relativePath)
     {
-        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
-        try
-        {
-            return new(S14TerrainTypeReader.Read(S14Reader.Read(bytes, false)), source);
-        }
+        var source = ReadResidentFile(relativePath);
+        try { return _residentSources.ReadTerrainRules(this, source); }
         catch (InvalidDataException error)
         {
-            throw new InvalidDataException($"Original terrain types failed to load: {source.ResourceUri} " +
-                $"({source.PhysicalPath}). {error.Message}", error);
+            throw new InvalidDataException($"Original terrain types failed to load: {source.Source.ResourceUri} " +
+                $"({source.Source.PhysicalPath}). {error.Message}", error);
         }
     }
 
@@ -434,14 +444,17 @@ public sealed partial class GameResourceRepository
         {throw new InvalidDataException($"Original officer trait definitions failed to load: {source.ResourceUri} ({source.PhysicalPath}). {error.Message}",error);}
     }
 
-    public LoadedObjectDefinitions LoadObjectDefinitions(string relativePath)
+    public LoadedObjectDefinitions LoadObjectDefinitions(string relativePath) =>
+        CopyObjectDefinitionsForReader(LoadArmyObjectDefinitions(relativePath));
+
+    internal LoadedObjectDefinitions LoadArmyObjectDefinitions(string relativePath)
     {
-        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
-        try { return new(S14ObjectDefinitionReader.ReadFixed(S14Reader.Read(bytes, false)), source); }
+        var source = ReadResidentFile(relativePath);
+        try { return _residentSources.ReadObjectRules(this, source); }
         catch (InvalidDataException error)
         {
-            throw new InvalidDataException($"Original object definitions failed to load: {source.ResourceUri} " +
-                $"({source.PhysicalPath}). {error.Message}", error);
+            throw new InvalidDataException($"Original object definitions failed to load: {source.Source.ResourceUri} " +
+                $"({source.Source.PhysicalPath}). {error.Message}", error);
         }
     }
 
@@ -468,19 +481,25 @@ public sealed partial class GameResourceRepository
     }
 
     public LoadedSkillDefinitions LoadSkillDefinitions(string relativePath)
+        //The historical public DTO exposes writable byte arrays. Preserve a
+        //reader-owned catalog rather than leaking the resident private image.
+        => CopySkillDefinitionsForReader(LoadResidentSkillDefinitions(relativePath));
+
+    //Only the normal Army package borrows this private immutable generation.
+    //It must not expose its catalogs or edit their raw source arrays.
+    internal LoadedSkillDefinitions LoadArmySkillDefinitions(string relativePath)
+        => LoadResidentSkillDefinitions(relativePath);
+
+    private LoadedSkillDefinitions LoadResidentSkillDefinitions(string relativePath)
     {
-        (byte[] bytes, SourceProvenance source) = ReadSource(relativePath);
-        try
-        {
-            S14Document document = S14Reader.Read(bytes, false);
-            if (document.FormatMarker != 0x66)
-                throw new InvalidDataException("Skill definitions require the inspected CE fixed-data profile.");
-            return new(S14FormationReader.Read(document), S14GemReader.ReadFixed(document), source);
-        }
+        //Every scope still observes its actual source and dependency ledger.
+        //The resident file owner retains one parsed/initialized static value.
+        var source = ReadResidentFile(relativePath);
+        try { return _residentSources.ReadSkillDefinitions(this, source); }
         catch (InvalidDataException error)
         {
-            throw new InvalidDataException($"Original skill definitions failed to load: {source.ResourceUri} " +
-                $"({source.PhysicalPath}). {error.Message}", error);
+            throw new InvalidDataException($"Original skill definitions failed to load: {source.Source.ResourceUri} " +
+                $"({source.Source.PhysicalPath}). {error.Message}", error);
         }
     }
 
@@ -623,21 +642,15 @@ public sealed partial class GameResourceRepository
         return new LoadedScenario(metadata, snapshot, scenarioSource, fixedSource);
     }
 
+    /// <summary>Returns read-only decoded source pixels. ScreenLayout views share
+    /// the repository snapshot; pixel transformations must create their own output.</summary>
     public LoadedTexture LoadTexture(string archiveName, uint fileId, int textureIndex = 0)
     {
         // UI atlases are reused across pages and across different sprite names.
         // Other archives include large one-use scene texture banks.
         if (archiveName != "ScreenLayout") return LoadUncachedTexture(archiveName, fileId, textureIndex);
-        var key = (fileId, textureIndex);
-        var revision = UiTextureRevision(archiveName, fileId);
-        lock (_uiResourceCacheGate)
-        {
-            if (_uiTextures.TryGetValue(key, out var entry) && entry.Revision == revision)
-                return CopyUiTexture(entry.Texture);
-        }
-        LoadedTexture loaded = LoadUncachedTexture(archiveName, fileId, textureIndex);
-        lock (_uiResourceCacheGate) _uiTextures[key] = (revision, loaded);
-        return CopyUiTexture(loaded);
+        LoadedRdbAsset source = LoadRdbAsset(archiveName, fileId);
+        return _residentSources.Ui.Texture(source, textureIndex);
     }
 
     private LoadedTexture LoadUncachedTexture(string archiveName, uint fileId, int textureIndex)
@@ -836,16 +849,24 @@ public sealed partial class GameResourceRepository
     public LoadedSprite LoadSprite(string archiveName, string name)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Sprite name is missing.", nameof(name));
+        RdbIndex index = LoadRdbIndex(archiveName);
         if (!_spriteDirectories.TryGetValue(archiveName, out RdbSpriteDirectory? directory))
         {
-            RdbIndex index = LoadRdbIndex(archiveName);
             directory = RdbSpriteDirectory.Read(SourcePath($"0002/{archiveName}.rdb"), index,
                 record => LoadRdbAsset(archiveName, record.FileId).Bytes);
             _spriteDirectories.Add(archiveName, directory);
         }
         RdbSpriteBinding binding = directory.Find(name);
-        LoadedRdbAsset atlas = LoadRdbAsset(archiveName, binding.AtlasId);
-        SpriteDefinition definition = SpriteAtlasReader.Read(atlas.Bytes).SingleOrDefault(sprite => sprite.Name == name)
+        LoadedRdbAsset atlas;
+        IReadOnlyList<SpriteDefinition> definitions;
+        if (archiveName == "ScreenLayout")
+            (atlas, definitions) = LoadUiSpriteAtlas(binding.AtlasId);
+        else
+        {
+            atlas = LoadRdbAsset(archiveName, binding.AtlasId);
+            definitions = SpriteAtlasReader.Read(atlas.Bytes);
+        }
+        SpriteDefinition definition = definitions.SingleOrDefault(sprite => sprite.Name == name)
             ?? throw new InvalidDataException($"Sprite atlas changed after discovery: {name}.");
         if (definition.Value64 > int.MaxValue)
             throw new InvalidDataException($"Sprite {name} has an invalid texture index {definition.Value64}.");
@@ -858,12 +879,16 @@ public sealed partial class GameResourceRepository
     {
         _ = GameResourceId.Rdb(archiveName, 0);
         string relative = $"0002/{archiveName}.rdb";
-        if (_indices.TryGetValue(relative, out RdbIndex? index)) return index;
-        (byte[] bytes, _) = ReadSource(relative);
-        index = RdbIndexReader.Read(bytes);
-        _indices.Add(relative, index);
-        _assetRecords.Add(relative, index.Records.ToDictionary(record => record.FileId));
-        return index;
+        var source = ReadResidentFile(relative);
+        var archive = _residentSources.ReadArchive(this, source);
+        if (!_archiveGenerations.TryGetValue(relative, out var previous) || !ReferenceEquals(previous, archive))
+        {
+            _spriteDirectories.Remove(archiveName);
+            _archiveGenerations[relative] = archive;
+            _indices[relative] = archive.Index;
+            _assetRecords[relative] = archive.Records;
+        }
+        return archive.Index;
     }
 
     /// <summary>Normal archive record/container presence. Payload parsing is
@@ -887,49 +912,31 @@ public sealed partial class GameResourceRepository
         RdbIndex index = LoadRdbIndex(archiveName);
         if (!_assetRecords[relative].TryGetValue(fileId, out RdbRecord? record))
             throw new KeyNotFoundException($"RDB asset {archiveName}/{fileId:X8} is missing.");
+        var archive = _archiveGenerations[relative];
+        if (HasResourceChangeNotifications && _residentSources.TryReadPayload(resourceId, archive, out var retained))
+        {
+            VerifyResourceVersion(archive.Source.Generation);
+            ObserveResidentRead(retained!.Generation);
+            if (retained.Source.OverrideSource is { } currentOverride) _readFiles[resourceId.ToString()] = currentOverride;
+            else _readFiles.Remove(resourceId.ToString());
+            return retained.Source;
+        }
         string rdbPath = SourcePath(relative);
         string container = RdbArchiveReader.ContainerPath(rdbPath, index, record);
         string containerRelative = Path.GetRelativePath(SourceDirectory, container)
             .Replace('\\', '/');
         _ = SourcePath(containerRelative); // Reject references outside the installation.
         string? overridePath = _overrides.Find(resourceId);
-        byte[] decoded;
-        if (_readGeneration is null)
-            decoded = overridePath is null
-                ? RdbArchiveReader.ReadPayload(rdbPath, index, record)
-                : File.ReadAllBytes(overridePath);
-        else
-        {
-            var generation = BeginResourceRead(resourceId, container, overridePath ?? container);
-            try
-            {
-                decoded = overridePath is null
-                    ? RdbArchiveReader.ReadPayload(rdbPath, index, record)
-                    : File.ReadAllBytes(overridePath);
-            }
-            catch { VerifyResourceRead(generation); throw; }
-            CompleteResourceRead(generation);
-        }
-        string hash = Convert.ToHexString(SHA256.HashData(decoded));
-        SourceProvenance? overrideSource = null;
-        if (overridePath is not null)
-        {
-            overrideSource = new SourceProvenance(resourceId.OverrideRelativePath,
-                decoded.LongLength, hash)
-            {
-                ResourceUri = resourceId.ToString(),
-                PhysicalPath = overridePath,
-                IsOverride = true
-            };
-            _readFiles[resourceId.ToString()] = overrideSource;
-        }
+        var generation = BeginResourceRead(resourceId, container, overridePath ?? container);
+        TrackResourceSource(generation);
+        var loaded = _residentSources.ReadPayload(this, archive, record, generation, rdbPath, containerRelative);
+        VerifyResourceRead(archive.Source.Generation);
+        ObserveResidentRead(generation);
+        if (loaded.OverrideSource is { } replacement)
+            _readFiles[resourceId.ToString()] = replacement;
         else
             _readFiles.Remove(resourceId.ToString());
-        return new LoadedRdbAsset(decoded, resourceId.ToString(), containerRelative,
-            fileId, hash, _readFiles[GameResourceId.File(relative).ToString()], overrideSource)
-        {
-            LoaderMetadata = record.LoaderMetadata
-        };
+        return loaded;
     }
 
     private void DiscoverScenarios()
@@ -965,27 +972,10 @@ public sealed partial class GameResourceRepository
 
     private (byte[] Bytes, SourceProvenance Provenance) ReadSource(string relative)
     {
-        GameResourceId resourceId = GameResourceId.File(relative);
-        string? overridePath = _overrides.Find(resourceId);
-        string physicalPath = overridePath ?? SourcePath(relative);
-        byte[] data;
-        if (_readGeneration is null) data = File.ReadAllBytes(physicalPath);
-        else
-        {
-            var generation = BeginResourceRead(resourceId, SourcePath(relative), physicalPath);
-            try { data = File.ReadAllBytes(physicalPath); }
-            catch { VerifyResourceRead(generation); throw; }
-            CompleteResourceRead(generation);
-        }
-        string hash = Convert.ToHexString(SHA256.HashData(data));
-        var provenance = new SourceProvenance(relative, data.LongLength, hash)
-        {
-            ResourceUri = resourceId.ToString(),
-            PhysicalPath = physicalPath,
-            IsOverride = overridePath is not null
-        };
-        _readFiles[resourceId.ToString()] = provenance;
-        return (data, provenance);
+        var snapshot = ReadResidentFile(relative);
+        // Installed bytes are a shared read-only source. S14Reader creates a
+        // separate decoded document, and editors explicitly copy that payload.
+        return (snapshot.Bytes, snapshot.Source);
     }
 
     private string SourcePath(string relative)

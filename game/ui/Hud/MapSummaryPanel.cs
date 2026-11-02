@@ -21,9 +21,10 @@ internal partial class MapSummaryPanel : Control
     internal string LayoutName=>layoutName;
     internal int Slot {get;private set;}
 
-    internal void Configure(MapSummaryResources resources,string name)
+    internal void Configure(MapSummaryResources resources,string name, IReadOnlyDictionary<int,UiSourceNodeGeometry>? geometry=null)
     {
-        this.resources=resources;layoutName=name;source=name.Length==0?null:resources.Layout(name);
+        this.resources=resources;layoutName=name;source=name.Length==0?null:geometry is null?resources.Layout(name):
+            new UiSourceLayout(resources.Layout(name).Source,geometry);
         Name="MapSummaryPanel";MouseFilter=MouseFilterEnum.Ignore;
         if(source is null){Size=Vector2.Zero;return;}
         Size=source.Rectangle(0).Size;

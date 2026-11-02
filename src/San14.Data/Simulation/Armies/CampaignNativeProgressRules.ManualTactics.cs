@@ -76,7 +76,8 @@ public sealed partial class CampaignNativeProgressRules
     }
     public CampaignProgressTransition RetryManualTactic(ManualTacticProgressOperation pending)
     {
-        if (!pending.ContinueAfterPresentation || pending.Revision != Revision) throw Missing("manual_tactic_retry_boundary");
+        if ((!pending.ContinueAfterPresentation && !pending.RequiresAutomaticManualTacticContinuation) ||
+            pending.Revision != Revision) throw Missing("manual_tactic_retry_boundary");
         return ContinueManualTactic(pending);
     }
     private CampaignProgressTransition ContinueManualTactic(ManualTacticProgressOperation pending)
@@ -92,7 +93,7 @@ public sealed partial class CampaignNativeProgressRules
                 return AwaitingManual(accepted with { Presentation = null, ContinueAfterPresentation = false });
             if (stage.Presentation is not null)
                 return AwaitingManual(accepted with { Presentation = new(stage.Presentation.Sequence, stage.Presentation.Kind), ContinueAfterPresentation = false });
-            return Drive(accepted.Candidate, accepted.Request, accepted.BlockIndex, accepted.Calendar, accepted.Captures,
+            return Drive(accepted.Candidate, accepted.Request, accepted.BlockIndex, accepted.Calendar,
                 accepted.ServiceChanges, accepted.LastStorySequence, null, accepted);
         }
         catch (InvalidDataException error)

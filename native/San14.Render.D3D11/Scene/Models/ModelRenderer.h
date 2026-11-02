@@ -3,7 +3,9 @@
 #pragma once
 #include <sstream>
 #include <memory>
+#include <d3d11_1.h>
 #include "../../Runtime/PreparedFileInput.h"
+#include "../../Device/ModelTextureMedia.h"
 struct NativeModelDraw {
     std::string identity;
     ComPtr<ID3D11VertexShader> vs;
@@ -30,21 +32,37 @@ struct NativeModelInputs {
     std::vector<NativeModelDraw> draws;
     ComPtr<ID3D11BlendState> blend;
 };
-static ComPtr<ID3D11ShaderResourceView> loadNativeModelTexture(ID3D11Device* device,
-    const fs::path& path,DXGI_FORMAT resourceFormat,DXGI_FORMAT viewFormat) {
-    NativePreparedInputFile f(path,std::ios::binary);if(!f)throw std::runtime_error(path.string());
-    D3D11_TEXTURE2D_DESC td{};td.Width=u32(f);td.Height=u32(f);td.ArraySize=u32(f);td.MipLevels=u32(f);
-    auto encodedFormat=DXGI_FORMAT(u32(f));if(encodedFormat!=viewFormat||td.ArraySize!=1)throw std::runtime_error("Model source texture view mismatch");
-    td.Format=resourceFormat;td.SampleDesc.Count=1;td.Usage=D3D11_USAGE_IMMUTABLE;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-    std::vector<std::vector<char>> storage(td.MipLevels);std::vector<D3D11_SUBRESOURCE_DATA> initial(td.MipLevels);
-    for(UINT mip=0;mip<td.MipLevels;++mip) {
-        initial[mip].SysMemPitch=u32(f);initial[mip].SysMemSlicePitch=u32(f);storage[mip].resize(u32(f));
-        f.read(storage[mip].data(),storage[mip].size());initial[mip].pSysMem=storage[mip].data();
-    }
-    ComPtr<ID3D11Texture2D> texture;check(device->CreateTexture2D(&td,initial.data(),&texture),"Model original texture");
-    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};sd.Format=viewFormat;sd.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;sd.Texture2D.MipLevels=td.MipLevels;
-    ComPtr<ID3D11ShaderResourceView> view;check(device->CreateShaderResourceView(texture.Get(),&sd,&view),"Model source texture SRV");return view;
-}
+// A synchronous pass borrows session-owned GPU draws. The producer retains
+// the physical owner and rebuilds this ordered list before drawing; no COM
+// resource ownership is copied for every selected primitive.
+struct NativeModelConstantWindow {
+    ID3D11Buffer* buffer{}; // Borrowed from the current Base arena owner.
+    UINT firstConstant{},constantCount{}; // Units of16 bytes, aligned to16 constants.
+};
+struct NativeModelDrawReference {
+    const NativeModelDraw* resources{};
+    NativeModelConstantWindow vertex,pixel;
+    NativeModelDrawReference()=default;
+    NativeModelDrawReference(const NativeModelDraw* draw) noexcept:resources(draw) {}
+};
+struct NativeModelConstantSubmission {
+    ID3D11DeviceContext1* context{};
+    const std::vector<NativeModelDrawReference>* draws{};
+};
+struct NativeModelDrawReferences {
+    std::vector<NativeModelDrawReference> draws;
+    ComPtr<ID3D11BlendState> blend;
+    ID3D11DeviceContext1* constantContext{}; // Same synchronous owner as its entries.
+};
+inline const NativeModelDraw& nativeModelResource(const NativeModelDraw& draw) noexcept {return draw;}
+inline const NativeModelDraw& nativeModelResource(const NativeModelDraw* draw) noexcept {return *draw;}
+inline const NativeModelDraw& nativeModelResource(const NativeModelDrawReference& draw) noexcept {return *draw.resources;}
+inline const NativeModelDrawReference* nativeModelWindows(const NativeModelDraw&) noexcept {return nullptr;}
+inline const NativeModelDrawReference* nativeModelWindows(const NativeModelDraw*) noexcept {return nullptr;}
+inline const NativeModelDrawReference* nativeModelWindows(const NativeModelDrawReference& draw) noexcept {return &draw;}
+inline ID3D11DeviceContext1* nativeModelWindowContext(const NativeModelInputs&) noexcept {return nullptr;}
+inline ID3D11DeviceContext1* nativeModelWindowContext(const NativeModelDrawReferences& inputs) noexcept {return inputs.constantContext;}
+using San14::Render::loadNativeModelTexture;
 static ComPtr<ID3D11InputLayout> loadNativeModelLayout(ID3D11Device* device, const fs::path& directory,
     const std::vector<char>& v, bool& instanceStreams) {
     ComPtr<ID3D11InputLayout> layout;
@@ -93,25 +111,41 @@ static ComPtr<ID3D11InputLayout> loadNativeModelLayout(ID3D11Device* device, con
     check(device->CreateInputLayout(descriptors.data(),UINT(descriptors.size()),v.data(),v.size(),&layout),"Model source layout");
     return layout;
 }
+// Static media may be borrowed from the application generation. Opening-owned
+// constants and depth/stencil metadata always remain in the caller's directory.
+static fs::path nativeModelMediaDirectory(const fs::path& directory) {
+    NativePreparedInputFile mediaReference(directory/"static-media-root.txt");
+    if(mediaReference) {
+        std::string source;
+        if(!std::getline(mediaReference,source)||source.empty())
+            throw std::runtime_error("Model static media reference absent");
+        if(source.back()=='\r')source.pop_back();
+        if(source.empty())throw std::runtime_error("Model static media reference empty");
+        auto path=fs::u8path(source);
+        return nativePreparedFilePath(path.is_absolute()?path:directory/path);
+    }
+    return directory;
+}
 static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& directory,
     std::string identity,const NativeModelDraw* sharedGeometry=nullptr) {
     NativeModelDraw draw;draw.identity=std::move(identity);
-    auto v=load(directory/"vs.dxbc"),p=load(directory/"ps.dxbc");
+    auto mediaDirectory=nativeModelMediaDirectory(directory);
+    auto v=load(mediaDirectory/"vs.dxbc"),p=load(mediaDirectory/"ps.dxbc");
     check(device->CreateVertexShader(v.data(),v.size(),nullptr,&draw.vs),"Model original VS");
     check(device->CreatePixelShader(p.data(),p.size(),nullptr,&draw.ps),"Model original PS");
     draw.vsConstants=buffer(device,load(directory/"vs-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
     draw.psConstants=buffer(device,load(directory/"ps-b0.bin"),D3D11_BIND_CONSTANT_BUFFER);
-    UINT slot,stride;std::string file;NativePreparedInputFile streams(directory/"streams.txt");
+    UINT slot,stride;std::string file;NativePreparedInputFile streams(mediaDirectory/"streams.txt");
     while(streams>>slot>>stride>>file) {
         if(slot!=draw.vertexBuffers.size())throw std::runtime_error("Model streams are not in source slot order");
         if(sharedGeometry){
             if(slot>=sharedGeometry->vertexBuffers.size()||sharedGeometry->strides.at(slot)!=stride)
                 throw std::runtime_error("Selected material source geometry streams differ");
             draw.vertexBuffers.push_back(sharedGeometry->vertexBuffers[slot]);
-        }else draw.vertexBuffers.push_back(buffer(device,load(directory/file),D3D11_BIND_VERTEX_BUFFER));
+        }else draw.vertexBuffers.push_back(buffer(device,load(mediaDirectory/file),D3D11_BIND_VERTEX_BUFFER));
         draw.strides.push_back(stride);
     }
-    draw.layout=loadNativeModelLayout(device,directory,v,draw.instanceStreams);
+    draw.layout=loadNativeModelLayout(device,mediaDirectory,v,draw.instanceStreams);
     UINT fill,cull,front,depthTest,depthWrite,depthCompare,stencilEnable;
     NativePreparedInputFile metadata(directory/"draw.txt");
     metadata>>draw.indexCount>>draw.indexStart>>draw.baseVertex>>draw.topology>>draw.indexBits>>file>>fill>>cull>>front;
@@ -123,7 +157,7 @@ static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& 
             draw.topology!=sharedGeometry->topology||draw.indexBits!=sharedGeometry->indexBits)
             throw std::runtime_error("Selected material source geometry draw differs");
         draw.indices=sharedGeometry->indices;
-    }else draw.indices=buffer(device,load(directory/file),D3D11_BIND_INDEX_BUFFER);
+    }else draw.indices=buffer(device,load(mediaDirectory/file),D3D11_BIND_INDEX_BUFFER);
     D3D11_RASTERIZER_DESC rs{};rs.FillMode=D3D11_FILL_MODE(fill);rs.CullMode=D3D11_CULL_MODE(cull);rs.FrontCounterClockwise=front;rs.DepthClipEnable=TRUE;
     check(device->CreateRasterizerState(&rs,&draw.raster),"Model source group raster");
     D3D11_DEPTH_STENCIL_DESC ds{};ds.DepthEnable=depthTest;ds.DepthWriteMask=depthWrite?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;ds.DepthFunc=D3D11_COMPARISON_FUNC(depthCompare);
@@ -132,15 +166,15 @@ static NativeModelDraw loadNativeModelDraw(ID3D11Device* device,const fs::path& 
     // The same source ordinary late dispatcher writes the current record reference.
     if(stencilEnable)metadata>>draw.stencilReference;
     check(device->CreateDepthStencilState(&ds,&draw.depth),"Model ordinary source depth/stencil");
-    UINT resourceFormat,viewFormat;NativePreparedInputFile textures(directory/"textures-native.txt");
+    UINT resourceFormat,viewFormat;NativePreparedInputFile textures(mediaDirectory/"textures-native.txt");
     while(textures>>slot>>resourceFormat>>viewFormat>>file) {
         if(slot>=draw.textures.size())throw std::runtime_error("Model texture slot out of range");
-        draw.textures[slot]=loadNativeModelTexture(device,directory/file,DXGI_FORMAT(resourceFormat),DXGI_FORMAT(viewFormat));
+        draw.textures[slot]=loadNativeModelTexture(device,mediaDirectory/file,DXGI_FORMAT(resourceFormat),DXGI_FORMAT(viewFormat));
     }
-    NativePreparedInputFile samplers(directory/"samplers-native.txt");
+    NativePreparedInputFile samplers(mediaDirectory/"samplers-native.txt");
     while(samplers>>slot>>file) {
         if(slot>=draw.samplers.size())throw std::runtime_error("Model sampler slot out of range");
-        auto bytes=load(directory/file);if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("Model source sampler descriptor incomplete");
+        auto bytes=load(mediaDirectory/file);if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("Model source sampler descriptor incomplete");
         D3D11_SAMPLER_DESC sd{};std::memcpy(&sd,bytes.data(),sizeof(sd));
         check(device->CreateSamplerState(&sd,&draw.samplers[slot]),"Model source sampler");
     }
@@ -156,20 +190,31 @@ static NativeModelInputs loadNativeModels(ID3D11Device* device,const fs::path& s
     check(device->CreateBlendState(&bd,&result.blend),"Model ordinary54 source disabled blend/all five RGBA");
     return result;
 }
-static void drawNativeModels(ID3D11DeviceContext* context,const NativeModelInputs& inputs,
+template<class ModelInputs>
+static void drawNativeModels(ID3D11DeviceContext* context,const ModelInputs& inputs,
     ID3D11RenderTargetView* const* targets,ID3D11DepthStencilView* depthTarget,const D3D11_VIEWPORT& viewport) {
     context->OMSetRenderTargets(5,targets,depthTarget);context->RSSetViewports(1,&viewport);
     context->OMSetBlendState(inputs.blend.Get(),nullptr,~0u);
     context->HSSetShader(nullptr,nullptr,0);context->DSSetShader(nullptr,nullptr,0);context->GSSetShader(nullptr,nullptr,0);
     bool vertexResourcesBound=false;
-    for(const auto& draw:inputs.draws) {
+    auto* windowContext=nativeModelWindowContext(inputs);
+    for(const auto& item:inputs.draws) {
+        const auto& draw=nativeModelResource(item);
         std::vector<ID3D11Buffer*> buffers;for(const auto& b:draw.vertexBuffers)buffers.push_back(b.Get());
         std::vector<UINT> offsets(buffers.size(),0);
         context->IASetVertexBuffers(0,UINT(buffers.size()),buffers.data(),draw.strides.data(),offsets.data());
         context->IASetIndexBuffer(draw.indices.Get(),draw.indexBits==16?DXGI_FORMAT_R16_UINT:DXGI_FORMAT_R32_UINT,0);
         context->IASetInputLayout(draw.layout.Get());context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY(draw.topology));
         context->VSSetShader(draw.vs.Get(),nullptr,0);context->PSSetShader(draw.ps.Get(),nullptr,0);
-        auto vc=draw.vsConstants.Get(),pc=draw.psConstants.Get();context->VSSetConstantBuffers(0,1,&vc);context->PSSetConstantBuffers(0,1,&pc);
+        const auto* windows=nativeModelWindows(item);
+        if(windows&&windows->vertex.buffer) {
+            auto buffer=windows->vertex.buffer;
+            windowContext->VSSetConstantBuffers1(0,1,&buffer,&windows->vertex.firstConstant,&windows->vertex.constantCount);
+        } else {auto buffer=draw.vsConstants.Get();context->VSSetConstantBuffers(0,1,&buffer);}
+        if(windows&&windows->pixel.buffer) {
+            auto buffer=windows->pixel.buffer;
+            windowContext->PSSetConstantBuffers1(0,1,&buffer,&windows->pixel.firstConstant,&windows->pixel.constantCount);
+        } else {auto buffer=draw.psConstants.Get();context->PSSetConstantBuffers(0,1,&buffer);}
         std::array<ID3D11ShaderResourceView*,16> textures{};std::array<ID3D11SamplerState*,16> samplers{};
         for(size_t i=0;i<textures.size();++i){textures[i]=draw.textures[i].Get();samplers[i]=draw.samplers[i].Get();}
         context->PSSetShaderResources(0,UINT(textures.size()),textures.data());context->PSSetSamplers(0,UINT(samplers.size()),samplers.data());

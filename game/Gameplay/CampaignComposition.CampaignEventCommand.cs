@@ -60,12 +60,12 @@ public sealed partial class CampaignComposition
         var voiceSettings = narrationVoiceSettings ?? _personnelNarrationVoiceSettings;
         voiceSettings?.Validate();
         GameSimulation simulation = sourceSession.CaptureSimulationFork(appRandomSnapshot);
-        string sourceDirectory = _repository.SourceDirectory;
-        string? overridesDirectory = _repository.OverrideDirectory;
+        // The worker owns a fresh reader/ledger while borrowing only the
+        // process resource content and these captured application facts.
+        var repository = _repository.CreateReadScope();
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
             var composition = new CampaignComposition(repository, this);
             if (voiceSettings is not null) composition.ConfigurePersonnelNarrationVoice(voiceSettings);
             PreparedRules prepared = composition.PrepareRules(simulation.State, player);

@@ -66,8 +66,25 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ? RulerCaptureDecision.ExecuteRequired : RulerCaptureDecision.Release,
                 new(person, (ushort)request.OfficerId, request.CapturingForceId, priorForce,
                     rulerPhysical, (ushort)request.CapturingRulerId, null, null, null, 0, "player_806D00"), null);
-            var date = state.NativePeriodContinuation?.Cursor?.Date
-                ?? throw RulerTreatmentMissing("stage25_source_date");
+            var date = state.NativePeriodContinuation?.Cursor?.Date;
+            if (date is null)
+            {
+                //The session stamps the actual saved legacy owner moment on
+                //this formal reply. Neither a UI-selected date nor the block's
+                //unchanged starting season can replace that reached stage.
+                var moment = context.ArmyProgressMoment;
+                int index = continuation?.SettlementIndex ?? occupation!.SettlementIndex;
+                if (moment is not { Boundary: NativeArmyProgressStageBoundary.StageEntry } ||
+                    !(moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Combat && index == -1 &&
+                        state.NormalCombatImmediateContinuation is not null ||
+                      moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.DuelOpportunity && index == -1 &&
+                        state.DuelAftermathContinuation is not null ||
+                      moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.ManualTacticIntervention && index == -1 &&
+                        state.ManualTacticExecutionContinuation is not null ||
+                      moment.SchedulerStageIndex == (byte)NativeArmyProgressStage.Defeat && index >= 0))
+                    throw RulerTreatmentMissing("actual_capture_source_date");
+                date = moment.PreWriterThirdDate;
+            }
             var effects = new List<CampaignEffectRequest>();
             var working = continuation is not null
                 ? state with { ArmyDefeatContinuation = continuation with

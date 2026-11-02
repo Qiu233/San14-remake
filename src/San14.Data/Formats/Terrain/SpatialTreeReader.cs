@@ -57,7 +57,7 @@ public static class SpatialTreeReader
                     size, U32(row, 20), row.ToArray()));
             }
         }
-        return new SpatialTreeDocument(rootSize, levels, nodes, data[..HeaderSize].ToArray());
+        return new SpatialTreeDocument(rootSize, levels, nodes.AsReadOnly(), data[..HeaderSize].ToArray());
     }
 
     private static int MortonCoordinate(int value, int bit)

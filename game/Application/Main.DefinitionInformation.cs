@@ -11,7 +11,7 @@ public partial class Main
         var list = new DefinitionInformationListView();
         browser.ShowDetail(list, close => list.Configure(_repository!, _ui, pages,
             () => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(list), close,
-            definition => RunUiAction(() =>
+            definition => RunInspectionUiAction(world, () =>
             {
                 if (!IsInformationBrowserCurrent(browser) || !browser.IsCurrentDetail(list) ||
                     _session?.PlayerForceId is not int player) return;
@@ -19,10 +19,10 @@ public partial class Main
                 if (officers.Available && officers.Value is { } known)
                     OpenInformationOfficerPages(browser, rules, world, known, Adopt);
                 else GD.PushWarning(officers.UnresolvedInput!);
-            }), CurrentListScrollSpeed, pages.Kind == InformationListKind.Scenery
-                ? id => RunUiAction(() => OpenInformationSceneryDetail(browser,rules,world,pages,id,list.RefreshSelectionReturn))
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list), pages.Kind == InformationListKind.Scenery
+                ? id => RunInspectionUiAction(world, () => OpenInformationSceneryDetail(browser,rules,world,pages,id,list.RefreshSelectionReturn))
                 : pages.Kind == InformationListKind.Items
-                    ? id => RunUiAction(() => OpenInformationItem(browser,rules,world,pages.CurrentDefinitionIds,id,
+                    ? id => RunInspectionUiAction(world, () => OpenInformationItem(browser,rules,world,pages.CurrentDefinitionIds,id,
                         list.ApplyDetailSelectionReturn,pages.NameSortAscending)) : null));
         RetainCommandDetailSpeechWorld(list, next =>
         {

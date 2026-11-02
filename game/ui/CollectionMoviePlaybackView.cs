@@ -32,7 +32,7 @@ internal partial class CollectionMoviePlaybackView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionMoviePlayback publication, string nativeLibrary, Func<bool> admitted,
-        Func<float> volume, Action returned, Action<Exception> failed)
+        Func<float> volume, Action returned, Action<Exception> failed, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.volume = volume; this.returned = returned; this.failed = failed;
         Name = "CollectionMoviePlayback"; ZIndex = 20; MouseFilter = MouseFilterEnum.Stop;
@@ -45,7 +45,7 @@ internal partial class CollectionMoviePlaybackView : Control
         if (publication.Subtitles.Count != 0)
         {
             subtitles = new(); AddChild(subtitles);
-            subtitles.Configure(repository, text, publication);
+            subtitles.Configure(repository, text, publication, resources);
         }
         SetMeta("movie_id", publication.MovieId); SetMeta("movie_resource", publication.ResourceUri);
         Resized += Fit; Fit();

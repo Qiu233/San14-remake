@@ -53,12 +53,6 @@ static PostPassRole postPassRole(const std::string& name) {
     if(name=="063-dof")return PostPassRole::ScatterFore;
     return PostPassRole::Other;
 }
-struct NativeNormalPostStagingMap {
-    UINT side{};
-    bool returnedNull{};
-    std::array<char,32> bytes{}; // Meaningful only after a successful current Map.
-};
-
 static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
     NormalPostTimeline owner;auto& templates=owner.templates;
     San14::Render::PostHistorySeed seed;UINT width,height,history,change,applied;
@@ -92,6 +86,25 @@ static NormalPostTimeline prepareNormalPostTimeline(const fs::path& source) {
         }
         templates.passes.push_back(std::move(pass));
     }
+    // Complete source CB22 templates are a numeric library, independently
+    // of the quality-selected program list above. In particular, retaining
+    // FXAA's camera template does not execute FXAA or change Tone's target.
+    NativePreparedInputFile composite(source/"retained-composite-templates.txt");
+    if(!composite)throw std::runtime_error("Normal post Composite template directory absent");
+    std::array<bool,3> retained{};std::string key;
+    const std::array<std::string,3> expected{
+        "100-add-bloom/cb22.bin","108-tone/cb22.bin","109-fxaa/cb22.bin"};
+    while(composite>>key) {
+        auto found=std::find(expected.begin(),expected.end(),key);
+        if(found==expected.end())throw std::runtime_error("Unknown normal post Composite template");
+        const auto index=size_t(found-expected.begin());
+        if(retained[index])throw std::runtime_error("Duplicate normal post Composite template");
+        auto bytes=load(source/key);
+        if(bytes.size()!=208)throw std::runtime_error("Complete source Composite CB22 must be208B");
+        templates.constants[key]=std::move(bytes);retained[index]=true;
+    }
+    if(std::any_of(retained.begin(),retained.end(),[](bool value){return !value;}))
+        throw std::runtime_error("Normal post source union must retain three complete CB22 templates");
     // Physical history storage and its sides belong to the renderer. The
     // timeline consumes the prepared pass library, not a duplicate pair census.
     if(templates.passes.empty())throw std::runtime_error("Normal post pass library is empty");
@@ -171,26 +184,21 @@ static std::vector<NativeNormalPostPass> selectNormalPostFramePasses(
     return selected;
 }
 
-// Runs just before scatter execution, before this application's counters are
-// cleared/written. Mapping remains in the GPU owner; binary decoding stays here.
-static void applyNormalPostScatterFeedback(NormalPostTimeline& owner,NormalPostFrame& frame,
-    const NativeNormalPostStagingMap* actualMap,std::vector<NativeNormalPostPass>& selected) {
-    San14::Render::ScatterFeedback feedback;
-    if(!owner.history.applicationInProgress()||frame.history.feedbackApplied)
-        throw std::runtime_error("Normal post scatter feedback lifecycle differs");
-    if(frame.history.readScatterFeedback) {
-        if(!actualMap||actualMap->side!=frame.history.stagingReadSide)
-            throw std::runtime_error("Current post staging Map required");
-        if(actualMap->returnedNull)feedback={true,true};
-        else {UINT rear,fore;std::memcpy(&rear,actualMap->bytes.data()+4,4);std::memcpy(&fore,actualMap->bytes.data()+20,4);
-            feedback={rear!=0,fore!=0};}
-    }
-    owner.history.acceptScatterFeedback(frame.history,feedback);
+// Before57 has queued GPU clear arguments from the same old controller side.
+// CPU history tracks preparation only; no GPU counter is read or fabricated.
+static void prepareNormalPostScatterClears(NormalPostTimeline& owner,NormalPostFrame& frame,
+    std::vector<NativeNormalPostPass>& selected) {
+    owner.history.prepareScatter(frame.history);
     for(size_t index=0;index<frame.passes.size();++index) {
         const auto role=frame.passes[index].role;
         if(role!=PostPassRole::ScatterRear&&role!=PostPassRole::ScatterFore)continue;
         auto& pass=selected.at(index);
-        pass.clear=role==PostPassRole::ScatterRear?frame.history.clearRearScatter:frame.history.clearForeScatter;
+        if(frame.history.readScatterFeedback) {
+            pass.scatterClear=role==PostPassRole::ScatterRear?NormalPostScatterClear::GpuRear:NormalPostScatterClear::GpuFore;
+            pass.clear=false;
+        } else {
+            pass.scatterClear=NormalPostScatterClear::Recipe;pass.clear=true;
+        }
         pass.clearMask=pass.clear?15:0;pass.clearPacked=0;
     }
 }

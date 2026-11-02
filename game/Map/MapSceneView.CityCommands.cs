@@ -55,8 +55,8 @@ public partial class MapSceneView
     internal bool ReopenCityCommandMenu(int cityId)
     {
         if(_logicalWorld?.Cities.GetValueOrDefault(cityId)?.HexId is not int hex||
-            _sourceMainCameraTerrain is not { } terrain)return false;
-        if(_deploymentTargetAnchors?.Terrain!=terrain)_deploymentTargetAnchors=new(terrain);
+            _sceneTerrain?.WorldGroundHeight is not { } terrain)return false;
+        if(!ReferenceEquals(_deploymentTargetAnchors?.Terrain,terrain))_deploymentTargetAnchors=new(terrain);
         if(_deploymentTargetAnchors.Query(hex).GroundWorld is not { } ground)return false;
         ShowPickedCell(hex,new(ground.X,ground.Y,ground.Z));
         if(_d3d11Markers?.TryGetCityMenuAnchor(cityId,out _)==true)
@@ -86,6 +86,7 @@ public partial class MapSceneView
     private void OpenPickedCityMenu(Vector2 cursor)
     {
         if (!_embedded || _logicalWorld is null || _mapSelection.Current?.CityDetails is not { } city) return;
+        CloseAreaHexCommandMenu();
         if (_cityCommandMenu is null)
         {
             _cityCommandMenu = new() { ZIndex = 2 };

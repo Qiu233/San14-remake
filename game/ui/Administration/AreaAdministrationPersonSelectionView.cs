@@ -27,6 +27,7 @@ internal partial class AreaAdministrationPersonSelectionView : Control
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
+    private bool ownsResources;
     private Control canvas = null!, body = null!;
     private UiSourceScrollbar scroll = null!;
     private AreaAdministrationPersonListState state = null!;
@@ -53,7 +54,7 @@ internal partial class AreaAdministrationPersonSelectionView : Control
         Func<int, IReadOnlyList<int>, int, bool, AreaAdministrationQuery<IReadOnlyList<int>>> order,
         Action<int?> complete, Action<string> unavailable,
         Func<int, IReadOnlyList<int>, AreaAdministrationQuery<IReadOnlyList<CityDomesticPersonEntry>>>? queryPage = null,
-        Func<int>? currentScrollSpeed=null)
+        Func<int>? currentScrollSpeed=null, AdministrationPageChrome.Resources? resources=null)
     {
         if (!columns.SequenceEqual(AreaAdministrationPersonColumns.For(state.ActivePage)))
             throw new InvalidDataException("Area active-page columns do not match the role preset.");
@@ -79,8 +80,11 @@ internal partial class AreaAdministrationPersonSelectionView : Control
         int initialPage = state.ActivePage, initialScroll = state.Scroll;
         Name = "AreaPersonSelection"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         var messages = repository.LoadMessages(text.SourceLocale, San14.Data.Formats.MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException("Missing Area person caption.");
         canvas = new Control { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop }; AddChild(canvas);
@@ -235,5 +239,9 @@ internal partial class AreaAdministrationPersonSelectionView : Control
         { GetViewport().SetInputAsHandled(); RequestCancel(); }
     }
     private void Fit() { float factor = Math.Min(Size.X / 1920, Size.Y / 1080); canvas.Scale = Vector2.One * factor; canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2; }
-    public override void _ExitTree() { complete = null; order = null; queryPage = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    {
+        complete = null; order = null; queryPage = null;
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    }
 }

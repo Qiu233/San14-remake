@@ -4,9 +4,9 @@ namespace San14.Data;
 
 /// <summary>The ordinary Person list's authored column groups. These are
 /// format descriptors, not runtime dependencies on executable code.</summary>
-internal static class OfficerInformationSources
+public static class OfficerInformationSources
 {
-    internal static ImmutableArray<OfficerInformationGroup> Create(Func<int, int, string> text)
+    public static ImmutableArray<OfficerInformationGroup> Create(Func<int, int, string> text)
     {
         var columns = new Dictionary<int, OfficerInformationColumn>
         {

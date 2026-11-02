@@ -11,7 +11,7 @@ internal partial class MusicCandidateRowView : Control
         string name, string number, Func<bool> admitted, Action selected, Action previewRequested)
     {
         this.selected = selected;
-        var source = new UiSourceLayout(MusicEditLayoutSource.LoadSelectionRow(repository));
+        var source = assets.SourceLayout("02_07_04_offset_00");
         body = new UiSourceButton { Size = Size, InputAdmission = admitted }; AddChild(body);
         body.GuiInput += input => ScrollInput?.Invoke(input);
         var states = new Control[5];

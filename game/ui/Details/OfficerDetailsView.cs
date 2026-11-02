@@ -5,13 +5,13 @@ using San14.Client.Gameplay;
 public partial class OfficerDetailsView : DetailsView
 {
     internal void Configure(GameResourceRepository repository, OfficerDetailView view, PreviewText text, Action close,
-        bool showReturnButton = true, bool showHeader = true)
+        bool showReturnButton = true, bool showHeader = true, AdministrationPageChrome.Resources? resources = null)
     {
         DetailContent content = view.Content;
         if (showReturnButton || showHeader) ConfigureCommonBackdrop(repository);
         ConfigureLayout(repository, "res://ui/officer-details.json", "OfficerDetails", "detail_officer_title",
             text, content.Values, content.PortraitAppearanceCode, content.Caption, close,
-            showReturnButton: showReturnButton, showHeader: showHeader);
+            showReturnButton: showReturnButton, showHeader: showHeader, resources: resources);
         SetMeta("officer_id", view.OfficerId);
         if (view.BaseAbilities is { } abilities) SetMeta("base_abilities", abilities.ToArray());
         // Rank definitions stay separate from an unresolved final ability sum.

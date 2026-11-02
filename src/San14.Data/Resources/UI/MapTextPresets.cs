@@ -14,13 +14,13 @@ public sealed record MapTextPreset(AreaMarkerColor LT, AreaMarkerColor RT,
 /// Numeric definitions are project rules; glyphs remain source resources.</summary>
 public sealed class MapTextPresets
 {
+    // Project color rules are immutable and shared across pages/locales.
+    // Convert their numeric colors once, before normal UI is admitted.
+    private static readonly MapTextPresets Shared = new(MapUiRules.TextStyles.Select(Read).ToArray());
     private readonly MapTextPreset[] _rows;
     private MapTextPresets(MapTextPreset[] rows) => _rows = rows;
 
-    public static MapTextPresets Create()
-    {
-        return new(MapUiRules.TextStyles.Select(Read).ToArray());
-    }
+    public static MapTextPresets Create() => Shared;
 
     // The source falls back to row0 for any index outside0..77.
     public MapTextPreset this[int index] => _rows[(uint)index < 78 ? index : 0];

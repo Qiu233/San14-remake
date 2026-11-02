@@ -37,12 +37,14 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
     IPlayableUnitBehaviorRules? behaviorRules = null,
     IPlayableArmyMovementCommandRules? movementCommands = null) : IOrderRules
 {
+    // The selector limits additions, not the complete initial map-group vector.
+    // Shared orders validate every selected unit and publish one atomic result.
     public CommandResult Apply(GameState state, ForceState force, GameOrder order, CommandContext context)
     {
         if (order is IssueArmiesFacilityConstructionOrder group)
         {
             int hexCount = checked(state.MapWidth * state.MapHeight);
-            if (group.Armies is null || group.Armies.Count is < 1 or > 30 ||
+            if (group.Armies is null || group.Armies.Count < 1 ||
                 group.InitialHexId < 0 || group.InitialHexId >= hexCount ||
                 group.FinalHexId is int finalHex && (finalHex < 0 || finalHex >= hexCount) ||
                 !FacilityConstructionIntent.IsDefinitionKey(group.DefinitionKey))
@@ -211,7 +213,7 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
     private CommandResult SetFire(GameState state, ForceState force, IReadOnlyList<int> ids,
         int clickedHexId, int targetHexId, IReadOnlyList<int> waypointHexIds, CommandContext context)
     {
-        if (ids is null || ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count ||
+        if (ids is null || ids.Count < 1 || ids.Distinct().Count() != ids.Count ||
             clickedHexId < 0 || clickedHexId >= state.MapWidth * state.MapHeight ||
             targetHexId < 0 || targetHexId >= state.MapWidth * state.MapHeight ||
             waypointHexIds is null || waypointHexIds.Count > PlayableWaypointMarch.MaximumWaypoints ||
@@ -235,7 +237,7 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
     private CommandResult WithdrawOrdinaryArmies(GameState state, ForceState force, IReadOnlyList<int> ids, CommandContext context,
         IReadOnlyList<ArmyWithdrawalSavedGroup>? savedGroups)
     {
-        if (ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count)
+        if (ids.Count < 1 || ids.Distinct().Count() != ids.Count)
             return CommandResult.Reject("Select distinct deployed ordinary armies.", "unit.batch");
         var selected = new List<UnitState>(ids.Count);
         foreach (int id in ids)
@@ -253,7 +255,7 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
     private CommandResult WithdrawTransports(GameState state, ForceState force, IReadOnlyList<int> ids, CommandContext context,
         IReadOnlyList<ArmyWithdrawalSavedGroup>? savedGroups)
     {
-        if (ids.Count is < 1 or > 30 || ids.Distinct().Count() != ids.Count)
+        if (ids.Count < 1 || ids.Distinct().Count() != ids.Count)
             return CommandResult.Reject("Select distinct deployed transports.", "unit.batch");
         var selected = new List<UnitState>(ids.Count);
         foreach (int id in ids)

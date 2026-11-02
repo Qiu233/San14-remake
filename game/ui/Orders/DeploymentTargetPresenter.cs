@@ -65,7 +65,8 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
         Func<int>? scrollSpeed=null,bool? tutorialRestrictsFacilities=null,
         Action<DeploymentAction,int,Action<DeploymentAction>>? chooseFalseReportDestination=null,
         Action<IReadOnlyList<MapRoutePreviewPath>>? routePreviewChanged=null,
-        GeneralUnitTargetPreparation? generalPreparation=null)
+        GeneralUnitTargetPreparation? generalPreparation=null,
+        AdministrationPageChrome.Resources? uiResources=null)
     {
         this.view=view;this.repository=repository;this.text=text;this.world=world;this.rules=rules;
         this.source=generalPreparation is null ? source : null;this.force=force;
@@ -90,10 +91,10 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
             view.Configure(repository,text,city,resources.Troops?.CurrentTroops
                 ??throw new InvalidDataException("Deployment troop availability is unknown."),
                 resources.DecisionCommandBooks,[new(source,city.Name,contents)],Draft.SelectedOfficers,scrollSpeed?.Invoke()??0,
-                SelectionChanged,OpenFacilities,RequestBack,currentScrollSpeed:scrollSpeed);
+                SelectionChanged,OpenFacilities,RequestBack,currentScrollSpeed:scrollSpeed,resources:uiResources);
             view.ApplyDraftResources(resources);
         }
-        else ConfigureGeneralTargetView(generalPreparation, contents, scrollSpeed);
+        else ConfigureGeneralTargetView(generalPreparation, contents, scrollSpeed, uiResources);
         view.ConfigureSourceRoute(repository,projectMarker);
         Refresh();
 
@@ -145,11 +146,8 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
             return;
         }
         ArmyCommandMenu? popup=null;
-        var captions=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         var entries=permission.Options.Where(option=>option.Included==true).Select(option=>
-            new ArmyCommandMenuEntry(option.ActionKey,(option.ActionKey=="capture"
-                ?repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[0]:captions).Records[option.CaptionDataIndex].Text
-                ??throw new InvalidDataException("Missing deployment command caption."),Icon(option.ActionKey),Hint(option),
+            new ArmyCommandMenuEntry(option.ActionKey,UnitTargetMenuMessages.Caption(repository,text.SourceLocale,option),Icon(option.ActionKey),Hint(option),
                 option.Enabled==true&&UnitTargetMenuMessages.AllowsPresentation(option)&&
                     (option.ActionKey is "waypoint" or "build"||option.Action is not null&&option.ActionKey is "move" or "enter" or "attack" or "repair" or "demolish" or "fire" or "occupy"||
                         chooseFalseReportDestination is not null&&option.Action is {ActionKey:"capture",Target.Kind:DeploymentTargetKind.Unit}),()=>
@@ -183,13 +181,13 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
         if(entries.Length==0)return;
         popup=new ArmyCommandMenu();
         menu=popup;view.AddMapMenu(popup);
-        popup.Configure(repository,text,entries,value=>{if(!disposed&&menu==popup)view.ApplyHint(value);});
+        popup.Configure(repository,text,entries,value=>{if(!disposed&&menu==popup)view.ApplyHint(value);},resources:view.SourceResources);
         menuHexId=target;
         popup.Name="DeploymentTargetMenu";
         var panel=new DeploymentPolicyView();policies=panel;view.AddPolicyPanel(panel);
         panel.Configure(repository,text,(setting,first)=>
         {if(!disposed&&policies==panel&&menu==popup)ChangePolicy(setting,first);},()=>
-        {if(!disposed&&policies==panel&&menu==popup)SavePolicyDefaults();});
+        {if(!disposed&&policies==panel&&menu==popup)SavePolicyDefaults();},resources:view.SourceResources);
         RefreshPolicies();
         popup.TrackAnchor(()=>project(target),position=>
         {
@@ -228,9 +226,10 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
         "move"=>"000_cmn_icon_bt_kidou",
         "enter"=>"000_cmn_icon_bt_nyujo",
         "attack"=>"000_cmn_icon_bt_battle",
-        "repair" or "demolish"=>"000_cmn_icon_bt_build",
+        "build" or "repair" or "demolish"=>"000_cmn_icon_bt_build",
         "fire"=>"000_cmn_icon_bt_kakei",
         "occupy"=>"000_cmn_icon_bt_senryo",
+        "capture"=>"000_cmn_icon_st_gihou",
         _=>null
     };
 
@@ -370,7 +369,7 @@ internal sealed partial class DeploymentTargetPresenter : IDisposable
             if(disposed||confirmation!=dialog)return;
             confirmation=null;confirmationKind=null;dialog.Hide();dialog.QueueFree();modalChanged(false);
             if(value)yes();
-        });
+        },resources:view.SourceResources);
     }
 
     internal bool TryCancelOverlay()

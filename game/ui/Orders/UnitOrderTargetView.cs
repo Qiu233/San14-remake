@@ -5,8 +5,8 @@ using San14.Client.Gameplay;
 
 internal enum UnitMapOrder { Stay, Withdraw, Enter, Attack, ChangeBehavior, ChangeWaypoints, Build, Repair, Demolish }
 
-/// <summary>Map targeting for an existing army. The original shared header and
-/// footer frame a temporary command body; this is not the restored unit menu.</summary>
+/// <summary>Map targeting with the original existing-army command menu,
+/// policy panels and footer. The legacy non-native editor remains separate.</summary>
 internal partial class UnitOrderTargetView : Control
 {
     private AdministrationPageChrome? chrome;
@@ -57,7 +57,8 @@ internal partial class UnitOrderTargetView : Control
         Action returned, Action accepted, MilitaryCommandView commands, Action<UnitMapOrder, DeploymentTarget?> requested,
         Theme commandTheme, DeploymentPolicyOptions policyOptions, DeploymentBehavior? behavior,
         IReadOnlyList<FacilityConstructionChoice> construction, IReadOnlyList<UnitFacilityTarget> facilities,
-        Action constructionChanged, Func<int, int?> readFacilityCapacity, bool existingArmyMode = false)
+        Action constructionChanged, Func<int, int?> readFacilityCapacity, bool existingArmyMode = false,
+        AdministrationPageChrome.Resources? resources = null)
     {
         ui = text; sourceRepository = repository; this.policyOptions = policyOptions; this.behavior = initialBehavior = behavior;
         this.existingArmyMode = existingArmyMode;
@@ -67,15 +68,15 @@ internal partial class UnitOrderTargetView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new AdministrationPageChrome(); AddChild(chrome);
         chrome.Configure(repository, text, existingArmyMode ? 0x33A : 0x223, returned, accepted,
-            returnOnly: existingArmyMode, compactReturn: existingArmyMode);
+            returnOnly: existingArmyMode, compactReturn: existingArmyMode, resources: resources);
         if (!existingArmyMode) chrome.ApplyTitle(text.Get("play_unit_orders_title"));
         chrome.ApplyDefaultHint(text.Get("play_unit_target_hint"));
-        var narration = new UiSourceLayout(repository, 0xAB6ADAA7);
+        var narration = chrome.Assets.SourceLayout(0xAB6ADAA7);
         var profile = MapFontProfile.FromNode(narration.Nodes.Single(node => node.Type == 2),
             narration.Source.Source.ResourceUri).WithPreset(MapTextPresets.Create()[13]);
         if (existingArmyMode)
         {
-            var footer = new UiSourceLayout(repository, 0xD8913AB2);
+            var footer = chrome.Assets.SourceLayout(0xD8913AB2);
             var captions = repository.LoadMessages(text.SourceLocale, San14.Data.Formats.MessageKind.Data).Messages.Sections[1];
             foreach (var entry in new[] { (18, 0x35D, "UnitSourceDetails"), (17, 0x25A, "UnitSourceWithdraw"), (14, 0x262, "UnitSourceFacilityReference") })
             {
@@ -99,7 +100,7 @@ internal partial class UnitOrderTargetView : Control
             }
             ConfigureSourceWithdrawalTooltip();
             policies = new DeploymentPolicyView(); chrome.Canvas.AddChild(policies);
-            policies.Configure(repository, text, ChangePolicy, () => { }, showSaveDefaults: false);
+            policies.Configure(repository, text, ChangePolicy, () => { }, showSaveDefaults: false, resources: SourceResources);
             policies.Position = new(1510, 510);
             SetBusy(false);
             return;
@@ -144,7 +145,7 @@ internal partial class UnitOrderTargetView : Control
         { waypoints.Clear(); RenderRoute(); });
         applyRoute = Command("ApplyUnitRoute", "play_military_apply_waypoints", new(860, 700), () => requested(UnitMapOrder.ChangeWaypoints, null));
         policies = new DeploymentPolicyView(); chrome.Canvas.AddChild(policies);
-        policies.Configure(repository, text, ChangePolicy, () => { }, showSaveDefaults: false);
+        policies.Configure(repository, text, ChangePolicy, () => { }, showSaveDefaults: false, resources: SourceResources);
         policies.Position = new(1120, 110);
         applyBehavior = Command("ApplyUnitBehavior", "play_military_apply_behavior", policies.Position + new Vector2(0, policies.Size.Y + 8),
             () => requested(UnitMapOrder.ChangeBehavior, null));
@@ -213,7 +214,7 @@ internal partial class UnitOrderTargetView : Control
                 }, () =>
                 {
                     if (TransportInputAdmitted() && transportCanSave) transportDefaultsRequested?.Invoke();
-                });
+                }, resources: SourceResources);
                 panel.InputAdmission = TransportInputAdmitted;
                 transportPolicies = panel;
             }
@@ -250,6 +251,8 @@ internal partial class UnitOrderTargetView : Control
         facilityOrders?.Hide();
         if (active) chrome?.ApplyReturn(placing);
     }
+    internal AdministrationPageChrome.Resources SourceResources =>
+        new(chrome!.Assets, chrome.Font, chrome.SpriteShader);
     internal int MenuFooterTop => chrome!.MenuFooterTop;
     internal void AddSourceMenu(ArmyCommandMenu menu) => chrome!.Canvas.AddChild(menu);
     internal void ConfigureSourceRoute(GameResourceRepository repository, Func<int, Vector2?> project)

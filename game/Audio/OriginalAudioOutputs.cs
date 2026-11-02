@@ -47,8 +47,7 @@ internal sealed partial class OriginalAudioOutputs : IDisposable
         MusicGraph = music; EffectsGraph = effects;
         var musicPath = ReadPath(music, 0xCDB1D87E);
         var effectsPath = ReadPath(effects, 0xF4E09144);
-        float lfe = .7071f * profile.StereoLfeGain;
-        MusicStereoRoute = new([1, 0, .7071f, lfe, .7071f, 0], [0, 1, .7071f, lfe, 0, .7071f]);
+        MusicStereoRoute = StereoAudioRoute.WindowsDevice(profile.StereoLfeGain);
         // The actual resource routes have unity classification send amplitudes;
         // current category percentages are owned by the existing playback voice.
         if (music.Classification.Routes[0].Gain != 1 || effects.Classification.Routes[0].Gain != 1)

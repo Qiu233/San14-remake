@@ -2,7 +2,7 @@
 #include "../../Runtime/PreparedFileInput.h"
 #include "../../Interop/RouteOverlayInput.h"
 #include "RouteStripRenderer.h"
-#include "RouteOriginalPrograms.h"
+#include "RouteGpuMedia.h"
 #include <memory>
 #include <optional>
 #include <map>
@@ -20,19 +20,10 @@ class NativeRouteOverlay {
         ComPtr<ID3D11BlendState> blend;
         std::array<ComPtr<ID3D11DepthStencilState>,2> drawDepth,restoreDepth;
         std::array<D3D11_DEPTH_STENCIL_DESC,2> drawDescription{},restoreDescription{};
-        static std::shared_ptr<Program> prepare(ID3D11Device* device,const fs::path& root) {
+        static std::shared_ptr<Program> prepare(ID3D11Device* device,const NativeRouteGpuMedia& media) {
             auto out=std::make_shared<Program>();
-            out->original.prepare(device,root);
-            D3D11_RASTERIZER_DESC raster{};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=D3D11_CULL_BACK;raster.DepthClipEnable=TRUE;
-            check(device->CreateRasterizerState(&raster,&out->raster),"Route queue200 solid back-cull raster");
-            //D43190/D712F0: packed0100000000000000 selects RT0, disables
-            //blend, enables allRGBA. These unused factors only make a legal
-            //D3D descriptor; they are not an invented source blend formula.
-            D3D11_BLEND_DESC blend{};auto& target=blend.RenderTarget[0];
-            target.BlendEnable=FALSE;target.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
-            target.SrcBlend=target.SrcBlendAlpha=D3D11_BLEND_ONE;target.DestBlend=target.DestBlendAlpha=D3D11_BLEND_ZERO;
-            target.BlendOp=target.BlendOpAlpha=D3D11_BLEND_OP_ADD;
-            check(device->CreateBlendState(&blend,&out->blend),"Route actual queue200 RGBA blend-disabled state");
+            out->original.borrow(device,media.program);
+            out->raster=media.raster;out->blend=media.blend;
             for(unsigned reverse=0;reverse<2;reverse++) {
                 auto& d=out->drawDescription[reverse];d.DepthEnable=TRUE;d.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL;
                 d.DepthFunc=reverse?D3D11_COMPARISON_GREATER_EQUAL:D3D11_COMPARISON_LESS_EQUAL;
@@ -49,36 +40,6 @@ class NativeRouteOverlay {
             return out;
         }
     };
-    struct Image {ComPtr<ID3D11ShaderResourceView> texture;ComPtr<ID3D11SamplerState> sampler;};
-    struct Media {
-        std::shared_ptr<Program> program;
-        std::map<unsigned,Image> groups;
-        static std::shared_ptr<Media> prepare(ID3D11Device* device,const fs::path& root) {
-            auto out=std::make_shared<Media>();out->program=Program::prepare(device,root);
-            NativePreparedInputFile groups(root/"texture-groups.txt");unsigned name,object,count;std::string relative;
-            if(!groups)throw std::runtime_error("Route actual TextureGroups are absent");
-            while(groups>>name>>object>>count>>relative) {
-                //C15440's listOffset0 and C2FA00's category13 entry0 both
-                //survive BF5FD0/BF47F0;97F630 selects actual image0/UV0.
-                if(object!=0||count==0)throw std::runtime_error("Route TextureGroup's source-selected image is unsupported");
-                NativePreparedInputFile images(root/relative/"images.txt");unsigned slot,resource,view;std::string texture,sampler;
-                if(!(images>>slot>>resource>>view>>texture>>sampler)||slot!=0)throw std::runtime_error("Route selected image0 is absent");
-                Image image;image.texture=loadNativeModelTexture(device,root/relative/texture,DXGI_FORMAT(resource),DXGI_FORMAT(view));
-                auto bytes=load(root/relative/sampler);
-                if(bytes.size()!=sizeof(D3D11_SAMPLER_DESC))throw std::runtime_error("Route G1T sampler extent is invalid");
-                D3D11_SAMPLER_DESC d;std::memcpy(&d,bytes.data(),sizeof(d));
-                check(device->CreateSamplerState(&d,&image.sampler),"Route actual selected G1T sampler");
-                if(!out->groups.emplace(name,std::move(image)).second)throw std::runtime_error("Route TextureGroup identity is duplicated");
-            }
-            if(!groups.eof()||out->groups.empty())throw std::runtime_error("Route TextureGroup list is invalid");
-            return out;
-        }
-        const Image& image(unsigned bank,unsigned role)const {
-            static constexpr unsigned keys[2][4]{{0xD7157FCA,0x83DC9465,0x5A883F24,0x3133E9E3},
-                {0xE57FC322,0xF7F0860D,0xCE9C30CC,0xA547DB8B}};
-            auto at=groups.find(keys[bank][role]);if(at==groups.end())throw std::runtime_error("Route selected TextureGroup is absent");return at->second;
-        }
-    };
     struct Endpoint {
         San14RouteEndpointV1 value{};
         std::array<unsigned,3> references{};
@@ -92,7 +53,11 @@ class NativeRouteOverlay {
         ComPtr<ID3D11Buffer> endpointBuffer;
         bool rotating{};
     };
-    std::shared_ptr<Media> media;
+    std::shared_ptr<const NativeRouteGpuMedia> media;
+    std::shared_ptr<Program> currentProgram;
+    struct Resident {std::shared_ptr<const NativeRouteGpuMedia> media;std::shared_ptr<Program> current;};
+    std::map<fs::path,Resident> resident_;
+    bool requireResident_{};
     Geometry geometry;
     std::uint64_t revision{},resourceGeneration{};
     std::array<float,4> globalTint{};
@@ -117,6 +82,17 @@ class NativeRouteOverlay {
         }
     }
 public:
+    NativeRouteOverlay()=default;
+    NativeRouteOverlay(ID3D11Device* device,const std::vector<NativeRouteGpuBorrowed>& resident,bool required)
+        :requireResident_(required) {
+        if(required&&resident.empty())throw std::runtime_error("Scene route GPU generation is absent");
+        for(const auto& source:resident) {
+            if(!source.media)throw std::runtime_error("Scene borrowed route media is absent");
+            auto current=Program::prepare(device,*source.media);
+            if(!resident_.emplace(nativePreparedFilePath(source.directory),Resident{source.media,std::move(current)}).second)
+                throw std::runtime_error("Scene route GPU directory is duplicated");
+        }
+    }
     //AFDF30's real per-View preparation producer, not a missing-owner white fallback.
     void beginView()noexcept {globalTint={1,1,1,1};viewPrepared=true;}
     void accept(ID3D11Device* device,const San14RouteOverlayInputV1& input) {
@@ -130,10 +106,14 @@ public:
         if(input.updateKind!=San14RouteUpdateKind::Replace)throw std::runtime_error("Route overlay update kind is invalid");
         if((input.vertexCount&&!input.vertices)||(input.spanCount&&!input.spans)||(input.endpointCount&&!input.endpoints))throw std::runtime_error("Route overlay geometry pointer is absent");
         if(input.vertexCount>std::numeric_limits<UINT>::max()/sizeof(San14RouteVertexV1))throw std::runtime_error("Route vertex extent exceeds native allocation");
-        auto candidateMedia=media;
+        auto candidateMedia=media;auto candidateProgram=currentProgram;
         if(input.resourceDirectory) {
             if(!input.resourceGeneration)throw std::runtime_error("Route resource generation is absent");
-            candidateMedia=Media::prepare(device,fs::path(input.resourceDirectory));
+            auto prepared=resident_.find(nativePreparedFilePath(fs::path(input.resourceDirectory)));
+            if(prepared!=resident_.end()) {candidateMedia=prepared->second.media;candidateProgram=prepared->second.current;}
+            else if(requireResident_)throw std::runtime_error("Route update did not borrow its declared startup GPU generation");
+            else {candidateMedia=NativeRouteGpuMedia::prepare(device,fs::path(input.resourceDirectory));
+                candidateProgram=Program::prepare(device,*candidateMedia);}
         } else if(input.resourceGeneration!=resourceGeneration)throw std::runtime_error("Route replacement refers to an uninstalled media generation");
         if(!candidateMedia&&(input.spanCount||input.endpointCount))throw std::runtime_error("Route original media is absent");
         Geometry candidate;std::vector<NativeRouteStripRange> ranges;
@@ -175,14 +155,15 @@ public:
         }
         // Parsing/upload precedes installation. A preparation failure retains
         // the preceding media, geometry and endpoint directions/counts.
-        media=std::move(candidateMedia);geometry=std::move(candidate);resourceGeneration=input.resourceGeneration;revision=input.revision;
+        media=std::move(candidateMedia);currentProgram=std::move(candidateProgram);geometry=std::move(candidate);resourceGeneration=input.resourceGeneration;revision=input.revision;
     }
     bool empty()const noexcept {return geometry.strip.ranges.empty()&&geometry.endpoints.empty();}
     void draw(ID3D11DeviceContext* context,NativeSourceDepthState& sourceDepth,const source_camera::Frame& camera,
         unsigned sourceHostFlags,const RouteAcceptedInputs& accepted) {
         if(empty())return;
         if(!viewPrepared||!media)throw std::runtime_error("Route current View/color owner is absent");
-        auto& program=*media->program;
+        if(!currentProgram)throw std::runtime_error("Route View current program owner is absent");
+        auto& program=*currentProgram;
         auto nextHeight=prepareHdrHeightFog(heightState_,accepted.heightSettings,camera.eye.Z,accepted.heightEnabled);
         RouteOriginalFrame frame;
         frame.worldToClip=camera.worldToClip;frame.eye=camera.eye;frame.clipPlanes=accepted.clipPlanes;

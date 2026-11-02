@@ -15,6 +15,11 @@ public partial class Main
         hud.ConfigureGeographicAdvantages(()=>RunUiAction(ToggleGeographicAdvantages),
             ()=>GeographicAdvantagesInputAdmitted(map));
         hud.SetGeographicAdvantagesSelected(map.UserDisplayMode==1);
+        hud.ConfigureMerchant(()=>RunUiAction(OpenGlobalMerchant),()=>GeographicAdvantagesInputAdmitted(map));
+        hud.ConfigureInformationLayers(action=>RunUiAction(()=>map.ToggleInformationLayer(action)),
+            ()=>GeographicAdvantagesInputAdmitted(map),map.InformationLayerSelectionMask);
+        map.InformationLayersChanged+=hud.SetInformationLayersSelected;
+        hud.TreeExiting+=()=>map.InformationLayersChanged-=hud.SetInformationLayersSelected;
     }
     private bool GeographicAdvantagesInputAdmitted(MapSceneView map)=>
         !_failed&&!_shuttingDown&&!_advancingPeriod&&!IsReturningToTitle&&

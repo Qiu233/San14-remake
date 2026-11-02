@@ -27,12 +27,28 @@ public sealed class TransferServiceProfileStore
     /// host clock is read only when a completion flag is first written.</summary>
     public static TransferServiceProfileStore CreateNew(string path)
     {
+        var store = new TransferServiceProfileStore(path, CreateInitialService());
+        AtomicSaveFiles.Write(path, Encode(store._current, false), overwrite: false);
+        return store;
+    }
+
+    /// <summary>Imports the actual legacy observations before the first durable
+    /// publication. An existing profile is never replaced by this creation path.</summary>
+    public static TransferServiceProfileStore CreateNewWithLegacyProgress(string path,
+        IReadOnlyList<uint> tracks, IEnumerable<int> completedScenarios)
+    {
+        var service = CopyWithLegacyProgress(CreateInitialService(), tracks, completedScenarios);
+        var store = new TransferServiceProfileStore(path, service, legacyPreferencesImported: true);
+        AtomicSaveFiles.Write(path, Encode(service, true), overwrite: false);
+        return store;
+    }
+
+    private static TransferServiceState CreateInitialService()
+    {
         var service = BindLocalService();
         service.InitializeConstructedDates();
         service.ResetLocalFields();
-        var store = new TransferServiceProfileStore(path, service);
-        AtomicSaveFiles.Write(path, Encode(store._current, false), overwrite: false);
-        return store;
+        return service;
     }
 
     /// <summary>Missing, unsupported or damaged existing data fails explicitly.
@@ -48,16 +64,23 @@ public sealed class TransferServiceProfileStore
     public TransferServiceState MergeLegacyProgress(IReadOnlyList<uint> tracks, IEnumerable<int> completedScenarios)
     {
         if (LegacyPreferencesImported) return Current;
+        var next = CopyWithLegacyProgress(_current, tracks, completedScenarios);
+        AtomicSaveFiles.Write(_path, Encode(next, true));
+        _current = next; LegacyPreferencesImported = true;
+        return Current;
+    }
+
+    private static TransferServiceState CopyWithLegacyProgress(TransferServiceState current,
+        IReadOnlyList<uint> tracks, IEnumerable<int> completedScenarios)
+    {
         if (tracks.Count != 3 || tracks.Any(value => value > 2))
             throw new InvalidDataException("Legacy Ending progress has an invalid track shape.");
-        var next = _current.Copy();
+        var next = current.Copy();
         for (int i = 0; i < 3; i++)
             if (tracks[i] != 0 && (next.ReadEndingTrack(i) is not uint old || old < tracks[i]))
                 next.SetEndingTrack(i, tracks[i]);
         foreach (int id in completedScenarios) next.SetScenarioCompleted(id, true);
-        AtomicSaveFiles.Write(_path, Encode(next, true));
-        _current = next; LegacyPreferencesImported = true;
-        return Current;
+        return next;
     }
 
     /// <summary>Failure propagates without replacing the store's current owner

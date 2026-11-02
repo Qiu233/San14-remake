@@ -28,13 +28,14 @@ internal static class NormalCombatImmediateSaveFields
             throw new InvalidDataException("Legacy save contains a future immediate combat continuation.");
     }
 
-    internal static void Migrate(JsonObject state, int version)
+    internal static void Migrate(JsonObject state, int version, CampaignOperationWorldContext? operationContext = null)
     {
         if (version < 176) { state[Key] = null; return; }
         if (!state.ContainsKey(Key)) Invalid();
         if (state[Key] is not JsonNode node)
         {
             if (Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
+                operationContext?.Moment is { SchedulerStageIndex: 13 } ||
                 Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1) &&
                 !(version >= 178 && state["DuelAftermathContinuation"] is JsonObject &&
                   Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 5, 5)) &&
@@ -54,9 +55,13 @@ internal static class NormalCombatImmediateSaveFields
             !Integer(value["ReportWord20"], 0, ushort.MaxValue) ||
             !Integer(value["SampleDay"], int.MinValue, int.MaxValue) ||
             !Integer(value["SampleSalt"], int.MinValue, int.MaxValue) ||
-            !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) ||
+            !Integer(state["NativePeriodContinuation"]?["Cursor"]?["StageIndex"], 13, 13) && operationContext?.Moment is not { SchedulerStageIndex: 13 } ||
             !(Integer(state["ArmyDefeatContinuation"]?["SettlementIndex"], -1, -1) ||
-              version >= 181 && Integer(state["BaseCaptureContinuation"]?["SettlementIndex"], -1, -1))) Invalid();
+              version >= 181 && Integer(state["BaseCaptureContinuation"]?["SettlementIndex"], -1, -1) ||
+              version >= 227 && Integer(state["ArmyReturnCaptiveContinuation"]?["Caller"], (int)ArmyReturnCaptiveCaller.BaseCapture, (int)ArmyReturnCaptiveCaller.BaseCapture) &&
+              Integer(state["ArmyReturnCaptiveContinuation"]?["CaptureTail"]?["SettlementIndex"], -1, -1) ||
+              version >= 211 && (Integer(state["CityCaptureEmperorTail"]?["SettlementIndex"], -1, -1) ||
+                  Integer(state["BaseWinnerEmperorTail"]?["SettlementIndex"], -1, -1)))) Invalid();
         AutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
         BaseAutomaticTacticExecutionSaveFields.Migrate((JsonObject)node, version);
     }

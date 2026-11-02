@@ -13,11 +13,11 @@ public partial class Main
         int player = session.PlayerForceId ?? throw new InvalidOperationException("Army information requires a player.");
         var list = new ArmyInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             list.Configure(repository, _ui, pages, () => Current(list), close,
-                unitId => RunUiAction(() =>
+                unitId => RunInspectionUiAction(world, () =>
                 {
                     if (!Current(list) || !world.Units.ContainsKey(unitId)) return;
                     var publication = rules.QueryUnitSourceDetails(world, unitId);
@@ -25,7 +25,7 @@ public partial class Main
                     var detail = new ArmyDetailsView();
                     browser.ShowDetail(detail, back => ConfigureUnitSourceDetails(detail, world, rules,
                         unitId, publication, back, browser, Adopt));
-                }), CurrentListScrollSpeed);
+                }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
             RetainCommandDetailSpeechWorld(list, next =>
             {
                 world = next; rules = composition.PrepareArmyQueries(next);

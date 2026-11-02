@@ -38,19 +38,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly ArmyCampaignRuleAdapter package;
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
+        //Advice reuses selection with an explicit nonmutating text consumer.
+        private readonly Func<ArmyTargetReportFormattingInputs,string>? textOnly;
         private readonly List<ArmyTargetReportEntry> entries=[];
         private bool entered,completed;
         private ArmyTargetReportFormattingInputs? formatting;
         public GameState State { get; private set; }
         public ArmyTargetReportSnapshot Snapshot => new(entries.ToImmutableArray(),completed,formatting);
         internal ArmyTargetReportContentOperation(ArmyCampaignRuleAdapter package,GameState state,
-            SourceWorldContext current,WorldIndexContext pool)
+            SourceWorldContext current,WorldIndexContext pool, Func<ArmyTargetReportFormattingInputs,string>? textOnly = null)
         {
             if(!ReferenceEquals(pool.ArmyReturnOwner,current)||!pool.OwnsArmyReturnProfile())throw Missing("same_current_pool");
-            this.package=package;State=state;this.current=current;this.pool=pool;
+            this.package=package;State=state;this.current=current;this.pool=pool; this.textOnly=textOnly;
         }
 
-        public ArmyTargetReportSnapshot Produce(TransferPersonReference speaker,ActionReportLocalRecords records)
+        public ArmyTargetReportSnapshot Produce(TransferPersonReference speaker,ActionReportLocalRecords records,int limit=int.MaxValue)
         {
             ArgumentNullException.ThrowIfNull(records);
             if(entered)throw Missing("operation_already_entered");entered=true;
@@ -89,7 +91,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                         _=K(current.ReadForcePhysicalSlot(other),"Army_fresh_end_Force");
                         if(!node.Identity.HasValue)break;
                         var army=Army(node);
-                        if(entries.Count>=int.MaxValue)break;
+                        if(entries.Count>=limit)break;
                         var target=current.ReadArmyLifecycleTargetFields(P(army.PhysicalSlot,"Army_pointer")) ?? throw Missing("Army_target_owner");
                         byte kind=K(target.Kind38,"Army38");ushort raw=K(target.Identity3A,"Army3A");
                         BaseReference? retained=null;
@@ -127,7 +129,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                                     ushort person1=forcePhysical==0?(ushort)5014:
                                         K(current.ReadForceRecord(P(actor.PhysicalSlot,"message_actor"))?.RawRuler10,"message_ruler10");
                                     formatting=new(person0,force0,base0,person1);
-                                    string text=package.FormatActionArmyTargetReport(State,current,formatting,value=>State=value).Text;
+                                    string text=textOnly is {} render ? render(formatting) : package.FormatActionArmyTargetReport(State,current,formatting,value=>State=value).Text;
                                     ushort recordSpeaker=Identity(speaker);
                                     int marker=K(current.ReadArmyUnitRawHex2A(army),"record_Army2A");
                                     bool added=records.AppendArmyTargetWarning(recordSpeaker,marker,text);

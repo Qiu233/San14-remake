@@ -3,8 +3,21 @@ using San14.Data.Formats;
 
 namespace San14.Data;
 
+/// <summary>Immutable resource captions only; no selected value or permission.</summary>
+public sealed record NewGameSettingResourceText(int Group, int Row, string Title, IReadOnlyList<string> Choices);
+
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    public static IReadOnlyList<NewGameSettingResourceText> ReadNewGameSettingResourceText(LoadedMessages messages)
+    {
+        var sections = messages.Messages.Sections;
+        return Array.AsReadOnly(OrdinaryScenarioSettingsSource.Rows.Select(row =>
+            new NewGameSettingResourceText(row.Group, row.Row,
+                sections[1].Records[row.Title].Text ?? throw new InvalidDataException("Missing ordinary setting title."),
+                Array.AsReadOnly(row.Choices.Select(id => sections[0].Records[id].Text
+                    ?? throw new InvalidDataException("Missing ordinary setting choice.")).ToArray()))).ToArray());
+    }
+
     /// <summary>One normal-resource settings publication for a retained draft.
     /// No world capture, source-program read, bank installation or mutation is
     /// performed. Radio events reuse its choices and update only the draft.</summary>

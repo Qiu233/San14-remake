@@ -6,6 +6,7 @@
 #include "FacilityPrimaryPopulation.h"
 #include "CityGateFlagImports.h"
 #include "ArmyRenderWorld.h"
+#include "ModelConstantArena.h"
 
 namespace San14::Render {
 // Session-owned City/Gate, Area and facility presentation. The Army render world owns
@@ -19,10 +20,11 @@ public:
 
     void preparePrimary(ID3D11Device* device,const PreparedResourceDirectories& resources,
         const std::optional<CityGateWorldPublication>& cityWorld,
-        const std::optional<AreaCapitalWorldPublication>& areaWorld) {
+        const std::optional<AreaCapitalWorldPublication>& areaWorld,
+        const std::shared_ptr<const NativePrimaryModelGpuMedia>& primaryGpuMedia,bool requirePrimaryGpuMedia) {
         if(!cityWorld)throw std::runtime_error("Native Main requires its actual initial City/Gate publication");
         cityModels=prepareNativeCityPopulation(device,resources.directory(ResourceGroup::BaseVisuals)/"primary-templates",
-            readNativeBaseVisualPrimary(cityWorld->primary.data(),cityWorld->primary.size()));
+            readNativeBaseVisualPrimary(cityWorld->primary.data(),cityWorld->primary.size()),primaryGpuMedia,requirePrimaryGpuMedia);
         if(!areaWorld)throw std::runtime_error("Native Main requires its actual Area Capital publication");
         const auto& initialAreas=*areaWorld;
         areaModels=prepareNativeAreaPrimaryPopulation(device,cityModels,
@@ -55,14 +57,20 @@ public:
 
     void publish(ID3D11Device* device,ID3D11DeviceContext* context,const std::optional<CityGateWorldPublication>& cityWorld,
         const std::optional<AreaCapitalWorldPublication>& areaWorld,ArmyRenderWorld& armies) {
+        // Borrowed draw descriptions are consumed only until the next World
+        // publication. Clear them before a facility population can replace its
+        // physical draw vector; actual GPU owners remain in their populations.
+        ordinaryModelQueues={};
         primaryPopulationChanged=false;
+
         if(!cityWorld)throw std::runtime_error("Native Main requires its actual City/Gate World publication");
         const auto& bases=*cityWorld;
         if(appliedCityGateRevision!=bases.revision) {
+            primaryPublicationPending=true;
             if(sourceAccessoryVisuals)prepareCurrentCityGateFlagMaterials(device,context,cityAccessories,bases.flags);
             auto primaries=readNativeBaseVisualPrimary(bases.primary.data(),bases.primary.size());
-            updateNativeCityPopulation(cityModels,primaries);
-            if(!bases.facilities.empty())publishNativeFacilityPrimaryPopulation(device,facilityModels,cityModels,
+            primaryBindingsPending|=updateNativeCityPopulation(cityModels,primaries);
+            if(!bases.facilities.empty())primaryBindingsPending|=publishNativeFacilityPrimaryPopulation(device,facilityModels,cityModels,
                 readNativeBaseVisualPrimary(bases.facilities.data(),bases.facilities.size()));
             if(sourceAccessoryVisuals){
                 auto current=readNativeBaseVisualAccessories(bases.accessories.data(),bases.accessories.size());
@@ -75,9 +83,10 @@ public:
         }
         const auto& capitals=*areaWorld;
         if(appliedAreaCapitalRevision!=capitals.models.revision) {
+            primaryPublicationPending=true;
             if(capitals.identities!=areaModels.source.identities)throw std::runtime_error("Current Area roster needs an actual rebind/import");
             if(sourceAccessoryVisuals)prepareCurrentCityGateFlagMaterials(device,context,areaAccessories,capitals.models.flags);
-            updateNativeCityPopulation(areaModels,readNativeBaseVisualPrimary(capitals.models.primary.data(),capitals.models.primary.size()));
+            primaryBindingsPending|=updateNativeCityPopulation(areaModels,readNativeBaseVisualPrimary(capitals.models.primary.data(),capitals.models.primary.size()));
             if(sourceAccessoryVisuals){
                 auto current=readNativeAreaCapitalAccessories(capitals.models.accessories);
                 armies.observeAreaAccessories(areaAccessories.population,current);
@@ -85,9 +94,10 @@ public:
             }
             appliedAreaCapitalRevision=capitals.models.revision;primaryPopulationChanged=true;
         }
-        if(primaryPopulationChanged) {
-            publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels,&facilityModels);
-
+        if(primaryPublicationPending) {
+            publishNativeCityAreaPrimary(primaryModels,cityModels,areaModels,&facilityModels,primaryBindingsPending);
+            primaryPublicationPending=false;primaryBindingsPending=false;
+            primaryPopulationChanged=true;primaryShadowPublicationPending=true;
         }
     }
 
@@ -104,8 +114,10 @@ public:
     }
 
     void updateSubmission(ID3D11DeviceContext* context,const StaticModelResources::Submission& staticSubmission) {
-            auto cityQueues=updateSelectNativeCityAreaPrimary(context,primaryModels,cityPlan);
-            ordinaryModelQueues=mergeNativeCityPopulationWithField54(staticSubmission.plan,staticSubmission.models,primaryModels.source,cityPlan,cityQueues);
+            const auto constants=constantArena.upload(context,cityPlan.models,primaryModels.currentModels);
+            if(!constants.context)uploadNativeCityAreaPrimaryConstants(context,primaryModels,cityPlan);
+            ordinaryModelQueues=mergeNativeCityAreaPrimaryDrawReferences(staticSubmission.plan,staticSubmission.models,
+                primaryModels,cityPlan,constants.context?&constants:nullptr);
     }
 
     void drawOrdinary(ID3D11DeviceContext* context,ID3D11RenderTargetView* const* colors,
@@ -121,16 +133,21 @@ public:
     const NativeCityPopulationSource& citySource()const{return cityModels.source;}
     const NativeCityPopulationPlan& plan()const{return cityPlan;}
     bool populationChanged()const{return primaryPopulationChanged;}
+    bool shadowPopulationPending()const{return primaryShadowPublicationPending;}
+    void acknowledgeShadowPopulation(){primaryShadowPublicationPending=false;}
 
 private:
     const bool sourceAccessoryVisuals;
     NativeCityPopulation cityModels;NativeCityPopulationPlan cityPlan;
     NativeCityPopulation areaModels,facilityModels;NativeCityAreaPrimary primaryModels;
     bool primaryPopulationChanged=false;
+    bool primaryPublicationPending=false,primaryBindingsPending=false;
+    bool primaryShadowPublicationPending=false;
     NativeCityAccessoryGpu cityAccessories;
     NativeCityAccessoryGpu areaAccessories;
     UINT64 appliedCityGateRevision=0;
     UINT64 appliedAreaCapitalRevision=0;
-    NativeCityModelQueues ordinaryModelQueues;
+    NativeModelConstantArena constantArena;
+    NativeCityModelReferenceQueues ordinaryModelQueues;
 };
 } // namespace San14::Render

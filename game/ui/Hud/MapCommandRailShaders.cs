@@ -7,10 +7,13 @@ internal static class MapCommandRailShaders
     internal static Shader Cursor() => Create(false);
     internal static Shader Focus(bool submenu = false) => Create(true, submenu);
 
-    private static Shader Create(bool clipped, bool submenu = false) => new()
+    private static Shader Create(bool clipped, bool submenu = false)
     {
-        ResourceName = clipped ? "MainCommandFocusBlend" : "MainCommandCursorBlend",
-        Code = "shader_type canvas_item;\nrender_mode unshaded, blend_disabled;\n" +
+        var shader = new Shader();
+        try
+        {
+            shader.ResourceName = clipped ? "MainCommandFocusBlend" : "MainCommandCursorBlend";
+            shader.Code = "shader_type canvas_item;\nrender_mode unshaded, blend_disabled;\n" +
             "const bool clipped_focus = " + (clipped ? "true" : "false") + ";\n" +
             "const bool submenu_focus = " + (submenu ? "true" : "false") + ";\n" + """
             uniform sampler2D screen_texture : hint_screen_texture, filter_nearest, repeat_disable;
@@ -66,6 +69,9 @@ internal static class MapCommandRailShaders
                 }
                 COLOR = vec4(encode_srgb(rgb),alpha);
             }
-            """
-    };
+            """;
+            return shader;
+        }
+        catch { shader.Dispose(); throw; }
+    }
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include "../Environment/SeasonResources.h"
 // Include after normal-post GPU/continuous/camera, seasonal and map-exposure writers.
 namespace San14::Render {
@@ -51,6 +52,15 @@ public:
         timeline_=prepareNormalPostTimeline(continuousSource);
         camera_=prepareNativeNormalPostCamera(cameraSource);
         passUnion_=loadNativeNormalPostPasses(device,continuousSource,width,height);
+        // The original scatter targets are RGBA16_FLOAT. Check the actual
+        // RTV once at resource setup, not in every clear or frame.
+        for(const auto& pass:passUnion_)if(pass.name=="062-dof"||pass.name=="063-dof")
+            for(const auto& target:pass.targets) {
+                D3D11_RENDER_TARGET_VIEW_DESC desc{};
+                renderer_.surfaces.at(target.name).targets.at(target.mip)->GetDesc(&desc);
+                if(desc.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT)
+                    throw std::runtime_error("DOF GPU clear requires the original RGBA16_FLOAT scatter target");
+            }
     }
     ComPtr<ID3D11Texture2D> execute(ID3D11Device* device,ID3D11DeviceContext* context,
         NativeSourceDepthState& logical,const fs::path& seasonalSource,
@@ -58,10 +68,19 @@ public:
         const source_camera::CameraTransform& camera,float currentClock) {
         if(season) {
             if(loadedLutSeason_!=int(season->season)) {
+                std::optional<source_current_season_post::CallerSources> callers;
+                const bool callerLoaded=std::any_of(callers_.seasons.begin(),callers_.seasons.end(),
+                    [&](const auto& row){return row.season==season->season;});
+                if(!callerLoaded) {
+                    callers=source_current_season_post::readCallerSources(seasonalSource/"post-caller"/"caller-source.bin");
+                    // Require the actual new season before changing installed metadata.
+                    source_current_season_post::currentCallerSource(*callers,season->season);
+                }
                 const bool loaded=std::any_of(seasonLuts_.catalog.luts.begin(),seasonLuts_.catalog.luts.end(),
                     [&](const auto& row){return row.season==season->season;});
                 if(!loaded)source_current_season_resources::loadResources(device,seasonLuts_,
                     source_current_season_resources::readCatalog(seasonalSource));
+                if(callers)callers_=std::move(*callers);
                 loadedLutSeason_=int(season->season);
             }
             source_current_season_resources::installCurrent(seasonLuts_,*season,renderer_);
@@ -82,19 +101,12 @@ public:
             // No source Before57 is reached when DOF is disabled. Do not map
             // absent sprite feedback merely to complete the shared timeline.
             plan.history.readScatterFeedback=false;
-            applyNormalPostScatterFeedback(timeline_,plan,nullptr,passes);
+            prepareNormalPostScatterClears(timeline_,plan,passes);
         }
-        NativeNormalPostStagingMap mapped;bool readStaging=false;
         auto beforeScatter=[&]() {
-            if(plan.history.readScatterFeedback) {
-                mapped.side=plan.history.stagingReadSide;D3D11_MAPPED_SUBRESOURCE bytes{};
-                auto buffer=renderer_.spriteStaging.at(mapped.side).Get();
-                const HRESULT result=context->Map(buffer,0,D3D11_MAP_READ,0,&bytes);
-                mapped.returnedNull=FAILED(result);
-                if(!mapped.returnedNull){std::memcpy(mapped.bytes.data(),bytes.pData,mapped.bytes.size());context->Unmap(buffer,0);}
-                readStaging=true;
-            }
-            applyNormalPostScatterFeedback(timeline_,plan,readStaging?&mapped:nullptr,passes);
+            if(plan.history.readScatterFeedback)
+                renderer_.scatterFeedback.prepareClearArguments(context,plan.history.stagingReadSide);
+            prepareNormalPostScatterClears(timeline_,plan,passes);
         };
         auto result=executeNormalPost(device,context,logical,renderer_,passes,beforeScatter);
         endNormalPost(renderer_);

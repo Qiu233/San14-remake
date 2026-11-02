@@ -31,12 +31,12 @@ internal sealed partial class DeploymentSetupPresenter
         view.AddChild(child);
         try
         {
-            view.BeginDefinitionSelection(child);
+            view.BeginChildSelection(child);
             RefreshDecisionAdmission();
             child.Configure(repository, text, model,
                 () => !disposed && ReferenceEquals(definitionModal, child) &&
                     GodotObject.IsInstanceValid(view) && !view.IsQueuedForDeletion() && view.IsVisibleInTree() && view.CanProcess(),
-                selected => CompleteDefinitionSelection(child, officer, tactic, selected), () => scrollSpeed?.Invoke() ?? 0);
+                selected => CompleteDefinitionSelection(child, officer, tactic, selected), () => scrollSpeed?.Invoke() ?? 0,resources:view.SourceResources);
         }
         catch
         {
@@ -90,9 +90,9 @@ internal sealed partial class DeploymentSetupPresenter
         if (GodotObject.IsInstanceValid(child))
         {
             child.Abandon();
-            if (GodotObject.IsInstanceValid(view)) view.EndDefinitionSelection(child);
+            if (GodotObject.IsInstanceValid(view)) view.EndChildSelection(child, restore: !disposed);
             if (!child.IsQueuedForDeletion()) child.QueueFree();
         }
-        else if (GodotObject.IsInstanceValid(view)) view.EndDefinitionSelection(child);
+        else if (GodotObject.IsInstanceValid(view)) view.EndChildSelection(child, restore: !disposed);
     }
 }

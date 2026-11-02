@@ -10,9 +10,9 @@ public partial class Main
         if (_failed || _shuttingDown || HasScenarioSettings || _repository is null ||
             _mapSystemMenu is not { } parent || _mapSystemSession is not { } session ||
             _campaignComposition is not { } composition || !ReferenceEquals(_session, session) ||
-            !ReferenceEquals(_mapSystemWorld, session.World) || !ReferenceEquals(_world, session.World) ||
+            _mapSystemWorld is not { } world || !IsInspectionWorldCurrent(session, world) ||
             _residentMap != _mapSystemMap) return;
-        var world = session.World;
+        bool periodInspection = _mapSystemPeriodInspection;
         var map = _mapSystemMap;
         var adapter = composition.PrepareArmyQueries(world);
         if (!adapter.CanViewCurrentScenarioSettings(world)) return;
@@ -20,12 +20,12 @@ public partial class Main
         var view = new CurrentScenarioSettingsView(); _scenarioSettingsView = view;
         parent.SetBusy(true); parent.SuspendContent(); AddChild(view);
         try { view.Configure(_repository, _ui, publication, Current, () => RunUiAction(() =>
-            { if (Current()) CloseScenarioSettings(); })); }
+            { if (Current()) CloseScenarioSettings(); }, allowDuringPeriod: periodInspection)); }
         catch { CloseScenarioSettings(); throw; }
 
         bool Current() => !_failed && !_shuttingDown && _scenarioSettingsView == view &&
             _mapSystemMenu == parent && _residentMap == map && ReferenceEquals(_session, session) &&
-            ReferenceEquals(session.World, _mapSystemWorld) && ReferenceEquals(_world, _mapSystemWorld);
+            _mapSystemWorld is { } queryWorld && IsInspectionWorldCurrent(session, queryWorld);
     }
 
     private void CloseScenarioSettings(bool resumeParent = true)

@@ -33,7 +33,9 @@ internal static class ArmyLogisticsRouteSource
             if (!Need(current.ReadObjectNativeValidity(obj), "home_object_validity")) return new([], 0, 0, null);
             ushort goal = Need(current.ReadObjectHexIndex(obj), "home_hex");
             ushort start = Need(current.ReadArmyUnitRawHex2A(receiver), "army_hex");
-            if (start >= 48400 || goal >= 48400) return new([], 0, 0, null);
+            if (ArmyMarchSourceAdapter.DecodeDestination(start).Kind == ArmyMarchDestinationKind.None ||
+                ArmyMarchSourceAdapter.DecodeDestination(goal).Kind == ArmyMarchDestinationKind.None ||
+                !current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) return new([], 0, 0, null);
             // This uses the same tree ordering and cumulative edge-cost return
             // as 183C00/1845B0, with a distinct logistics query descriptor.
             var query = ArmyRouteSearch.LogisticsQueries(state, current, army, start, goal, physical);

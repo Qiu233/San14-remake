@@ -2,6 +2,14 @@
 
 正式 Windows 导出使用 `runtime/windows-x64` 中已有、版本固定的第三方运行依赖。它们包含13个二进制：一个 vkd3d-shader DLL，以及 vgmstream CLI 和11个配套音频 DLL。首次源码集合纳入vkd3d-shader DLL（Git LFS）、来源、哈希与已取得的许可文本；12个音频二进制暂留本地，待下述G.719依赖的许可边界明确后再决定发布。`build/Install-WindowsRuntime.ps1`按清单核对本地依赖的尺寸和SHA-256，再复制到程序旁的 `native/windows-x64`；`build/Export-Windows.ps1`调用此安装步骤并随包复制本文件。首个源码clone缺少音频二进制时会明确报错，安装脚本不下载二进制。
 
+## Godot 4.7.2 .NET 与 D3D12 导入补丁
+
+Windows x64 正式导出使用 Godot 官方 `4.7.2-stable`、commit `ed1daf0bf001b61586d9930840f2f1394092c079` 加本项目的外部纹理所有权补丁。Godot 使用 MIT License；许可保存在 `build/godot/LICENSE.txt`，导出时放入 `licenses/Godot-LICENSE.txt`。上游源码为 [godotengine/godot](https://github.com/godotengine/godot/tree/ed1daf0bf001b61586d9930840f2f1394092c079)，贡献者见上游 `AUTHORS.md`。补丁仅在 D3D12 导入时持有 COM 资源到原有延迟退休、允许有真实 owner 的共享视图，并拒绝不支持 enhanced barriers 的 simultaneous-access 导入。
+
+补丁、上游提交、构建选项和已验证模板身份保存在 `build/godot`。`build/Build-GodotTemplate.ps1` 从显式指定的本机源码、SCons Python、Mesa 和 Agility SDK 构建，或安装已有的已验证模板；不下载依赖。生成模板安装在 `.tools/godot/san14-windows-x64`，由正式 export preset 选择，不能回退为 stock 模板。引擎重建可产生新的二进制身份，安装脚本生成本机构建记录，导出时离线检查；这不是游戏运行时校验。
+
+固定 Microsoft Direct3D D3D12 Agility SDK `1.618.5` 的 `D3D12Core.dll` 和 `d3d12SDKLayers.dll` 随本机导出放在 `x86_64`，以满足 enhanced barriers 支持。二进制身份保存在 `build/godot/template.json`，微软许可保存在 `build/godot/Agility-LICENSE.txt`，导出时放入 `licenses/Agility-LICENSE.txt`。源码仓库不纳入引擎整树、构建缓存或 SDK 二进制。构建命令见 `build/godot/README.md`。
+
 ## vkd3d-shader 2.1
 
 旧着色器后端使用 `libvkd3d-shader-1.dll` 将本机原资源中的 DXBC 转换为 SPIR-V。当前原生 D3D11 主地图直接使用 DXBC。DLL来自未修改的 [Wine vkd3d 2.1源码发布包](https://dl.winehq.org/vkd3d/source/vkd3d-2.1.tar.xz)，采用 LGPL-2.1-or-later；项目保存的 DLL SHA-256 为 `37885422AD210365C8FFCDA9F40A7F321842139698C6E1E6134DB20BA5D65780`。源码包哈希和相关源码文件哈希保存在 `runtime/windows-x64/source-provenance.json`。

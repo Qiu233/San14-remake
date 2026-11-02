@@ -18,6 +18,11 @@ public sealed partial class ArmyOperationContext
     private InitialPersonSkillNormalization? _initialSkillNormalization;
     private readonly Lazy<InitialPersonalityImage> _initialPersonalities;
     private readonly InitialPersonAttributeValues _initialPersonAttributes;
+    private readonly InitialAreaScenarioValues _initialAreas;
+    private readonly InitialOfficerSourceDefinitions _initialOfficers;
+    private readonly InitialSkillDefinitionValues? _initialSkillDefinitions;
+    private readonly InitialTerrainRuleDefinitions? _initialTerrainRules;
+    private readonly InitialObjectRuleDefinitions? _initialObjectRules;
 
     public ArmyOperationContext(LoadedScenario source, LoadedMap map,
         LoadedTerrainTypes terrain, LoadedSkillDefinitions skills, LoadedPersonalities personalities,
@@ -25,7 +30,12 @@ public sealed partial class ArmyOperationContext
     {
         _source = source; _map = map; _terrain = terrain; _skills = skills; _personalities = personalities;
         _objectDefinitions = objectDefinitions;
-        if (source.Metadata.FormatMarker != 0x66 || map.Map is not { Width: 220, Height: 220, Cells.Length: 48400 } ||
+        _initialTerrainRules = terrain.InitialValues is { } terrainRules && terrainRules.BelongsTo(terrain) ? terrainRules : null;
+        _initialObjectRules = objectDefinitions is { InitialValues: { } objectRules } && objectRules.BelongsTo(objectDefinitions) ? objectRules : null;
+        //A new period owns a new mutable current factory, but borrows the same
+        //fixed-file generation prepared by the process resource repository.
+        _initialSkillDefinitions = skills.InitialValues is { } initial && initial.BelongsTo(skills) ? initial : null;
+        if (source.Metadata.FormatMarker != 0x66 ||
             terrain.Source.Sha256 != source.FixedDataSource.Sha256 || skills.Source.Sha256 != source.FixedDataSource.Sha256 ||
             personalities.Source.Sha256 != source.FixedDataSource.Sha256 ||
             objectDefinitions is not null && objectDefinitions.Source.Sha256 != source.FixedDataSource.Sha256)
@@ -43,6 +53,8 @@ public sealed partial class ArmyOperationContext
         _initialPersonalities = new(() => SourceWorldContext.PrepareInitialPersonalities(_source, _personalities),
             LazyThreadSafetyMode.ExecutionAndPublication);
         _initialPersonAttributes = new(source);
+        _initialAreas = new(source);
+        _initialOfficers = new(source);
     }
 
     //330155's reserved lookup survives even while the receiver's embedded ID
@@ -73,7 +85,7 @@ public sealed partial class ArmyOperationContext
 
     private SourceWorldContext? CaptureWithCurrentFields(GameState state, bool immediatelyImportSavedIndexes)
     {
-        if (state.MapWidth != 220 || state.MapHeight != 220 || state.MapSha256 != _map.Source.Sha256 ||
+        if (state.MapWidth != _mapTopology.Width || state.MapHeight != _mapTopology.Height || state.MapSha256 != _map.Source.Sha256 ||
             !Matches(state, _source.ScenarioSource) || !Matches(state, _source.FixedDataSource)) return null;
         SourceWorldContext native = CaptureSourcePrefixCore(immediatelyImportSavedIndexes);
         PersonalityEditorRuntime.Apply(state.CreatedPersonalities, native);
@@ -136,7 +148,7 @@ public sealed partial class ArmyOperationContext
         // The input world owns this immutable map projection. Each current
         // reads that owner and keeps only its own changed Hex ownership fields.
         // Index/identity checks occur when a real consumer accesses a Hex;
-        // do not scan and copy all 48400 cells on every current capture.
+        // do not scan and copy the entire map on every current capture.
         if (!native.BindCurrentTerritoryOwnership(state.Territory)) return null;
         native.SetCityDistrictSlot(0, CityDistrictSourceAdapter.ReadDefault(state));
         foreach (CityState city in state.Cities.Values)
@@ -161,7 +173,7 @@ public sealed partial class ArmyOperationContext
     }
 
     /// <summary>Immutable-source consumers used by the native tick adapter do
-    /// not need a fresh capture of the 48400 ownership/overlay entries per tick.</summary>
+    /// not need a fresh capture of the map ownership/overlay entries per tick.</summary>
     internal SourceWorldContext CaptureSourcePrefix() => CaptureSourcePrefixCore(false);
 
     private SourceWorldContext CaptureSourcePrefixCore(bool immediatelyImportSavedIndexes)
@@ -169,7 +181,8 @@ public sealed partial class ArmyOperationContext
         var native = new SourceWorldContext();
         native.BindMapIdentityDefinitions(_mapTopology);
         native.InitializeStaticTablePointers();
-        if (_objectDefinitions is not null) native.MaterializeFixedObjectDefinitions(_objectDefinitions);
+        if (_initialObjectRules is { } objectRules) native.BindInitialObjectRules(objectRules);
+        else if (_objectDefinitions is not null) native.MaterializeFixedObjectDefinitions(_objectDefinitions);
         //Fresh CHex ctor221660/2213B0 qword+16 zeroes Hex1A. This
         //explicit allocation precedes source/map-overlay writes.
         native.BindMapDefinitions(_mapTopology);
@@ -180,14 +193,14 @@ public sealed partial class ArmyOperationContext
         if (normalization is null)
             for (int physical = 0; physical < 1851; physical++) native.ResetPersonTraitFields(physical);
         native.MaterializeStaticSource(_source, normalization?.Values, materializePersonalities: false,
-            initialAttributes: _initialPersonAttributes);
+            initialAttributes: _initialPersonAttributes, baseObjectsOnly: omitInitialGraph, initialAreas: _initialAreas, initialOfficers: _initialOfficers);
         //The scenario projection provides only Area scenario auxiliaries.
         //Fixed34/3A are the separately proved fixed-map fields, already bound
         //to this map by the constructor's ScenarioTerritory validation.
         for (int slot = 0; slot < _source.Snapshot.Areas.Count; slot++)
         {
             AreaPreviewRecord area = _source.Snapshot.Areas[slot];
-            if (area.Slot != slot || area.CitySlot > 51 || area.HexId >= 48400)
+            if (area.Slot != slot || area.CitySlot > 51 || !native.ContainsMapHex(area.HexId))
                 throw new InvalidDataException("Owned Army fixed area receivers contradict the loaded map definition.");
             native.SetAreaTablePointer(slot, slot);
             native.SetAreaValidityCode(slot, area.CitySlot);
@@ -199,20 +212,31 @@ public sealed partial class ArmyOperationContext
         //City0; actual Object link writers below subsequently fill live Bases.
         for (int slot = 0; slot < 52; slot++) native.WriteBaseObjectLink(new(BaseKind.City, slot), 0);
         for (int slot = 0; slot < 11; slot++) native.WriteBaseObjectLink(new(BaseKind.Gate, slot), 0);
-        native.MaterializeFixedTerrainTypes(_terrain);
-        native.InitializeSkillDefinitionStorage(); native.MaterializeFixedSkillDefinitions(_skills);
+        if (_initialTerrainRules is { } terrainRules) native.BindInitialTerrainRules(terrainRules);
+        else native.MaterializeFixedTerrainTypes(_terrain);
+        if (_initialSkillDefinitions is { } skills) native.BindInitialSkillDefinitions(skills);
+        else
+        {
+            //Standalone explicitly supplied catalogs retain their raw loader.
+            native.InitializeSkillDefinitionStorage(); native.MaterializeFixedSkillDefinitions(_skills);
+        }
         //This definition owner has already composed construction, scenario,
         //fixed and initial-editor writes. Each current keeps private overrides.
         native.BindInitialPersonalities(_initialPersonalities.Value);
         native.TacticParameterDecoderTable = TacticCeParameterDecoderTable.Instance;
-        native.ResetPersonIdLookup(); PostRegistrationLookups.RebuildPersonIds(native);
-        PostRegistrationLookups.BindHirePersonLookups(native);
+        native.BindInitialOfficerLookups(_initialOfficers);
 
         WorldIndexContext? pool = omitInitialGraph ? null : new(native);
         if (pool is not null)
             native.SetRegistryDescriptor(RegistryKind.Object, new(pool.AllocateDescriptor().Identity));
-        foreach (var obj in _source.Snapshot.ObjectSourceRecords!.Objects)
+        //Without opening registries only the Base link writers consume
+        //opening objects. The current world replaces the entire table
+        //before this private owned capture can reach any consumer.
+        var openingObjects = _source.Snapshot.ObjectSourceRecords!.Objects;
+        int openingObjectCount = omitInitialGraph ? 62 : openingObjects.Count;
+        for (int slot = 0; slot < openingObjectCount; slot++)
         {
+            var obj = openingObjects[slot];
             if (pool is not null)
                 _ = ObjectRegistration.Register(new(RegistryKind.Object, obj.PhysicalSlot), native);
             if (obj.PhysicalSlot is < 1 or > 61 || native.ReadObjectNativeValidity(new(obj.PhysicalSlot)) != true) continue;

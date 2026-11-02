@@ -21,10 +21,16 @@ public partial class OfficerDetailsView
     private int selectedPage;
     private UiSourceDetailSelector? currentSelector;
     internal int CurrentOfficerId => publication.OfficerId;
+    internal void SetPageNavigationLayer(int layer)
+    {
+        foreach (var button in pageButtons) button.ZIndex = layer;
+    }
     internal OfficerDetailSelectionReturn ReadSelectionReturn() => currentSelector?.ReadOfficerReturn(publication.OfficerId)
         ?? new([publication.OfficerId],publication.OfficerId,null);
     private int AvailablePages => publication.PageCount.Available ? publication.PageCount.Value : 1;
     private bool currentConfigured;
+    private bool ownsCurrentResources=true;
+    private string? captiveAdviceAtSource;
     private static readonly uint[] PersonPageLayouts = [0x9EA0EB77, 0xA7BDE2D2, 0x7D57CF94];
     private UiAssets CurrentAssets => currentAssets!;
     private MapFont CurrentFont => currentFont!;
@@ -32,13 +38,15 @@ public partial class OfficerDetailsView
 
     internal void Configure(GameResourceRepository repository, OfficerDetailPublication view,
         PreviewText text, Action close, Func<bool>? admitted = null, Action<int>? choosePriority = null,
-        bool showNavigation = true, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
+        bool showNavigation = true, InformationDetailSelectionContext? selection = null, Action<int>? select = null,
+        AdministrationPageChrome.Resources? resources = null, bool showPageButtons = false, string? captiveAdviceAtSource = null)
     {
         currentConfigured = true;
         currentRepository = repository; currentText = text; publication = view;
-        currentAdmission = admitted; prioritySelected = choosePriority;
-        currentAssets = new(repository); currentFont = new(repository, text.SourceLocale);
-        currentShader = UiSourceSprite.CreateShader();
+        currentAdmission = admitted; prioritySelected = choosePriority;this.captiveAdviceAtSource=captiveAdviceAtSource;
+        ownsCurrentResources=resources is null;
+        currentAssets = resources?.Assets ?? new(repository); currentFont = resources?.Font ?? new(repository, text.SourceLocale);
+        currentShader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         if (showNavigation) ConfigureCommonBackdrop(repository);
         UiSourceHeader? header = showNavigation ? new() { Name = "OfficerDetailsTitle" } : null;
         ConfigureSourcePage("OfficerDetails", header, close);
@@ -56,6 +64,9 @@ public partial class OfficerDetailsView
                 InputAdmission = DetailInputAdmitted };
             currentCanvas.AddChild(back);
             back.ConfigureScenarioReturn(repository, CurrentAssets, CurrentShader, text.SourceLocale, RequestClose);
+        }
+        if (showNavigation || showPageButtons)
+        {
             float x = 188;
             int[] captions = [0x3CD, 0x452, 0x297];
             for (int page = 0; page < 3; page++)
@@ -104,9 +115,11 @@ public partial class OfficerDetailsView
 
     // A caller-owned candidate replaces the inspected person, retaining the
     // active page and clamping it to this person's actual available pages.
-    internal void SelectCurrent(OfficerDetailPublication view)
+    internal void SelectCurrent(OfficerDetailPublication view,string? captiveAdviceAtSource=null)
     {
         if (!currentConfigured) throw new InvalidOperationException("Officer details are not configured.");
+        this.captiveAdviceAtSource=captiveAdviceAtSource;
+        if(view.IsNeutral)view=view with {MiniMap=publication.MiniMap};
         ReplaceCurrentPublication(view);
     }
 
@@ -164,9 +177,10 @@ public partial class OfficerDetailsView
         SetMeta("selected_page", page);
     }
 
-    private void BuildCurrentPage(Control body, int page)
+    // The same actual placeholder replacement set is consumed by the
+    // startup resource owner. Dynamic portraits never become dummy dependencies.
+    internal static HashSet<int> CurrentPageHiddenNodes(int page,bool priorityVisible=true)
     {
-        var source = new UiSourceLayout(currentRepository, PersonPageLayouts[page]);
         var hidden = new HashSet<int> { 2, 4, 17, page switch { 0 => 124, 1 => 100, _ => 99 } };
         if (page < 2)
         {
@@ -177,7 +191,7 @@ public partial class OfficerDetailsView
         if (page == 0)
         {
             hidden.Add(39); hidden.Add(43); hidden.Add(123);
-            if (!publication.Priority.Visible) hidden.Add(37);
+            if (!priorityVisible) hidden.Add(37);
         }
         if (page == 1)
         {
@@ -186,6 +200,13 @@ public partial class OfficerDetailsView
         }
         if (page == 2)
             foreach (int index in new[] { 24, 31, 39, 48, 54, 61 }) hidden.Add(index);
+        return hidden;
+    }
+
+    private void BuildCurrentPage(Control body, int page)
+    {
+        var source = new UiSourceLayout(currentRepository, PersonPageLayouts[page]);
+        var hidden = CurrentPageHiddenNodes(page,publication.Priority.Visible);
         AddStandingPortrait(body, source.Rectangle(2));
         PaintArtwork(source, body, default, hidden);
         var values = PageValues(page);
@@ -206,7 +227,7 @@ public partial class OfficerDetailsView
         source.Text(body, 18, default, TextValue(publication.Overview.Health), CurrentFont);
         if (page < 2)
         {
-            AddAbilities(body, source.Rectangle(page == 0 ? 47 : 37));
+            if(!publication.IsNeutral)AddAbilities(body, source.Rectangle(page == 0 ? 47 : 37));
             AddTraits(body, source, page == 0 ? 60 : 50);
         }
         if (page == 0)
@@ -219,7 +240,24 @@ public partial class OfficerDetailsView
         }
         else if (page == 1) AddMilitary(body, source);
         else AddRelations(body, source);
+        AddCaptiveAdvice(body,source,page);
         body.SetMeta("source_layout", source.Source.Source.ResourceUri);
+    }
+
+    // Shogu page49 fills the separately mounted source speech pane with
+    // 66B6C0. Core owns its fixed trial/message expansion; this view only
+    // consumes that text through the ordinary original 30D290 paragraph.
+    private void AddCaptiveAdvice(Control body,UiSourceLayout page,int index)
+    {
+        if(captiveAdviceAtSource is not {} advice)return;
+        var source=CurrentAssets.SourceLayout("11_01_02_00_info_busho_offset_00");
+        Vector2 mount=page.Rectangle(index switch{0=>124,1=>100,_=>99}).Position;
+        source.Art(body,1,source.Rectangle(1,mount),CurrentAssets,CurrentShader);
+        Rect2 rectangle=source.Rectangle(2,mount);
+        var paragraph=new UiSourceParagraph {Name="CaptiveRecruitmentAdvice",Position=rectangle.Position,Size=rectangle.Size};
+        body.AddChild(paragraph);
+        paragraph.ConfigureFormattedMessage(CurrentFont,MapFontProfile.FromNode(source.Nodes[2],source.Source.Source.ResourceUri));
+        paragraph.Apply(advice);
     }
 
     private void AddPersonNameplate(Control body, Rect2 rectangle)
@@ -246,7 +284,7 @@ public partial class OfficerDetailsView
     private void AddStandingPortrait(Control body, Rect2 rectangle)
     {
         if (publication.StandingPortrait is not { Available: true, Value: { } route }) return;
-        var layers = route.LoadSprites(DetailSprite);
+        var layers = route.LoadSources(CurrentAssets.Portraits.RequireSource);
         var portrait = new UiSourceStandingPortrait { Position = rectangle.Position };
         body.AddChild(portrait); portrait.Configure(currentRepository, CurrentAssets, CurrentShader, layers);
         portrait.Scale = rectangle.Size / portrait.Size;
@@ -345,7 +383,8 @@ public partial class OfficerDetailsView
     public override void _ExitTree()
     {
         currentAdmission = null; prioritySelected = null; currentConfigured = false;
-        currentFont?.Dispose(); currentShader?.Dispose(); currentAssets?.Dispose(); detailSprites.Clear();
+        if(ownsCurrentResources){currentFont?.Dispose(); currentShader?.Dispose(); currentAssets?.Dispose();}
+        detailSprites.Clear();
         base._ExitTree();
     }
 }

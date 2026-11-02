@@ -52,7 +52,7 @@ public partial class MapSceneView
 
     private bool HandleSourceNavigationKey(InputEvent input)
     {
-        if (!_embedded || _detailsOpen || !IsVisibleInTree() || _sourceMainCamera is null ||
+        if (!_embedded || _detailsOpen || sourceCameraInputSuspended || !IsVisibleInTree() || _sourceMainCamera is null ||
             input is not InputEventKey key) return false;
         if (GetViewport().GuiGetFocusOwner() is LineEdit or TextEdit)
         { ResetSourceNavigationKeyboard(); return false; }

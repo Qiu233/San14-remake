@@ -10,6 +10,7 @@ namespace San14.Data;
 public sealed class G1EffectEmitterFrame
 {
     private bool wroteInitialization;
+    private readonly ushort transformMode;
 
     private G1EffectEmitterFrame(G1EffectEmitterDeclaration declaration)
     {
@@ -18,8 +19,9 @@ public sealed class G1EffectEmitterFrame
             throw new InvalidDataException("Emitter transform context is incomplete.");
         int type = BinaryPrimitives.ReadUInt16LittleEndian(bytes[0xA4..]);
         int mode = BinaryPrimitives.ReadUInt16LittleEndian(bytes[0xA6..]);
-        if (type != 0 || mode != 0x111)
+        if (type != 0 || mode is not (0x111 or 0x112))
             throw new NotSupportedException($"Emitter transform context {type}/{mode:X4} is not implemented.");
+        transformMode = checked((ushort)mode);
         PrimaryBindingSlot = BinaryPrimitives.ReadInt32LittleEndian(bytes[0x180..]);
         PrimaryNode = BinaryPrimitives.ReadInt32LittleEndian(bytes[0x184..]);
         SecondaryBindingSlot = BinaryPrimitives.ReadInt32LittleEndian(bytes[0x188..]);
@@ -37,6 +39,7 @@ public sealed class G1EffectEmitterFrame
     public int PrimaryNode { get; }
     public int SecondaryBindingSlot { get; }
     public int SecondaryNode { get; }
+    public bool RequiresSecondaryTransform => transformMode == 0x112;
     public bool IsPrepared { get; private set; }
     public Matrix4x4 CurrentTransform { get; private set; }
     public Matrix4x4 InverseTransform { get; private set; }
@@ -51,8 +54,24 @@ public sealed class G1EffectEmitterFrame
     /// is identity. A provider identity change refreshes at zero delta before
     /// the ordinary update and therefore clears velocity for that call.</summary>
     public void Update(Matrix4x4? primaryTransform, float deltaSeconds, bool bindingsChanged)
+        => Update(primaryTransform, null, deltaSeconds, bindingsChanged);
+
+    /// <summary>0112 takes rotation/translation from the primary provider and
+    /// independent axis scales from the secondary. Only a negative declared
+    /// binding is an absent owner; a required unresolved provider is rejected.</summary>
+    public void Update(Matrix4x4? primaryTransform, Matrix4x4? secondaryTransform,
+        float deltaSeconds, bool bindingsChanged)
     {
         Matrix4x4 next = primaryTransform ?? Matrix4x4.Identity;
+        if (RequiresSecondaryTransform)
+        {
+            if (secondaryTransform is null && SecondaryBindingSlot >= 0)
+                throw new NotSupportedException("Emitter secondary transform provider is unresolved.");
+            Matrix4x4 secondary = secondaryTransform ?? Matrix4x4.Identity;
+            next = Matrix(ScaleRow(Row(next, 0), Row(secondary, 0)),
+                ScaleRow(Row(next, 1), Row(secondary, 1)),
+                ScaleRow(Row(next, 2), Row(secondary, 2)), Row(next, 3));
+        }
         if (!Matrix4x4.Invert(next, out var inverse))
             throw new NotSupportedException("Emitter provider transform is singular.");
         if (bindingsChanged || !IsPrepared || deltaSeconds <= 0) Velocity = default;
@@ -65,6 +84,25 @@ public sealed class G1EffectEmitterFrame
         CurrentTransform = next;
         InverseTransform = inverse;
         IsPrepared = true;
+    }
+
+    private static Vector4 ScaleRow(Vector4 primary, Vector4 secondary)
+    {
+        // A81200 -> 3FF980 normalizes XYZ with sqrtf and a distinct reciprocal;
+        // no epsilon or zero-axis substitute exists. W is copied unscaled.
+        float reciprocal = 1f / Length(primary);
+        float x = NativeFloat.Multiply(primary.X, reciprocal);
+        float y = NativeFloat.Multiply(primary.Y, reciprocal);
+        float z = NativeFloat.Multiply(primary.Z, reciprocal);
+        float scale = Length(secondary);
+        return new(NativeFloat.Multiply(x, scale), NativeFloat.Multiply(y, scale),
+            NativeFloat.Multiply(z, scale), primary.W);
+
+        static float Length(Vector4 row)
+        {
+            float xy = NativeFloat.Add(NativeFloat.Multiply(row.X, row.X), NativeFloat.Multiply(row.Y, row.Y));
+            return MathF.Sqrt(NativeFloat.Add(xy, NativeFloat.Multiply(row.Z, row.Z)));
+        }
     }
 
     /// <summary>Write only the closed prepared emitter context and velocity

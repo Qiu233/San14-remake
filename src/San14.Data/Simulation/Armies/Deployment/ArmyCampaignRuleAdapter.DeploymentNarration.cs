@@ -171,6 +171,9 @@ public sealed record DeploymentNarrationPortraitRoute(ushort CurrentAppearanceIn
             {Kind=StandingPortraitKind.AnimatedFrames};
     }
 
+    public LoadedStandingPortraitSources LoadSources(Func<string,string,LoadedUiSpriteSource> load) =>
+        new(Kind,SpriteNames.Select(name=>load(ResourceName,name)).ToArray(),CurrentAppearanceIndex);
+
     public LoadedStandingPortraitSprites LoadSprites(Func<string,string,LoadedSprite> load) =>
         new(Kind,SpriteNames.Select(name=>load(ResourceName,name)).ToArray(),CurrentAppearanceIndex);
 }
@@ -183,4 +186,14 @@ public sealed class LoadedStandingPortraitSprites(StandingPortraitKind kind,IRea
 {
     public StandingPortraitKind Kind { get; } = kind;
     public ushort? CurrentAppearanceIndex { get; } = currentAppearanceIndex;
+}
+
+/// <summary>The qualified standing publication over already-resident original
+/// image sources, retaining its three-layer or animated-frame kind.</summary>
+public sealed class LoadedStandingPortraitSources(StandingPortraitKind kind,IReadOnlyList<LoadedUiSpriteSource> sprites,
+    ushort? currentAppearanceIndex=null)
+    : System.Collections.ObjectModel.ReadOnlyCollection<LoadedUiSpriteSource>(sprites.ToArray())
+{
+    public StandingPortraitKind Kind {get;}=kind;
+    public ushort? CurrentAppearanceIndex {get;}=currentAppearanceIndex;
 }

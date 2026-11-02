@@ -13,7 +13,7 @@ internal partial class UiSourceCollectionMenuButton : UiSourceButton
         MapFont font, string text, string locale, CollectionMenuCommand command, Action released)
     {
         this.released = released; Caption = text;
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "02_04_00_btn_offset_00_new"))
+        var source = assets.SourceLayout("02_04_00_btn_offset_00_new")
             .ResizedSubtree(0, Size, true);
         hitArea = source.Rectangle(1);
         ActionMode = ActionModeEnum.Release;

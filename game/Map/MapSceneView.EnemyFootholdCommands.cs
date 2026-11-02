@@ -32,7 +32,7 @@ public partial class MapSceneView
         if(force==player)return false;
         var point=CanonicalSourceCursor(surfacePosition);
         int? level=ReadEnemyFootholdCameraLevel();
-        CloseCityCommandMenu();ResetSourceCameraInput();
+        CloseCityCommandMenu();CloseAreaHexCommandMenu();ResetSourceCameraInput();
         EnemyFootholdSelected.Invoke(kind,id,new(point.X34,point.Y38),level);
         return true;
     }

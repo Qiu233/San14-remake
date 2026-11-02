@@ -15,17 +15,20 @@ public static class HexNeighborhood
     // Walk order; candidates exclude the center.
     private static readonly int[] WalkOrder = [2, 3, 6, 5, 4, 1];
 
-    public static IReadOnlyList<int> RadiusOneCandidates(int hexPhysicalSlot)
+    public static IReadOnlyList<int> RadiusOneCandidates(int hexPhysicalSlot) =>
+        RadiusOneCandidates(hexPhysicalSlot, SourceWorldContext.OriginalMapWidth, SourceWorldContext.OriginalMapHeight);
+
+    internal static IReadOnlyList<int> RadiusOneCandidates(int hexPhysicalSlot, int width, int height)
     {
-        if (hexPhysicalSlot is < 0 or >= 48400)
-            throw new InvalidDataException("Hex neighborhood center is outside the inspected native 220x220 profile.");
-        int x = hexPhysicalSlot % 220, y = hexPhysicalSlot / 220;
+        if (width < 1 || height < 1 || (uint)hexPhysicalSlot >= (long)width * height)
+            throw new InvalidDataException("Hex neighborhood center is outside the current map.");
+        int x = hexPhysicalSlot % width, y = hexPhysicalSlot / width;
         Step(4);
         var result = new List<int>(6);
         foreach (int direction in WalkOrder)
         {
             Step(direction);
-            if ((uint)x <= 219 && (uint)y <= 219) result.Add(y * 220 + x);
+            if ((uint)x < (uint)width && (uint)y < (uint)height) result.Add(y * width + x);
         }
         return result.AsReadOnly();
 

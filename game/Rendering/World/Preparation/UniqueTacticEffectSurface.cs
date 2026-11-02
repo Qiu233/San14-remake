@@ -167,8 +167,14 @@ internal partial class UniqueTacticEffectSurface : Control
             {
                 // An alpha-zero source emits no UI command. Enabling its next
                 // actual output can attach a prefix only after this submit.
+                // Hidden source panes can update their native output
+                // while issuing no Canvas draw. A visible pane requires its
+                // actual ordered predecessor before it can be sampled.
                 if (CanvasCutEnabled && (!compositionAttached || !GodotObject.IsInstanceValid(canvasPrefix)))
-                    throw new NotSupportedException("unique_effect.actual_ordered_canvas_prefix");
+                {
+                    bool visible = IsVisibleInTree();
+                    if (visible) throw new NotSupportedException("unique_effect.actual_ordered_canvas_prefix");
+                }
             }
             var priorUse = outputUse;
             var receipt = await Render(rd => (session ?? throw new InvalidOperationException("UI effect session is not open."))

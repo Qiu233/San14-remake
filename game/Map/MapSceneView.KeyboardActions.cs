@@ -25,6 +25,12 @@ public partial class MapSceneView
     private void ApplyKeyboardMapInformation()
     {
         if (_d3d11Markers is null || _mapPresentation is null) return;
+        if(_mapPresentation.Policy.Mode==12)
+        {
+            // Domestic has its own held-area buttons; the original manager
+            //forces ordinary City/Gate/Area and Army categories off.
+            _d3d11Markers.SetInformationVisibility(false,false,12);return;
+        }
         if(diplomacyTargetMapOwner is not null)
         {
             // MapSelect keeps City/Gate independently of the ordinary base

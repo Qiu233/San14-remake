@@ -15,7 +15,7 @@ public partial class Main
     private bool _personnelPresentationBaseCaptureWait;
     private bool _personnelPresentationHiredCaptureWait;
     private bool HasPersonnelPresentation=>HasDuelCaptureAnnouncement||HasDuelPresentation||_personnelPresentation is not null||HasEncirclementPresentation||HasFirePresentation||HasDamagePresentation||HasFacilityEffectsPresentation||HasFacilityConstructionPresentation||HasFacilityRepairPresentation||HasMonthlyFeedback||_resourceNotice is not null||_personnelSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
-    private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.World;
+    private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.PendingManualTacticCandidate??session.PendingArmyProgressCandidate??session.PendingProgressCandidate??session.World;
     //A presentation receipt changes only its real outbox owner. Keep the
     //same retained Story scene attached to that publication, including manual
     //Events whose owner is World, without reopening its media or advancing it.
@@ -23,7 +23,7 @@ public partial class Main
     {
         var owner = PersonnelPresentationOwner(session);
         if (_storyPresentation is { } scene && ReferenceEquals(scene.Session, session) &&
-            StoryPlayback(session)?.Story is { } story && scene.Sequence == story.Sequence &&
+            (StoryPlayback(session)?.Story ?? PendingCampaignStory(session)) is { } story && scene.Sequence == story.Sequence &&
             scene.Source == story.Source && scene.ContentRevision == story.ContentRevision)
             scene.World = owner;
         return owner;
@@ -50,7 +50,8 @@ public partial class Main
             HasEnvironmentSettings||HasCampaignSavePage||HasMapSystemMenu||HasCommandWorkspace||HasPersonnelConfirmation||_detailsView is not null||
             _diplomacyNegotiation is not null||_repository is null||_campaignComposition is not {} composition||
             _session is not {PlayerForceId:not null} session||
-            (session.HasPendingOperation&&session.PendingNormalPeriod is null&&session.PendingCampaignEventCommand is null&&!HasCreatedEventResults)||
+            (session.HasPendingOperation&&session.PendingNormalPeriod is null&&session.PendingCampaignEventCommand is null&&!HasCreatedEventResults&&
+                session.PendingManualTacticCandidate is null && session.PendingArmyProgressCandidate is null && session.PendingProgressCandidate is null)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=SynchronizePersonnelPresentationOwner(session);
         if(CampaignDuelPresentationPlaybackRules.Pending(owner) is not null&&TryOpenDuelPresentation(session,owner,map,composition))return true;
@@ -358,7 +359,7 @@ public partial class Main
                         var executor=actors.Value?.Executor;var target=actors.Value?.Target;
                         var executorLayers=StandingLayers(executor);var targetLayers=StandingLayers(target);
                         string speaker=executorSpeaking?conversation.ExecutorNameAtSource:conversation.TargetNameAtSource;
-                        if(entry.Source==CampaignEffectSource.PersonnelAdministrationCommands)
+                        if(entry.Source==CampaignEffectSource.PersonnelAdministrationCommands&&payload.CreditEpisodeSlot is null)
                             view.Configure(_repository,_ui,speaker,payload.TextAtSource!,
                                 executorSpeaking?executorLayers:targetLayers,Completed,
                                 ()=>_preferences.AutomaticMessageAdvance,Admitted);
@@ -426,7 +427,7 @@ public partial class Main
                 }
                 view.Name="PersonnelPresentation";
                 view.ZIndex=StoryPlayback(session)?.Phase==NormalTurnStoryResultPhase.PostResult || HasCreatedEventResults?97:95;
-                map.CloseCityCommandMenu();map.SetDetailsOpen(true,keepMapVisible:true);SetMapFocus(false);HideDeploymentHud();
+                map.CloseCityCommandMenu();map.SetDetailsOpen(true,keepMapVisible:true);HideDeploymentHud();
                 return true;
             }
             catch{ClosePersonnelPresentation();throw;}

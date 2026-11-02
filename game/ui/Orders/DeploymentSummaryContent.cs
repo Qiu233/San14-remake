@@ -5,7 +5,7 @@ using San14.Data.Formats;
 internal static class DeploymentSummaryContent
 {
     internal static DeploymentSummaryRowContent Create(GameResourceRepository repository,PreviewText text,GameState world,
-        DeploymentDraftRow row,LoadedSprite? portrait,DeploymentDraftFigures? figures)
+        DeploymentDraftRow row,LoadedUiSpriteSource? portrait,DeploymentDraftFigures? figures)
     {
         string unknown=text.Get("detail_unknown");
         string format=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records[0x0331].Text

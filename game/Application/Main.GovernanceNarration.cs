@@ -60,16 +60,16 @@ public partial class Main
                 _mapHint.Text = portrait.UnresolvedInput ?? _ui.Get("detail_unknown");
                 return;
             }
-            var sprites = new LocalizedUiSpriteSource(_repository!);
-            var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
             var view = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };
             _governanceNarration = view; _governanceNarrationSession = session;
             _governanceNarrationWorld = world; _governanceNarrationMap = map;
             AddChild(view);
             try
             {
+                var resources=TryBorrowApplicationUiResources(view)??throw new InvalidOperationException("Narration requires its prepared application resources.");
+                var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
                 view.Configure(_repository!, _ui, world.Officers[response.SpeakerId].Name, response.TextAtSource,
-                    layers, () => RunPlayAction(() =>
+                    layers,resources, () => RunPlayAction(() =>
                     {
                         if (_governanceNarration != view) return;
                         if (!Current()) { CloseGovernanceNarration(); return; }

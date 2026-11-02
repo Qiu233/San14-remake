@@ -121,12 +121,18 @@ public sealed partial class DirectionalLightRetainedNormalization
             lighting.SourceIdentity.CreatedLightDataSha256!=c.PreparedSha256||lighting.SourceIdentity.DeclaredGroupMask!=c.Metadata.SourceGroupMask||
             lighting.ContextFlags3E4!=c.ContextFlags3E4||lighting.SourceIdentity.CameraObjectId!=MainMapCameraAdapter.MainCameraObjectId)
             throw new InvalidDataException("Current Directional differs from this actual source/backend construction owner.");
+        if(lighting.SelectedDirectionalConstruction is { } selected&&
+            (!constructed.TryGetValue(selected.SourceObjectId,out var actual)||!ReferenceEquals(actual,selected)))
+            throw new InvalidDataException("Current selected Directional has another actual backend constructor owner.");
     }
     public DirectionalLightRetainedConsumerReceipt CreateCurrentReceipt(MapSourceCreatedLightingPacket outer)
     {
         ArgumentNullException.ThrowIfNull(outer);ValidateLighting(outer);var b=outer.LocalLightData.Span;
-        if(outer.SourceIdentity.DeclaredGroupMask!=0x80||!outer.CameraLightingApplied||b[0x10B0]!=6||b[0x10B2]!=8)
-            throw new NotSupportedException("Directional retained representation requires the actual group80 mode6/B2=8 whole-Fog96 Camera replacement.");
+        // CBC770 replaces the complete Camera Fog96 before testing B2.
+        // B2=8 additionally mixes third RGB; B2=2 retains that RGB.
+        // Neither branch changes the constructor-hole scope admitted below.
+        if(outer.SourceIdentity.DeclaredGroupMask!=0x80||!outer.CameraLightingApplied||b[0x10B0]!=6||b[0x10B2] is not (2 or 8))
+            throw new NotSupportedException("Directional retained representation requires the actual group80 mode6/B2=2-or-8 whole-Fog96 Camera replacement.");
         foreach(int offset in new[]{0x100,0x110,0x130,0x140})
             if(!b.Slice(offset,12).SequenceEqual(new byte[12]))throw new NotSupportedException("An active hemisphere requires its own retained-W consumer proof.");
         return new(this,outer,earlyRequired);

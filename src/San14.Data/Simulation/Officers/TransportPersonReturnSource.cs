@@ -3,7 +3,7 @@ using San14.Core;
 namespace San14.Data;
 
 /// <summary>29F220's type2/bit20 call to2EA9A0(Person,0,0), before Army
-/// pending/26. Ordinary status4 Commander, friendly City Home, no preexisting
+/// pending/26. Ordinary serving Commander, friendly City or Gate Home, no preexisting
 /// associated command. It writes only the enclosing private current world;
 /// returned command State must be adopted before merit and final publication.</summary>
 public static class TransportPersonReturnSource
@@ -11,22 +11,36 @@ public static class TransportPersonReturnSource
     public static PersonReturnCommandResult TryApplyCurrent(GameState state,
         SourceWorldContext current, int personPhysical,
         NativeMapSeasonDate? operationThirdDate = null)
+        => TryApplyCurrent(state, current, personPhysical, operationThirdDate, null);
+
+    //The actual enclosing29F220 owner supplies265250 on the same staged
+    //current/pool. A standalone leaf without that owner retains its explicit
+    //unresolved boundary rather than manufacturing freedom or Return receipts.
+    internal static PersonReturnCommandResult TryApplyCurrent(GameState state,
+        SourceWorldContext current, int personPhysical, NativeMapSeasonDate? operationThirdDate,
+        Func<GameState, GameState>? applyFreedom)
     {
+        PersonReturnCommandResult Freedom(string unresolved) => applyFreedom is null
+            ? Missing(unresolved) : new(applyFreedom(state), 0, null, null, null, null);
         try
         {
             ushort id = Need(current.ReadPersonIdentity(personPhysical), "Person10");
             if (!Need(current.ReadPersonNativeValidity(personPhysical), "Person_validity") ||
-                current.ReadPersonStatus(personPhysical) != 4)
-                return Missing("branch.transport_return_ordinary_status4");
+                current.ReadPersonStatus(personPhysical) is not (>= 1 and <= 4))
+                return Missing("branch.transport_return_ordinary_serving_status");
             var force = current.ReadPersonForce(personPhysical) ?? throw Unknown("Person_Force");
-            if (force.PhysicalSlot is not (>= 1 and <= 45) ||
-                !Need(current.ReadForceNativeValidity(force), "Person_Force_validity"))
-                return Missing("branch.transport_return_265250_lost_Force");
+            if (!Need(current.ReadForceNativeValidity(force), "Person_Force_validity"))
+                return Freedom("branch.transport_return_265250_lost_Force");
+            if (force.PhysicalSlot is not (>= 1 and <= 45))
+                return Missing("branch.transport_return_nonordinary_Force_scope");
             var home = BaseLookup.Find(Need(current.ReadPersonFirstLocation(personPhysical), "PersonE2"), current);
-            if (home.Kind != BaseKind.City || home.PhysicalSlot is not (>= 1 and <= 51) ||
-                !Need(current.ReadBaseNativeValidity(home), "Home_validity") ||
-                Need(current.ReadBaseForceSlot(home), "Home_Force") != force.PhysicalSlot)
-                return Missing("branch.transport_return_265250_changed_Home");
+            if (!Need(current.ReadBaseNativeValidity(home), "Home_validity") ||
+                Need(current.ReadBaseForceSlot(home), "Home_Force") !=
+                    Need(current.ReadPersonOldForceSlot(personPhysical), "Person_Force22CF60"))
+                return Freedom("branch.transport_return_265250_changed_Home");
+            //Emergency transport retains the donor Base and serving role.
+            //2EA9A0 and the existing Return owner both use that actual Home,
+            //including Gate targets, without a City-only admission.
 
             var linked = current.ReadPersonLinkedEntity(personPhysical) ?? throw Unknown("associated22AC00");
             if (linked.Identity.HasValue && Need(current.ReadLinkedEntityNativeValidity(linked), "associated_validity"))

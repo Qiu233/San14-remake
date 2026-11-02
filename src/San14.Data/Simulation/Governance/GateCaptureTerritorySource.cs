@@ -16,6 +16,24 @@ public sealed record GateCaptureHexTransfer(int[] VisitedHexes, int[] ClearedHex
 /// retain their real source order.</summary>
 public static class GateCaptureTerritorySource
 {
+    /// <summary>26DA10's full26D2E0 assignment, borrowing the capture
+    /// operation for Home29C430/240DB0 and actual Gate-City publication.
+    /// Returns the original District; its caller retains its existing
+    /// primary-update position rather than replaying that tail here.</summary>
+    internal static DistrictReference AssignGateCityCurrent(SourceWorldContext current,
+        BaseReference gate, int newDistrictPhysical, int commanderPhysical,
+        ArmyReturnDistrictOperationQueries operation)
+    {
+        CheckGate(current, gate);
+        if (newDistrictPhysical is < 1 or > 51) throw Missing("branch.nonordinary_new_District");
+        var district = current.ReadDistrictTableReference(newDistrictPhysical) ?? throw Missing("new_District_pointer");
+        CheckForce(K(current.ReadDistrictForceSlot(district), "new_District10"));
+        var oldDistrict = current.ReadBaseDistrictReference(gate) ?? throw Missing("saved_Gate_virtual80");
+        _ = ArmyCampaignRuleAdapter.AssignDistrictAdministrationBaseCurrent(current, gate, district, operation,
+            new(commanderPhysical));
+        return oldDistrict;
+    }
+
     public static GateCaptureCityAssignment AssignGateCity(
         SourceWorldContext current, BaseReference gate,
         int newDistrictPhysical, int commanderPhysical)
@@ -79,7 +97,8 @@ public static class GateCaptureTerritorySource
 
     public static GateCaptureHexTransfer ApplyTerritoryAfterResources(
         GameState state, SourceWorldContext current, BaseReference gate,
-        int newForce, int oldDistrict, int newDistrict, bool eagerAdvice = true, int centralRadiusAdjustment = 0)
+        int newForce, int oldDistrict, int newDistrict, bool eagerAdvice = true, int centralRadiusAdjustment = 0,
+        Func<DistrictReference, TransferPersonReference>? readAdviser = null)
     {
         CheckGate(current, gate); CheckForce(newForce);
         //Capture's ordinary source contract has both presentation flags1;
@@ -92,7 +111,7 @@ public static class GateCaptureTerritorySource
         var temporary = current.CreateNearbyTemporary(); //2DFA7B, before advice query.
         try
         {
-            if (eagerAdvice) ReadEagerAdvice2B44E0(state, current);
+            if (eagerAdvice) ReadEagerAdvice2B44E0(state, current, readAdviser);
             for (int distance = 0; distance <= radius; distance++)
             {
                 current.ClearNearbyTemporary(temporary, false);
@@ -170,7 +189,8 @@ public static class GateCaptureTerritorySource
         if (before != K(current.ReadHexForceSlot(hex), "written_Hex14")) changed.Add(Physical(hex));
     }
 
-    private static void ReadEagerAdvice2B44E0(GameState state, SourceWorldContext current)
+    private static void ReadEagerAdvice2B44E0(GameState state, SourceWorldContext current,
+        Func<DistrictReference, TransferPersonReference>? readAdviser)
     {
         var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, current) ?? throw Missing("advice_World3A");
         int playerPhysical = K(current.ReadForcePhysicalSlot(player), "advice_Player_identity");
@@ -185,6 +205,7 @@ public static class GateCaptureTerritorySource
                 K(current.ReadDistrictNumber(physical), "advice_District11") == 1)
             { primary = district; break; }
         }
+        if (readAdviser is not null) { _ = readAdviser(primary); return; }
         if (!K(current.ReadDistrictNativeValidity(primary), "advice_District_validity")) return;
         if (!K(current.ReadForceNativeValidity(player), "advice_Player_validity")) return; //233880.
         int districtPhysical = K(primary.PhysicalSlot, "advice_primary_pointer");

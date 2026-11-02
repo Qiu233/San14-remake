@@ -1,73 +1,79 @@
+using System.Security.Cryptography;
 using San14.Data.Formats;
 
 namespace San14.Data;
 
 public sealed partial class GameResourceRepository
 {
-    private readonly object _uiResourceCacheGate = new();
-    private readonly Dictionary<string, (UiResourceRevision Revision, LoadedMessages Messages)> _uiMessages = [];
-    private readonly Dictionary<(uint FileId, int TextureIndex), (UiTextureSourceRevision Revision, LoadedTexture Texture)> _uiTextures = [];
-
-    private readonly record struct UiResourceRevision(string Path, long Length, long LastWriteUtcTicks);
-    private readonly record struct UiTextureSourceRevision(string IndexGeneration, UiResourceRevision Texture);
-
-    // A cache hit examines source identity, never the content or its hash. The
-    // override resolver is consulted each time so adding/removing an override
-    // selects a different owner even if its size and timestamp match.
-    private UiResourceRevision UiRevision(GameResourceId id, string fallback)
+    // UI source snapshots belong to the same resident owner as their original
+    // bytes. A scope always reads its source first, preserving its own ledger
+    // and generation observer even when parsing has already been completed.
+    private (LoadedRdbAsset Source, IReadOnlyList<SpriteDefinition> Definitions) LoadUiSpriteAtlas(uint fileId)
     {
-        string path = _overrides.Find(id) ?? fallback;
-        var file = new FileInfo(path);
-        return new(file.FullName, file.Length, file.LastWriteTimeUtc.Ticks);
+        var source = LoadRdbAsset("ScreenLayout", fileId);
+        return (source, _residentSources.Ui.Atlas(source));
     }
 
-    private UiTextureSourceRevision UiTextureRevision(string archive, uint fileId)
+    private sealed class ResidentUiSourceCache
     {
-        string relative = $"0002/{archive}.rdb";
-        string indexPath = SourcePath(relative);
-        // RDB indices already belong to the repository lifetime. An index
-        // replacement uses a fresh repository, as do its sprite directories.
-        // Reuse that loaded generation rather than detecting a newer index
-        // while accidentally retaining its old record offsets.
-        var index = LoadRdbIndex(archive);
-        string indexGeneration = _readFiles[GameResourceId.File(relative).ToString()].Sha256;
-        if (!_assetRecords[relative].TryGetValue(fileId, out var record))
-            throw new KeyNotFoundException($"RDB asset {archive}/{fileId:X8} is missing.");
-        string container = RdbArchiveReader.ContainerPath(indexPath, index, record);
-        _ = SourcePath(Path.GetRelativePath(SourceDirectory, container).Replace('\\', '/'));
-        return new(indexGeneration, UiRevision(GameResourceId.Rdb(archive, fileId), container));
-    }
+        private readonly object gate = new();
+        private readonly Dictionary<string, (ResidentFile Source, LoadedMessages Value)> messages =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<(uint File, int Index), (LoadedRdbAsset Source, LoadedTexture Value)> textures = [];
+        private readonly Dictionary<uint, (LoadedRdbAsset Source, IReadOnlyList<SpriteDefinition> Value)> atlases = [];
 
-    // Public resource results historically own mutable byte arrays. Keep that
-    // ownership: callers receive copies; only the decode/parse work is shared.
-    private static LoadedTexture CopyUiTexture(LoadedTexture source) => source with
-    { Texture = source.Texture with { Pixels = source.Texture.Pixels.ToArray() } };
-
-    private static LoadedMessages CopyUiMessages(LoadedMessages source)
-    {
-        var messages = source.Messages with
+        // One snapshot per logical key is retained. A replacement overwrites
+        // this entry without mutating snapshots still borrowed by old views.
+        // Parsing is serialized only at the load boundary, never per frame.
+        internal LoadedMessages Messages(ResidentFile source, MessageKind kind)
         {
-            DecodedPayload = source.Messages.DecodedPayload.ToArray(),
-            Sections = source.Messages.Sections.Select(section => section with
+            lock (gate)
             {
-                HeaderBytes = section.HeaderBytes.ToArray(),
-                RecordOffsets = section.RecordOffsets.ToArray(),
-                Records = section.Records.Select(record => record with
+                string key = source.Generation.Id.ToString();
+                if (messages.TryGetValue(key, out var cached) && ReferenceEquals(cached.Source, source))
+                    return cached.Value;
+                try
                 {
-                    RawBytes = record.RawBytes.ToArray(),
-                    Literals = record.Literals.ToArray(),
-                    UninterpretedRanges = record.UninterpretedRanges.Select(range => range with
-                    { RawBytes = range.RawBytes.ToArray() }).ToArray()
-                }).ToArray()
-            }).ToArray()
-        };
-        var container = source.Container with
+                    var container = Zp1Reader.Read(source.Bytes);
+                    var document = MessageTableReader.Read(container.DecodedPayload, kind);
+                    var value = new LoadedMessages(document, container, source.Source,
+                        Convert.ToHexString(SHA256.HashData(container.DecodedPayload)));
+                    messages[key] = (source, value);
+                    return value;
+                }
+                catch (InvalidDataException error)
+                {
+                    throw new InvalidDataException($"Original messages failed to load: {source.Source.ResourceUri} " +
+                        $"({source.Source.PhysicalPath}). {error.Message}", error);
+                }
+            }
+        }
+
+        internal LoadedTexture Texture(LoadedRdbAsset source, int textureIndex)
         {
-            HeaderBytes = source.Container.HeaderBytes.ToArray(),
-            Chunks = source.Container.Chunks.Select(chunk => chunk with
-            { PaddingBytes = chunk.PaddingBytes.ToArray() }).ToArray(),
-            DecodedPayload = source.Container.DecodedPayload.ToArray()
-        };
-        return source with { Messages = messages, Container = container };
+            lock (gate)
+            {
+                var key = (source.FileId, textureIndex);
+                if (textures.TryGetValue(key, out var cached) && ReferenceEquals(cached.Source, source))
+                    return cached.Value;
+                var value = new LoadedTexture(G1TextureReader.Decode(source.Bytes, textureIndex),
+                    source.SourceContainerPath, source.FileId, source.DecodedSha256, source.IndexSource)
+                { OverrideSource = source.OverrideSource, TextureIndex = textureIndex };
+                textures[key] = (source, value);
+                return value;
+            }
+        }
+
+        internal IReadOnlyList<SpriteDefinition> Atlas(LoadedRdbAsset source)
+        {
+            lock (gate)
+            {
+                if (atlases.TryGetValue(source.FileId, out var cached) && ReferenceEquals(cached.Source, source))
+                    return cached.Value;
+                var value = SpriteAtlasReader.Read(source.Bytes);
+                atlases[source.FileId] = (source, value);
+                return value;
+            }
+        }
     }
 }

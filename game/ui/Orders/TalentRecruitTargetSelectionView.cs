@@ -7,6 +7,7 @@ using System.Globalization;
 internal partial class TalentRecruitTargetSelectionView : Control
 {
     private MapInformationListView? list;
+    private AdministrationPageChrome.Resources? resources;
     private GameResourceRepository repository=null!;
     private PreviewText text=null!;
     private TalentRecruitPersonSelection model=null!;
@@ -21,9 +22,10 @@ internal partial class TalentRecruitTargetSelectionView : Control
     private bool sortedAscending,abandoned;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,TalentRecruitPersonSelection model,
-        Func<bool> admitted,Action<int?> completed,Func<int> scrollSpeed)
+        Func<bool> admitted,Action<int?> completed,Func<int> scrollSpeed, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository=repository;this.text=text;this.model=model;pages=model.Pages;
+        this.resources=resources;
         this.admitted=admitted;this.completed=completed;this.scrollSpeed=scrollSpeed;
         Name="TalentRecruitTargets";ZIndex=5;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -36,33 +38,43 @@ internal partial class TalentRecruitTargetSelectionView : Control
     private void ShowGroup(int index)
     {
         if(abandoned||(uint)index>=(uint)pages.Groups.Length)return;
-        if(list is {} previous)
-        {currentScroll=previous.ScrollValue;previous.Abandon();RemoveChild(previous);previous.QueueFree();}
+        if(list is {} previous)currentScroll=previous.ScrollValue;
         var descriptor=pages.Groups[index];var columns=descriptor.Columns.Where(column=>column.Visible).ToArray();
         var slots=descriptor.Columns.Select((column,slot)=>(column.Id,slot)).ToDictionary(value=>value.Id,value=>value.slot);
         var current=pages.ReadPage(index);
         if(!directions.TryGetValue(index,out var nextDirections))directions.Add(index,nextDirections=[]);
+        if(list is {} retained)
+        {
+            retained.PresentGroup(index,Columns(),Rows(current),Sort,
+                sortedGroup==index?sortedColumn:null,sortedAscending,nextDirections);
+            SetMeta("recruit_target_active_page",index);
+            return;
+        }
         var view=new MapInformationListView();list=view;AddChild(view);
         view.Configure(repository,text,pages.Title,
-            columns.Select(column=>new MapInformationListColumn(Key(column.Id),column.Caption,column.Width,
-                column.CanSort,column.InitialAscending)).ToArray(),Rows(current),
+            Columns(),Rows(current),
             ()=>ReadAdmission()&&list==view,RequestCancel,sourceIndex=>
             {
                 if(!ReadAdmission()||list!=view)return;
                 pages.SelectSourceIndex(sourceIndex);Finish(pages.SelectedOfficerId);
-            },scrollSpeed,(key,ascending)=>
-            {
-                int column=key=="name"?0:int.Parse(key,CultureInfo.InvariantCulture);
-                var result=pages.Sort(index,column,ascending);
-                if(!result.Available||result.Value is not {} sorted)
-                {if(result.UnresolvedInput is {} missing)GD.PushWarning(missing);return null;}
-                current=sorted;sortedGroup=index;sortedColumn=key;sortedAscending=ascending;return Rows(current);
-            },notice:model.GuideText,tabCaptions:pages.Groups.Select(group=>group.Caption).ToArray(),selectedTab:index,
+            },scrollSpeed,Sort,notice:model.GuideText,tabCaptions:pages.Groups.Select(group=>group.Caption).ToArray(),selectedTab:index,
             selectTab:group=>{if(ReadAdmission())ShowGroup(group);},completeColumnProfile:true,normalColumnLayout:false,
             initialSortColumn:sortedGroup==index?sortedColumn:null,initialSortAscending:sortedAscending,
-            retainSortDirections:true,retainedSortDirections:nextDirections,rowExtentWidth:1464,sourcePersonCellBounds:true);
+            retainSortDirections:true,retainedSortDirections:nextDirections,rowExtentWidth:1464,sourcePersonCellBounds:true, resources: resources);
         view.RestoreScroll(currentScroll);SetMeta("recruit_target_active_page",index);
 
+        MapInformationListColumn[] Columns()=>columns.Select(column=>
+            new MapInformationListColumn(Key(column.Id),column.Caption,column.Width,
+                column.CanSort,column.InitialAscending)).ToArray();
+        IReadOnlyList<MapInformationListRow>? Sort(string key,bool ascending)
+        {
+            int column=key=="name"?0:int.Parse(key,CultureInfo.InvariantCulture);
+            var result=pages.Sort(index,column,ascending);
+            if(!result.Available||result.Value is not {} sorted)
+            {if(result.UnresolvedInput is {} missing)GD.PushWarning(missing);return null;}
+            current=sorted;sortedGroup=index;sortedColumn=key;sortedAscending=ascending;
+            return Rows(current);
+        }
         IReadOnlyList<MapInformationListRow> Rows(OfficerInformationPage page)=>page.Rows.Select(row=>
         {
             var cells=columns.Select(column=>row.Cells[slots[column.Id]]).ToArray();

@@ -38,13 +38,13 @@ public sealed record MapRoutePreviewEndpoint(int Hex, Vector3 Center, int Surfac
 public sealed class MapRoutePreviewGeometry
 {
     private IReadOnlyList<MapRoutePreviewPath>? paths;
-    private MainMapCameraTerrainSource? terrain;
+    private MapStaticModelGroundHeightSource? terrain;
     private bool? simplified;
     private float? width;
     public IReadOnlyList<MapRoutePreviewMesh> Meshes { get; private set; } = Array.Empty<MapRoutePreviewMesh>();
     public long Revision { get; private set; }
 
-    public bool Update(IReadOnlyList<MapRoutePreviewPath> currentPaths, MainMapCameraTerrainSource currentTerrain,
+    public bool Update(IReadOnlyList<MapRoutePreviewPath> currentPaths, MapStaticModelGroundHeightSource currentTerrain,
         MainMapCameraFrame camera, MainMapCameraControllerParameters parameters)
     {
         var selection = CameraSelection(camera, parameters);
@@ -96,7 +96,8 @@ public sealed class MapRoutePreviewGeometry
                     var point = CeHexWorldCoordinates.Project(hex);
                     centers[i] = new((float)point.X, 0f, (float)point.Z);
                 }
-                var spine = MapRouteSpine.Build(centers, startSurface, endSurface, selection.DisplayBand, currentTerrain.Query);
+                var spine = MapRouteSpine.Build(centers, startSurface, endSurface, selection.DisplayBand,
+                    (x, z) => UnitWorldGroundHeight.QueryA0B830(currentTerrain.Grid, x, z));
                 var (cornerVertices,cornerIndices)=BuildCorners(spine.Corners.Span);
                 var endpoints=new List<MapRoutePreviewEndpoint>(2);
                 if(spine.StartEndpoint is Vector3 start)endpoints.Add(new(startHex,start,startSurface,path.ListBank,path.EndpointChannel));

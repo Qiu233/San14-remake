@@ -98,6 +98,11 @@ public static class G1EffectBirthExpression
                 if (MathF.Abs(angle) > tau) angle -= (int)(angle / tau) * tau;
                 return G1EffectShapeMath.SinCos(angle).Cosine;
             }
+            case 31:
+            {
+                float value = Evaluate(bytes, ref cursor, sourceContext, random, effectContext);
+                return G1EffectScalarCurves.Cubic(bytes, ref cursor, value);
+            }
             case 32:
             {
                 int first = ReadInt(bytes, ref cursor), second = ReadInt(bytes, ref cursor),

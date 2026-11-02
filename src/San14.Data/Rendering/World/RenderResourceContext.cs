@@ -49,6 +49,8 @@ public sealed class RenderResourceContext : IDisposable
         public void Dispose() => owner.Remove(this);
     }
 
+    private const uint MainStageKey = 0x8572F577;
+
     private static readonly string[] Archives =
         ["system", "KIDSSystemResource", "MaterialEditor", "FieldEditor4", "CharacterEditor", "ScreenLayout", "RRPreview"];
     // These are the normal startup database identifiers, in submitted order.
@@ -123,6 +125,31 @@ public sealed class RenderResourceContext : IDisposable
         catch { context.Dispose(); throw; }
     }
 
+    /// <summary>Reads the supported normal Main Stage's database from the
+    /// actual Common declaration. Map projection configuration is not a scene
+    /// selector. This runs during the application's static resource load.</summary>
+    public static uint LoadMainStageDatabaseId(GameResourceRepository repository)
+    {
+        using var context = LoadStartup(repository);
+        var common = context.Lookup(MapSeasonResourceConsumer.CommonSettingObjectId)?.Object ??
+            throw new InvalidDataException("Render startup has no Common settings.");
+        var (keys, databases, _) = ReadStageDeclarations(common);
+        int main = Array.IndexOf(keys, MainStageKey);
+        if (main < 0 || databases[main] == 0)
+            throw new NotSupportedException("Common does not declare the supported normal Main Stage database.");
+        return databases[main];
+    }
+
+    private static (uint[] Keys, uint[] Databases, uint[] Objects) ReadStageDeclarations(DokObject common)
+    {
+        uint[] keys = Words(common, 0x04781136), databases = Words(common, 0x43EE345E);
+        if (databases.Length == 0) databases = Words(common, 0xAF2F9C4C);
+        uint[] objects = Words(common, 0xB0EB31B1);
+        if (keys.Length != databases.Length || keys.Length != objects.Length)
+            throw new InvalidDataException("Common Stage keys, databases and scene names have different lengths.");
+        return (keys, databases, objects);
+    }
+
     /// <summary>Assembles the normal map's declared load roots. Incidental
     /// model, font or shader reads do not register a database into this owner.</summary>
     public static RenderResourceContext LoadCurrentMap(GameResourceRepository repository,
@@ -133,23 +160,19 @@ public sealed class RenderResourceContext : IDisposable
         {
             var common = context.Lookup(MapSeasonResourceConsumer.CommonSettingObjectId)?.Object ??
                 throw new InvalidDataException("Render startup has no Common settings.");
-            uint[] keys = Words(common, 0x04781136), stageRoots = Words(common, 0x43EE345E);
-            if (stageRoots.Length == 0) stageRoots = Words(common, 0xAF2F9C4C);
-            uint[] stageObjects = Words(common, 0xB0EB31B1);
-            if (keys.Length != stageRoots.Length || keys.Length != stageObjects.Length)
-                throw new InvalidDataException("Common Stage keys, databases and scene names have different lengths.");
+            var (keys, stageRoots, stageObjects) = ReadStageDeclarations(common);
             if (Words(common, 0xC92CC970).Length != 0 ||
                 common.Properties.Any(p => p.NameHash == 0x5DEB6182 && p.ElementCount != 0))
                 throw new NotSupportedException("Nonempty Event databases require their normal selection producer.");
             // Main's startup selects these Stage names in this order. Database
             // IDs remain values from Common, rather than array ordinals.
-            foreach (uint stageKey in new uint[] { 0xAEF6D3FA, 0x8572F577 })
+            foreach (uint stageKey in new uint[] { 0xAEF6D3FA, MainStageKey })
             {
                 int index = Array.IndexOf(keys, stageKey);
                 if (index >= 0 && stageRoots[index] != 0)
                     context.RegisterBatch([context.LoadDatabase(stageRoots[index])]);
             }
-            int mainStage = Array.IndexOf(keys, 0x8572F577);
+            int mainStage = Array.IndexOf(keys, MainStageKey);
             if (mainStage < 0 || scene.Scene.Source.FileId != stageRoots[mainStage] ||
                 scene.RootObject.ObjectId != stageObjects[mainStage])
                 throw new NotSupportedException("The loaded map scene does not match the current Common Main Stage selection.");

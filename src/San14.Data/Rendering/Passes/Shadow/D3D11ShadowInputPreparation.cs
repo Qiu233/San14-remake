@@ -32,6 +32,8 @@ public sealed class D3D11ShadowInputPreparation
     private readonly int[] sortFields;
     private readonly World[] worlds;
     private readonly Template[] templates;
+    private readonly int fieldTemplateCount;
+    private readonly D3D11PrimaryShadowStaticResources primaryShadow;
 
     private D3D11ShadowInputPreparation(GameResourceRepository repository,D3D11ModelInputPreparation field,
         D3D11CityGateTemplateBank primary,string language)
@@ -57,7 +59,6 @@ public sealed class D3D11ShadowInputPreparation
         var shadowQueue=DeferredEarlyShadowQueueSource.Read(predecessor,WorldGeometryLateCpuSource.Load(repository,locale).Native);
         var selector=LoadedDeferredEarlyShadowSelectionSource.Load(repository,locale);
         var matrixSource=LoadedDeferredEarlyShadowVertexMatrixNativeSource.Load(repository);
-        var shaderObjects=repository.LoadObjects("system",0x718CCB8B);
         var result=new List<Template>();
         foreach(var template in field.SourceShadowTemplates)
         {
@@ -70,26 +71,13 @@ public sealed class D3D11ShadowInputPreparation
             }
             Add(template.TemplateIndex,template.FinalTable,template.Matrix,template.VertexLayout,treeAsset,treeDraw);
         }
-        int fieldTemplates=result.Count;
-        string[] primaryDirectories=File.ReadAllLines(Path.Combine(primary.Directory,"models.txt"));
-        foreach(var profile in primary.Profiles)
+        fieldTemplateCount=result.Count;
+        primaryShadow=primary.RequireShadow(locale);
+        foreach(var template in primaryShadow.Templates)
         {
-            // These binding fields identify RDB resources, not native rule defaults.
-            string[] key=profile.AssetSourceKey.Split('|');
-            var resource=GameResourceId.Parse(key[1]);string[] parts=resource.Key.Split('/');
-            var dictionary=repository.LoadObjects(parts[0],uint.Parse(parts[1],NumberStyles.HexNumber,CultureInfo.InvariantCulture));
-            var textures=ModelTextureResources.Load(repository,dictionary,
-                uint.Parse(key[3],NumberStyles.HexNumber,CultureInfo.InvariantCulture));
-            var bindings=ModelShaderResources.LoadBindings(repository,textures);
-            for(int draw=0;draw<profile.DrawIndices.Count;draw++)
-            {
-                int template=profile.TemplateIndices[draw];
-                var named=ModelShaderResources.ResolveDrawBaseSource(bindings,profile.DrawIndices[draw],shaderObjects);
-                var matrix=ModelMatrixBindingSourceReader.PrepareUnboundGroup(bindings,profile.DrawIndices[draw])
-                    ?? throw new NotSupportedException("Startup shadow needs this template's nonrigid source owner.");
-                Add(fieldTemplates+template,named.Binding.Shader,matrix,
-                    File.ReadAllLines(Path.Combine(primary.Directory,primaryDirectories[template],"layout.txt")));
-            }
+            // CB layout metadata is immutable. Global indices still belong to
+            // this opening's actual Field + primary model catalog.
+            result.Add(new(checked(fieldTemplateCount+template.Index),template.Bytes,template.LocalToProjection,[],[]));
         }
         templates=result.OrderBy(value=>value.Index).ToArray();
         void Add(int index,NamedModelShader final,ModelMatrixBindingInput matrix,IReadOnlyList<string> resourceLayout,
@@ -143,7 +131,8 @@ public sealed class D3D11ShadowInputPreparation
         D3D11ShadowInitialFamily distant)
     {
         string directory=Path.Combine(inputsDirectory,"city-gate-shadow-input");Directory.CreateDirectory(directory);
-        foreach(var template in templates)
+        primaryShadow.WriteOpeningReference(Path.Combine(directory,"gpu"),fieldTemplateCount);
+        foreach(var template in templates.Take(fieldTemplateCount))
         {
             string output=Path.Combine(directory,"gpu","template-"+template.Index);Directory.CreateDirectory(output);
             File.WriteAllBytes(Path.Combine(output,"vs.dxbc"),template.Vertex);File.WriteAllLines(Path.Combine(output,"layout.txt"),template.Layout);

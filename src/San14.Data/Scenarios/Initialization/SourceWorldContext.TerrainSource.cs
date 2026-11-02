@@ -12,8 +12,11 @@ public sealed partial class SourceWorldContext
 
     public void SetSurfaceTypeWoundedCategory42(int physicalSlot, byte? value)
     { Check(physicalSlot, 31, "surface type physical slot"); _surfaceWoundedCategories42[physicalSlot] = value; }
-    public byte? ReadSurfaceTypeWoundedCategory42(SurfaceTypeReference surface) =>
-        _surfaceWoundedCategories42.GetValueOrDefault(MapPhysical(surface.PhysicalSlot, 31, "surface type"));
+    public byte? ReadSurfaceTypeWoundedCategory42(SurfaceTypeReference surface)
+    {
+        int physical = MapPhysical(surface.PhysicalSlot, 31, "surface type");
+        return _surfaceWoundedCategories42.TryGetValue(physical, out var value) ? value : _initialSurfaceCombatRules?.ReadWoundedCategory(physical);
+    }
 
     public void SetSurfaceTypeTacticRateWord(int physicalSlot, int category, ushort? value)
     {
@@ -27,8 +30,8 @@ public sealed partial class SourceWorldContext
     public ushort? ReadSurfaceTypeTacticRateWord(SurfaceTypeReference surface, int category)
     {
         Check(category, 9, "surface tactic rate category");
-        return _surfaceTacticRateWords.GetValueOrDefault((
-            MapPhysical(surface.PhysicalSlot, 31, "surface type"), category));
+        int physical = MapPhysical(surface.PhysicalSlot, 31, "surface type");
+        return _surfaceTacticRateWords.TryGetValue((physical, category), out var value) ? value : _initialSurfaceCombatRules?.ReadTacticRate(physical, category);
     }
 
     /// <summary>Explicit successful native fixed-table allocation/load profile.

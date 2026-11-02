@@ -17,12 +17,15 @@ internal partial class TitleMenuView : Control
     private Shader? shader;
     private Control canvas = null!;
     private readonly List<UiSourceTitleMenuButton> buttons = [];
+    private readonly List<UiSourceRadioButton> languages = [];
     private Func<bool>? inputAdmitted;
     private Action<TitleMenuCommand>? selected;
     private bool abandoned;
+    private bool ownsResources;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, IReadOnlyList<bool> enabled,
-        Func<bool> inputAdmitted, Action<TitleMenuCommand> selected, Action<int> languageChanged)
+        Func<bool> inputAdmitted, Action<TitleMenuCommand> selected, Action<int> languageChanged,
+        AdministrationPageChrome.Resources? resources = null)
     {
         ArgumentNullException.ThrowIfNull(enabled);
         ArgumentNullException.ThrowIfNull(inputAdmitted);
@@ -33,21 +36,22 @@ internal partial class TitleMenuView : Control
         Name="TitleMenu";ZIndex=2;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
-        assets = new(repository);
-        font = new(repository, text.SourceLocale);
-        shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new Control { Name = "TitleMenuCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Ignore };
         AddChild(canvas);
-        var source = new UiSourceLayout(repository, 0xE7A28866);
-        var still = new UiSourceLayout(repository, 0x583BEE54);
+        var source = assets.SourceLayout(0xE7A28866);
+        var still = assets.SourceLayout(0x583BEE54);
         still.Art(canvas, 1, still.Rectangle(1, source.Rectangle(36).Position), assets, shader);
-        var logo = new UiSourceLayout(repository, 0x5B2BB9DD);
+        var logo = assets.SourceLayout(0x5B2BB9DD);
         logo.Art(canvas, 1, logo.Rectangle(1, source.Rectangle(34).Position), assets, shader);
 
         int[] mounts = [13,20,22,24,26,28,30,32];
         int[] messages = [0x2E,0x2F,0x2D,0x7B,0x66,0x31,0x32,0x33];
         var captions = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
-        var shellSource = new UiSourceLayout(repository, 0xE37E0C60);
+        var shellSource = assets.SourceLayout(0xE37E0C60);
         var entries = new UiSourceTitleMenuButton[mounts.Length];
         for (int index = 0; index < mounts.Length; index++)
         {
@@ -71,10 +75,22 @@ internal partial class TitleMenuView : Control
             foreach (int node in new[] { 4,5 }) shellSource.Art(shell, node, shellSource.Rectangle(node), assets, shader);
         }
         buttons.AddRange(entries);
-        var language=new OptionButton { Name="TitleLanguage",Position=new(1620,1010),Size=new(250,42) };
-        language.AddItem(text.LocaleSimplified);language.AddItem(text.LocaleTraditional);
-        language.Select(text.SourceLocale=="TC"?1:0);canvas.AddChild(language);
-        language.ItemSelected+=index=>{if(!abandoned&&this.inputAdmitted?.Invoke()==true)languageChanged((int)index);};
+        var language = new Control { Name="TitleLanguage", Position=new(1490,1010),
+            Size=new(380,48), MouseFilter=MouseFilterEnum.Ignore };
+        canvas.AddChild(language);
+        string[] languageCaptions = [text.LocaleSimplified,text.LocaleTraditional];
+        for (int index=0;index<languageCaptions.Length;index++)
+        {
+            int locale=index;
+            var choice = new UiSourceRadioButton { Name="TitleLanguage"+index,
+                Position=new(index*190,0), Size=new(190,48), Selected=index==(text.SourceLocale=="TC"?1:0),
+                InputAdmission=()=>!abandoned&&IsInsideTree()&&!IsQueuedForDeletion()&&this.inputAdmitted?.Invoke()==true };
+            language.AddChild(choice);
+            choice.Configure(repository,assets,shader,font,index==0?UiSourceRadioSegment.Left:UiSourceRadioSegment.Right,
+                languageCaptions[index],()=>
+                {if(!abandoned&&this.inputAdmitted?.Invoke()==true)languageChanged(locale);});
+            languages.Add(choice);
+        }
         ApplyAvailability(enabled);
         SetMeta("source_layout", source.Source.Source.ResourceUri);
         Resized += Fit;
@@ -95,6 +111,7 @@ internal partial class TitleMenuView : Control
         inputAdmitted = null;
         selected = null;
         foreach (var button in buttons) button.Disabled = true;
+        foreach (var language in languages) language.Abandon();
         Hide();
     }
 
@@ -110,8 +127,11 @@ internal partial class TitleMenuView : Control
     {
         inputAdmitted = null;
         selected = null;
-        font?.Dispose();
-        assets?.Dispose();
-        shader?.Dispose();
+        if (ownsResources)
+        {
+            font?.Dispose();
+            assets?.Dispose();
+            shader?.Dispose();
+        }
     }
 }

@@ -102,6 +102,12 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         string flattened = expanded.Replace("\r\n", "", StringComparison.Ordinal).Replace("\n", "", StringComparison.Ordinal);
         DeploymentNarrationPlainParagraph.RequireKnownColours(flattened);
         var line = DeploymentNarrationParagraphPlan.Runs(flattened).Single();
+        if (line.Runs.All(run => run.Colour == NarrationBodyColour.OriginalNodeBody))
+        {
+            FirstGlyphColour = null;
+            Text = line.VisibleText;
+            return;
+        }
         var presets = MapTextPresets.Create();
         SetRuns(line.Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
         {
@@ -114,6 +120,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
 
     internal void Configure(MapFont font, MapFontProfile profile)
     {
+        bool changed = !ReferenceEquals(_font, font) || _profile != profile;
         _font = font;
         _profile = profile;
         // Original AC30C0: high nibble selects left / centre / right;
@@ -127,6 +134,9 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         };
         MouseFilter = MouseFilterEnum.Ignore;
         SetNotifyTransform(true);
+        // A caption keeps its text across hover and disabled-state changes.
+        // Invalidate its retained draw commands when the style changes too.
+        if (changed) QueueRedraw();
     }
 
     public override void _Notification(int what)

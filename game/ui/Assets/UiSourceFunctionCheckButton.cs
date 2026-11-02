@@ -11,8 +11,11 @@ internal partial class UiSourceFunctionCheckButton : UiSourceButton
         get=>base.Selected;
         set {base.Selected=value;if(check is not null)check.Visible=value;}
     }
+    // CCmnBtnFncCheckBehavior's selected setter only changes node16.
+    // Normal/focus/push and the glyph's preset remain input-state consumers.
+    internal override int VisualState => InputVisualState;
     public override bool _HasPoint(Vector2 point)=>SourceInputAdmitted&&hit.HasPoint(point);
-    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string icon,Action action)
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string icon,Action action, bool expansionCommonSprite=true)
     {
         var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"cmn_btn_fnc_check"));
         Size=source.Rectangle(0).Size;hit=source.Rectangle(1);
@@ -23,7 +26,7 @@ internal partial class UiSourceFunctionCheckButton : UiSourceButton
             var layer=new Control{Name="State"+i,MouseFilter=MouseFilterEnum.Ignore};AddChild(layer);states[i]=layer;
             foreach(int node in artwork[i])source.Art(layer,node,source.Rectangle(node),assets,shader);
         }
-        var glyph=source.Art(this,15,source.Rectangle(15),assets,shader,commonSpriteOverride:icon,expansionCommonSprite:true);
+        var glyph=source.Art(this,15,source.Rectangle(15),assets,shader,commonSpriteOverride:icon,expansionCommonSprite:expansionCommonSprite);
         check=source.Art(this,16,source.Rectangle(16),assets,shader);check.Visible=Selected;
         var palettes=MapSpritePalettes.Create();
         ConfigureStates(states,state=>

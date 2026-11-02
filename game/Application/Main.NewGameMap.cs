@@ -48,6 +48,7 @@ public partial class Main
                 var world=_world!;var composition=_campaignComposition!;
                 var queries=composition.PrepareArmyQueries(world);
                 map=new MapSceneView();_newGameMap=map;
+                map.SetStaticMapResources(BorrowApplicationMapResources());
                 ApplyCommittedCgQuality(map);_mapHost.AddChild(map);
                 map.SetSourceNavigationOptions(_preferences.Navigation);
                 map.SetKeyboardBindings(_preferences.KeyboardBindings);

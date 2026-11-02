@@ -52,7 +52,7 @@ internal sealed partial class DeploymentTargetPresenter
             facilityDefinition=choice;view.SetFacilitySelectionMode(true,placing:true);modalChanged(false);
             view.ApplyHint(rules.QueryFacilityPlacementHint(text.SourceLocale,choice.Name,false));
             LastAcceptedFacilityDefinitionKey=choice.DefinitionKey;FacilityChoiceAcceptedSequence++;
-        },query.PreselectedDefinitionKeys,query.Directory.Pages,facilityScrollSpeed);
+        },query.PreselectedDefinitionKeys,query.Directory.Pages,facilityScrollSpeed,resources:view.SourceResources);
         if(query.Directory.UnresolvedInput is not null||query.PreselectionUnresolvedInput is not null)
             child.ApplyHint(text.Get("play_facility_order_unavailable"));
     }

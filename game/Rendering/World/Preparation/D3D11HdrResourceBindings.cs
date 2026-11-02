@@ -18,6 +18,20 @@ public static class D3D11HdrResourceBindings
         internal readonly Lazy<LoadedRenderGraphTargets> Geometry;
         internal readonly Lazy<ProducerKeys> Refraction;
         internal readonly Lazy<LoadedSkyAmbientResources> Ambient;
+        private readonly object textureGate=new();
+        private readonly Dictionary<uint,RenderTextureDefinition> textureDefinitions=[];
+        internal RenderTextureDefinition Texture(uint key)
+        {
+            lock(textureGate)
+            {
+                if(!textureDefinitions.TryGetValue(key,out var definition))
+                {
+                    definition=RenderTextureResources.Read(Textures.Value,key);
+                    textureDefinitions.Add(key,definition);
+                }
+                return definition;
+            }
+        }
         internal Targets(GameResourceRepository repository)
         {
             Textures = new(() => repository.LoadObjects("system", 0x93FB3280));
@@ -97,12 +111,12 @@ public static class D3D11HdrResourceBindings
 
     public static IReadOnlyList<string> Write(GameResourceRepository repository,
         HdrShaderDeclaration declaration, HdrShaderProgram program, string directory, string locale,
-        D3D11CurrentSeasonFrame current, int outputWidth, int outputHeight)
+        D3D11CurrentSeasonFrame current, int outputWidth, int outputHeight, D3D11HdrRecipeMedia? media = null)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(declaration);
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(current);
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
-        Directory.CreateDirectory(directory);
+        if(media is null)Directory.CreateDirectory(directory);
         var imported = ImportedTargets.GetValue(declaration, _ => new(repository));
         var native = RenderSamplerSourceAdapters.Load(repository.SourceDirectory, locale);
         var mappings = program.ResourceBindings.Entries;
@@ -158,8 +172,10 @@ public static class D3D11HdrResourceBindings
             WriteSampler(file, descriptor);
             if (alternateFile is not null) WriteSampler(alternateFile, alternateDescriptor);
         }
-        File.WriteAllLines(Path.Combine(directory, "textures.txt"), textureRows);
-        File.WriteAllLines(Path.Combine(directory, "samplers.txt"), samplerRows);
+        if(media is null)File.WriteAllLines(Path.Combine(directory, "textures.txt"), textureRows);
+        else media.WriteAllLines("textures.txt", textureRows);
+        if(media is null)File.WriteAllLines(Path.Combine(directory, "samplers.txt"), samplerRows);
+        else media.WriteAllLines("samplers.txt", samplerRows);
         return Array.AsReadOnly(reasons.Distinct(StringComparer.Ordinal).ToArray());
 
         void WriteSampler(string file, byte[]? descriptor)
@@ -168,8 +184,10 @@ public static class D3D11HdrResourceBindings
             if (descriptor is not null)
             {
                 if (descriptor.Length != 52) throw new InvalidDataException("HDR sampler descriptor extent changed.");
-                File.WriteAllBytes(path, descriptor);
+                if(media is null)File.WriteAllBytes(path, descriptor);
+                else media.WriteAllBytes(file,descriptor);
             }
+            else if(media is not null)media.Remove(file);
             else if (File.Exists(path)) File.Delete(path); // Never retain an old ready descriptor.
         }
         void Missing(string name, string reason) => reasons.Add(name + ": " + reason + ".");
@@ -202,7 +220,7 @@ public static class D3D11HdrResourceBindings
                 Missing(binding.Name.Text, "a zero graph target needs its separate fallback producer");
                 return new(role, "unresolved");
             }
-            var target = RenderTextureResources.Read(imported.Textures.Value, key);
+            var target = imported.Texture(key);
             uint actualDimension = target.Kind == RenderTextureKind.Texture2D ? 4u : 5u;
             if (dimension != actualDimension)
                 throw new InvalidDataException("HDR graph target dimension differs from its selected shader role.");

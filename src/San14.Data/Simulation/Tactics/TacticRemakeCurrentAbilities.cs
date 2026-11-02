@@ -123,17 +123,22 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
     }
 
     private static OfficerAbilities? Appointment(GameState state, OfficerState officer, byte status)
+        => AppointmentFromFields(state, officer.Id, officer.ForceId, officer.DistrictId,
+            OfficerAppointmentRules.ReadAbilityOfficeId(officer.Appointment), status);
+
+    internal static OfficerAbilities? AppointmentFromFields(GameState state, int officerId,
+        int? currentForceId, int? currentDistrictId, int? currentOfficeId, byte status)
     {
         if (status == 1)
         {
-            if (officer.ForceId is not int forceId || !state.Forces.TryGetValue(forceId, out ForceState? force) ||
-                force.RulerId != officer.Id || officer.DistrictId is not int districtId ||
+            if (currentForceId is not int forceId || !state.Forces.TryGetValue(forceId, out ForceState? force) ||
+                force.RulerId != officerId || currentDistrictId is not int districtId ||
                 !state.Districts.TryGetValue(districtId, out DistrictState? district) || district.ForceId != forceId ||
                 force.RankId is not int rankId || rankId is < 0 or > 12 ||
                 !state.ForceRanks.TryGetValue(rankId, out ForceRankDefinition? rank)) return null;
             return rankId == 0 ? Zero : rank.AbilityBonus;
         }
-        int? officeId = OfficerAppointmentRules.ReadAbilityOfficeId(officer.Appointment);
+        int? officeId = currentOfficeId;
         if (officeId is not int id || id is < 0 or > 255 ||
             !state.OfficerOffices.TryGetValue(id, out OfficerOfficeDefinition? office)) return null;
         //Current CPostData validity requires a nonzero physical slot and raw
@@ -177,9 +182,13 @@ public sealed class TacticRemakeCurrentAbilities : IEffectiveOfficerAbilities
         .TryGetValue(key, out int value) ? value : null;
     private static readonly OfficerAbilities Zero = new(0, 0, 0, 0, 0);
     private static int[] Values(OfficerAbilities value) => [value.Leadership, value.Strength, value.Intelligence, value.Politics, value.Charm];
-    private static bool RoleMatches(OfficerRole role, byte status) => (role, status) switch
+    internal static bool RoleMatches(OfficerRole role, byte status) => (role, status) switch
         { (OfficerRole.Ruler, 1) or (OfficerRole.DistrictLeader, 2) or (OfficerRole.Governor, 3) or
-          (OfficerRole.Officer, 4) or (OfficerRole.Free, 5) => true, _ => false };
+          (OfficerRole.Officer, 4) or (OfficerRole.Free, 5) => true,
+          //Custody does not rewrite a person's retained coarse serving role.
+          //The source ability getter consumes status6 and the actual post,
+          //health, items and doctrine; it has no separate role admission.
+          (_, 6) => true, _ => false };
     private static bool IsBandPerson(int id) => unchecked((uint)(id - 4111)) <= 9 || unchecked((uint)(id - 4131)) <= 9 ||
         unchecked((uint)(id - 4151)) <= 9 || unchecked((uint)(id - 4171)) <= 9 || unchecked((uint)(id - 4191)) <= 9;
 }

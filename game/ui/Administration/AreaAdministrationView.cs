@@ -20,18 +20,19 @@ internal partial class AreaAdministrationView : Control
     private Action<int>? focusChosen;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        Action returned, Action accepted, Action dismissed, Action chooseOfficer, Action<int> focusChosen)
+        Action returned, Action accepted, Action dismissed, Action chooseOfficer, Action<int> focusChosen,
+        AdministrationPageChrome.Resources? resources=null)
     {
         this.returned = returned; this.accepted = accepted; this.dismissed = dismissed;
         this.chooseOfficer = chooseOfficer; this.focusChosen = focusChosen;
         Name = "AreaAdministration"; ZIndex = 3;
         MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
+        var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
         chrome = new AdministrationPageChrome { Name = "AdministrationChrome" };
         AddChild(chrome);
         chrome.Configure(repository, text, 0x04B7, RequestBack,
-            () => { if (!abandoned && !suspended) this.accepted?.Invoke(); });
+            () => { if (!abandoned && !suspended) this.accepted?.Invoke(); },resources:resources);
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         var source = new UiSourceLayout(repository, 0xC4464DC9);
         panel = new Control { Name = "RegionPanel", Position = new(460, 127),

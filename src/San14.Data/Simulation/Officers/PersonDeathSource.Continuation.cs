@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -24,6 +24,13 @@ public sealed partial class ArmyCampaignRuleAdapter : IRulerSuccessionRules
             }
             working = PublishNormalTurnCurrent(working, world.Context, world.Pool);
             working = PersonAssignmentPrecallInputs.PublishCurrent(working, world.Context);
+            if (working.PersonDeathContinuation is null && working.ArmyReturnCaptiveContinuation is
+                { Phase: ArmyReturnCaptivePhase.AwaitingPersonDeath })
+            {
+                var captiveBatch = new PlayerReturnCaptiveCommandSource(this, working);
+                captiveBatch.ResumeAfterPersonDeath();
+                working = captiveBatch.Publish();
+            }
             return CommandResult.Accept(working);
         }
         catch (InvalidDataException error) { return CommandResult.RuleUnavailable(error.Message, error.Message); }

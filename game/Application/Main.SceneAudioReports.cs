@@ -9,7 +9,7 @@ public partial class Main
     private void AttachSceneAudioSession(AudioPlaybackService playback)
     {
         if (_repository is null || _sceneAudioBinding is not null) return;
-        var binding = new SceneAudioBinding(this, playback, _repository.SourceDirectory, _overrides.DirectoryPath);
+        var binding = new SceneAudioBinding(this, playback, CaptureCampaignResourceSources());
         binding.ChannelChanged += SceneAudioChannelChanged;
         binding.MusicChanged += UpdateSceneAudioStatus;
         _sceneAudioBinding = binding;
@@ -51,6 +51,8 @@ public partial class Main
 
     private void LeaveSceneAudioContext()
     {
+        RetireReportMapMusic();
+        _periodReportMusicScene = null;
         if (_sceneAudioBinding is { } binding && binding.Leave().SceneRevision is long revision)
             SetMeta("scene_audio_scene_revision", revision);
         SetMeta("scene_audio_scene_key", "");

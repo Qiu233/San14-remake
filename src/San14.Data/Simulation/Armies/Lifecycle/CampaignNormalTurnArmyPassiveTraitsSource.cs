@@ -8,7 +8,12 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// applying recovery, morale and local security in that order.</summary>
     internal GameState ApplyNormalTurnArmyPassiveTraitsCurrent(GameState state,
         SourceWorldContext current, WorldIndexContext pool)
-        => new NormalTurnArmyPassiveTraits(this, state, current, pool).Apply();
+    {
+        // Recovery reads the same current office/rank owner as departure.
+        // The normal Turn borrows a bare writable route context.
+        _moraleWaveInputs.BindCurrent(state, current);
+        return new NormalTurnArmyPassiveTraits(this, state, current, pool).Apply();
+    }
 
     private sealed class NormalTurnArmyPassiveTraits(ArmyCampaignRuleAdapter package,
         GameState initial, SourceWorldContext current, WorldIndexContext pool)

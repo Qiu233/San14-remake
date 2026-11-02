@@ -27,21 +27,15 @@ public static class OrdinaryArmyRouteSource
             if (target is { Kind38: 27, Identity3A: ushort targetArmy })
                 return current is null ? null : ReadArmyTargetHex(state, current, targetArmy, first.Value);
             if (target is { Kind38: 5 or 6, Identity3A: ushort baseIdentity })
-            {
-                if (current is null) return null;
-                var selectedBase = target.Kind38 == 5 ? current.ReadCityTableReference(baseIdentity <= 51 ? baseIdentity : 0)
-                    : current.ReadGateTableReference(baseIdentity <= 10 ? baseIdentity : 0);
-                if (selectedBase is null || current.ReadBaseNativeValidity(selectedBase) is not bool baseValid) return null;
-                if (!baseValid) return first;
-                if (current.ReadBaseObjectLink(selectedBase) is not ushort link) return null;
-                var obj = current.ReadObjectTableReference(link <= 3000 ? link : 0);
-                if (obj is null || current.ReadObjectNativeValidity(obj) is not bool objectValid) return null;
-                return objectValid ? current.ReadObjectHexIndex(obj) : first;
-            }
+                return ReadBaseTargetHex(current, target.Kind38.Value, baseIdentity, first.Value);
             if (target is { Kind38: 255 }) return first;
             if (target is not { Kind38: 11, Identity3A: ushort objectLookup }) return null;
             return ReadObjectTargetHex(state, current, objectLookup, first.Value);
         }
+        if (kind is 5 or 6)
+            return temporary.Identity3E is ushort baseIdentity
+                ? ReadBaseTargetHex(current, kind, baseIdentity, first.Value) : null;
+        if (kind == 9) return temporary.Identity3E;
         if (kind == 11)
         {
             if (!HasTypedObjectOverride(army) || temporary.Identity3E is not ushort objectLookup) return null;
@@ -49,6 +43,16 @@ public static class OrdinaryArmyRouteSource
         }
         if (kind != 27 || temporary.Identity3E is not ushort raw) return null;
         return ReadArmyTargetHex(state, current, raw, first.Value);
+    }
+
+    internal static ArmyMarchDestination? ReadCurrentDestination(GameState state, UnitState army, SourceWorldContext current)
+    {
+        // A known ordinary waypoint belongs to the campaign. Do not encode
+        // it and then mistake a valid Hex48400 for the old None word.
+        if (army.NativeTacticRuntime?.Status10 == 1 && army.OverrideTarget?.Kind == ArmyOverrideTargetKind.None &&
+            army.March?.Target is { Kind: ArmyMarchDestinationKind.Hex, HexId: int } waypoint)
+            return waypoint;
+        return ReadCurrentTarget(state, army, current) is ushort raw ? ArmyMarchSourceAdapter.DecodeDestination(raw) : null;
     }
 
     //Only an owned receiver is an executable Object override. An old
@@ -71,7 +75,27 @@ public static class OrdinaryArmyRouteSource
     }
 
     internal static bool HasSupportedMovementOverride(UnitState army) =>
-        army.OverrideTarget?.Kind is ArmyOverrideTargetKind.None or ArmyOverrideTargetKind.ArmyReceiver || HasTypedObjectOverride(army);
+        army.OverrideTarget?.Kind is ArmyOverrideTargetKind.None or ArmyOverrideTargetKind.ArmyReceiver or
+            ArmyOverrideTargetKind.City or ArmyOverrideTargetKind.Gate or ArmyOverrideTargetKind.Hex || HasTypedObjectOverride(army);
+
+    internal static bool HasExplicitMovementOverride(UnitState army) =>
+        army.OverrideTarget?.Kind is ArmyOverrideTargetKind.ArmyReceiver or ArmyOverrideTargetKind.City or
+            ArmyOverrideTargetKind.Gate or ArmyOverrideTargetKind.Hex || HasTypedObjectOverride(army);
+
+    private static ushort? ReadBaseTargetHex(SourceWorldContext? current, byte kind, ushort raw, ushort first)
+    {
+        if (current is null) return null;
+        //2B54A0 follows the same valid Base -> Object4E -> Object10 chain
+        //for both the main command and a temporary City/Gate provocation.
+        var selected = kind == 5 ? current.ReadCityTableReference(raw <= 51 ? raw : 0)
+            : current.ReadGateTableReference(raw <= 10 ? raw : 0);
+        if (selected is null || current.ReadBaseNativeValidity(selected) is not bool valid) return null;
+        if (!valid) return first;
+        if (current.ReadBaseObjectLink(selected) is not ushort link) return null;
+        var obj = current.ReadObjectTableReference(link <= 3000 ? link : 0);
+        if (obj is null || current.ReadObjectNativeValidity(obj) is not bool objectValid) return null;
+        return objectValid ? current.ReadObjectHexIndex(obj) : first;
+    }
 
     private static ushort? ReadObjectTargetHex(GameState state, SourceWorldContext? current,
         ushort raw, ushort first)
@@ -154,7 +178,7 @@ public static class OrdinaryArmyRouteSource
             bool supported = sourceDeparture && creation && status == 1 || status == 1 && (action is 1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 ||
                 action is 14 or 16 or 17) ||
                 !creation && status == 2 && action is 1 or 2 or 3 or 11 or 12 ||
-                !creation && status == 1 && HasTypedObjectOverride(army) && action is >= 0 and <= 17;
+                !creation && status == 1 && HasExplicitMovementOverride(army) && action is >= 0 and <= 17;
             if (!supported ||
                 !HasSupportedMovementOverride(army)) throw Missing("ordinary_move_stay_scope");
             if (creation && !sourceDeparture && action is not (1 or 2 or 3 or 4 or 5 or 7 or 8 or 9 or 10 or 13 or 14 or 16 or 17) &&
@@ -165,17 +189,18 @@ public static class OrdinaryArmyRouteSource
                 bool excluded = OwnedArmyDestructionCurrent.ReadArmyExcluded233560(state, current, physical) ?? throw Missing("233560");
                 if (excluded) return Done(null, [], null, null, 0, "excluded_Army");
             }
-            ushort start = ArmyMarchSourceAdapter.ReadCurrentHex(state, army) ?? throw Missing("Army2A");
-            ushort goal;
+            int start = ArmyMarchSourceAdapter.ReadCurrentMapHex(state, army) ?? throw Missing("Army2A");
+            ArmyMarchDestination destination = ArmyMarchDestination.None;
             bool freshGoal = creation || refresh;
             if (!freshGoal)
             {
-                goal = army.NativeRouteGoal1F8 ?? throw Missing("cached_goal");
-                freshGoal = goal == Count || goal == start;
+                ushort cachedWord = army.NativeRouteGoal1F8 ?? throw Missing("cached_goal");
+                destination = ArmyMarchSourceAdapter.DecodeDestination(cachedWord);
+                freshGoal = destination.Kind == ArmyMarchDestinationKind.None || destination.HexId == start;
             }
-            else goal = Count;
-            if (freshGoal) goal = ReadCurrentTarget(state, army, current) ?? throw Missing("current_target");
-            if (goal == Count) return Done(goal, [], null, null, 0, "no_goal");
+            if (freshGoal) destination = ReadCurrentDestination(state, army, current) ?? throw Missing("current_target");
+            if (destination.Kind == ArmyMarchDestinationKind.None) return Done(Count, [], null, null, 0, "no_goal");
+            int goal = destination.HexId ?? throw Missing("current_target_Hex");
             if (creation && ArmyConfigurationSourceAdapter.ReadCurrentLand(state, army) is not (>= 1 and <= 18))
                 throw Missing("creation_mode1_formation");
             if (!creation)
@@ -183,7 +208,7 @@ public static class OrdinaryArmyRouteSource
                 byte hold = army.NativeRouteHold56 ?? throw Missing("route_hold");
                 if (hold != 0) return Done(goal, [], null, null, 0, "hold");
             }
-            if (start >= Count || goal >= Count) throw Missing("route_endpoint");
+            if (!current.ContainsMapHex(start) || !current.ContainsMapHex(goal)) throw Missing("route_endpoint");
             var descriptorTarget = ReadEffectiveSearchTarget(state, army) ?? throw Missing("effective_search_target");
             if (army.OverrideTarget?.Kind == ArmyOverrideTargetKind.None && descriptorTarget.Kind is not (5 or 6 or 9 or 11 or 27))
                 throw Missing("Hex_target_fields");
@@ -206,8 +231,8 @@ public static class OrdinaryArmyRouteSource
                 var city = current.ReadCityTableReference(raw <= 51 ? raw : 0) ?? throw Missing("start_City");
                 index = (current.ReadBaseNativeValidity(city) ?? throw Missing("start_City_validity")) ? 2 : 1;
             }
-            ushort? next = path.Length > index ? (ushort)Math.Clamp(path[index], 0, Count) : null;
-            ushort? cached = !creation && freshGoal ? path.Length > 4 ? (ushort)path[4] : (ushort)Count : null;
+            ushort? next = path.Length > index ? ArmyMarchSourceAdapter.EncodeRouteHex(path[index]) : null;
+            ushort? cached = !creation && freshGoal ? path.Length > 4 ? ArmyMarchSourceAdapter.EncodeRouteHex(path[4]) : (ushort)Count : null;
             return Done(goal, path, next, cached, expanded, path.Length == 0 ? "no_path" : "path");
 
             OrdinaryArmyRouteResult Done(int? goalHex, int[] path, ushort? next, ushort? cached, int expanded, string branch)

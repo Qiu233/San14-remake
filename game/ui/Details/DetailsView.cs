@@ -14,6 +14,7 @@ public abstract partial class DetailsView : Control
 {
     private Control _canvas = null!;
     private UiAssets? _assets;
+    private bool _ownsLayoutResources;
     private TextureButton? _returnButton;
     private Action? _close;
     private MapFont? _sourceFont;
@@ -21,6 +22,11 @@ public abstract partial class DetailsView : Control
     private UiSourceHeader? _sourceHeader;
     private UiSourceCommonBlur? _commonBackdrop;
     private bool _configurationStarted;
+    private bool _ownsCommonBackdrop;
+    private bool _closing;
+    private bool _entering;
+    private UiSourceModalTransition? _returnTransition;
+    internal Action<Exception>? TransitionFailure { get; set; }
     private readonly List<string> _unbound = [];
     private UiAssets Assets => _assets ??
         throw new InvalidOperationException("Detail assets have not been initialized.");
@@ -46,9 +52,19 @@ public abstract partial class DetailsView : Control
         }
         var backdrop = new UiSourceCommonBlur();
         _commonBackdrop = backdrop;
+        _ownsCommonBackdrop = true;
         AddChild(backdrop);
         backdrop.Configure(repository);
         return backdrop;
+    }
+
+    private protected void ConfigureReturnTransition(UiSourceLayout source,
+        IReadOnlyDictionary<int, (Node2D Root, Vector2 ContentMount)> groups)
+    {
+        var transition = new UiSourceModalTransition { Name = "SourceReturnTransition", ProcessMode = ProcessModeEnum.Always };
+        AddChild(transition);
+        transition.Configure(source, _ownsCommonBackdrop ? _commonBackdrop : null, groups);
+        _returnTransition = transition;
     }
 
     // Dedicated source pages can compose their own layouts while retaining
@@ -70,7 +86,7 @@ public abstract partial class DetailsView : Control
         IReadOnlyDictionary<string, int>? valueTextPresets = null, string? selectionIcon = null,
         DetailForceAppearance? forceAppearance = null, IReadOnlyList<DetailForceAppearance?>? neighborFlags = null,
         DetailMiniMapValues? miniMap = null, DetailForceNameplate? rulerNameplate = null,
-        bool showReturnButton = true, bool showHeader = true)
+        bool showReturnButton = true, bool showHeader = true, AdministrationPageChrome.Resources? resources = null)
     {
         _configurationStarted = true;
         Name = viewName;
@@ -96,11 +112,12 @@ public abstract partial class DetailsView : Control
         var textPresets = MapTextPresets.Create();
         UiSourceLayout? sourceLayout = sourceBodyText || miniMapName is not null ? new(source) : null;
         IReadOnlyList<LcskNodeRecord> nodes = sourceLayout?.Nodes ?? LcskNodeReader.Read(source.Layout);
-        _assets = new UiAssets(repository);
+        _ownsLayoutResources=resources is null;
+        _assets = resources?.Assets??new UiAssets(repository);
         if (sourceBodyText || sourceShell)
-            _sourceFont = new(repository, text.SourceLocale);
-        if (sourceShell || sourceFrameBlur || miniMapName is not null)
-            _sourceShader = UiSourceSprite.CreateShader();
+            _sourceFont = resources?.Font??new(repository, text.SourceLocale);
+        if (sourceShell || sourceFrameBlur || miniMapName is not null || resources is not null&&portraitAppearanceCode.HasValue)
+            _sourceShader = resources?.SpriteShader??UiSourceSprite.CreateShader();
         _canvas = new Control { Size = new Vector2(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         _canvas.Theme = new Theme
         {
@@ -237,7 +254,10 @@ public abstract partial class DetailsView : Control
                 {
                     var portrait = new PortraitView { Name = node.Name };
                     _canvas.AddChild(portrait);
-                    portrait.Configure(repository, Assets, code, rectangle);
+                    if(resources is not null)
+                        portrait.Configure(repository,Assets,_sourceShader!,
+                            repository.ResolveStandingPortrait(code).LoadSources(Assets.Portraits.RequireSource),rectangle);
+                    else portrait.Configure(repository, Assets, code, rectangle);
                 }
                 continue;
             }
@@ -524,25 +544,80 @@ public abstract partial class DetailsView : Control
 
     internal virtual void RequestClose()
     {
-        if (_close is not Action close || !IsVisibleInTree() || IsQueuedForDeletion()) return;
+        if (_closing || _entering || _close is not Action close || !IsVisibleInTree() || IsQueuedForDeletion()) return;
+        if (_returnTransition is { } transition) { _ = CloseAfterTransition(transition, close); return; }
+        // Existing pages without registered source groups retain their
+        // synchronous callback and the caller's ordinary error boundary.
         _close = null;
         Hide();
         close();
     }
 
-    internal virtual void RegisterHeader(UiSourceHeaderStack owner) => _sourceHeader?.Publish(owner);
+    private async Task CloseAfterTransition(UiSourceModalTransition transition, Action close)
+    {
+        _closing = true;
+        var previousMode = ProcessMode;
+        // Disable business input while leaving the real foregrounds mounted
+        // and drawable. The dedicated source clock is explicitly Always.
+        ProcessMode = ProcessModeEnum.Disabled;
+        try
+        {
+            bool completed = await transition.Play(false);
+            if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || IsQueuedForDeletion() || _close != close) return;
+            if (!completed) { ProcessMode = previousMode; _closing = false; return; }
+            _close = null;
+            Hide();
+            close();
+        }
+        catch (Exception error)
+        {
+            if (GodotObject.IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion())
+            { ProcessMode = previousMode; _closing = false; }
+            ReportTransitionFailure(error);
+        }
+    }
+
+    private void ReportTransitionFailure(Exception error)
+    {
+        if (TransitionFailure is { } report) report(error);
+        else GD.PushError(error.ToString());
+    }
+
+    internal virtual void RegisterHeader(UiSourceHeaderStack owner)
+    {
+        _sourceHeader?.Publish(owner);
+        BeginSourceEnter(true);
+    }
+
+    internal void ResumeSourceForeground() => BeginSourceEnter(false);
+
+    private async void BeginSourceEnter(bool includeBackground)
+    {
+        if (_returnTransition is not { } transition || _closing || _entering || !IsVisibleInTree()) return;
+        _entering = true;
+        var previousMode = ProcessMode;
+        ProcessMode = ProcessModeEnum.Disabled;
+        try { await transition.Play(true, includeBackground); }
+        catch (Exception error) { ReportTransitionFailure(error); }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(this) && IsInsideTree() && !IsQueuedForDeletion())
+            { ProcessMode = previousMode; _entering = false; }
+        }
+    }
 
     public override void _ExitTree()
     {
         // Borrowers release their reference without hiding or freeing the
         // browser's provider. Owned backgrounds retire with this subtree.
         _commonBackdrop = null;
-        _sourceFont?.Dispose(); _sourceFont = null;
-        _sourceShader?.Dispose(); _sourceShader = null;
-        _assets?.Dispose();
+        if(_ownsLayoutResources){_sourceFont?.Dispose();_sourceShader?.Dispose();_assets?.Dispose();}
+        _sourceFont = null; _sourceShader = null;
         _assets = null;
         _returnButton = null;
         _close = null;
+        _returnTransition = null;
+        TransitionFailure = null;
     }
 
     private void DrawSprite(LcskDocument layout, LcskNodeRecord node, Rect2 rectangle, Vector2 scale)

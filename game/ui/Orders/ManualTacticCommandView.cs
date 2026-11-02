@@ -15,29 +15,31 @@ internal partial class ManualTacticCommandView : Control
     private Action<int>? casterChosen;
     private Action<int>? tacticChosen;
     private Action? returned;
-    private bool abandoned;
+    private bool abandoned, ownsResources;
     private string chooseTarget="";
     private GameResourceRepository repository=null!;
     private PreviewText text=null!;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,UiSourceHeaderStack headers,
-        Action<int> casterChosen,Action<int> tacticChosen,Action returned)
+        Action<int> casterChosen,Action<int> tacticChosen,Action returned, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository=repository;this.text=text;this.casterChosen=casterChosen;
         this.tacticChosen=tacticChosen;this.returned=returned;
         Name="ManualTacticCommand";ZIndex=5;MouseFilter=MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new(){Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
         header=new(){Name="ManualTacticTitle"};canvas.AddChild(header);
         header.Configure(repository,assets,shader,font,text.Get("play_tactic_active_title"));header.Publish(headers);
         cards=new(){Name="CommanderCards",MouseFilter=MouseFilterEnum.Ignore};canvas.AddChild(cards);
-        var footer=new UiSourceLayout(repository,0xD8913AB2);Vector2 mount=new(0,904);
+        var footer=assets.SourceLayout(0xD8913AB2);Vector2 mount=new(0,904);
         var back=new UiSourceRoundButton{Name="ReturnManualTactic",Position=footer.Rectangle(1,mount).Position,
             ActionMode=BaseButton.ActionModeEnum.Release};canvas.AddChild(back);
         back.Configure(repository,assets,shader,text.SourceLocale,"000_cmn_txt_decision_modoru",
             ()=>{if(!abandoned)this.returned?.Invoke();},UiAudioCue.Cancel);
-        var hintSource=new UiSourceLayout(repository,0xAB6ADAA7);
+        var hintSource=assets.SourceLayout(0xAB6ADAA7);
         Vector2 hintMount=footer.Rectangle(19,mount).Position;
         foreach(var node in hintSource.Nodes.Where(node=>node.Type is 1 or 3))
             hintSource.Art(canvas,node.Index,hintSource.Rectangle(node.Index,hintMount),assets,shader);
@@ -50,8 +52,8 @@ internal partial class ManualTacticCommandView : Control
     internal void Apply(ManualTacticCommandPublication publication,int? selectedTacticSlot,string? notice=null)
     {
         foreach(Node child in cards.GetChildren()){cards.RemoveChild(child);child.QueueFree();}
-        var row=new UiSourceLayout(repository,0x1CDA8363);
-        var body=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"00_10_01_saihai_offset_20"));
+        var row=assets.SourceLayout(0x1CDA8363);
+        var body=assets.SourceLayout("00_10_01_saihai_offset_20");
         int[] cardMounts=[6,9,10,11,12];
         Vector2 extent=row.Rectangle(0).Size;
         Vector2 mount=new(1920-extent.X-20,1080-extent.Y-24);
@@ -98,7 +100,7 @@ internal partial class ManualTacticCommandView : Control
         float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*scale;
         canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
-    public override void _ExitTree(){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){Abandon();if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 
     private partial class SourceButton : UiSourceButton
     {

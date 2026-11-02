@@ -32,7 +32,10 @@ public sealed partial class SourceWorldContext
     public bool? ReadObjectDefinitionValidity(ObjectDefinitionReference definition) => definition.PhysicalSlot.HasValue &&
         MapPhysical(definition.PhysicalSlot, 31, "object definition receiver") != 0;
     public byte? ReadObjectDefinitionRaw2C(ObjectDefinitionReference definition)
-        => _objectDefinitionValues2C.GetValueOrDefault(MapPhysical(definition.PhysicalSlot, 31, "object definition receiver"));
+    {
+        int physical = MapPhysical(definition.PhysicalSlot, 31, "object definition receiver");
+        return _objectDefinitionValues2C.TryGetValue(physical, out var value) ? value : _initialObjectScalarRules?.ReadCategory(physical);
+    }
 
     /// <summary>22C0A0 returns raw District10, after independent current Person
     /// and District lookups. It is not a Force physical identity.</summary>

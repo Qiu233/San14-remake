@@ -69,11 +69,11 @@ public partial class Main
         var parametersCache = new Dictionary<int, UnitSourceParameters>();
         var axesCache = new Dictionary<int, UnitSourceAxes>();
         view.Configure(repository, _ui, Read, close, ReadParameters,
-            officer => RunUiAction(() => OpenOfficer(view, officer, [officer])),
-            () => RunUiAction(OpenCaptives));
+            officer => RunInspectionUiAction(world, () => OpenOfficer(view, officer, [officer])),
+            () => RunInspectionUiAction(world, OpenCaptives));
 
-        bool Current(DetailsView page) => !_failed && !_shuttingDown && !_advancingPeriod && !IsReturningToTitle &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world) && _residentMap == map &&
+        bool Current(DetailsView page) => !_failed && !_shuttingDown && !IsReturningToTitle &&
+            IsInspectionWorldCurrent(session, world) && _residentMap == map &&
             (browser is not null ? IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(page) : _commandDetailsView == page);
 
         void ShowChild(DetailsView parent, DetailsView child, Action<Action> configure)

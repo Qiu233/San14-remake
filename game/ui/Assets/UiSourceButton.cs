@@ -6,6 +6,7 @@ internal partial class UiSourceButton : UiSourceHitButton
 {
     private Control[] _states = [];
     private Action<int>? _caption;
+    private bool _hasVisuals;
     private int _lastState = -1;
     private bool _selected;
 
@@ -34,7 +35,10 @@ internal partial class UiSourceButton : UiSourceHitButton
         set { if (_selected == value) return; _selected = value; QueueRedraw(); }
     }
 
-    internal virtual int VisualState => Disabled ? (IsHovered() ? 4 : 3) : Selected ? 2 : GetDrawMode() switch
+    // A check frame is independent of its button's pointer/disabled pose.
+    // Selected ordinary buttons retain their existing pressed-pose behavior.
+    internal virtual int VisualState => !Disabled && Selected ? 2 : InputVisualState;
+    protected int InputVisualState => Disabled ? (IsHovered() ? 4 : 3) : GetDrawMode() switch
     {
         DrawMode.Pressed or DrawMode.HoverPressed => 2,
         DrawMode.Hover => 1,
@@ -46,7 +50,23 @@ internal partial class UiSourceButton : UiSourceHitButton
         if (states.Length != 5 || states.Any(layer => layer.GetParent() != this))
             throw new ArgumentException("Source button requires five owned artwork states.", nameof(states));
         _states = states;
+        ConfigureVisuals(caption);
+    }
+
+    // Source artwork can update a retained part tree instead of owning five
+    // parallel Control trees. Input, state calculation and caption timing stay
+    // in this same button implementation.
+    internal void ConfigureVisualState(Action<int> visual)
+    {
+        ArgumentNullException.ThrowIfNull(visual);
+        _states = [];
+        ConfigureVisuals(visual);
+    }
+
+    private void ConfigureVisuals(Action<int>? caption)
+    {
         _caption = caption;
+        _hasVisuals = true;
         IgnoreTextureSize = true;
         FocusMode = FocusModeEnum.None;
         _lastState = -1;
@@ -61,7 +81,7 @@ internal partial class UiSourceButton : UiSourceHitButton
 
     private void ApplyState()
     {
-        if (_states.Length == 0 || _lastState == VisualState) return;
+        if (!_hasVisuals || _lastState == VisualState) return;
         int state = VisualState;
         for (int i = 0; i < _states.Length; i++) _states[i].Visible = i == state;
         _caption?.Invoke(state);

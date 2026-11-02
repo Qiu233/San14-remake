@@ -23,11 +23,10 @@ internal partial class UiSourceColumnButton : UiSourceButton
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, string caption, string? icon = null, bool personList = false, bool normalLayout = false, bool sortArrows = false)
     {
-        var source = normalLayout ? new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "cmn_btn_clm"))
-            : new UiSourceLayout(repository, 0x7A7B5B8C);
+        var source = normalLayout ? assets.SourceLayout("cmn_btn_clm")
+            : assets.SourceLayout(0x7A7B5B8C);
         var presets = MapTextPresets.Create();
-        var states = new[] { 3, 5, 8, 11, 11 }
-            .Select(index => source.Art(this, index, new Rect2(Vector2.Zero, Size), assets, shader)).ToArray();
+        var artwork = source.StateArt(this, [3, 5, 8, 11, 11], new Rect2(Vector2.Zero, Size), assets, shader);
         UiSourceText? label = null;
         UiSourceSprite? picture = null;
         MapFontProfile? profile = null;
@@ -49,8 +48,9 @@ internal partial class UiSourceColumnButton : UiSourceButton
             picture.Configure(shader, assets.SrgbSprite(icon), UiSourceSprite.Blend.Ordinary);
             picture.SetMeta("source_sprite", icon);
         }
-        ConfigureStates(states, state =>
+        ConfigureVisualState(state =>
         {
+            artwork.Apply(state);
             if (label is not null)
             {
                 label.Configure(font, profile!.WithPreset(presets[3 + Math.Min(state, 3)]));

@@ -62,6 +62,6 @@ public sealed partial class SourceWorldContext : ITacticParameterQueryState
     {
         ArgumentNullException.ThrowIfNull(receiver);
         int physical = MapPhysical(receiver.PhysicalSlot, 201, "tactic parameter owned receiver");
-        return _tacticEncodedValues70.GetValueOrDefault(physical);
+        return ReadSkillTacticCodes(physical);
     }
 }

@@ -11,7 +11,7 @@ public sealed record SkyDirectionalSelectedLightFields(Vector4 SunPosition, Vect
     uint SunFourthWord, Vector4 MoonPosition, Vector3 MoonRgb, uint MoonFourthWord,
     Vector4 PackagePosition, Vector3 PackageDirectionalRgb, uint PackageColorFourthWord);
 
-/// <summary>A same-frame Directional mode6/B2=8 selected record, validated by
+/// <summary>A same-frame Directional mode6/B2=2-or-8 selected record, validated by
 /// its own constructor and current Camera writer. Constructor-only retained
 /// Fog96 and mode2/HDRI allocation receipts cannot enter this source path.</summary>
 public sealed class SkyDirectionalSelectedLightSource
@@ -53,7 +53,7 @@ public sealed class SkyDirectionalSelectedLightSource
         ArgumentNullException.ThrowIfNull(selected); ArgumentNullException.ThrowIfNull(lighting);
         var identity = selected.Identity; var b = lighting.LocalLightData.Span;
         if (lighting.SourceLightClassId != DirectionalLightSource.SourceClass ||
-            !lighting.CameraContextApplied || !lighting.CameraLightingApplied || b[0x10B0] != 6 || b[0x10B2] != 8 ||
+            !lighting.CameraContextApplied || !lighting.CameraLightingApplied || b[0x10B0] != 6 || b[0x10B2] is not (2 or 8) ||
             lighting.SourceIdentity.DeclaredGroupMask != 0x80 || identity.FrameNumber != lighting.FrameNumber ||
             identity.SelectedViewOwner != lighting.Binding.ViewIdentity || identity.ProviderPacketOwner != lighting.Binding.LightOwnerIdentity)
             throw new InvalidDataException("Directional Sky requires the actual selected group80 mode6 record and its complete same-frame Camera writes.");
@@ -302,8 +302,10 @@ public sealed class SkyDirectionalSelectedLightSource
 
     internal static SkyDirectionalSelectedLightFields ReadNamedFields(ReadOnlySpan<byte> b)
     {
-        if (b.Length != CameraDirectionalLightData.LightDataBytes || b[0x10B0] != 6 || b[0x10B2] != 8)
-            throw new InvalidDataException("Directional named Sky fields require the full mode6/B2=8 current payload.");
+        if (b.Length != CameraDirectionalLightData.LightDataBytes || b[0x10B0] != 6 || b[0x10B2] is not (2 or 8))
+            throw new InvalidDataException("Directional named Sky fields require the full mode6/B2=2-or-8 current payload.");
+        // CBC770 writes all these named fields before its B2 test.
+        // Its B2=8 continuation only changes third RGB at50, outside this set.
         return new(Vector(b, 0xF80), Rgb(b, 0xFA0), Word(b, 0xFAC), Vector(b, 0xF90), Rgb(b, 0xFB0), Word(b, 0xFBC),
             Vector(b, 0), Rgb(b, 0x10), Word(b, 0x1C));
     }

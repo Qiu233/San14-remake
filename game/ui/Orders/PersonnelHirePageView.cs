@@ -25,13 +25,14 @@ internal partial class PersonnelHirePageView : Control
     private string chooseCaption = "";
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
-        Action returned, Action<bool> accepted, Action chooseCity, Action choosePeople)
+        Action returned, Action<bool> accepted, Action chooseCity, Action choosePeople,
+        AdministrationPageChrome.Resources resources)
     {
         this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         Name = "PersonnelHire"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x859, RequestBack, () => RequestApply(false), threeButtonFooter: true);
+        chrome.Configure(repository, text, 0x859, RequestBack, () => RequestApply(false), threeButtonFooter: true, resources: resources);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         again = new() { Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadAdmission };
         chrome.Canvas.AddChild(again);

@@ -11,6 +11,7 @@ internal partial class TransportTargetOptionsView : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private readonly List<(UiSourceCaptionButton First, UiSourceCaptionButton Second)> pairs = [];
     private UiSourceCaptionButton saveDefaults = null!;
     private Action<TransportTargetOption, int>? choose;
@@ -20,13 +21,16 @@ internal partial class TransportTargetOptionsView : Control
     internal Action<string?>? HintChanged { get; set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        Action<TransportTargetOption, int> choose, Action save)
+        Action<TransportTargetOption, int> choose, Action save,
+        AdministrationPageChrome.Resources? resources = null)
     {
         if (assets is not null) throw new InvalidOperationException("Transport options are configured once.");
         ArgumentNullException.ThrowIfNull(choose); ArgumentNullException.ThrowIfNull(save);
         this.choose = choose; this.save = save;
         Name = "TransportTargetOptions"; MouseFilter = MouseFilterEnum.Stop;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository); font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         //7D1A80 changes Control height, then9313A0 changes only the two
         //background pane sizes. Actual9313A0 ASM reads both OLD dimensions
         //before writing the new pair and930FF0 preserves integer top-left.
@@ -136,5 +140,5 @@ internal partial class TransportTargetOptionsView : Control
         Hide();
     }
     public override void _ExitTree()
-    { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    { Abandon(); if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); } }
 }

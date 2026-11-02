@@ -17,7 +17,7 @@ public partial class Main
         view.Configure(_repository ?? throw new InvalidDataException("force-information.resource_owner"),
             rules.QueryForceInformation(world, forceId), _ui, Return,
             PrepareDetailSelection(rules, world, InformationListKind.Forces, forceId, selectionIds) with { InitialNameSortAscending = initialNameSortAscending },
-            id => RunUiAction(() => view.Apply(rules.QueryForceInformation(world, id))));
+            id => RunInspectionUiAction(world, () => view.Apply(rules.QueryForceInformation(world, id))));
         void Return()
         {
             returnSelection?.Invoke(view.ReadSelectionReturn());

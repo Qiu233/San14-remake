@@ -11,23 +11,42 @@ public sealed record CampaignPeriodAdvanceResult(GameplaySession SourceSession,
 {
     public long SourceStorySequence { get; init; }
     public NormalPeriodOperation? SourceNormalPeriod { get; init; }
+    public GameState? SourceManualTacticCandidate { get; init; }
+    public GameState? SourceArmyProgressCandidate { get; init; }
 
     public bool IsCurrent(GameplaySession? activeSession) =>
         ReferenceEquals(activeSession, SourceSession) &&
         ReferenceEquals(activeSession.World, SourceWorld) &&
         activeSession.LastStorySequence == SourceStorySequence &&
         ReferenceEquals(activeSession.PendingNormalPeriod, SourceNormalPeriod) &&
-        (!activeSession.HasPendingOperation || activeSession.PendingNormalPeriod is not null);
+        ReferenceEquals(activeSession.PendingManualTacticCandidate, SourceManualTacticCandidate) &&
+        ReferenceEquals(activeSession.PendingArmyProgressCandidate, SourceArmyProgressCandidate) &&
+        (!activeSession.HasPendingOperation || activeSession.PendingNormalPeriod is not null ||
+            SourceManualTacticCandidate is not null || SourceArmyProgressCandidate is not null || SourceWorld.ArmyReturnCaptiveContinuation is not null);
 }
 
 public sealed partial class CampaignComposition
 {
+
+    //Routing only: the formal command still checks authority, force, person
+    //and current choice. Read the actual borrowed execution, never a World copy.
+    internal static bool IsManualRulerReply(GameplaySession session, GameOrder? reply)
+    {
+        if (session.PendingManualTacticCandidate is not
+            { ManualTacticExecutionContinuation: not null } candidate) return false;
+        return reply is ConfirmCapturedRulerTreatmentOrder &&
+                (candidate.ArmyDefeatContinuation?.PendingCapturedRulerTreatment ??
+                    candidate.BaseCaptureContinuation?.PendingCapturedRulerTreatment) is not null ||
+            reply is ConfirmRulerSuccessionOrder && candidate.PersonDeathContinuation?.PendingSuccession is not null;
+    }
+
     private CampaignComposition(GameResourceRepository repository, CampaignComposition source)
     {
         _repository = repository;
         _originalAiStrategy = source._originalAiStrategy;
         _saveCodec = new ResourceSaveCodec(repository);
         _applicationGameplay = source._applicationGameplay;
+        _applicationPresentationOptions = Volatile.Read(ref source._applicationPresentationOptions);
         _applicationProfile = source._applicationProfile;
         _endingBindings = source._endingBindings;
         _baseCaptureTerrain = source._baseCaptureTerrain;
@@ -49,9 +68,9 @@ public sealed partial class CampaignComposition
     /// This is not a load/save protocol and never acknowledges presentation.</summary>
     public Task<CampaignPeriodAdvanceResult> AdvancePeriodAsync(GameplaySession sourceSession,
         CancellationToken cancellationToken = default, CampaignAppRandomState? appRandomSnapshot = null,
-        NarrationVoiceSettings? narrationVoiceSettings = null, Func<GameState, GameState>? periodStep = null,
-        CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, null, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        NarrationVoiceSettings? narrationVoiceSettings = null, Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null,
+        CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, null, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     /// <summary>Apply one explicit diplomatic choice and continue the same
     /// private normal period. Rejection or failure leaves the source session's
@@ -59,41 +78,49 @@ public sealed partial class CampaignComposition
     public Task<CampaignPeriodAdvanceResult> ConfirmDiplomaticNegotiationAsync(GameplaySession sourceSession,
         ConfirmDiplomaticNegotiationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     /// <summary>Apply the player's response to the saved self-recommendation
     /// and continue its existing normal-turn candidate on the worker.</summary>
     public Task<CampaignPeriodAdvanceResult> ConfirmSelfRecommendationAsync(GameplaySession sourceSession,
         ConfirmSelfRecommendationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmCoalitionInvitationAsync(GameplaySession sourceSession,
         ConfirmCoalitionInvitationOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmCapturedRulerTreatmentAsync(GameplaySession sourceSession,
         ConfirmCapturedRulerTreatmentOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     public Task<CampaignPeriodAdvanceResult> ConfirmRulerSuccessionAsync(GameplaySession sourceSession,
         ConfirmRulerSuccessionOrder order, CancellationToken cancellationToken = default,
         CampaignAppRandomState? appRandomSnapshot = null, NarrationVoiceSettings? narrationVoiceSettings = null,
-        Func<GameState, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null)
-        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings);
+        Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep = null, CampaignStoryBindings? storyBindings = null, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission = null)
+        => AdvanceNormalPeriodAsync(sourceSession, order, cancellationToken, appRandomSnapshot, narrationVoiceSettings, periodStep, storyBindings, stageAdmission);
 
     private Task<CampaignPeriodAdvanceResult> AdvanceNormalPeriodAsync(GameplaySession sourceSession,
         GameOrder? confirmation, CancellationToken cancellationToken,
-        CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Func<GameState, GameState>? periodStep,
-        CampaignStoryBindings? storyBindings)
+        CampaignAppRandomState? appRandomSnapshot, NarrationVoiceSettings? narrationVoiceSettings, Func<GameState, NativeArmyProgressStageMoment?, GameState>? periodStep,
+        CampaignStoryBindings? storyBindings, Func<GameState, NativeArmyProgressStageMoment, GameState>? stageAdmission)
     {
         ArgumentNullException.ThrowIfNull(sourceSession);
+        // Nested succession belongs to the same captive return owner even
+        // outside an ordinary period. Never begin a new period for its reply.
+        if (confirmation is not null && sourceSession.PendingNormalPeriod is null &&
+            (IsManualRulerReply(sourceSession, confirmation) ||
+                (sourceSession.PendingManualTacticCandidate ?? sourceSession.World).ArmyReturnCaptiveContinuation is not null ||
+                sourceSession.PendingArmyProgressCandidate is not null))
+            return ReplyArmyReturnCaptiveOutsideNormalPeriodAsync(sourceSession, confirmation, cancellationToken,
+                appRandomSnapshot, narrationVoiceSettings, storyBindings);
         int player = sourceSession.PlayerForceId ?? throw new InvalidOperationException("The campaign has not started.");
         GameState sourceWorld = sourceSession.World;
         long sourceSequence = sourceSession.LastStorySequence;
@@ -108,12 +135,12 @@ public sealed partial class CampaignComposition
         // Capture the trusted session generation before scheduling. Fork also
         // carries any pending continuation, so it cannot be silently discarded.
         GameSimulation simulation = sourceSession.CaptureSimulationFork(appRandomSnapshot);
-        string sourceDirectory = _repository.SourceDirectory;
-        string? overridesDirectory = _repository.OverrideDirectory;
+        // Capture this composition's application resource facts before its
+        // exclusive reader is handed to the worker. Static sources stay shared.
+        var repository = _repository.CreateReadScope();
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
             var composition = new CampaignComposition(repository, this);
             if (voiceSettings is not null) composition.ConfigurePersonnelNarrationVoice(voiceSettings);
             PreparedRules prepared = composition.PrepareRules(simulation.PendingNormalPeriod?.Candidate ?? simulation.State, player);
@@ -121,11 +148,12 @@ public sealed partial class CampaignComposition
                 Calendar(prepared.Army), composition._saveCodec, sourceSession.CommandPlannerFactory);
             composition._army = prepared.Army;
             prepared.Army?.ConfigureNormalTurnStoryBindings(storyBindings);
-            prepared.Army?.ConfigurePeriodPresentation(candidate =>
+            prepared.Army?.ConfigurePeriodPresentation((candidate, nextStage) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return periodStep?.Invoke(candidate) ?? candidate;
+                return periodStep?.Invoke(candidate, nextStage) ?? candidate;
             });
+            prepared.Army?.ConfigurePeriodStageAdmission(stageAdmission);
             try
             {
                 if (confirmation is not null)
@@ -141,14 +169,21 @@ public sealed partial class CampaignComposition
                     PersonnelPresentationQueue.Next(waiting.Candidate) is not null;
                 bool awaitingRulerChoice = session.PendingNormalPeriod is { } rulerWaiting &&
                     (rulerWaiting.PendingRulerSuccession is not null || rulerWaiting.PendingCapturedRulerTreatment is not null);
-                if (!stillNegotiating && !hasResponse && !awaitingRulerChoice && !session.AdvancePeriod())
+                bool awaitingReturnCaptives = session.PendingNormalPeriod?.Candidate.ArmyReturnCaptiveContinuation?.Phase is
+                    ArmyReturnCaptivePhase.AwaitingIntroduction or ArmyReturnCaptivePhase.AwaitingSelection or
+                    ArmyReturnCaptivePhase.AwaitingExecutionConfirmation or ArmyReturnCaptivePhase.AwaitingBatchPresentation;
+                if (!stillNegotiating && !hasResponse && !awaitingRulerChoice && !awaitingReturnCaptives && !session.AdvancePeriod())
                     throw new InvalidOperationException("The campaign has ended.");
                 cancellationToken.ThrowIfCancellationRequested();
                 return new CampaignPeriodAdvanceResult(sourceSession, sourceWorld,
                     session, composition, prepared.Presentation)
                     { SourceStorySequence = sourceSequence, SourceNormalPeriod = sourceNormalPeriod };
             }
-            finally { prepared.Army?.ConfigurePeriodPresentation(null); }
+            finally
+            {
+                prepared.Army?.ConfigurePeriodPresentation(null);
+                prepared.Army?.ConfigurePeriodStageAdmission(null);
+            }
         }, cancellationToken);
     }
 }

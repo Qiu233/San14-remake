@@ -42,6 +42,20 @@ internal sealed class MapPresentationState
     { policy=previous;Changed?.Invoke(); }
     internal void RestoreDiplomacyTargetMode(SceneryMapPolicy previous)
     { policy=previous;Changed?.Invoke(); }
+    // Domestic selects only category6: category5 is forced off while
+    //Scenery remains forced on. Ordinary base/army ink follows mode12.
+    internal void BeginDomesticMode()
+    {
+        policy=policy with {Mode=12,Flags15=(byte)(policy.Flags15|2),Category16=(byte)(policy.Category16|1)};
+        Changed?.Invoke();
+    }
+    internal void EndDomesticMode()
+    {
+        // 1B83B0 clears both transient override bits and returns mode0;
+        //the player's configured bit2 survives changes made in the mode.
+        policy=policy with {Mode=0,Flags15=(byte)(policy.Flags15&~3),Category16=(byte)(policy.Category16&~3)};
+        Changed?.Invoke();
+    }
     internal MapSceneSelectionPolicy SelectionPolicy {get;private set;}=new(false,true,null);
     // The actually constructed manager clears both source fields. No runtime
     // foreign owner is queried or inferred from a rendering receipt.

@@ -24,7 +24,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         try
         {
             current = CaptureFacilityConstructionCurrent(state);
-            if (ids.Length is < 1 or > 30 || ids.Distinct().Count() != ids.Length)
+            if (ids.Length < 1 || ids.Distinct().Count() != ids.Length)
                 people = [];
             else
             {

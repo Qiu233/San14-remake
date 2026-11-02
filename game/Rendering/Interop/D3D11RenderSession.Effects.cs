@@ -54,7 +54,7 @@ public sealed partial class D3D11RenderSession
                 commandPin=GCHandle.Alloc(new[]{value},GCHandleType.Pinned);
                 commandPointer=commandPin.AddrOfPinnedObject();
             }
-            if(input.Routes is {} routes)
+            if(input.Routes is {} routes&&!ReferenceEquals(routes,_sentRoutes))
             {
                 var value=PinRoutes(routes,ref worldPins);
                 routePointer=Marshal.AllocHGlobal(Marshal.SizeOf<NativeRouteInputV1>());

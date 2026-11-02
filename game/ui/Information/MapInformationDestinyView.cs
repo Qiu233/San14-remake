@@ -6,7 +6,7 @@ using San14.Data;
 /// groups and three independently scrollable explanation channels.</summary>
 internal partial class MapInformationDestinyView : DetailsView
 {
-    private sealed record ExplanationDisplay(Control Root, UiSourceParagraph Body)
+    private sealed record ExplanationDisplay(Control Root, UiSourceEventConditionRow Body)
     {
         internal int BoundIndex { get; set; } = -1;
     }
@@ -23,16 +23,22 @@ internal partial class MapInformationDestinyView : DetailsView
     private int selected;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        InformationDestinyPage publication, Func<bool> admitted, Action close, Func<int> scrollSpeed)
+        InformationDestinyPage publication, Func<bool> admitted, Action close, Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources resources)
     {
         this.admitted = admitted;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var header = new UiSourceHeader(); canvas.AddChild(header);
         header.Configure(repository, assets, shader, font, publication.Title);
         ConfigureSourcePage("InformationPopularity", header, close);
-        var source = new UiSourceLayout(repository, 0xC06CEC9C);
+        var source = assets.SourceLayout(0xC06CEC9C);
+        var explanationSource = assets.SourceLayout("09_01_01_event_list_offset_02");
+        // The original row writer sets group19's x to half its current width,
+        // retaining its y. The row resource and the 52px list pitch differ.
+        int explanationIndent = (int)(explanationSource.Rectangle(19).Size.X / 2)
+            - (int)explanationSource.Nodes[19].HeaderValues[0];
         Vector2 mount = new(190, 170);
         source.Art(canvas, 2, source.Rectangle(2, mount), assets, shader);
         foreach (int node in new[] { 5, 6, 10, 26, 27, 31, 32, 36, 52, 53, 57, 58, 62, 78, 79, 83, 84 })
@@ -77,14 +83,14 @@ internal partial class MapInformationDestinyView : DetailsView
             tab.Pressed += () => { if (ReadAdmission()) Select(tabIndex); };
             tabs.Add(tab);
         }
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "PopularityReturn",
             Position = footer.Rectangle(1, new(0, 904)).Position, InputAdmission = ReadAdmission };
         canvas.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestClose, UiAudioCue.Cancel);
         if (publication.UnresolvedOwner is not null)
         {
-            var help = new UiSourceLayout(repository, 0xAB6ADAA7);
+            var help = assets.SourceLayout(0xAB6ADAA7);
             Vector2 helpMount = footer.Rectangle(19, new(0, 904)).Position;
             foreach (var node in help.Nodes.Where(node => node.Type is 1 or 3))
                 help.Art(canvas, node.Index, help.Rectangle(node.Index, helpMount), assets, shader);
@@ -93,7 +99,7 @@ internal partial class MapInformationDestinyView : DetailsView
         }
         Resized += Fit; Fit(); Select(0);
         SetMeta("source_layout", source.Source.Source.ResourceUri);
-        SetMeta("original_explanation_slot_composition", false);
+        SetMeta("original_explanation_slot_composition", true);
 
         string Number(long? value) => value?.ToString(CultureInfo.InvariantCulture) ?? text.Get("detail_unknown");
 
@@ -116,13 +122,14 @@ internal partial class MapInformationDestinyView : DetailsView
                 var scrollbar = new UiSourceScrollbar { Position = scrollBox.Position, Size = scrollBox.Size };
                 host.AddChild(scrollbar);
                 var pool = new List<ExplanationDisplay>();
-                var profile = MapFontProfile.FromNode(source.Nodes[101], source.Source.Source.ResourceUri).WithPreset(presets[0]);
                 for (int slot = 0; slot < Math.Min(11, entries.Length); slot++)
                 {
                     var root = new Control { Size = new(box.Size.X, 52), MouseFilter = MouseFilterEnum.Pass };
                     rows.AddChild(root);
-                    var body = new UiSourceParagraph { Size = root.Size };
-                    root.AddChild(body); body.Configure(font, profile);
+                    var body = new UiSourceEventConditionRow();
+                    root.AddChild(body);
+                    body.Configure(explanationSource, assets, shader, font, "", explanationIndent,
+                        showBox: false, showCheck: false, textPreset: 0);
                     pool.Add(new(root, body));
                     root.GuiInput += input => { if (ReadAdmission() && selected == index) scrollbar.HandleWheel(input); };
                 }
@@ -160,6 +167,7 @@ internal partial class MapInformationDestinyView : DetailsView
     public override void _ExitTree()
     {
         abandoned = true; admitted = null; channels.Clear(); tabs.Clear();
-        base._ExitTree(); font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        // The application resource lease ends after child-first tree exit.
+        base._ExitTree();
     }
 }

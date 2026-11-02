@@ -14,7 +14,8 @@ public partial class Main
         {
             string path = ProjectSettings.GlobalizePath("user://application-progress.s14p");
             var profile = File.Exists(path) ? TransferServiceProfileStore.OpenExisting(path)
-                : TransferServiceProfileStore.CreateNew(path);
+                : TransferServiceProfileStore.CreateNewWithLegacyProgress(path,
+                    _preferences.ScenarioUnlocks, _preferences.LegacyCompletedScenarios);
             if (!profile.LegacyPreferencesImported)
                 profile.MergeLegacyProgress(_preferences.ScenarioUnlocks, _preferences.LegacyCompletedScenarios);
             _applicationProfile = profile;

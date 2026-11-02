@@ -4,7 +4,7 @@ using San14.Data;
 using San14.Data.Formats;
 
 internal sealed record NewGameForcePageHeader(string Year, string Month, string Title,
-    IReadOnlyDictionary<int, string> Badges);
+    LoadedSprite? EditionBadge, bool ScenarioTypeFlag, bool? CompletedMarkVisible);
 
 /// <summary>The original startup force page. A single captured publication
 /// supplies every preview; hovering never changes the official selection.</summary>
@@ -16,6 +16,7 @@ internal partial class NewGameForceSelectionView : Control
     private PreviewText text = null!;
     private NewGameForceSelectionPreview publication = null!;
     private readonly Dictionary<int, UiSourceText> fields = [];
+    private UiSourceParagraph annotation = null!;
     private Control body = null!, portraitHost = null!;
     private Control? flag;
     private TextureRect? scenarioMap;
@@ -93,7 +94,21 @@ internal partial class NewGameForceSelectionView : Control
                 captions.Records[captionIds[index]].Text ?? throw new InvalidDataException("Missing force-page caption."),
                 chrome.Font, presets[13]);
         foreach (int node in new[] { 58, 60, 62, 64, 66, 68, 70, 72, 73, 74, 76, 78 })
-            fields[node] = source.Text(body, node, default, "", chrome.Font, presets[node == 73 ? 41 : 0]);
+        {
+            if (node == 74)
+            {
+                // The annotation is an authored paragraph: its actual messages
+                // contain LF and colour7, followed by ordinary literal glyphs.
+                Rect2 box = source.Rectangle(node);
+                annotation = new UiSourceParagraph { Name = source.Nodes[node].Name,
+                    Position = box.Position, Size = box.Size };
+                body.AddChild(annotation);
+                var profile = MapFontProfile.FromNode(source.Nodes[node], source.Source.Source.ResourceUri)
+                    .WithPreset(presets[0]);
+                annotation.Configure(chrome.Font, profile with { RawCharacterMode = 2 });
+            }
+            else fields[node] = source.Text(body, node, default, "", chrome.Font, presets[node == 73 ? 41 : 0]);
+        }
         faces = new NewGameForceFaceList { Name = "RulerFaceList", Position = source.Rectangle(12).Position };
         body.AddChild(faces);
         faces.Configure(repository, chrome.Assets, chrome.SpriteShader, chrome.Font, faceContent, null,
@@ -106,16 +121,8 @@ internal partial class NewGameForceSelectionView : Control
 
     private void ConfigureScenarioHeader(NewGameForcePageHeader content)
     {
-        var header = new UiSourceLayout(repository, 0x6C522E54);
-        Vector2 mount = source.Rectangle(7).Position;
-        foreach (var node in header.Nodes.Where(node => node.Type is 1 or 3))
-            header.Art(body, node.Index, header.Rectangle(node.Index, mount), chrome.Assets, chrome.SpriteShader);
-        foreach (var badge in content.Badges)
-            header.Text(body, badge.Key, mount, badge.Value, chrome.Font);
-        var preset = MapTextPresets.Create()[27];
-        header.Text(body, 6, mount, content.Year, chrome.Font, preset);
-        header.Text(body, 7, mount, content.Month, chrome.Font, preset);
-        header.Text(body, 8, mount, content.Title, chrome.Font, preset);
+        NewGameScenarioHeader.Configure(body, source.Rectangle(7).Position,
+            repository, text.SourceLocale, chrome.Assets, chrome.SpriteShader, chrome.Font, content);
     }
 
     internal void SelectForce(int forceId)
@@ -149,7 +156,8 @@ internal partial class NewGameForceSelectionView : Control
         {
             // 521110's invalid receiver clears the value panel and hides the
             // portrait. It does not replace missing numbers with zeroes.
-            foreach (int node in new[] { 62, 64, 66, 68, 70, 72, 73, 74, 76, 78 }) fields[node].Text = "";
+            foreach (int node in new[] { 62, 64, 66, 68, 70, 72, 73, 76, 78 }) fields[node].Text = "";
+            annotation.Apply("");
             portraitHost.Hide();
             return;
         }
@@ -162,7 +170,7 @@ internal partial class NewGameForceSelectionView : Control
         fields[66].Text = Number(row?.Troops); fields[68].Text = Unknown(row?.RankName);
         fields[70].Text = Number(row?.CityCount); fields[72].Text = Number(row?.ActiveOfficerCount);
         fields[73].Text = Unknown(row?.DoctrineName);
-        fields[74].Text = row?.ScenarioAnnotation ?? "";
+        annotation.Apply(row?.ScenarioAnnotation ?? "");
         fields[76].Text = Unknown(row?.HeavenTiming);
         fields[78].Text = Number(row?.GeographicAdvantageCount);
         SetMeta("scenario_annotation_available", row?.ScenarioAnnotation is not null);

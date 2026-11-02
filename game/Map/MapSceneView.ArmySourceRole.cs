@@ -22,6 +22,6 @@ public partial class MapSceneView
         //the Startup map, adopted the real Start world and bound its queries.
         //The original publisher retains all playable/source/receiver gates.
         _d3d11Army = new(source.Repository, source.Scenario, source.Map,
-            source.Projection, source.Height, source.Locale, CaptureCurrentArmyMotion, source.Actions);
+            source.Projection, source.Height, source.Locale, CaptureCurrentArmyMotion, source.Actions, CaptureCurrentArmyPresence);
     }
 }

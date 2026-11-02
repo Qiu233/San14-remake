@@ -29,6 +29,19 @@ public sealed partial class GameSimulation
     {
         if (_normalPeriod is not null)
             return ConfirmNormalPeriod(order, rules, context, authority, appRandomSnapshot);
+        if (_progress is null && State.ArmyReturnCaptiveContinuation is not null &&
+            order is (ConfirmArmyReturnCaptiveBatchOrder or ConfirmArmyReturnCaptiveExecutionOrder or
+                CompleteArmyReturnCaptivePresentationOrder or ConfirmRulerSuccessionOrder))
+        {
+            // A world-owned return can be nested under its existing event or
+            // Emperor caller. A formal reply changes this same candidate only.
+            var answered = GameEngine.ApplyCandidate(appRandomSnapshot is null ? State :
+                State with { CampaignAppRandom32 = appRandomSnapshot }, order, rules, context, authority);
+            if (answered.Accepted) State = answered.State!;
+            return answered;
+        }
+        if (_progress?.ArmyProgress is { } movement)
+            return ConfirmArmyProgressDecision(movement, order, rules, context, authority, appRandomSnapshot);
         if (State.CampaignEventCommandPlayback is not null)
         {
             if (State.PersonDeathContinuation?.PendingSuccession is not { } request ||
@@ -39,7 +52,7 @@ public sealed partial class GameSimulation
             return decisionResult;
         }
         if (_progress?.ManualTactic is { Candidate.ManualTacticExecutionContinuation: not null } manual)
-            return ConfirmManualTacticDecision(manual, order, rules, context, authority);
+            return ConfirmManualTacticDecision(manual, order, rules, context, authority, appRandomSnapshot);
         RequireNoProgress();
         // The live host lends its current App stream to this same private
         // command transaction. Rejection retains the exact committed world.
@@ -60,6 +73,8 @@ public sealed partial class GameSimulation
     public GameState AdvancePeriod(IAdvancementRules rules,
         ICommandPlanner? planner = null, Func<GameState, GameState>? complete = null)
     {
+        if (State.ArmyReturnCaptiveContinuation is not null)
+            throw new InvalidOperationException("The army return is awaiting captive treatment.");
         GameState prepared;
         if (_normalPeriod is { } pending)
         {

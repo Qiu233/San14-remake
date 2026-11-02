@@ -13,12 +13,15 @@ public sealed partial class ArmyCampaignRuleAdapter : ICityMerchantExecution
     }
 
     private CityMerchantSource CreateCityMerchantSource(GameState state, int cityId,
-        NarrationVoiceRequests? voiceRequests = null)
+        NarrationVoiceRequests? voiceRequests = null, SourceWorldContext? sharedCurrent = null)
     {
         CityDomesticParameterCatalog.RequireScenario(_scenario, Seed.Language);
-        var current = CaptureOwnedArmyReturnWorld(state).Context;
-        PersonReturnCommands.BindCurrent(state, current);
-        if (!_baseCapacityInputs.BindCurrent(state, current)) throw CityMerchantSource.Missing("capacity_owner");
+        var current = sharedCurrent ?? CaptureOwnedArmyReturnWorld(state).Context;
+        if (sharedCurrent is null)
+        {
+            PersonReturnCommands.BindCurrent(state, current);
+            if (!_baseCapacityInputs.BindCurrent(state, current)) throw CityMerchantSource.Missing("capacity_owner");
+        }
         var abilities = new TacticRemakeCurrentAbilities(current, _scenario, Seed.Language,
             SimulationRuleIdentity.ForLocale(Seed.Language));
         return new(state, current, cityId, (at, id, dimension) => abilities.ResolveDimension(at, id, dimension),

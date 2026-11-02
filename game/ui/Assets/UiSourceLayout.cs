@@ -191,6 +191,30 @@ internal sealed class UiSourceLayout
         UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null,
         bool localCoordinates = false, bool sourceMaterial = false)
     {
+        var plan = PrepareArt(index,rectangle,assets,colors,commonSpriteOverride,expansionCommonSprite,
+            blend,commonTexturePack,localCoordinates,sourceMaterial);
+        return new UiSourceArtwork(parent,shader,[plan]).Root;
+    }
+
+    // The table buttons have five authored visual sources, but only one is
+    // drawn. Resolve all source plans and keep one owned part tree for them.
+    internal UiSourceArtwork StateArt(CanvasItem parent, int[] indices, Rect2 rectangle,
+        UiAssets assets, Shader shader)
+    {
+        if (indices.Length != 5) throw new ArgumentException("Table artwork requires its five source states.", nameof(indices));
+        var sources = new Dictionary<int,UiSourceArtPlan>();
+        return new(parent,shader,indices.Select(index =>
+        {
+            if (!sources.TryGetValue(index,out var plan)) sources.Add(index,plan=PrepareArt(index,rectangle,assets));
+            return plan;
+        }).ToArray());
+    }
+
+    private UiSourceArtPlan PrepareArt(int index, Rect2 rectangle, UiAssets assets,
+        MapCornerColors? colors = null, string? commonSpriteOverride = null, bool expansionCommonSprite = false,
+        UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null,
+        bool localCoordinates = false, bool sourceMaterial = false)
+    {
         var material = sourceMaterial ? UiSourceStaticArtMaterial.Read(Nodes, index) : null;
         if (material is not null) blend = material.Blend;
         var node = Nodes[index];
@@ -199,29 +223,25 @@ internal sealed class UiSourceLayout
         if(Math.Abs(node.HeaderValues[2])>0.00001f || projected && node.Type is not (1 or 3))
             throw new InvalidDataException($"UI art requires an unsupported projected transform: {node.Name}.");
         var source = LcskSpriteNodeReader.Read(Source.Layout, node);
-        var group = new Control { Name = node.Name, Position = rectangle.Position, Size = rectangle.Size,
-            MouseFilter = Control.MouseFilterEnum.Ignore };
-        parent.AddChild(group);
-        Node canvas = group;
+        Vector2 groupPosition = rectangle.Position, groupScale = Vector2.One;
+        Transform2D? projection = null;
         Vector2 drawSize = rectangle.Size;
         if (projected)
         {
             // Simple source panes keep their authored planar projection and UVs.
             // The rectangle is its screen-space bound, not the unrotated quad.
             Vector2 ratio = rectangle.Size / rectangles[index].Size;
-            var projection = new Node2D { Name = "SourceProjection", Transform = new(
-                transform.X * ratio, transform.Y * ratio,
-                (transform.Origin - rectangles[index].Position) * ratio) };
-            group.AddChild(projection); canvas = projection; drawSize = nodeSizes[index];
+            projection = new Transform2D(transform.X * ratio, transform.Y * ratio,
+                (transform.Origin - rectangles[index].Position) * ratio);
+            drawSize = nodeSizes[index];
         }
         else
         {
             Vector2 orientation=new(Math.Sign(transform.X.X),Math.Sign(transform.Y.Y));
-            group.Scale=orientation;
-            group.Position+=new Vector2(orientation.X<0?rectangle.Size.X:0,orientation.Y<0?rectangle.Size.Y:0);
+            groupScale=orientation;
+            groupPosition+=new Vector2(orientation.X<0?rectangle.Size.X:0,orientation.Y<0?rectangle.Size.Y:0);
         }
-        group.SetMeta("source_node_index", index);
-        group.SetMeta("source_layout", Source.Source.ResourceUri);
+        var parts = new List<UiSourceArtPart>();
         float[] xs = [0, drawSize.X], ys = [0, drawSize.Y];
         if (node.Type == 3)
         {
@@ -277,23 +297,15 @@ internal sealed class UiSourceLayout
                 :commonTexturePack is not null
                     ?assets.SrgbTexturePackSpritePart(commonTexturePack,commonSpriteOverride,uv)
                     :assets.SrgbCommonSpritePart(commonSpriteOverride,uv,expansionCommonSprite);
-            var image = new UiSourceSprite { Position = new(xs[x], ys[y]), Size = new(xs[x + 1] - xs[x], ys[y + 1] - ys[y]) };
-            canvas.AddChild(image);
-            image.Configure(shader,texture,blend,colors);
-            if(material is not null)
-            {
-                image.SetMaterialColorScale(material.ColorScale);
-                image.SetMaterialColorOffset(material.ColorOffset);
-                image.SetMaterialSaturation(material.Saturation);
-                image.SetSourceAlpha(material.Alpha);
-            }
-            if(addressed)image.SetAddressedSampling(new(new(uv.TopLeft.U,uv.TopLeft.V),
-                new(uv.BottomRight.U-uv.TopLeft.U,uv.BottomRight.V-uv.TopLeft.V)),addressing.AddressU,addressing.AddressV);
-            if(constantU||constantV)image.SetSamplingRectangle(new(new(sampledUv.TopLeft.U,sampledUv.TopLeft.V),
-                new(sampledUv.BottomRight.U-sampledUv.TopLeft.U,sampledUv.BottomRight.V-sampledUv.TopLeft.V)));
-            image.SetUvFlip(flipU,flipV);
+            Rect2? addressedRectangle = addressed ? new Rect2(new(uv.TopLeft.U,uv.TopLeft.V),
+                new(uv.BottomRight.U-uv.TopLeft.U,uv.BottomRight.V-uv.TopLeft.V)) : null;
+            Rect2? samplingRectangle = constantU||constantV ? new Rect2(new(sampledUv.TopLeft.U,sampledUv.TopLeft.V),
+                new(sampledUv.BottomRight.U-sampledUv.TopLeft.U,sampledUv.BottomRight.V-sampledUv.TopLeft.V)) : null;
+            parts.Add(new(new(xs[x],ys[y]), new(xs[x+1]-xs[x],ys[y+1]-ys[y]),
+                texture,blend,colors,material,flipU,flipV,samplingRectangle,addressedRectangle,addressing));
         }
-        return group;
+        return new(node.Name,index,Source.Source.ResourceUri,groupPosition,rectangle.Size,
+            groupScale,projection,parts.ToArray());
     }
 
     // Explicit consumer of the source's same-quad colour0/alpha-mask13 pair.

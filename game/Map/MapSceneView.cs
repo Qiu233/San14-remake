@@ -354,7 +354,11 @@ public partial class MapSceneView : Control
             _sceneConfig = MapSceneConfiguration.Parse(sceneFile.GetAsText(), projectionFile.GetAsText(), _embedded);
             foreach (MapSceneDefinition scene in _sceneConfig.Scenes)
                 _selection.AddItem(text.Get(scene.LabelKey));
-            int initialScene = _sceneConfig.InitialSceneIndex(_worldScene);
+            uint? mainStageFileId = _worldScene
+                ? (_staticMapResources ?? throw new InvalidOperationException(
+                    "The product map requires its actual startup static resource owner.")).MainStageFileId
+                : null;
+            int initialScene = _sceneConfig.InitialSceneIndex(_worldScene, mainStageFileId);
             _selection.Select(initialScene);
             InitialSceneLoad = StartSceneLoadAsync(initialScene);
         });
@@ -373,6 +377,7 @@ public partial class MapSceneView : Control
 
     private void HandleSceneError(Exception error)
     {
+        StopPeriodProgressFrames(error);
         _loaded = false;
         ClearModels();
         SetMeta("scene_loaded", false);
@@ -484,8 +489,11 @@ public partial class MapSceneView : Control
         MapTerrainSourcePreparation preparedSource;
         try
         {
-            preparedSource = await Task.Run(() => MapTerrainSourcePreparation.Prepare(
-                sourceDirectory, overrideDirectory, archive, sceneId, token), token);
+            var staticScene = CaptureStaticMapScene(archive, sceneId);
+            _loadedStaticMapScene = staticScene;
+            preparedSource = staticScene is not null ? staticScene.Terrain :
+                await Task.Run(() => MapTerrainSourcePreparation.Prepare(
+                    sourceDirectory, overrideDirectory, archive, sceneId, token), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         finally
@@ -538,7 +546,7 @@ public partial class MapSceneView : Control
             _terrain.AddChild(node);
             node.SetMeta("source_tree_node", patch.SourceNode.Index);
             }
-            bounds = haveBounds ? bounds.Merge(patch.Mesh.GetAabb()) : patch.Mesh.GetAabb();
+            bounds = haveBounds ? bounds.Merge(patch.Bounds) : patch.Bounds;
             haveBounds = true;
         }
         _terrain.SetMeta("tree_depth", _embedded ? -1 : _sceneConfig.TerrainDepth);
@@ -775,7 +783,7 @@ public partial class MapSceneView : Control
             _previewWorld.AddChild(_unitLayer);
             _unitLayer.Build(projection, TerrainMeshes, _logicalWorld, player, _markerAssets,
                 _unitMarkerLayout ?? throw new InvalidDataException("Original unit sign layout is unavailable."),
-                ForceMarkerColors);
+                ForceMarkerColors, CaptureCurrentArmyPresence(_logicalWorld)?.VisibleUnitIds);
             _unitLayer.SetViewportHeight(_surface.Size.Y);
             RefreshArmyVisuals(_logicalWorld);
             _structureLayer = new PlayableMapStructureLayer();
@@ -989,6 +997,7 @@ public partial class MapSceneView : Control
     private void ClearPickedCell()
     {
         CloseCityCommandMenu();
+        CloseAreaHexCommandMenu();
         _mapSelection.Clear();
         _openSelectedCity.Disabled = true;
         if (_mapCityInformation is not null) _mapCityInformation.Visible = false;
@@ -1010,7 +1019,7 @@ public partial class MapSceneView : Control
     private void ShowPickedCell(int hexId, Vector3 position)
     {
         GameState world = _logicalWorld ?? throw new InvalidOperationException("No logical world for map selection.");
-        MapCellSelection selection = _mapSelection.Select(world, hexId, _playerForceId);
+        MapCellSelection selection = _mapSelection.Select(world, hexId, _playerForceId, CaptureCurrentArmyPresence(world)?.VisibleUnitIds);
         string area = selection.AreaName ?? _text.Get("scene_preview_no_location");
         string force = selection.ForceName ?? _text.Get("neutral");
         string locations = string.Join(_text.Get("list_separator"), selection.LocationNames);
@@ -1047,10 +1056,10 @@ public partial class MapSceneView : Control
         }
         if (selection.AreaCommand is { } selectedArea) SetMeta("selected_area_id", selectedArea.Id);
         else RemoveMeta("selected_area_id");
-        if (_mapNextUnit is not null) _mapNextUnit.Visible = selection.PlayerUnitCount > 1;
+        if (_mapNextUnit is not null) _mapNextUnit.Visible = !UsesOrdinaryArmyMapEntry && selection.PlayerUnitCount > 1;
         if (_mapUnitOrders is not null)
         {
-            _mapUnitOrders.Visible = selection.SelectedUnit is not null;
+            _mapUnitOrders.Visible = !UsesOrdinaryArmyMapEntry && selection.SelectedUnit is not null;
             if (selection.SelectedUnit is { } selectedUnit)
                 _mapUnitOrders.Text = _text.Format("play_unit_orders_item", selectedUnit.CommanderName);
         }
@@ -1079,7 +1088,7 @@ public partial class MapSceneView : Control
 
     private void SelectNextUnitAtPickedHex()
     {
-        if (_logicalWorld is not GameState world || _mapSelection.CycleUnit(world, _playerForceId) is not { } next)
+        if (_logicalWorld is not GameState world || _mapSelection.CycleUnit(world, _playerForceId, CaptureCurrentArmyPresence(world)?.VisibleUnitIds) is not { } next)
             return;
         SetMeta("selected_unit_id", next.Id);
         if (_mapUnitOrders is not null)
@@ -1089,7 +1098,7 @@ public partial class MapSceneView : Control
 
     // The resident HUD follows the map's actual overlay state, including the
     // opening interval before a command page has installed its own owner.
-    internal bool HasOpenMapOverlay => _detailsOpen || IsCityCommandMenuOpen;
+    internal bool HasOpenMapOverlay => _detailsOpen || IsCityCommandMenuOpen || IsAreaHexCommandMenuOpen;
 
     internal void SetDetailsOpen(bool open, bool keepMapVisible = false)
     {
@@ -1100,7 +1109,7 @@ public partial class MapSceneView : Control
             SuspendMapSummaries();
         }
         if (open) _sceneryMap?.Suspend();
-        if (open) { CloseCityCommandMenu(); _d3d11Markers?.ClearPointer(); }
+        if (open) { CloseCityCommandMenu(); CloseAreaHexCommandMenu(); _d3d11Markers?.ClearPointer(); }
         _detailsOpen = open;
         _dragging = false; _dragDistance = 0;
         SetMeta("city_details_open", open);
@@ -1127,7 +1136,9 @@ public partial class MapSceneView : Control
         GD.PushError(error.ToString());
     }
 
-    private void PickTerrain(Vector2 surfacePosition)
+    internal event Action? LocationMarkerReleased;
+
+    private void PickTerrain(Vector2 surfacePosition,bool released)
     {
         if (InformationMapReadOnly) return;
         if (!_loaded || _projection is null || CurrentTerrainPicker is null || !_terrain.Visible ||
@@ -1144,12 +1155,12 @@ public partial class MapSceneView : Control
             ShowPickedCell(armyHit.HexId, new(armyHit.Position.X, armyHit.Position.Y, armyHit.Position.Z));
             //Source hit preserves root identity; the existing playable command
             //UI selects that live player unit. Full original dispatch is separate.
-            if (_mapSelection.SelectUnit(_logicalWorld!, _playerForceId, armyHit.UnitId) is { } army)
+            if (_mapSelection.SelectUnit(_logicalWorld!, _playerForceId, armyHit.UnitId, CaptureCurrentArmyPresence(_logicalWorld!)?.VisibleUnitIds) is { } army)
             {
                 SetMeta("selected_unit_id", army.Id);
                 if (_mapUnitOrders is not null)
                 {
-                    _mapUnitOrders.Visible = true;
+                    _mapUnitOrders.Visible = !UsesOrdinaryArmyMapEntry;
                     _mapUnitOrders.Text = _text.Format("play_unit_orders_item", army.CommanderName);
                 }
                 _unitLayer?.SelectUnit(army.Id);
@@ -1157,11 +1168,13 @@ public partial class MapSceneView : Control
             _locationSelection.Select(-1); _focusLocation.Disabled = true;
             _d3d11Markers.ClearSelection();
             _acceptHex?.Invoke(armyHit.HexId);
+            TryOpenOrdinaryArmyMapEntry(armyHit.HexId, released);
             return;
         }
         if(inside&&D3D11MapInteractive&&_d3d11PresentedInput?.SourceFrame is { } displayed&&
-            _d3d11Markers is not null&&_d3d11Markers.TryPickMarker(surfacePosition,displayed,out int markerHex))
+            _d3d11Markers is not null&&_d3d11Markers.TryPickMarker(surfacePosition,displayed,out int markerHex,out bool locationMarker))
         {
+            if(released&&locationMarker)LocationMarkerReleased?.Invoke();
             if(PublishCommandTarget(markerHex))return;
             var markerPoint=_projection.Project(markerHex);
             ShowPickedCell(markerHex,new((float)markerPoint.X,
@@ -1173,6 +1186,7 @@ public partial class MapSceneView : Control
             _acceptHex?.Invoke(markerHex);
             if (TryOpenPickedEnemyFootholdCommands(surfacePosition)) return;
             OpenPickedCityMenu(surfacePosition);
+            TryOpenPickedAreaHexCommands();
             return;
         }
         TerrainPick hit;
@@ -1207,8 +1221,10 @@ public partial class MapSceneView : Control
         else if (selected >= 0) _locations!.Select(selected);
         else _locations?.ClearSelection();
         if (_embedded) _acceptHex?.Invoke(hexId);
+        if (TryOpenOrdinaryArmyMapEntry(hexId, released)) return;
         if (TryOpenPickedEnemyFootholdCommands(surfacePosition)) return;
         OpenPickedCityMenu(surfacePosition);
+        TryOpenPickedAreaHexCommands();
     }
 
     private void UpdateCamera()
@@ -1319,9 +1335,10 @@ public partial class MapSceneView : Control
         if(_detailsOpen)return;
         if(UseD3D11Map && !D3D11MapInteractive)return;
         if(_periodMapActive){HandleSourceCameraInput(input);return;}
-        if (IsCityCommandMenuOpen && input is InputEventMouseButton { Pressed: true })
+        if ((IsCityCommandMenuOpen||IsAreaHexCommandMenuOpen) && input is InputEventMouseButton { Pressed: true })
         {
             CloseCityCommandMenu();
+            CloseAreaHexCommandMenu();
             return;
         }
         UpdateMarkerPointer(input);
@@ -1334,7 +1351,7 @@ public partial class MapSceneView : Control
                 if (_embedded && button.Pressed && button.DoubleClick && _commandTargetPicked is null&&_openCityDetails is not null)
                 {
                     _dragging = false;
-                    PickTerrain(button.Position);
+                    PickTerrain(button.Position,released:false);
                     if (_mapSelection.Current?.CityDetails?.Id is int cityId) _openCityDetails(cityId);
                     return;
                 }
@@ -1347,7 +1364,7 @@ public partial class MapSceneView : Control
                 {
                     bool click = _dragging && _dragDistance <= 4 && _pressPosition.DistanceTo(button.Position) <= 4;
                     _dragging = false;
-                    if(click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position);
+                    if(click&&(_commandTargetPicked is null||_commandTargetPressAllowed))PickTerrain(button.Position,released:true);
                     _commandTargetPressAllowed=false;
                 }
             }

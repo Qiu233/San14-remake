@@ -6,7 +6,23 @@ inline std::filesystem::path nativePrimaryForwardBankBase(const std::filesystem:
     NativePreparedInputFile source(input/"base-input.txt");std::string relative;source>>relative;
     if(!source)throw std::runtime_error("Forward bank shared source directory absent");return input/relative;
 }
-inline NativePrimaryForwardSource prepareNativePrimaryForwardCurrentBankSource(const std::filesystem::path& input) {
+inline NativePrimaryForwardSource prepareNativePrimaryForwardCurrentBankSource(const std::filesystem::path& input,
+        std::shared_ptr<const San14::Render::NativePrimaryForwardMetadata> metadata={},bool requireResident=false) {
+    if(requireResident&&!metadata)throw std::runtime_error("Primary Forward CPU metadata must be loaded at startup");
+    if(metadata) {
+        NativePrimaryForwardSource result;result.metadata=std::move(metadata);
+        result.templates.resize(result.metadata->templates.size());
+        const auto base=nativePrimaryForwardBankBase(input);
+        std::array<char,480> vertex{};std::array<char,1360> pixel{};
+        NativePreparedInputFile vertexInput(base/"vs-b0.bin",std::ios::binary),pixelInput(base/"ps-b0.bin",std::ios::binary);
+        vertexInput.read(vertex.data(),vertex.size());pixelInput.read(pixel.data(),pixel.size());
+        if(!vertexInput||!pixelInput)throw std::runtime_error("Forward actual retained numeric packet is incomplete");
+        for(std::size_t index=0;index<result.templates.size();++index) {
+            auto& current=result.templates[index];current.eligible=result.metadata->templates[index].eligible;
+            if(current.eligible){current.vertex=vertex;current.pixel=pixel;}
+        }
+        return result;
+    }
     auto result=prepareNativePrimaryForwardSource(nativePrimaryForwardBankBase(input));
     unsigned count{};NativePreparedInputFile n(input/"template-count.txt");n>>count;
     if(!n||count<result.templates.size())throw std::runtime_error("Forward bank template extent differs");
@@ -21,8 +37,10 @@ inline NativePrimaryForwardSource prepareNativePrimaryForwardCurrentBankSource(c
 }
 #ifndef SOURCE_PRIMARY_FORWARD_BANK_CPU_ONLY
 inline NativePrimaryForwardGpu prepareNativePrimaryForwardCurrentBankGpu(ID3D11Device* device,
-        ID3D11DeviceContext* context,const fs::path& input) {
-    const auto base=nativePrimaryForwardBankBase(input);auto result=prepareNativePrimaryForwardGpu(device,context,base);
+        ID3D11DeviceContext* context,const fs::path& input,
+        std::shared_ptr<const San14::Render::NativePrimaryForwardMedia> sharedMedia={},bool requireResident=false) {
+    const auto base=nativePrimaryForwardBankBase(input);auto result=prepareNativePrimaryForwardGpu(device,context,base,sharedMedia,requireResident);
+    if(sharedMedia)return result;
     const auto previous=result.layouts.size();unsigned count{};NativePreparedInputFile n(input/"template-count.txt");n>>count;
     if(!n||count<previous)throw std::runtime_error("Forward bank GPU template extent differs");result.layouts.resize(count);
     auto vertex=load(base/"vs.dxbc");NativePreparedInputFile rows(input/"templates.txt");unsigned index,eligible;std::string directory;

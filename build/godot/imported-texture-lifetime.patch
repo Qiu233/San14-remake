@@ -1,0 +1,28 @@
+--- a/drivers/d3d12/rendering_device_driver_d3d12.cpp
++++ b/drivers/d3d12/rendering_device_driver_d3d12.cpp
+@@ -1507,6 +1507,7 @@
+ 	texture->GetDesc(&base_resource_desc);
+ #endif
+ 	CD3DX12_RESOURCE_DESC resource_desc(base_resource_desc);
++	ERR_FAIL_COND_V_MSG((resource_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) && !barrier_capabilities.enhanced_barriers_supported, TextureID(), "Imported simultaneous-access textures require enhanced barriers.");
+ 	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+ 	{
+ 		srv_desc.Format = RD_TO_D3D12_FORMAT[p_format].general_format;
+@@ -1571,7 +1572,7 @@
+ 
+ 	TextureInfo *tex_info = VersatileResource::allocate<TextureInfo>(resources_allocator);
+ 	tex_info->resource = texture;
+-	tex_info->owner_info.resource = nullptr; // Not allocated by us.
++	tex_info->owner_info.resource = texture; // Retain the imported COM resource until deferred texture retirement.
+ 	tex_info->owner_info.allocation = nullptr; // Not allocated by us.
+ 	tex_info->owner_info.states.subresource_states.resize(resource_desc.MipLevels * p_array_layers);
+ 	for (uint32_t i = 0; i < tex_info->owner_info.states.subresource_states.size(); i++) {
+@@ -1610,7 +1611,7 @@
+ RDD::TextureID RenderingDeviceDriverD3D12::_texture_create_shared_from_slice(TextureID p_original_texture, const TextureView &p_view, TextureSliceType p_slice_type, uint32_t p_layer, uint32_t p_layers, uint32_t p_mipmap, uint32_t p_mipmaps) {
+ 	TextureInfo *owner_tex_info = (TextureInfo *)p_original_texture.id;
+ #ifdef DEBUG_ENABLED
+-	ERR_FAIL_COND_V(!owner_tex_info->owner_info.allocation, TextureID());
++	ERR_FAIL_COND_V(!owner_tex_info->owner_info.resource, TextureID());
+ #endif
+ 
+ 	ComPtr<ID3D12Resource> new_texture;

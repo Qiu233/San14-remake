@@ -30,7 +30,7 @@ public partial class Main
                     else if (command == CollectionMenuCommand.Events) OpenCollectionEvents();
                     else if (command == CollectionMenuCommand.Poems) OpenCollectionCatalog(CollectionCatalogKind.Poems);
                     else if (command == CollectionMenuCommand.Scenery) OpenCollectionCatalog(CollectionCatalogKind.Scenery);
-                }));
+                }), resources: TryBorrowApplicationUiResources(view));
         }
         catch { CloseCollectionMenu(); throw; }
     }

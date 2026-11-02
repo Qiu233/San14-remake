@@ -31,7 +31,7 @@ internal sealed class ScenarioSelectionCatalog
         ArgumentNullException.ThrowIfNull(resolveLegacyEdition);
         if (specialUnlocks.Count != 3)
             throw new ArgumentException("The application must supply all three independent scenario unlock values.", nameof(specialUnlocks));
-        string language = locale switch { "TC" => "tw", "SC" => "ch", _ => throw new ArgumentOutOfRangeException(nameof(locale)) };
+        if (locale is not ("TC" or "SC")) throw new ArgumentOutOfRangeException(nameof(locale));
         var selected = new List<S14Entry>();
         // The native ordinary call scans [0,199), requiring the actual source
         // ID and filter0/1. Known zero special unlocks omit rows. Unknown older
@@ -64,14 +64,7 @@ internal sealed class ScenarioSelectionCatalog
             bool download = HasDownloadBadge(id);
             if (!badges.TryGetValue((edition, download), out var badge))
             {
-                string? name = edition switch
-                {
-                    2 => "020_sho_mrk_ce" + (download ? "_dlc" : ""),
-                    1 => "020_sho_mrk_pk" + (download ? "_dlc" : ""),
-                    _ => download ? "020_sho_mrk_dlc" : null
-                };
-                badge = name is null ? null : sprites.LoadTexturePackSprite(
-                    "texture_" + (edition == 2 ? "ce_" : "") + "lang_" + language, language + "_" + name);
+                badge = LoadEditionBadge(sprites, locale, edition, id);
                 badges.Add((edition, download), badge);
             }
             string year = string.Format(CultureInfo.InvariantCulture, "{0,3}{1}", document.StartYear, yearSuffix);
@@ -85,6 +78,22 @@ internal sealed class ScenarioSelectionCatalog
             documents.Add(id, document);
         }
         return new(rows.ToArray(), documents);
+    }
+
+    // Both the directory row and subsequent startup headers use this same
+    // serialized-edition / native-ID artwork route.
+    internal static LoadedSprite? LoadEditionBadge(LocalizedUiSpriteSource sprites, string locale, int edition, int nativeId)
+    {
+        string language = locale switch { "TC" => "tw", "SC" => "ch", _ => throw new ArgumentOutOfRangeException(nameof(locale)) };
+        bool download = HasDownloadBadge(nativeId);
+        string? name = edition switch
+        {
+            2 => "020_sho_mrk_ce" + (download ? "_dlc" : ""),
+            1 => "020_sho_mrk_pk" + (download ? "_dlc" : ""),
+            _ => download ? "020_sho_mrk_dlc" : null
+        };
+        return name is null ? null : sprites.LoadTexturePackSprite(
+            "texture_" + (edition == 2 ? "ce_" : "") + "lang_" + language, language + "_" + name);
     }
 
     // This is the fixed ID classification used by both sorting and badges.

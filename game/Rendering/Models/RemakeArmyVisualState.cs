@@ -77,6 +77,14 @@ public sealed class RemakeArmyInitialization
         ArmyInstancePose.ReadRecords(_records, CallerSource, CodeSource.Language);
 }
 
+// Borrowed world objects end here. Motion only retains these value fields.
+internal readonly record struct RemakeArmyVisualUnit(int UnitId,int HexId,int? FormationSlot,
+    bool NavalUsesSelectedLandFormation)
+{
+    internal static RemakeArmyVisualUnit Capture(UnitState unit)
+        =>new(unit.Id,unit.HexId,unit.FormationId,unit.NativeTacticRuntime?.Status10==2);
+}
+
 public sealed record RemakeArmyVisualFrame(int UnitId, int HexId, int FormationSlot,
     RemakeArmyInitialization Initialization, ArmyInstancePoseSnapshot Records,
     ArmyInstancePoseWrites OrdinaryWrites, ArmyInstanceFlagPoseWrites FlagWrites,
@@ -198,7 +206,7 @@ public sealed class RemakeArmyVisualState
                 throw Error("center/heading changed within the retained discrete visual prefix; call ResetUnit for an explicit remake reorientation");
         }
         ArmyInstancePoseSnapshot records = initialization.CopyRecords();
-        var frame = PublishRecords(unit, initialization, records, center, 0,
+        var frame = PublishRecords(RemakeArmyVisualUnit.Capture(unit), initialization, records, center, 0,
             sourceActorConstructorTransforms, ground);
         // Publish the new initialization only after every readiness, source pose
         // and ground publication passed. A failed frame leaves the prior prefix.
@@ -214,14 +222,24 @@ public sealed class RemakeArmyVisualState
         Vector3 currentUnitPosition, int graphicsAction60,
         IReadOnlyDictionary<int, UnitWorldTransformState> constructors)
     {
-        ArgumentNullException.ThrowIfNull(unit); ArgumentNullException.ThrowIfNull(initialization);
-        ArgumentNullException.ThrowIfNull(records); ArgumentNullException.ThrowIfNull(constructors);
+        ArgumentNullException.ThrowIfNull(unit);
+        return PublishMotion(RemakeArmyVisualUnit.Capture(unit),initialization,records,currentUnitPosition,
+            graphicsAction60,constructors);
+    }
+
+    internal RemakeArmyVisualFrame PublishMotion(RemakeArmyVisualUnit unit,
+        RemakeArmyInitialization initialization,ArmyInstancePoseSnapshot records,
+        Vector3 currentUnitPosition,int graphicsAction60,
+        IReadOnlyDictionary<int,UnitWorldTransformState> constructors)
+    {
+        ArgumentNullException.ThrowIfNull(initialization); ArgumentNullException.ThrowIfNull(records);
+        ArgumentNullException.ThrowIfNull(constructors);
         if (!Finite(currentUnitPosition)) throw Error("requires a finite current motion position");
         return PublishRecords(unit, initialization, records, currentUnitPosition, graphicsAction60,
             constructors, null);
     }
 
-    private RemakeArmyVisualFrame PublishRecords(UnitState unit,
+    private RemakeArmyVisualFrame PublishRecords(RemakeArmyVisualUnit unit,
         RemakeArmyInitialization initialization, ArmyInstancePoseSnapshot records,
         Vector3 currentUnitPosition, int graphicsAction60,
         IReadOnlyDictionary<int, UnitWorldTransformState> constructors,
@@ -253,7 +271,7 @@ public sealed class RemakeArmyVisualState
             var key = new RemakeArmyComponentKey(write.DescriptorOffset, write.DescriptorInstanceIndex);
             publications.Add(key, new(key, write.RecordIndex, category, write, world, _animations[category], groundSource));
         }
-        var frame = new RemakeArmyVisualFrame(unit.Id, unit.HexId, unit.FormationId!.Value, initialization,
+        var frame = new RemakeArmyVisualFrame(unit.UnitId, unit.HexId, unit.FormationSlot!.Value, initialization,
             records, ordinary, flags, new ReadOnlyDictionary<RemakeArmyComponentKey, RemakeArmyPosePublication>(publications))
             { CurrentUnitPosition = currentUnitPosition, GraphicsAction60 = graphicsAction60 };
         return frame;

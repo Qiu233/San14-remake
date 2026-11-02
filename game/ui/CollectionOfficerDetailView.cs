@@ -93,7 +93,7 @@ internal partial class CollectionOfficerDetailView : Control
             var portrait = new UiSourceStandingPortrait { Position = rectangle.Position };
             body.AddChild(portrait);
             portrait.Configure(repository, selector.SourceAssets, selector.SourceShader,
-                route.LoadSprites(Sprite));
+                route.LoadSources(selector.SourceAssets.Portraits.RequireSource));
             portrait.Scale = rectangle.Size / portrait.Size;
         }
         Paint(source, body, hidden);

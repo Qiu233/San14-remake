@@ -22,7 +22,7 @@ public sealed partial class GameSimulation
         else State = appRandomSnapshot is null || source._normalPeriod is not null || source.State.CampaignEventCommandPlayback is not null ? source.State
             : source.State with { CampaignAppRandom32 = appRandomSnapshot };
         _progress = source._progress is { } pending
-            ? new(pending.Story?.Copy(), pending.ManualTactic?.Copy()) : null;
+            ? new(pending.Story?.Copy(), pending.ManualTactic?.Copy(), pending.ArmyProgress?.Copy()) : null;
         //The candidate is borrowed until command/advance takes its one private
         //transaction copy. A worker never mutates the visible session's prefix.
         _normalPeriod = source._normalPeriod;

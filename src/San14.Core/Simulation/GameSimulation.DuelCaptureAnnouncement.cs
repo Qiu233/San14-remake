@@ -8,21 +8,21 @@ public sealed partial class GameSimulation
         long batchSequence, int requestIndex, DuelCaptureAnnouncementRequest expectedRequest,
         CampaignAppRandomState? appRandomSnapshot = null)
     {
-        if (_progress is not null) return false;
+        if (_progress is { ArmyProgress: null }) return false;
         var pending = _normalPeriod;
-        var owner = pending?.Candidate ?? State;
+        var owner = SourcePresentationOwner;
+        bool retainedOwner = pending is not null || _progress?.ArmyProgress is not null;
         bool hiredCaptureWait = owner.ArmyDefeatContinuation is
             { ResumePoint: ArmyDefeatResumePoint.AfterSpecialCaptureAnnouncement,
                 HiredCapture: { Phase: HiredArmyCapturePhase.AwaitingAnnouncement } hired } &&
             hired.AnnouncementBatchSequence == batchSequence;
-        if (pending is not null && hiredCaptureWait && appRandomSnapshot is null) return false;
+        if (retainedOwner && hiredCaptureWait && appRandomSnapshot is null) return false;
         if (!ReferenceEquals(owner, expectedOwner) ||
             !DuelCaptureAnnouncementPlaybackRules.TryComplete(owner, expectedSource, batchSequence,
                 requestIndex, expectedRequest, out var next)) return false;
-        if (pending is not null && hiredCaptureWait)
+        if (retainedOwner && hiredCaptureWait)
             next = next with { CampaignAppRandom32 = appRandomSnapshot! };
-        if (pending is not null) _normalPeriod = pending with { Candidate = next };
-        else State = next;
+        PublishSourcePresentationOwner(next, pending);
         return true;
     }
 }

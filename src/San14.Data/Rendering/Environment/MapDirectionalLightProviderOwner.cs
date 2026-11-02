@@ -17,11 +17,22 @@ public sealed class DirectionalProviderCurrentFrame
     internal DirectionalProviderCurrentFrame(MapDirectionalLightProviderOwner source,
         DirectionalLightConstructionPacket root, DirectionalProviderControls input,
         DirectionalProviderSelection selection, DirectionalLightConstructionPacket selected,
-        ReadOnlySpan<byte> preparedCamera)
+        ReadOnlySpan<byte> preparedCamera,ReadOnlyMemory<byte>? selectedPrepared=null,
+        MapSourceCreatedSeasonLightingFrame? acceptedPresent=null)
     {
-        owner=source;RegisteredRoot=root;Selection=selection;SelectedConstruction=selected;
-        CurrentCamera=DirectionalLightConstruction.ApplyCurrentCamera(selected,preparedCamera);
+        owner=source;RegisteredRoot=root;Selection=selection;SelectedConstruction=selected;AcceptedPresent=acceptedPresent;
+        if(selectedPrepared is { } bytes)
+        {
+            if(bytes.Span[0x10B0]==2)
+            {
+                var applied=MapSourceCreatedCameraLightData.ApplySourceMode2PreparedCamera(bytes.Span,preparedCamera,selected.ContextFlags3E4);
+                CurrentCamera=new(selected,new(applied.Bytes,false,false));
+            }
+            else CurrentCamera=new(selected,CameraDirectionalLightData.Apply(bytes.Span,preparedCamera,selected.ContextFlags3E4));
+        }
+        else CurrentCamera=DirectionalLightConstruction.ApplyCurrentCamera(selected,preparedCamera);
     }
+    public MapSourceCreatedSeasonLightingFrame? AcceptedPresent {get;}
     public DirectionalLightConstructionPacket RegisteredRoot {get;}
     public DirectionalLightConstructionPacket SelectedConstruction {get;}
     public DirectionalProviderSelection Selection {get;}
@@ -123,6 +134,22 @@ public sealed partial class MapDirectionalLightProviderOwner
     {
         var selected=Select(root,input);
         return new(this,root,input,selected,SelectedConstruction(root,selected),preparedCameraPrefix);
+    }
+    /// <summary>Normal successful V468 publishes pair(mode,-1,0) and its
+    /// invocation byte. Actual zero external selector is a separate source fact.</summary>
+    public DirectionalProviderCurrentFrame PrepareSuccessfulMainFrame(DirectionalLightConstructionPacket root,
+        MapSourceCreatedSeasonLightingFrame present,MapCommonRenderState common,MapGameLightQualityControlOwner quality)
+    {
+        ArgumentNullException.ThrowIfNull(present);ArgumentNullException.ThrowIfNull(quality);
+        var before=present.AcceptedSeasonCamera.Inputs;
+        DirectionalLightProviderCaller.RequireFreshDefaultCaller(before.MainFrame,common);
+        if(before.Source.SuccessfulMainModeSelection is not int mode||before.MainPostSelection?.MainMode288!=mode||
+            before.Source.Selection.Provider.ExternalSelectorObjectId!=0)
+            throw new NotSupportedException("Selected Directional requires the actual successful ordinary Main application.");
+        var eye=before.MainFrame.Camera.Geometry.Eye;
+        var controls=new DirectionalProviderControls(-1,mode,-1,-1,-1,eye.X,eye.Z,true,false);
+        var selection=Select(root,controls);var actor=SelectedConstruction(root,selection);
+        return new(this,root,controls,selection,actor,present.PreparedCameraPrefix.Span,quality.PrepareSelectedData(actor),present);
     }
     internal DirectionalLightConstructionPacket SelectedConstruction(DirectionalLightConstructionPacket root,
         DirectionalProviderSelection selected)=>selected.SelectedObjectId==root.SourceObjectId?root:children[selected.SelectedObjectId];

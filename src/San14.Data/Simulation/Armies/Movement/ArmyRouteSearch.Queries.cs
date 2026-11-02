@@ -24,6 +24,11 @@ internal static partial class ArmyRouteSearch
         internal bool AvoidHostile { get; }
         internal int Start { get; }
         internal int Goal { get; }
+        internal int MapWidth => current.MapWidth;
+        internal int TileCount => current.MapTileCount;
+        internal bool ContainsHex(int hex) => current.ContainsMapHex(hex);
+        internal int Neighbor(int hex, int direction) =>
+            PersonReturnPathSource.Neighbor(hex, direction, current.MapWidth, current.MapHeight);
         internal byte LandFormation { get; }
         internal bool UniformCost => (searchFlags & 5) == 0;
 
@@ -60,7 +65,7 @@ internal static partial class ArmyRouteSearch
         {
             ushort link = K(current.ReadBaseObjectLink(@base), "Base4E");
             var obj = K(current.ReadObjectTableReference(link <= 3000 ? link : 0), "Base_Object_pointer");
-            return K(current.ReadObjectNativeValidity(obj), "Base_Object_validity") ? K(current.ReadObjectHexIndex(obj), "Object10") : Count;
+            return K(current.ReadObjectNativeValidity(obj), "Base_Object_validity") ? K(current.ReadObjectHexIndex(obj), "Object10") : TileCount;
         }
         private bool IsCity(ObjectReference obj) => obj.PhysicalSlot is >= 1 and <= 51;
         private bool IsGate(ObjectReference obj) => obj.PhysicalSlot is >= 52 and <= 61;
@@ -151,11 +156,11 @@ internal static partial class ArmyRouteSearch
                     var destination = K(current.ReadCityTableReference(target <= 51 ? target : 0), "target_City_pointer");
                     if (destination != city) return false;
                 }
-                if (Distance(center, Start) >= 3) return true;
+                if (Distance(center, Start, MapWidth) >= 3) return true;
                 if (K(current.ReadBaseForceSlot(city), "City_ForceB0") != force ||
                     !motion.HasNoDestination || action is not (2 or 11)) return false;
                 //2C5440(source six ring) only membership; no frame/terrain owner.
-                return Enumerable.Range(1, 6).Any(d => PersonReturnPathSource.Neighbor(center, d) == raw);
+                return Enumerable.Range(1, 6).Any(d => Neighbor(center, d) == raw);
             }
             if (physical != 17) return false;
             ushort gateLink = K(current.ReadHexObjectLink(Hex(raw)), "22D0D0_Hex1A");

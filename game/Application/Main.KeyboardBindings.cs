@@ -69,7 +69,7 @@ public partial class Main
 
     private bool GameplayMapKeyboardAdmitted(bool allowCommanderTarget=false) =>
         _residentMap is { IsPlayableMapReady: true } map && map.IsVisibleInTree() &&
-        !TutorialOverlayOwnsInput &&
+        !TutorialOverlayOwnsInput && !HasCampaignHelp && !HasPeriodMenu &&
         (!HasMilitaryOrderPage||allowCommanderTarget&&_manualTacticCommand is{View:null}) && !HasAdministrationPage && !HasCampaignSavePage && !HasMapSystemMenu &&
         !HasScenarioSettings && !HasCommandWorkspace && !HasActionReport && !HasIncomeReport && !HasProposalsPage && !HasPersonnelConfirmation &&
         _detailsView is null && _commandDetailsView is null && _reportMapReturn is null && _periodReportView is null;

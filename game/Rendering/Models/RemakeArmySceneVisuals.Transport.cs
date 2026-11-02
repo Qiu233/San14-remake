@@ -43,7 +43,7 @@ public sealed partial class RemakeArmySceneVisuals
                 new NVector3(position.X, position.Y, position.Z), heading,
                 random, templates, randomSource, records, selection.ExplicitLandFormationSlot);
         }
-        return PublishNavalCurrentFrame(unit, naval,
+        return PublishNavalCurrentFrame(RemakeArmyVisualUnit.Capture(unit), naval,
             new NVector3(position.X, position.Y, position.Z), heading, initialization, records, 0,
             selection.ExplicitLandFormationSlot) with
         {

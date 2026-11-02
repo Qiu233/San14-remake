@@ -36,7 +36,7 @@ public partial class Main
                 _reportBackgroundMapExited = () => CloseReportBackground(deferRemoval: true);
                 map.TreeExiting += _reportBackgroundMapExited;
             }
-            try { view.Configure(_repository!); }
+            try { view.Configure(_repository!, TryBorrowApplicationUiResources(view)); }
             catch { CloseReportBackground(); throw; }
         }
         // A retained background may already precede this dialog. Account for

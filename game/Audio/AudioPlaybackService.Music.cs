@@ -1,16 +1,14 @@
 using Godot;
+using San14.Data;
 
 public partial class AudioPlaybackService
 {
-    private sealed class MapMusicVoice(OriginalAudioPlayer player, MusicMixerInterval interval, ulong releaseTicks,
-        ulong attackTicks, int? musicIndex)
+    private sealed class MapMusicVoice(OriginalAudioPlayer player, MusicMixerInterval interval, ulong releaseTicks, int? musicIndex)
     {
         internal readonly OriginalAudioPlayer Player = player;
         internal readonly MusicMixerInterval Interval = interval;
         internal bool RequestedPaused;
         internal bool Releasing;
-        internal ulong Elapsed;
-        internal float StartGain;
         internal float Gain;
         internal int? MusicIndex = musicIndex;
         internal ulong ReleaseTicks = releaseTicks;
@@ -21,20 +19,6 @@ public partial class AudioPlaybackService
         internal ulong PauseTicks;
         internal bool PauseFading;
         internal MapMusicPauseHandle? MoviePauseOwner;
-        internal ulong Duration => Releasing ? ReleaseTicks : attackTicks;
-        internal bool Advance(ulong ticks)
-        {
-            Elapsed = Math.Min(Duration, checked(Elapsed + Math.Min(ticks, Duration)));
-            if (Elapsed == Duration) { Gain = Releasing ? 0 : 1; return Releasing; }
-            float u = (float)Elapsed / (float)Duration;
-            if (!Releasing) Gain = u;
-            else
-            {
-                float easing = LinearRelease ? u : (MathF.Sin((u - .5f) * 3.1415927f) + 1) * .5f;
-                Gain = (0 - StartGain) * easing + StartGain;
-            }
-            return false;
-        }
     }
     private readonly Dictionary<string, MapMusicVoice> _mapMusic = new(StringComparer.Ordinal);
     private MusicMixerClock? _musicClock;
@@ -135,9 +119,13 @@ public partial class AudioPlaybackService
         // Parent lifecycle owns this voice's pause gate, including explicit
         // user pause. Inherited child notifications must not resume it.
         player.ProcessMode = ProcessModeEnum.Always;
-        var voice = new MapMusicVoice(player, new(_musicClock.MixRate, frames), releaseTicks,
-            checked((ulong)Math.Clamp(attackMilliseconds, 0, 30000) * 48), musicIndex);
-        if (voice.Duration == 0) voice.Gain = 1;
+        uint attackTicks = checked((uint)Math.Clamp(attackMilliseconds, 0, 30000) * 48);
+        // Install under the same mixer lock as Play: UI stalls cannot hold the
+        // authored attack at one gain, or expose an initial full-volume block.
+        try { player.BeginSourceEnvelope(0, 1, attackTicks, AudioCueEnvelopeCurve.Linear); }
+        catch { Stop(channel); throw; }
+        var voice = new MapMusicVoice(player, new(_musicClock.MixRate, frames), releaseTicks, musicIndex)
+        { Gain = attackTicks == 0 ? 1 : 0 };
         _mapMusic[channel] = voice;
         player.StreamPaused = !CanProcess();
         voice.Interval.SetRunning(!player.StreamPaused, frames);
@@ -161,10 +149,13 @@ public partial class AudioPlaybackService
         if (!_mapMusic.TryGetValue(channel, out var voice)) return;
         DrainMapMusic(channel, voice, ReadMapMusicFrames());
         if (!_mapMusic.ContainsKey(channel) || voice.Releasing) return;
-        voice.Releasing = true; voice.StartGain = voice.Gain; voice.Elapsed = 0;
+        voice.Releasing = true;
         if (explicitMilliseconds is int milliseconds)
         { voice.ReleaseTicks = checked((ulong)Math.Clamp(milliseconds, 0, 30000) * 48); voice.LinearRelease = true; }
-        if (voice.Duration == 0) Stop(channel);
+        if (voice.ReleaseTicks == 0) { Stop(channel); return; }
+        // Continue from the actual mixed gain, including a stop during attack.
+        voice.Player.BeginSourceEnvelope(voice.Gain, 0, checked((uint)voice.ReleaseTicks),
+            voice.LinearRelease ? AudioCueEnvelopeCurve.Linear : AudioCueEnvelopeCurve.SmoothSine);
     }
 
     private void DrainMapMusic(string channel, MapMusicVoice voice, ulong frames)
@@ -172,7 +163,11 @@ public partial class AudioPlaybackService
         if (voice.Player.Stream is null || (!voice.Player.Playing && !voice.Player.StreamPaused))
         { Stop(channel); return; }
         ulong ticks = voice.Interval.Drain(frames);
-        if (voice.Advance(ticks)) { Stop(channel); return; }
+        var envelope = voice.Player.ReadSourceEnvelope();
+        voice.Gain = envelope.Gain;
+        // The mixer owns the endpoint; the main thread only retires a silent
+        // completed release, even if it did not poll throughout the fade.
+        if (voice.Releasing && envelope.Complete) { Stop(channel); return; }
         if (voice.PauseFading)
         {
             voice.PauseElapsed = Math.Min(voice.PauseTicks, checked(voice.PauseElapsed + Math.Min(ticks, voice.PauseTicks)));

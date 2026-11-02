@@ -7,21 +7,21 @@ public sealed partial class SourceWorldContext : IHexOverlayState, IMapOverlayIn
     private IReadOnlyList<SceneryReference?>? _registeredSceneryReferences;
 
     public int? ReadHexPhysicalSlot(HexReference reference) =>
-        MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        MapPhysical(reference.PhysicalSlot, MapTileCount, "hex");
     public ushort? ReadSceneryHexIndex(SceneryReference reference) =>
         _sceneryHexes.GetValueOrDefault(MapPhysical(reference.PhysicalSlot, 101, "scenery"));
     public void SetHexObjectLink(int physicalSlot, ushort? value)
-    { Check(physicalSlot, 48400, "hex physical slot"); _hexObjectLinks[physicalSlot] = value; }
+    { Check(physicalSlot, MapTileCount, "hex physical slot"); _hexObjectLinks[physicalSlot] = value; }
     public ushort? ReadHexObjectLink(HexReference reference)
     {
-        int physical = MapPhysical(reference.PhysicalSlot, 48400, "hex");
+        int physical = MapPhysical(reference.PhysicalSlot, MapTileCount, "hex");
         return _hexObjectLinks.TryGetValue(physical, out ushort? link) ? link :
             _emptyHexObjectLinksKnown ? (ushort)0 : null;
     }
     public void WriteHexObjectLink(HexReference reference, ushort value) =>
-        SetHexObjectLink(MapPhysical(reference.PhysicalSlot, 48400, "hex"), value);
+        SetHexObjectLink(MapPhysical(reference.PhysicalSlot, MapTileCount, "hex"), value);
     public void WriteHexSceneryLink(HexReference reference, byte value) =>
-        SetHexScenerySlot(MapPhysical(reference.PhysicalSlot, 48400, "hex"), value);
+        SetHexScenerySlot(MapPhysical(reference.PhysicalSlot, MapTileCount, "hex"), value);
     public bool AssignHexObject(HexReference hex, int requestedObject, int checkPosition) =>
         HexOverlay.AssignObject(hex, requestedObject, checkPosition, this);
     public bool AssignHexScenery(HexReference hex, int requestedScenery, int checkPosition) =>

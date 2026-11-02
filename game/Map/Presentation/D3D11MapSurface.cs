@@ -4,7 +4,8 @@ using System.Runtime.CompilerServices;
 using Environment=System.Environment;
 
 /// <summary>Godot owns Canvas/RD operations on its synchronous renderer thread.
-/// One serialized native worker writes only the other of two retained outputs.</summary>
+/// One asynchronous scene task prepares, awaits Main's real Canvas release,
+/// and copies to the other retained output before delivering one result.</summary>
 public partial class D3D11MapSurface : Control
 {
     public const int OutputWidth = 1920, OutputHeight = 1080;
@@ -16,6 +17,8 @@ public partial class D3D11MapSurface : Control
     public Exception? LastError { get; private set; }
     public bool IsRendering => _rendering;
     public bool IsClosed => _closed;
+    internal D3D11RenderSession.Native11DeviceOwner? NativeDeviceOwner { get; init; }
+    internal D3D11TerrainPreparedPrograms? TerrainPrograms { get; init; }
 
     // This is the slot actually accepted by Canvas, not a merely prepared back.
     // Existing borrowers update synchronously in Accepted before this pump can
@@ -26,11 +29,14 @@ public partial class D3D11MapSurface : Control
             ? (output.Presentation,input,receipt) : null;
 
     /// <summary>The SceneView first stops submissions. The single pump includes
-    /// every already admitted native request and its actual Canvas acceptance.</summary>
+    /// every admitted request, actual Canvas submission and an explicit GPU
+    /// drain for adoption. Close waits this same pump before destroying Native.</summary>
     internal Task DrainAsync()
     {
         ObjectDisposedException.ThrowIf(_closed,this);
-        return _pump ?? Task.CompletedTask;
+        _drainSubmittedWork=true;
+        if(!_rendering)_pump=PumpAsync();
+        return _pump!;
     }
 
     private sealed record OutputSlot(Rid Texture,Rid Framebuffer,Texture2Drd Presentation,ulong NativeOutput)
@@ -95,7 +101,7 @@ public partial class D3D11MapSurface : Control
         }
     }
 
-    private bool _configured,_rendering,_closed,_signalsAttached,_allocationSubmitted;
+    private bool _configured,_rendering,_closed,_signalsAttached,_allocationSubmitted,_drainSubmittedWork;
     private int _ownerMainThreadId=Environment.CurrentManagedThreadId;
     private string _sourceDirectory="",_nativeDLLPath="";
     private uint _populationMask;
@@ -103,6 +109,9 @@ public partial class D3D11MapSurface : Control
     private OutputSlot[] _outputs=[];
     private OutputSlot? _displayed,_acceptedOutput;
     private D3D11RenderSession? _session;
+    private D3D11RenderSession.OutputQueueBridge? _queueBridge;
+    private SceneTree? _lifetimeTree;
+    private Window? _lifetimeWindow;
     internal IG1EffectDirectComputeDevice? EffectComputeDevice => _session;
     private TextureRect? _image;
     private D3D11MapInput? _pending,_openingInput;
@@ -112,6 +121,25 @@ public partial class D3D11MapSurface : Control
     private Task? _pump,_close,_marker;
     private TaskCompletionSource<bool>? _ready,_allocationWait;
     private CanvasStage? _stage;
+    private readonly record struct CopyGrant(ulong Output,bool HasCanvasSampling);
+    private sealed class SceneSubmission(D3D11MapInput input,int owner)
+    {
+        internal readonly D3D11MapInput Input=input;
+        // Asynchronous continuation keeps copy off Main even if authorization
+        // arrives after the prepare call has already finished.
+        internal readonly TaskCompletionSource<CopyGrant?> Authorization=
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly MainOwnerCompletion<D3D11MapReceipt?> Completion=new(owner);
+        internal Task Worker=Task.CompletedTask;
+        internal volatile bool CopyCancelled;
+        internal void CancelCopy()
+        {CopyCancelled=true;Authorization.TrySetResult(null);}
+    }
+    private sealed record SceneResult(SceneSubmission Work,D3D11MapReceipt? Receipt,
+        Exception? Error,CanvasStage? Predecessor);
+    private SceneResult? _completedScene;
+    private bool _sceneCanAdvance,_preparingScene;
+    private SceneSubmission? _sceneAhead;
 
     public async Task ConfigureAsync(string sourceDirectory,string nativeDLLPath,
         D3D11MapInput initialInput,uint populationMask,
@@ -119,6 +147,8 @@ public partial class D3D11MapSurface : Control
     {
         ObjectDisposedException.ThrowIf(_closed,this);
         if(_configured)throw new InvalidOperationException("Native map surface is already configured.");
+        if(NativeDeviceOwner is not null&&TerrainPrograms is null)
+            throw new InvalidDataException("The application map must borrow its startup Landscape program generation.");
         if(!IsInsideTree())throw new InvalidOperationException("Attach the native surface before opening it.");
         if(RenderingServer.GetCurrentRenderingDriverName()!="d3d12"||GetViewport().UseHdr2D)
             throw new NotSupportedException("Native Main presentation requires D3D12 and a non-HDR Canvas.");
@@ -127,6 +157,7 @@ public partial class D3D11MapSurface : Control
         if(!RenderingServer.IsOnRenderThread())
             throw new NotSupportedException("The native-worker surface requires Godot's synchronous Safe renderer.");
         _ownerMainThreadId=Environment.CurrentManagedThreadId;
+        _lifetimeTree=GetTree();_lifetimeWindow=GetWindow();
         ArgumentNullException.ThrowIfNull(initialInput);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(nativeDLLPath);
@@ -157,6 +188,7 @@ public partial class D3D11MapSurface : Control
         ArgumentNullException.ThrowIfNull(input);
         _pending=input.WithElapsed(_pendingElapsed+input.ElapsedSeconds);_pendingElapsed=_pending.ElapsedSeconds;
         if(!_rendering)_pump=PumpAsync();
+        else TryStartSceneAhead();
     }
     public void RecordAnimationUpdate(D3D11MapInput input,uint fpsMode)
     {
@@ -179,17 +211,34 @@ public partial class D3D11MapSurface : Control
                 var allocated=await OnMain(OnRenderThread(rd=>
                 {
                     var outputs=new List<OutputSlot>(2);
+                    D3D11RenderSession.OutputQueueBridge? bridge=null;
+                    ulong device=rd.GetDriverResource(RenderingDevice.DriverResource.LogicalDevice,default,0);
+                    ulong queue=rd.GetDriverResource(RenderingDevice.DriverResource.CommandQueue,default,0);
                     try
                     {
-                        for(int i=0;i<2;i++)outputs.Add(AllocateOutput(rd));
-                        return (Outputs:outputs.ToArray(),
-                            Device:rd.GetDriverResource(RenderingDevice.DriverResource.LogicalDevice,default,0),
-                            Queue:rd.GetDriverResource(RenderingDevice.DriverResource.CommandQueue,default,0));
+                        bridge=NativeDeviceOwner is { } deviceOwner
+                            ? D3D11RenderSession.OutputQueueBridge.CreateNative11(
+                                _nativeDLLPath,deviceOwner,queue,(uint)OutputWidth,(uint)OutputHeight)
+                            : D3D11RenderSession.OutputQueueBridge.CreateNative11(
+                                _nativeDLLPath,device,queue,(uint)OutputWidth,(uint)OutputHeight);
+                        var shared=bridge.Native11Outputs??throw new InvalidOperationException("Native11 outputs are missing.");
+                        outputs.Add(AllocateImportedOutput(rd,shared.Output0Resource12));
+                        outputs.Add(AllocateImportedOutput(rd,shared.Output1Resource12));
+                        return (Outputs:outputs.ToArray(),Device:device,Queue:queue,Bridge:bridge);
                     }
-                    catch { RetireOutputs(rd,outputs);throw; }
+                    catch
+                    {
+                        // Patched RD retains each imported resource through its
+                        // own deferred disposal, including a recorded clear.
+                        // No map owner or GPU admission exists in this branch.
+                        RetireOutputs(rd,outputs);bridge?.Dispose();throw;
+                    }
                 }));
                 _outputs=allocated.Outputs;_device=allocated.Device;_queue=allocated.Queue;
+                _queueBridge=allocated.Bridge;
                 if(_closed)return;
+                // Real Godot submission of these initial clears must Signal
+                // Consumed before the worker is allowed to write either slot.
                 _allocationWait=new();
                 if(!await OnMain(_allocationWait.Task)||_closed)return;
                 var initial=_prepareCurrent?.Invoke(_openingInput!)??_openingInput!;_openingInput=null;
@@ -198,7 +247,8 @@ public partial class D3D11MapSurface : Control
                 ulong device=_device,queue=_queue;
                 var created=await OnNativeWorker(()=>
                 {
-                    var session=new D3D11RenderSession(source,library,mask,nativeWorker:true);
+                    var session=new D3D11RenderSession(source,library,mask,nativeWorker:true,
+                        outputQueueBridge:_queueBridge,terrainPrograms:TerrainPrograms);
                     return session.RunNativeJob(()=>
                     {
                         try { return (Session:session,Receipt:session.Create(device,queue,output.NativeOutput,initial)); }
@@ -211,20 +261,39 @@ public partial class D3D11MapSurface : Control
                 if(!await opening.Completion||!Accept(opening))return;
                 _ready!.TrySetResult(true);
             }
-            while(!_closed&&_pending is not null)
+            while(!_closed&&(_sceneAhead is not null||_pending is not null||_drainSubmittedWork))
             {
-                var input=TakePending();
-                var updates=_animationPending.ToArray();_animationPending.Clear();
-                var output=_outputs.First(slot=>!ReferenceEquals(slot,_displayed));
-                var session=_session!;bool sampled=output.HasCanvasSampling;
-                var receipt=await OnNativeWorker(()=>session.RunNativeJob(()=>
+                if(_sceneAhead is null&&_pending is null)
                 {
-                    foreach(var update in updates)session.UpdateAnimations(update.Input,update.FpsMode);
-                    return session.Next(output.NativeOutput,input,sampled);
-                }));
-                if(_closed)return;
-                var stage=Present(output,input,receipt);
-                if(!await stage.Completion||!Accept(stage))return;
+                    _drainSubmittedWork=false;
+                    var drainingSession=_session!;
+                    await OnNativeWorker(()=>drainingSession.RunNativeJob(()=>
+                    {drainingSession.DrainSubmittedOutputWork();return true;}));
+                    continue;
+                }
+                // The previous Canvas has actually submitted and its Accepted
+                // borrowers have switched to the displayed slot before here.
+                if(_sceneAhead is null)
+                {
+                    var input=TakePending();
+                    var updates=_animationPending.ToArray();_animationPending.Clear();
+                    _sceneAhead=StartSceneSubmission(input,updates,null);
+                }
+                var work=_sceneAhead;
+                var output=_outputs.First(slot=>!ReferenceEquals(slot,_displayed));
+                // This Main decision follows the old real Accepted callbacks.
+                // The worker may still be preparing or already awaiting it.
+                work.Authorization.TrySetResult(new CopyGrant(output.NativeOutput,output.HasCanvasSampling));
+                var receipt=await work.Completion;
+                _sceneAhead=null;
+                if(_closed||receipt is not { } delivered)return;
+                var stage=Present(output,work.Input,delivered);
+                // FramePrepared is finished. Capture one future scene, either
+                // now or when the next source Record arrives during Canvas.
+                _sceneCanAdvance=true;TryStartSceneAhead();
+                bool submitted=await stage.Completion;
+                _sceneCanAdvance=false;
+                if(!submitted||!Accept(stage))return;
             }
         }
         catch(Exception error)
@@ -235,13 +304,105 @@ public partial class D3D11MapSurface : Control
         }
         finally
         {
+            _sceneCanAdvance=false;
+            // Close may cancel Canvas while its future scene is still on the
+            // one worker. Join it before this pump can retire the session.
+            if(_sceneAhead is { } retiring)
+            {
+                retiring.CancelCopy();
+                // Never hold the native job token or block Main while waiting
+                // for authorization. Close joins the actual task before Native.
+                try
+                {
+                    await OnMain(retiring.Worker);
+                    DeliverSceneResult();
+                    await retiring.Completion;
+                }
+                catch { /* A failed future scene already faults its Canvas gate. */ }
+                _sceneAhead=null;
+            }
             _rendering=false;
             if(LastError is not null&&!_closed)_=ObserveCloseAsync();
         }
     }
 
+    private void TryStartSceneAhead()
+    {
+        if(_closed||!_sceneCanAdvance||_preparingScene||_pending is null||_sceneAhead is not null||_stage is not { } stage)return;
+        _preparingScene=true;
+        try
+        {
+            var input=TakePending();
+            var updates=_animationPending.ToArray();_animationPending.Clear();
+            _sceneAhead=StartSceneSubmission(input,updates,stage);
+        }
+        catch(Exception error) { stage.Completion.TrySetException(error); }
+        finally { _preparingScene=false; }
+    }
+
+    private SceneSubmission StartSceneSubmission(D3D11MapInput input,
+        (D3D11MapInput Input,uint FpsMode)[] updates,CanvasStage? predecessor)
+    {
+        var work=new SceneSubmission(input,_ownerMainThreadId);
+        var session=_session!;
+        work.Worker=Task.Run(async()=>
+        {
+            try
+            {
+                var prepared=session.RunNativeJob(()=>
+                {
+                    foreach(var update in updates)session.UpdateAnimations(update.Input,update.FpsMode);
+                    return session.PrepareScene(input);
+                });
+                // The prepare job released both its CAS token and Native mutex.
+                // Awaiting this real Main authorization consumes no pool thread.
+                var grant=await work.Authorization.Task.ConfigureAwait(false);
+                D3D11MapReceipt? receipt=null;
+                if(grant is { } permission)
+                {
+                    bool copied=session.RunNativeJob(()=>
+                    {
+                        if(work.CopyCancelled)return false;
+                        session.CopyScene(permission.Output,prepared.Request,permission.HasCanvasSampling);
+                        return true;
+                    });
+                    if(copied)receipt=prepared;
+                }
+                else receipt=null;
+                // One bounded owner mailbox. The pump cannot admit a new
+                // submission until Main has consumed this result.
+                Volatile.Write(ref _completedScene,new SceneResult(work,receipt,null,predecessor));
+            }
+            catch(Exception error)
+            {
+                Volatile.Write(ref _completedScene,new SceneResult(work,null,error,predecessor));
+            }
+        });
+        return work;
+    }
+
+    // These entry points both belong to Safe Main. Exchange consumes at most
+    // one actual result; neither path synthesizes a Canvas completion.
+    public override void _Process(double delta)
+    {if(!_closed)DeliverSceneResult();}
+
+    private void DeliverSceneResult()
+    {
+        var result=Interlocked.Exchange(ref _completedScene,null);
+        if(result is null)return;
+        if(result.Error is { } error)
+        {
+            result.Work.Completion.TrySetException(error);
+            result.Predecessor?.Completion.TrySetException(error);
+        }
+        else result.Work.Completion.TrySetResult(result.Receipt);
+    }
+
     private CanvasStage Present(OutputSlot output,D3D11MapInput input,D3D11MapReceipt receipt)
     {
+        // Queue a GPU-side dependency before Godot can record sampling this
+        // image. This short bridge call never enters the native context gate.
+        _queueBridge!.WaitReady(output.NativeOutput,receipt.Request);
         var stage=new CanvasStage(output,input,receipt,_ownerMainThreadId);_stage=stage;_displayed=output;
         _image!.Texture=output.Presentation;
         FramePrepared?.Invoke(input,receipt);
@@ -262,6 +423,8 @@ public partial class D3D11MapSurface : Control
     private void BeforeCanvasDraw()
     {
         if(_closed)return;
+        DeliverSceneResult();
+        if(_closed)return;
         if(_allocationWait is not null)_allocationSubmitted=true;
         if(_stage is { DrawReady:true,Submitted:false } stage&&_image is not null&&
             _image.IsVisibleInTree()&&_image.Size.X>0&&_image.Size.Y>0)stage.Submitted=true;
@@ -269,6 +432,24 @@ public partial class D3D11MapSurface : Control
     private void AfterCanvasDraw()
     {
         if(_closed)return;
+        try
+        {
+            // A displayed slot may be sampled again on every Engine frame.
+            // This actual post-submission signal covers both registered slots,
+            // including their last repeat draw before the next image switch.
+            _queueBridge?.SignalConsumed();
+        }
+        catch(Exception error)
+        {
+            if(_allocationWait is { } allocationFailure)allocationFailure.TrySetException(error);
+            else if(_stage is { } stageFailure)stageFailure.Completion.TrySetException(error);
+            else
+            {
+                LastError=error;_ready?.TrySetException(error);Failed?.Invoke(error);
+                _=ObserveCloseAsync();
+            }
+            return;
+        }
         if(_allocationWait is { } allocation&&_allocationSubmitted)
         {
             _allocationWait=null;_allocationSubmitted=false;
@@ -291,9 +472,10 @@ public partial class D3D11MapSurface : Control
     {
         try
         {
-            // In Safe, PostDraw belongs to this synchronous actual draw. This
-            // queue marker follows that draw; native copyFinal's GPU fence is
-            // unchanged. Complete on this Main callback, without another frame.
+            // In Safe, PostDraw belongs to this synchronous actual draw. The
+            // Godot queue has waited for NativeReady before sampling, and its
+            // actual submitted draw is followed by GodotConsumed. This remains
+            // Canvas submission, not hardware Present or GPU completion.
             await OnMain(marker);
             if(_closed||!ReferenceEquals(_stage,stage))return;
             stage.MarkerCompleted=true;_stage=null;stage.Completion.TrySetResult(true);
@@ -301,23 +483,28 @@ public partial class D3D11MapSurface : Control
         catch(Exception error) { stage.Completion.TrySetException(error); }
     }
 
-    private static OutputSlot AllocateOutput(RenderingDevice rd)
+    private static OutputSlot AllocateImportedOutput(RenderingDevice rd,ulong resource12)
     {
-        using var format=new RDTextureFormat { Format=RenderingDevice.DataFormat.B8G8R8A8Unorm,
-            Width=OutputWidth,Height=OutputHeight,Depth=1,ArrayLayers=1,Mipmaps=1,
-            TextureType=RenderingDevice.TextureType.Type2D,
-            UsageBits=RenderingDevice.TextureUsageBits.ColorAttachmentBit|RenderingDevice.TextureUsageBits.SamplingBit|
-                RenderingDevice.TextureUsageBits.CanCopyFromBit|RenderingDevice.TextureUsageBits.CanCopyToBit };
-        using var view=new RDTextureView();Rid texture=rd.TextureCreate(format,view),framebuffer=default;
+        const RenderingDevice.TextureUsageBits usage=RenderingDevice.TextureUsageBits.ColorAttachmentBit|
+            RenderingDevice.TextureUsageBits.SamplingBit|RenderingDevice.TextureUsageBits.CanCopyFromBit|
+            RenderingDevice.TextureUsageBits.CanCopyToBit;
+        // The shared resource is BGRA8, RT|SA, initially COMMON. The candidate
+        // engine rejects an SA import unless its actual enhanced-barrier path
+        // supports it, and holds a COM reference through RD physical retirement.
+        Rid texture=rd.TextureCreateFromExtension(RenderingDevice.TextureType.Type2D,
+            RenderingDevice.DataFormat.B8G8R8A8Unorm,RenderingDevice.TextureSamples.Samples1,
+            usage,resource12,OutputWidth,OutputHeight,1,1,1),framebuffer=default;
         Texture2Drd? presentation=null;
-        if(!texture.IsValid)throw new InvalidOperationException("Native BGRA output allocation failed.");
+        if(!texture.IsValid)throw new InvalidOperationException("Native11 shared output import requires the candidate D3D12 engine.");
         try
         {
             framebuffer=rd.FramebufferCreate(new Godot.Collections.Array<Rid> { texture });
-            if(!framebuffer.IsValid)throw new InvalidOperationException("Native output framebuffer creation failed.");
+            if(!framebuffer.IsValid)throw new InvalidOperationException("Native11 output framebuffer creation failed.");
             rd.DrawListBegin(framebuffer,RenderingDevice.DrawFlags.ClearColor0,[Colors.Black]);rd.DrawListEnd();
             presentation=new Texture2Drd { TextureRdRid=texture };
-            return new(texture,framebuffer,presentation,rd.GetDriverResource(RenderingDevice.DriverResource.Texture,texture,0));
+            ulong actual=rd.GetDriverResource(RenderingDevice.DriverResource.Texture,texture,0);
+            if(actual!=resource12)throw new InvalidOperationException("Native11 imported output resource differs.");
+            return new(texture,framebuffer,presentation,actual);
         }
         catch
         {
@@ -349,6 +536,7 @@ public partial class D3D11MapSurface : Control
         try
         {
             _closed=true;_pending=null;_openingInput=null;_pendingElapsed=0;_animationPending.Clear();
+            var pendingScene=_sceneAhead;pendingScene?.CancelCopy();
             if(_signalsAttached)
             {
                 RenderingServer.FramePreDraw-=BeforeCanvasDraw;RenderingServer.FramePostDraw-=AfterCanvasDraw;
@@ -358,6 +546,14 @@ public partial class D3D11MapSurface : Control
             if(GodotObject.IsInstanceValid(_image))_image!.Texture=null;
             _ready?.TrySetResult(false);_allocationWait?.TrySetResult(false);_allocationWait=null;
             var stage=_stage;_stage=null;stage?.Completion.TrySetResult(false);
+            // ExitTree may stop all future Process/PreDraw callbacks while the
+            // pump is awaiting its result. Join, then deliver explicitly before
+            // awaiting that pump; no close-time mailbox dependency cycle.
+            if(pendingScene is not null)
+            {
+                await OnMain(pendingScene.Worker);
+                DeliverSceneResult();
+            }
             await OnMain(CloseCoreAsync());
             completion.TrySetResult();
         }
@@ -375,17 +571,59 @@ public partial class D3D11MapSurface : Control
             try { await OnMain(_marker); }
             catch(Exception error) { GD.PushError($"Native map Canvas marker failed while retiring: {error}"); }
         }
-        var session=_session;
-        try
+        var session=_session;var bridge=_queueBridge;
+        if(bridge is not null)
         {
-            if(session is not null)await OnNativeWorker(()=>session.RunNativeJob(()=>{session.Dispose();return true;}));
+            // Normal close follows a real global drawn-frame callback. When
+            // minimized, the next global process boundary instead seals only
+            // already-enqueued queue work. Neither path invents a Canvas ACK.
+            await OnMain(SealFinalGodotQueueAsync(bridge,_lifetimeTree!,_lifetimeWindow!));
+            await OnNativeWorker(()=>
+            {
+                if(session is not null)session.RunNativeJob(()=>
+                {
+                    session.DrainSubmittedOutputWork();
+                    bridge.Retire();
+                    session.Dispose();return true;
+                });
+                else bridge.Retire();
+                bridge.Dispose();return true;
+            });
         }
-        finally
+        else if(session is not null)
+            await OnNativeWorker(()=>session.RunNativeJob(()=>{session.Dispose();return true;}));
+        // An incomplete retirement retains the owners and physical outputs.
+        // Only a completed GPU retirement permits the RID owners to be freed.
+        _session=null;_queueBridge=null;
         {
-            _session=null;var outputs=_outputs;
+            var outputs=_outputs;
             if(outputs.Length>0)await OnMain(OnRenderThread(rd=>{RetireOutputs(rd,outputs);return true;}));
             _outputs=[];_displayed=null;_acceptedOutput=null;
         }
+    }
+    private static Task SealFinalGodotQueueAsync(D3D11RenderSession.OutputQueueBridge bridge,
+        SceneTree tree,Window window)
+    {
+        var done=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Seal()
+        {
+            // A no-draw close can complete first. The uncancellable late
+            // FrameDrawn callback must not access an already retired bridge.
+            if(done.Task.IsCompleted)return;
+            tree.ProcessFrame-=CheckNoDraw;
+            try {bridge.SealGodotTail();done.TrySetResult();}
+            catch(Exception error) {done.TrySetException(error);}
+        }
+        void CheckNoDraw()
+        {
+            if(done.Task.IsCompleted)return;
+            // This global Main process boundary is outside Canvas recording;
+            // the surface and its consumers have detached and all jobs joined.
+            if(!DisplayServer.WindowCanDraw(window.GetWindowId()))Seal();
+        }
+        tree.ProcessFrame+=CheckNoDraw;
+        RenderingServer.RequestFrameDrawnCallback(Callable.From(Seal));
+        return done.Task;
     }
     public override void _ExitTree()=>_=ObserveCloseAsync();
     private async Task ObserveCloseAsync()

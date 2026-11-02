@@ -17,13 +17,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         bool? forceValid = null; bool complete = false;
         string? sortIssue = null;
         IReadOnlyList<NewGameForceOfficerPreview>? sorted = null;
+        SourceWorldContext? captured = null;
+        NewGameOfficerAbilityProducer? abilityProducer = null;
         if (!ArmyOperationContext.IsNewGamePreview(state))
         { issues.Add("new-game.officers.normal-preview-owner"); return Publish(); }
         if (forceId is < 1 or > 51)
         { forceValid = false; complete = true; sorted = []; return Publish(); }
         try
         {
-            var current = CapturePersonPresentationCurrent(state);
+            var current = captured = CapturePersonPresentationCurrent(state);
             forceValid = current.ReadForceNativeValidity(new(forceId));
             if (forceValid != true)
             {
@@ -33,6 +35,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             var chain = current.ReadRegisteredPersonPhysicalSlots()
                 ?? throw new InvalidDataException("new-game.officers.current-Person-chain");
+            abilityProducer = CreateNewGameOfficerAbilities(state,current);
             var offices = _scenario.Snapshot.RankParameters?.Offices.ToDictionary(row => row.Id);
             var naming = ArmyMapUiSources.Create();
             complete = true; int ordinal = 0;
@@ -57,18 +60,16 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var missing = new Dictionary<string, string>();
                 if (id is null) missing[nameof(NewGameForceOfficerPreview.OfficerId)] = "new-game.officers.person-identity";
                 if (person is null) missing[nameof(NewGameForceOfficerPreview.Name)] = "new-game.officers.current-person-owner";
-                int? officeId = person?.OfficeId;
+                int? officeId = id is int officePerson && person is not null ? abilityProducer.ReadOfficeId(officePerson) : null;
                 var office = officeId is int officeKey ? offices?.GetValueOrDefault(officeKey) : null;
                 if (office is null) missing[nameof(NewGameForceOfficerPreview.OfficeName)] = "new-game.officers.office-definition";
-                //The normal load retains these base values. Effective22FE40
-                //needs independent health/credit/activation/cap owners that are
-                //not allocated by creating a presentation page.
                 var basic = NewGameOfficerAbilityFigures.From(person?.BaseAbilities);
-                var effective = NewGameOfficerAbilityFigures.From(null);
+                var abilityRead = id is int abilityPerson && person is not null ? abilityProducer.Resolve(abilityPerson)
+                    : new NewGameOfficerAbilityRead(null,"new-game.ability.person-owner");
+                var effective = NewGameOfficerAbilityFigures.From(abilityRead.Abilities);
                 if (person?.BaseAbilities is null) missing[nameof(NewGameForceOfficerPreview.BaseAbilities)] = "new-game.officers.base-abilities";
-                missing[nameof(NewGameForceOfficerPreview.EffectiveAbilities)] = "new-game.officers.effective-ability-current-owners";
-                ushort? merit = person?.MeritState?.Merit is int stored && stored is >= short.MinValue and <= short.MaxValue
-                    ? unchecked((ushort)(short)stored) : null;
+                if (abilityRead.Abilities is null) missing[nameof(NewGameForceOfficerPreview.EffectiveAbilities)] = abilityRead.UnresolvedInput ?? "new-game.ability.inputs";
+                ushort? merit = id is int creditPerson && person is not null ? abilityProducer.ReadStoredMeritWord(creditPerson) : null;
                 if (merit is null) missing[nameof(NewGameForceOfficerPreview.StoredMeritWord)] = "new-game.officers.stored-merit-current-owner";
                 int? location = current.ReadPersonFirstLocation(physical);
                 string? locationName = location is int place ? state.Cities.GetValueOrDefault(place)?.Name
@@ -98,7 +99,30 @@ public sealed partial class ArmyCampaignRuleAdapter
         return Publish();
 
         void Incomplete(string field) { complete = false; issues.Add("new-game.officers." + field); }
-        NewGameForceOfficersPreview Publish() => new(forceId, forceValid, complete,
-            rows.AsReadOnly(), sorted, sortIssue, issues.AsReadOnly());
+        NewGameForceOfficersPreview Publish()
+        {
+            OfficerInformationPageSet? pages = null;
+            if (forceValid == true && captured is not null && rows.All(row => row.OfficerId is >= 1 and <= 6000))
+            {
+                //534CF0 supplies this exact iterator/order to the ordinary
+                //pane14. Its two final optional arguments are zero: no
+                //gameplay dynamic row palette is requested here.
+                int[] ids = (sorted ?? rows).Select(row => row.OfficerId!.Value).ToArray();
+                try
+                {
+                    pages = new OfficerInformationCurrent(this, state, forceId, rowPaletteEnabled: false,
+                        retainedCurrent: captured, bindGameplayInputs: false, prestartAbilities: abilityProducer).Pages(ids);
+                }
+                catch (InvalidDataException error)
+                {
+                    // Preserve the original incomplete receipt and any rows
+                    // already captured when a page input cannot be published.
+                    complete = false;
+                    issues.Add(error.Message);
+                }
+            }
+            return new(forceId, forceValid, complete, rows.AsReadOnly(), sorted, sortIssue,
+                issues.AsReadOnly()) { Pages = pages };
+        }
     }
 }

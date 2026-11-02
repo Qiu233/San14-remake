@@ -4,7 +4,7 @@ using San14.Data;
 using San14.Data.Formats;
 
 internal sealed record DeploymentTargetRowContent(int OfficerId,string ArmyName,int Troops,
-    ArmyMapIconSelection? FormationIcon,int? GrainPalette,LoadedSprite? Portrait,int? EstimatedDays,bool HasResolvedTarget)
+    ArmyMapIconSelection? FormationIcon,int? GrainPalette,(string Pack,string Name)? Portrait,int? EstimatedDays,bool HasResolvedTarget)
 {
     internal bool RetainInitialFormation {get;init;}
 }
@@ -60,12 +60,13 @@ internal partial class DeploymentTargetRow : Control
         source.Text(card,6,default,content.Troops.ToString(CultureInfo.InvariantCulture),font).Name="TargetTroops";
         if(content.GrainPalette is int grain)
             source.Art(card,7,source.Rectangle(7),assets,shader,palettes[grain]);
-        // The dynamic grain bar has a separate unclosed producer. Do not draw
-        // the authored full bar as if it were a current grain measurement.
+        // The real card retains this authored base. Its constructor and row
+        // writer never replace node8 with a gauge or publish a fill value.
+        source.Art(card,9,source.Rectangle(9),assets,shader).Name="TargetGrainBase";
         if(content.Portrait is { } portrait)
         {
             var face=new UiSourcePortrait {Name="TargetPortrait",Position=new(7,0),Size=new(122,129)};
-            card.AddChild(face);face.ConfigureFace5(repository,assets,shader,portrait);
+            card.AddChild(face);face.ConfigureFace5(repository,assets,shader,assets.Portraits.RequireSource(portrait.Pack,portrait.Name));
         }
         var states=new Control[5];
         for(int state=0;state<states.Length;state++)

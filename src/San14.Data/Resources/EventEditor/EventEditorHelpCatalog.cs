@@ -13,7 +13,11 @@ public sealed record EventEditorHelpDictionary(int Id, byte Category, byte Avail
 public sealed record EventEditorHelpPage(int MessageId, string Text, ushort ImageId,
     CollectionImageRoute? Image);
 public sealed record EventEditorHelpTopic(int Id, string Title, ushort DisplayOrder,
-    ImmutableArray<EventEditorHelpPage> Pages);
+    ImmutableArray<EventEditorHelpPage> Pages)
+{
+    public bool ShowMarker17 { get; init; }
+    public bool ShowMarker18 { get; init; }
+}
 
 /// <summary>The ordinary mode-one event-editor help directory. Contents are
 /// read from the installed fixed definitions and game messages; no event or
@@ -126,26 +130,8 @@ public sealed partial class GameResourceRepository
     {
         if (locale is not ("SC" or "TC")) throw new ArgumentOutOfRangeException(nameof(locale));
         var (bytes, source) = ReadSource($"0010_{locale}/fixdataexce.s14");
-        var declarations = LoadObjects("KIDSSystemResource", 0x208BE13A).Document.Objects;
-        var settings = declarations.Single(value => value.ObjectId == 0xE0D0BB40);
-        byte[] keys = settings.Properties.Single(value => value.NameHash == 0x39187761).RawValue;
-        if (keys.Length % 4 != 0) throw new InvalidDataException("Help texture declaration names are malformed.");
-        var names = new HashSet<uint>();
-        for (int at = 0; at < keys.Length; at += 4)
-            names.Add(BinaryPrimitives.ReadUInt32LittleEndian(keys.AsSpan(at, 4)));
-        string language = locale == "SC" ? "ch" : "tw";
-        CollectionImageRoute Image(ushort id)
-        {
-            string number = id.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
-            foreach (string suffix in new[] { "_cn", "_pk", "" })
-            {
-                string pack = $"texture_stl_help_{language}{suffix}_{number}";
-                if (names.Contains(ResourceNameHash.Compute(pack)))
-                    return new(pack, $"{language}_win_stl_ss_{number}{suffix}", 0x12, id);
-            }
-            throw new InvalidDataException($"event_editor.help.image.{locale}.{id}");
-        }
+        var imageSource = CreateHelpImageResolver(locale);
         return EventEditorHelpCatalog.Read(locale, S14Reader.Read(bytes, false),
-            LoadMessages(locale, MessageKind.Data), LoadMessages(locale, MessageKind.Game), source, Image);
+            LoadMessages(locale, MessageKind.Data), LoadMessages(locale, MessageKind.Game), source, imageSource);
     }
 }

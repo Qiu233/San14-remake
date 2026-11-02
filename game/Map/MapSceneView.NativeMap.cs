@@ -220,7 +220,7 @@ public partial class MapSceneView
         }
         var groups = _sceneTerrain!.ActivePatches.Select(patch =>
         {
-            uint edges = checked((uint)patch.Mesh.GetMeta("source_patch_edge_flags").AsInt64());
+            uint edges = patch.EdgeFlags;
             var input = TerrainPatchInputMath.Ordinary(TerrainMeshes.Source.SpatialTree, patch.SourceNode,
                 _sceneTerrain!.InitialHeight.HeightBinding.Image.Width, _sceneTerrain!.InitialHeight.ControlBinding.Image.Width, edges);
             return (Coarse: patch.SourceNode.Level != 0, Input: input);

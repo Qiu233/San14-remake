@@ -17,7 +17,7 @@ internal partial class NewGamePreparationView : Control
     internal Task Drawn => drawn.Task;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Action cancel,
-        AdministrationPageChrome.Resources? resources=null)
+        AdministrationPageChrome.Resources? resources=null, string? messageText=null, bool showCancel=true)
     {
         Name = "NewGamePreparation"; ZIndex = 100; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); cancelled = cancel;
@@ -26,7 +26,7 @@ internal partial class NewGamePreparationView : Control
         shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas = new Control { Name = "PreparationCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        var source = new UiSourceLayout(repository, 0xF6332D26);
+        var source = assets.SourceLayout(0xF6332D26);
         Vector2 mount = new((1920-source.Nodes[0].Value44)/2f, 980-source.Nodes[0].Value46);
         var mask = source.Art(canvas, 1, source.Rectangle(1,mount), assets, shader, blend:UiSourceSprite.Blend.AlphaMask);
         var blur = source.Rectangle(2,mount);
@@ -36,12 +36,13 @@ internal partial class NewGamePreparationView : Control
         message = new UiSourceParagraph { Name="PreparationStatus",Position=box.Position,Size=box.Size };
         canvas.AddChild(message);
         message.ConfigureFormattedMessage(font, MapFontProfile.FromNode(source.Nodes[4],source.Source.Source.ResourceUri));
-        message.Apply(text.Get("new_game_preparing"));
+        message.Apply(messageText ?? text.Get("new_game_preparing"));
         message.Draw += () => bodyDrawn = true;
-        var footer = new UiSourceLayout(repository,0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name="CancelNewGamePreparation",
             Position=footer.Rectangle(1,new(0,904)).Position,InputAdmission=()=>!retired };
         canvas.AddChild(back);
+        back.Visible=showCancel;back.Disabled=!showCancel;
         back.Configure(repository, assets, shader, text.SourceLocale,"000_cmn_txt_decision_modoru",()=>cancelled?.Invoke(),UiAudioCue.Cancel);
         RenderingServer.FramePostDraw += FrameDrawn;frameSubscribed=true;
         Resized += Fit; Fit();

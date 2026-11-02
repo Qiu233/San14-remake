@@ -91,12 +91,15 @@ public sealed class OfficerAftermathInputs
         return state with { Officers = officers, ResourceState = knowledge };
     }
 
+    internal OfficerAllegianceSourceRow? ReadNormalLoadPerson(int physical) =>
+        (uint)physical < _people.Length ? _people[physical] : null;
+
     public OfficerAftermathObservation? ReadCurrent(GameState state, int physical)
     {
         int id = CurrentPersonId(state, physical);
         if (!Bound(state) || (uint)physical >= _people.Length ||
             !state.Officers.TryGetValue(id, out OfficerState? person) ||
-            (_identities.ResolveOfficer(person.Id) ?? PostRegistrationLookups.RegisteredPersonPhysicalSlot(person.Id)) != physical) return null;
+            CurrentPersonPhysicalSlot(person.Id) != physical) return null;
         var residue = CampaignSourceKnowledge.From(state.ResourceState).FindAftermath(person.Id);
         return person.Resentment is null && person.AllegianceDisposition is null && residue is null ? null :
             new(person.Resentment, person.AllegianceDisposition, residue);
@@ -110,15 +113,20 @@ public sealed class OfficerAftermathInputs
         {
             int physical = current.ResolveOfficerSource(person.Id)
                 ?? throw new InvalidDataException("Officer aftermath capture has no current resource identity.");
-            if ((_identities.ResolveOfficer(person.Id) ?? PostRegistrationLookups.RegisteredPersonPhysicalSlot(person.Id)) != physical)
+            if (CurrentPersonPhysicalSlot(person.Id) != physical)
                 throw new InvalidDataException("Officer aftermath capture has a different resource record.");
             current.SetOfficerAftermath(physical, ReadCurrent(state, physical));
         }
     }
 
+    private int? CurrentPersonPhysicalSlot(int officerId) =>
+        PostRegistrationLookups.HirePersonPhysicalSlot(officerId) ??
+        PostRegistrationLookups.RegisteredPersonPhysicalSlot(officerId) ?? _identities.ResolveOfficer(officerId);
+
     private int CurrentPersonId(GameState state, int physical) =>
         PostRegistrationLookups.RegisteredPersonIdAtPhysical(physical) is int registered && state.Officers.ContainsKey(registered)
-            ? registered : (uint)physical < _people.Length ? _people[physical].PersonId : 0;
+            ? registered : PostRegistrationLookups.HirePersonIdAtPhysical(physical) is int hired && state.Officers.ContainsKey(hired)
+                ? hired : (uint)physical < _people.Length ? _people[physical].PersonId : 0;
 
     private bool Bound(GameState state) => state.NativeArmySimulation?.Parameters is { } parameters &&
         parameters.Language == _language && parameters.RuleVersion == _ruleVersion &&

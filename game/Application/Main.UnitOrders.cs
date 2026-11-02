@@ -46,7 +46,7 @@ public partial class Main
                 _residentMap is null || _repository is null || _campaignComposition is null);
     }
 
-    private void OpenUnitRetarget(int unitId, int? initialHex = null)
+    private void OpenUnitRetarget(int unitId, int? initialHex = null, OrdinaryArmyMapEntry? initialSelection = null)
     {
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || HasMilitaryOrderPage ||
             HasAdministrationPage || HasCampaignSavePage || HasMapSystemMenu || HasActionReport || HasPersonnelConfirmation ||
@@ -88,12 +88,12 @@ public partial class Main
             view.Configure(_repository, _ui, _ui.Format("play_unit_item", world.Officers[unit.OfficerId].Name, unit.Troops),
                 TargetName(unit.DestinationHexId), RequestReturn, RequestConfirm, commands, RequestCommand,
                 _playCommandDeck.Theme, policies, unit.Behavior, construction, structures, RefreshConstructionQuote, ReadFacilityCapacity,
-                existingArmyMode: world.NativeArmySimulation is not null);
+                existingArmyMode: world.NativeArmySimulation is not null, resources: TryBorrowApplicationUiResources(view));
             if (world.NativeArmySimulation is not null)
             {
                 _unitTargetMenus = new(view, _repository, _ui, world, armyRules, unitId,
                     map.ProjectDeploymentTarget, map.ProjectWaypointMarker, Current, construction.Count > 0, RequestSourceCommand,
-                    routePreviewChanged:map.SetDeploymentRoutePreviews);
+                    routePreviewChanged:map.SetDeploymentRoutePreviews, initialSelection: initialSelection);
                 view.ConfigureSourceDetails(() =>
                 {
                     if (Current() && _unitTargetMenus is { } detailsMenus)
@@ -430,7 +430,7 @@ public partial class Main
                         CloseUnitOrderConfirmation();
                         if (accepted && !ApplyPlayableOrder(order, CloseUnitRetarget))
                             view.ApplyHint(_playMessage.Text);
-                    }));
+                    }), resources: TryBorrowApplicationUiResources(question));
                 question.Name = "UnitOrderConfirmation";
             }
             catch { CloseUnitOrderConfirmation(); throw; }

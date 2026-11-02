@@ -35,7 +35,7 @@ public partial class Main
             map.SetCityDeploymentCancellationOpen(true);HideDeploymentHud();
             view.Configure(_repository,_ui,page,map.CurrentCityCommandMenuRectangle,
                 ()=>IsCityDeploymentCancellationCurrent(owner),army=>RunPlayAction(()=>Cancel(army)),
-                ()=>RunUiAction(CloseCityDeploymentCancellation),CurrentListScrollSpeed);
+                ()=>RunUiAction(CloseCityDeploymentCancellation),CurrentListScrollSpeed, resources:TryBorrowApplicationUiResources(view));
         }
         catch{CloseCityDeploymentCancellation();throw;}
         void Cancel(ArmyReceiverId army)

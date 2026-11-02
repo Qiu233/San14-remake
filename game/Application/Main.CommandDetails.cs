@@ -12,6 +12,11 @@ public partial class Main
     private San14.Core.GameState? _commandDetailsWorld;
     private MapSceneView? _commandDetailsMap;
     private ProcessModeEnum _commandDetailsBrowserMode;
+    private bool _commandDetailsPeriodInformation;
+
+    private bool IsCommandDetailsWorldCurrent(San14.Core.GameState world, GameplaySession session)
+        => _commandDetailsPeriodInformation ? IsInspectionWorldCurrent(session, world)
+            : ReferenceEquals(_session, session) && ReferenceEquals(_world, world);
 
     private void OpenCommandOfficerDetails(int officer)
     {
@@ -35,21 +40,27 @@ public partial class Main
         OpenCommandDetails(view, close => ConfigureCurrentCityDetail(view, world, city, close));
     }
 
-    private void OpenCommandDetails(DetailsView view, Action<Action> configure, UnitOrderTargetView? unitParent = null)
+    private void OpenCommandDetails(DetailsView view, Action<Action> configure, UnitOrderTargetView? unitParent = null,
+        bool allowDuringPeriod = false, San14.Core.GameState? inspectionWorld = null)
     {
-        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || _detailsView is not null ||
+        if (_failed || _shuttingDown || (_advancingPeriod && !allowDuringPeriod) || IsReturningToTitle || _detailsView is not null ||
             HasMapSystemMenu || HasCampaignSavePage || HasAdministrationPage ||
             (HasMilitaryOrderPage && (unitParent is null || unitParent != _unitOrderTarget || _unitOrderConfirmation is not null)) ||
             HasPersonnelConfirmation || _periodReportView is not null ||
-            _session is not { PlayerForceId: not null } session)
+            _session is not { PlayerForceId: not null } session ||
+            (inspectionWorld is not null && !IsInspectionWorldCurrent(session, inspectionWorld)))
         { view.Free(); return; }
         _commandDetailsView = view; _detailsView = view;
+        view.TransitionFailure = ReportPlayFailure;
         _commandDetailsAdoptSpeechWorld = null;
-        _commandDetailsParent = _commandWorkspace; _commandDetailsSession = session; _commandDetailsWorld = session.World;
+        _commandDetailsParent = _commandWorkspace; _commandDetailsSession = session;
+        _commandDetailsWorld = inspectionWorld ?? session.World;
+        _commandDetailsPeriodInformation = _advancingPeriod && inspectionWorld is not null;
         _commandDetailsReportParent = _actionReportView;
         _commandDetailsUnitParent = unitParent;
         _commandDetailsMap = _residentMap; _commandDetailsBrowserMode = _browserContent.ProcessMode;
-        AddChild(view);
+        if (view.GetParent() is null) AddChild(view);
+        else if (view.GetParent() != this) throw new InvalidOperationException("The detail has another presentation owner.");
         try
         {
             if (unitParent is not null)
@@ -73,14 +84,16 @@ public partial class Main
 
     private void OpenNestedCommandDetails(DetailsView parent, DetailsView view, Action<Action> configure)
     {
-        if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || _commandDetailsView != parent ||
+        if (_failed || _shuttingDown || (_advancingPeriod && !_commandDetailsPeriodInformation) || IsReturningToTitle || _commandDetailsView != parent ||
             (_commandDetailsUnitParent is not null && _commandDetailsUnitParent != _unitOrderTarget) ||
-            !ReferenceEquals(_session, _commandDetailsSession) || !ReferenceEquals(_world, _commandDetailsWorld) ||
+            _commandDetailsSession is not { } session || _commandDetailsWorld is not { } world ||
+            !IsCommandDetailsWorldCurrent(world, session) ||
             _residentMap != _commandDetailsMap)
         { view.Free(); return; }
         _commandDetailsNestedParents.Push(parent);
         _commandDetailsView = view; _detailsView = view;
         parent.Hide(); parent.ProcessMode = ProcessModeEnum.Disabled;
+        view.TransitionFailure = ReportPlayFailure;
         AddChild(view);
         try
         {
@@ -97,8 +110,8 @@ public partial class Main
         {
             view.Hide(); view.GetParent()?.RemoveChild(view); view.QueueFree();
             _commandDetailsView = retained; _detailsView = retained;
-            bool stillCurrent = ReferenceEquals(_session, _commandDetailsSession) &&
-                ReferenceEquals(_world, _commandDetailsWorld) && _residentMap == _commandDetailsMap &&
+            bool stillCurrent = _commandDetailsSession is { } retainedSession && _commandDetailsWorld is { } retainedWorld &&
+                IsCommandDetailsWorldCurrent(retainedWorld, retainedSession) && _residentMap == _commandDetailsMap &&
                 (_commandDetailsUnitParent is null || _commandDetailsUnitParent == _unitOrderTarget);
             if (resumeParent && !_failed && !_shuttingDown && stillCurrent)
             { retained.ProcessMode = ProcessModeEnum.Inherit; retained.Show(); return; }
@@ -108,6 +121,8 @@ public partial class Main
         var report = _commandDetailsReportParent;
         var unitParent = _commandDetailsUnitParent;
         var world = _commandDetailsWorld; var map = _commandDetailsMap;
+        bool periodInformation = _commandDetailsPeriodInformation;
+        _commandDetailsPeriodInformation = false;
         _commandDetailsView = null; _commandDetailsParent = null; _commandDetailsSession = null;
         _commandDetailsWorld = null; _commandDetailsMap = null;
         _commandDetailsAdoptSpeechWorld = null;
@@ -118,8 +133,11 @@ public partial class Main
         if (view.GetParent() is Node owner) owner.RemoveChild(view);
         view.QueueFree();
         _browserContent.ProcessMode = _commandDetailsBrowserMode;
-        if (!resumeParent || _failed || _shuttingDown) return;
-        bool current = ReferenceEquals(_session, session) && ReferenceEquals(_world, world) && _residentMap == map;
+        if (!resumeParent || _failed || _shuttingDown)
+        { if (periodInformation) ReleasePeriodMenu(PeriodMenuKind.Information); return; }
+        bool current = session is not null && world is not null &&
+            (periodInformation ? IsInspectionWorldCurrent(session, world)
+                : ReferenceEquals(_session, session) && ReferenceEquals(_world, world)) && _residentMap == map;
         if (unitParent is not null && _unitOrderTarget == unitParent)
         {
             if (current)
@@ -134,5 +152,6 @@ public partial class Main
         else if (report is not null && _actionReportView == report && current)
         { report.ProcessMode = ProcessModeEnum.Inherit; report.Show(); }
         else if (current && map is not null && GodotObject.IsInstanceValid(map) && map.IsInsideTree()) map.SetDetailsOpen(false);
+        if (periodInformation) ReleasePeriodMenu(PeriodMenuKind.Information);
     }
 }

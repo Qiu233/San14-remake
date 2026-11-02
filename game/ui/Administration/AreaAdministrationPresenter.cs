@@ -21,6 +21,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     private readonly Action<string> unavailable;
     private readonly Func<int,int> presentationRandom;
     private readonly Func<int> scrollSpeed;
+    private readonly AdministrationPageChrome.Resources? resources;
     private AreaAdministrationView? child;
     private AreaAdministrationPersonSelectionHost? personSelector;
     private CommandSelectionView? replacementSelector;
@@ -49,15 +50,15 @@ internal sealed class AreaAdministrationPresenter : IDisposable
     internal Func<int,bool>? AreaSelectionAdmission
     {
         get => areaSelectionAdmission;
-        set { areaSelectionAdmission = value; parent.ApplyAreaSelectionAdmission(value); }
+        set { areaSelectionAdmission = value; parent.ApplyAreaSelectionAdmission(value); UpdateMapInput(); }
     }
 
     internal AreaAdministrationPresenter(AreaAdministrationParentView parent,
         GameResourceRepository repository, PreviewText text, AreaAdministrationDraft draft,
         Func<bool> current, Action<Action> dispatch, Action returned, Action commitRequested,
-        Action<bool> mapInputChanged, Action<string> unavailable, Func<int,int> presentationRandom,Func<int>? scrollSpeed=null)
+        Action<bool> mapInputChanged, Action<string> unavailable, Func<int,int> presentationRandom,Func<int>? scrollSpeed=null, AdministrationPageChrome.Resources? resources=null)
     {
-        this.parent=parent;this.repository=repository;this.text=text;this.draft=draft;
+        this.parent=parent;this.repository=repository;this.text=text;this.draft=draft;this.resources=resources;
         this.current=current;this.dispatch=dispatch;this.returned=returned;
         this.commitRequested=commitRequested;this.mapInputChanged=mapInputChanged;this.unavailable=unavailable;
         this.presentationRandom=presentationRandom;
@@ -66,7 +67,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
         parent.Configure(repository,text,Entries(),scrollSpeed?.Invoke()??0,
             area=>Run(()=>OpenArea(area)),()=>Run(RequestBack),()=>Run(RequestCommit),
             _=>UpdateMapInput(),Order,unavailable,autoRequested:()=>Run(RequestAutomatic),
-            dismissRequested:()=>Run(RequestDismissAll),currentScrollSpeed:scrollSpeed);
+            dismissRequested:()=>Run(RequestDismissAll),currentScrollSpeed:scrollSpeed,resources:resources);
         RefreshParent();
     }
 
@@ -160,7 +161,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
                     3=>AreaDevelopmentFocus.Barracks,_=>throw new InvalidDataException("Unknown regional focus control.")};
                 if(Accept(draft.StageFocus(chosen)))
                 {FocusChangedValue=chosen;FocusChangedSequence++;RefreshChild();}
-            }));
+            }),resources);
         RefreshChild();UpdateMapInput();
     }
     private void OpenOfficerSelection()
@@ -170,7 +171,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
         if(!query.Available){Unknown(query.UnresolvedInput);return;}
         var selection=query.Value!;
         personSelector??=new(parent.GetParent(),repository,text,draft,()=>Active&&child is not null&&!busy,Unknown,scrollSpeed,
-            id=>OfficerSelectionAdmission?.Invoke(id)??true);
+            id=>OfficerSelectionAdmission?.Invoke(id)??true,resources);
         child.SetSuspended(true);
         personSelector.Open(selection,occurrence=>Run(()=>
         {
@@ -205,7 +206,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
                 replacementSelector=null;view.Abandon();view.QueueFree();child?.SetSuspended(false);
                 if(chosen is {Count:1}&&draft.Revision==revision)
                     ApplySelectedPerson(selection,occurrence,candidates[chosen[0]].AreaId);
-            }),scrollSpeed,messages.Format(0x5C86),requireSelection:true,singleSelection:true,activateRows:true);
+            }),scrollSpeed,messages.Format(0x5C86),requireSelection:true,singleSelection:true,activateRows:true,resources:resources);
     }
     private void ApplySelectedPerson(AreaAdministrationPersonSelection selection,int occurrence,int? replacementArea=null)
     {
@@ -318,7 +319,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
             if(confirmation!=confirm)return;
             confirmation=null;confirm.Abandon();confirm.QueueFree();parent.SetInputBlocked(false);UpdateMapInput();
             if(value&&Accept(draft.CancelParent()))returned();
-        }));
+        }),resources:resources);
     }
     private void RequestCommit()
     {if(child is null&&confirmation is null&&automaticMenu is null&&CanCommit(draft.QueryParentStatus()))commitRequested();}

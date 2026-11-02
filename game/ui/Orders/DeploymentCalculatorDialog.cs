@@ -10,6 +10,7 @@ internal partial class DeploymentCalculatorDialog : Control
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
+    private bool ownsResources;
     private Control canvas=null!;
     private UiSourceText input=null!;
     private uint minimum,maximum,working;
@@ -18,13 +19,16 @@ internal partial class DeploymentCalculatorDialog : Control
     internal int WorkingValue=>(int)working;
 
     internal void Configure(GameResourceRepository repository,PreviewText text,int value,int minimum,int maximum,
-        Action<int?> closed,Vector2? panelPosition=null,int? titleMessage=null)
+        Action<int?> closed,Vector2? panelPosition=null,int? titleMessage=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         if(minimum<0||maximum<minimum)throw new ArgumentOutOfRangeException(nameof(minimum));
         this.minimum=(uint)minimum;this.maximum=(uint)maximum;close=closed;
         Name="DeploymentCalculator";ZIndex=5;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
         canvas.AddChild(new BackBufferCopy {CopyMode=BackBufferCopy.CopyModeEnum.Viewport});
         var panel=new Control {Name="CalculatorPanel",Position=panelPosition??new(1280,600),Size=new(302,372),MouseFilter=MouseFilterEnum.Stop};
@@ -126,5 +130,5 @@ internal partial class DeploymentCalculatorDialog : Control
         float factor=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*factor;
         canvas.Position=(Size-new Vector2(1920,1080)*factor)/2;
     }
-    public override void _ExitTree(){font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    public override void _ExitTree(){if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}}
 }

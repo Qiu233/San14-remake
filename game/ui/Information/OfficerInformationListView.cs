@@ -8,11 +8,11 @@ internal partial class OfficerInformationListView : PagedInformationListView
     internal OfficerInformationPageSet Pages => pages;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         OfficerInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed)
+        Action<int> inspect, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.pages = pages;
         ConfigureList(repository, text, new OfficerInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "OfficerInformationList", "officer_information_group");
+            close, inspect, scrollSpeed, "OfficerInformationList", "officer_information_group", resources: resources);
     }
     internal void ApplyDetailReturn(OfficerDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

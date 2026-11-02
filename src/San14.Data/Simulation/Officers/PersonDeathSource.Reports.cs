@@ -73,7 +73,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 entered = true;
             }
 
-            if (emitReports)
+            if (emitReports || copyInitialText is not null)
             {
                 ushort argument0 = Identity(person);
                 ushort argument1 = Valid(killer) ? Identity(Physical(killer, "initial_killer_pointer")) : (ushort)0;
@@ -85,8 +85,11 @@ public sealed partial class ArmyCampaignRuleAdapter
                     (owner.CurrentSurname ?? throw Missing("initial_speaker_surname")) +
                     (owner.CurrentGivenName ?? throw Missing("initial_speaker_given_name")),
                     current.ReadPersonPortraitAppearance(person));
-                effects.Add(Request(new(PersonDeathReportOperation.SpeakerText, null, speaker, prepared.Text)
-                { Voice = prepared.Voice is null ? null : SaveVoice(prepared.Voice), Speaker = snapshot }));
+                if (emitReports)
+                    effects.Add(Request(new(PersonDeathReportOperation.SpeakerText, null, speaker, prepared.Text)
+                    { Voice = prepared.Voice is null ? null : SaveVoice(prepared.Voice), Speaker = snapshot }));
+                else copyInitialText?.Invoke(new(TalentCommandPresentationOperation.OfficerText, null, speaker, null, null, prepared.Text)
+                    { Voice = prepared.Voice is null ? null : SaveVoice(prepared.Voice), Speaker = snapshot });
             }
             if (entered) effects.Add(Request(new(PersonDeathReportOperation.EventExit, null, null, null)));
             AppendInitialDeathEffects(effects);

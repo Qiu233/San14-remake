@@ -44,13 +44,19 @@ public partial class Main
                 ()=>RunUiAction(()=>{if(Admitted())ReturnFromNewGameForceSelection();}),
                 (id,options)=>RunUiAction(()=>{if(Admitted())ConfirmNewGameSetup(id,options);}),
                 error=>{if(_newGameSetup==view)ShowFailure(error,startup:false);},
-                diagnostic:timing is null?null:timing.Mark);
+                diagnostic:timing is null?null:timing.Mark, resources:TryBorrowApplicationUiResources(view));
             if(_newGameSetup!=view)return;
             view.ConfigureConfirmation(content.ResolveConfirmationRuler,
                 () => CaptureNewGameConfirmationExtras(composition, world, army), () => (int)CurrentListScrollSpeed());
             view.ConfigureGovernment(force=>BuildNewGameForceGovernment(composition,world,force));
             view.ConfigureNavigation(()=>RunUiAction(()=>{if(Admitted())OpenTitleMenu();}));
-            view.ConfigureOfficers(force=>BuildNewGameForceOfficers(composition,world,force));
+            view.ConfigureOfficers(force=>BuildNewGameForceOfficers(composition,world,force),CurrentListScrollSpeed);
+            view.ConfigureGeographicAdvantages(preview =>
+            {
+                var result=army.PrepareNewGameGeographicAdvantageInformationPages(world,preview);
+                return result.Available&&result.Value is {} pages?pages:
+                    throw new InvalidDataException(result.UnresolvedInput??"New-game geographic information is unavailable.");
+            });
             view.ConfigureForcePicker(force=>army.CreateNewGameForcePicker(world,publication,force));
             _browserContent.Hide();_browserContent.ProcessMode=ProcessModeEnum.Disabled;
             BeginNewGameMap(view,map);

@@ -1,13 +1,24 @@
 // Prepared manifests use portable separators and relative mesh/texture paths.
-// Extended Windows paths require native separators and lexical dot resolution
-// before file APIs; this import boundary performs no filesystem scan or I/O.
+// Windows file APIs need native separators, lexical dot resolution and the
+// extended prefix for absolute paths, including roots read from UTF-8 manifests.
+// This import boundary performs no filesystem scan or I/O.
 #pragma once
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <utility>
 
 inline std::filesystem::path nativePreparedFilePath(std::filesystem::path path) {
-    return path.lexically_normal().make_preferred();
+    path=path.lexically_normal().make_preferred();
+#ifdef _WIN32
+    const auto& value=path.native();
+    if(path.is_absolute()&&!value.starts_with(L"\\\\?\\")&&!value.starts_with(L"\\\\.\\")) {
+        if(value.starts_with(L"\\\\"))
+            return std::filesystem::path(L"\\\\?\\UNC\\"+value.substr(2));
+        return std::filesystem::path(L"\\\\?\\"+value);
+    }
+#endif
+    return path;
 }
 
 // A prepared resource stream preserves standard ifstream state and streaming

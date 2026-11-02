@@ -35,12 +35,12 @@ internal sealed partial class SceneAudioBinding : IDisposable
         _playableSession is not null ? "preparing" : "inactive");
     internal event Action? MusicChanged;
 
-    public SceneAudioBinding(Node host, AudioPlaybackService playback, string sourceDirectory, string? overridesDirectory)
+    public SceneAudioBinding(Node host, AudioPlaybackService playback, GameResourceRepository resourceSources)
     {
         _session = new SceneAudioSession { Name = "OriginalSceneAudioSession" };
         host.AddChild(_session);
-        var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
-        var streams = new AudioRepository(sourceDirectory, overridesDirectory);
+        var repository = resourceSources.CreateReadScope();
+        var streams = new AudioRepository(repository.SourceDirectory, repository.OverrideDirectory);
         _session.Configure(playback, repository, streams);
         _session.ChannelChanged += PublishChannel;
         _musicSession = new SceneAudioSession { Name = "OriginalApplicationMusicSession" };
@@ -172,6 +172,26 @@ internal sealed partial class SceneAudioBinding : IDisposable
     {
         cancellation.ThrowIfCancellationRequested();
         var entry = preferences.SelectSourceSlot(locale, intent.SourceSlot);
+        await PlaySelectedMapMusicAsync(entry, intent.UseStoredPlaybackPosition,
+            intent.FadeInMilliseconds, intent.FadeOutMilliseconds, false, cancellation);
+    }
+
+    internal Task RestoreMapMusicAfterReportAsync(GameplaySession campaign, MapSeasonRuntimeFrame displayed,
+        bool sceneSeasonChanged, string locale, MapMusicPreferences preferences, CancellationToken cancellation)
+    {
+        if (!ReferenceEquals(_playableSession, campaign))
+            throw new InvalidOperationException("report.music.playable_owner");
+        var entry = preferences.SelectEntry(locale, displayed.ThirdDate.Month);
+        //67DD80 resumes stored positions unless the report actually changed
+        //the scene season. That change stops first, even for a remapped same cue.
+        return PlaySelectedMapMusicAsync(entry, !sceneSeasonChanged, 1000, 1000,
+            sceneSeasonChanged, cancellation);
+    }
+
+    private async Task PlaySelectedMapMusicAsync(MapMusicEntrySelection entry, bool useStoredPosition,
+        int fadeInMilliseconds, int fadeOutMilliseconds, bool forceRestart, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
         _mapEntry?.Cancel(); _mapEntry?.Dispose();
         var lifetime = new CancellationTokenSource(); _mapEntry = lifetime;
         MapMusicSelection = entry; MapMusicError = null; MusicChanged?.Invoke();
@@ -181,8 +201,7 @@ internal sealed partial class SceneAudioBinding : IDisposable
             // the accepted music belongs to the application until replaced.
             await _musicSession.PlayMapMusicCommitAsync("map-music", entry,
                 [new(AudioSelectionResources.InstalledMusicBankId, 0x272C6EFB)], lifetime.Token,
-                intent.UseStoredPlaybackPosition, intent.FadeInMilliseconds,
-                intent.FadeOutMilliseconds).WaitAsync(cancellation);
+                useStoredPosition, fadeInMilliseconds, fadeOutMilliseconds, forceRestart).WaitAsync(cancellation);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception error)

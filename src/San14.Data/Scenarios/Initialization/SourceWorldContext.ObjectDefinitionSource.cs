@@ -6,7 +6,8 @@ public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<int, FacilityEffectDefinition> _facilityEffectDefinitions = [];
     internal FacilityEffectDefinition? ReadFacilityEffectDefinition(ObjectDefinitionReference receiver) =>
-        receiver.PhysicalSlot is int physical ? _facilityEffectDefinitions.GetValueOrDefault(physical) : null;
+        receiver.PhysicalSlot is int physical ? _facilityEffectDefinitions.TryGetValue(physical, out var value)
+            ? value : _initialObjectFacilityRules?.ReadEffect(physical) : null;
     public SourceProvenance? ObjectDefinitionSource { get; private set; }
     public string? ObjectDefinitionDecodedSha256 { get; private set; }
 
@@ -32,6 +33,10 @@ public sealed partial class SourceWorldContext
             throw new InvalidDataException("Object definition source requires complete consistent CE section9 rows31x53.");
         _facilityEffectDefinitions.Clear();
         _facilityConstructionDefinitions.Clear();
+        //A raw reload clears these two definition tables before following
+        //current pointer substitutions. It must not revive an untouched row
+        //from the prepared owner. Scalar fields retain their previous values.
+        _initialObjectFacilityRules = null;
         foreach (S14ObjectDefinition row in catalog.Definitions)
         {
             ObjectDefinitionReference reference = ReadObjectDefinitionReference(row.Slot)

@@ -32,14 +32,17 @@ internal partial class DeploymentUnitDefinitionSelectionView : Control
     private bool abandoned, nextCheckedAscending = true;
     private string selectCaption = "", clearCaption = "";
 
+    private AdministrationPageChrome.Resources? resources;
+
     internal void Configure(GameResourceRepository repository, PreviewText text, DeploymentDefinitionSelection model,
-        Func<bool> admitted, Action<IReadOnlyList<int>?> completed, Func<int> scrollSpeed)
+        Func<bool> admitted, Action<IReadOnlyList<int>?> completed, Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources? resources=null)
     {
-        this.repository = repository; this.text = text; this.model = model;
+        this.repository = repository; this.text = text; this.model = model; this.resources=resources;
         this.admitted = admitted; this.completed = completed; this.scrollSpeed = scrollSpeed;
         Name = model.Multiple ? "DeploymentTacticDefinitions" : "DeploymentFormationDefinitions";
         ZIndex = 5; MouseFilter = MouseFilterEnum.Stop; SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var blur = new UiSourceCommonBlur(); AddChild(blur); blur.Configure(repository);
+        var blur = new UiSourceCommonBlur(); AddChild(blur); blur.Configure(repository,resources?.Assets.SourceLayout(0xAEF1609E));
         if (model.Multiple) ConfigureMultiple();
         ShowGroup(0);
         SetMeta("deployment_definition_groups", model.Groups.Length);
@@ -49,7 +52,7 @@ internal partial class DeploymentUnitDefinitionSelectionView : Control
     private void ConfigureMultiple()
     {
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, () => Finish(model.SelectedDefinitionIds));
+        chrome.Configure(repository, text, model.TitleMessageId, RequestCancel, () => Finish(model.SelectedDefinitionIds),resources:resources);
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
         shell.Blur(chrome.Canvas, 2, shell.Rectangle(2, new(191, 147)));
@@ -156,7 +159,7 @@ internal partial class DeploymentUnitDefinitionSelectionView : Control
             selectTab: id => { if (ReadAdmission()) ShowGroup(id); }, completeColumnProfile: true,
             initialSortColumn: arrows.TryGetValue(group, out var arrow) && arrow.Column >= 0 ? Key(arrow.Column) : null,
             initialSortAscending: arrows.GetValueOrDefault(group).Ascending,
-            retainSortDirections: true, retainedSortDirections: next, rowExtentWidth: 1464, sourcePersonCellBounds: true);
+            retainSortDirections: true, retainedSortDirections: next, rowExtentWidth: 1464, sourcePersonCellBounds: true,resources:resources);
         view.RestoreScroll(retainedScroll);
         var initial = publication!.Rows.FirstOrDefault(row => model.IsSelected(row.SourceIndex));
         if (initial is not null) view.SelectSourceIndex(initial.SourceIndex);

@@ -143,7 +143,10 @@ public partial class Main
                 RetireMapView(scene);
             }
             await Task.WhenAll(_mapRetirements.Select(row => row.Completion));
+            await RetireApplicationNativeMapDeviceAsync();
+            await RetireApplicationMapStaticMediaAsync();
             FreeRetiredInterface();
+            await RetireApplicationUiResourcesAsync();
             tree.Quit();
         }
         catch (Exception error)

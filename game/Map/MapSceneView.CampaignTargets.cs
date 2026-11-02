@@ -100,8 +100,8 @@ public partial class MapSceneView
 
     private Vector2? ProjectCampaignDistrictMarker(int hex,MainMapCameraFrame frame)
     {
-        if(_sourceMainCameraTerrain is not {} terrain)return null;
-        if(_deploymentTargetAnchors?.Terrain!=terrain)_deploymentTargetAnchors=new(terrain);
+        if(_sceneTerrain?.WorldGroundHeight is not {} terrain)return null;
+        if(!ReferenceEquals(_deploymentTargetAnchors?.Terrain,terrain))_deploymentTargetAnchors=new(terrain);
         if(_deploymentTargetAnchors.Query(hex).GroundWorld is not {} ground)return null;
         //198230 adds800 to the actual terrain-owned Foothold ground.
         var world=new System.Numerics.Vector3(ground.X,ground.Y+800f,ground.Z);

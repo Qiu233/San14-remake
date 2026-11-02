@@ -146,6 +146,7 @@ public sealed partial class GameResourceRepository
             {
                 if (!Path.GetFileName(file).Contains("DLCInfo", StringComparison.Ordinal)) continue;
                 string relative = Path.GetRelativePath(SourceDirectory, file).Replace('\\', '/');
+                _residentSources.PortraitMetadataSources.TryAdd(GameResourceId.File(relative), 0);
                 var source = ReadSource(relative);
                 yield return (relative, source.Bytes, source.Provenance);
             }

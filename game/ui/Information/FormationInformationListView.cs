@@ -12,11 +12,11 @@ internal partial class FormationInformationListView : PagedInformationListView
     private UiSourceBottomButton? officers;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         FormationInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> openOfficers, Func<int> scrollSpeed)
+        Action<int> openOfficers, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.repository = repository; this.pages = pages; this.admitted = admitted; this.openOfficers = openOfficers;
         ConfigureList(repository, text, new FormationInformationListContent(pages), admitted,
-            close, _ => RefreshOfficers(), scrollSpeed, "FormationInformationList", "formation_information_group");
+            close, _ => RefreshOfficers(), scrollSpeed, "FormationInformationList", "formation_information_group", resources: resources);
     }
     protected override void ConfigureListExtras(MapInformationListView currentList)
     {

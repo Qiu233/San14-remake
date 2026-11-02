@@ -9,7 +9,7 @@ public partial class Main
         var session = _session!;
         var list = new CityInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             RetainCommandDetailSpeechWorld(list, next =>
@@ -18,14 +18,14 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository!, _ui, pages, () => Current(list), close,
-            id => RunUiAction(() =>
+            id => RunInspectionUiAction(world, () =>
             {
                 if (!Current(list) || !world.Cities.ContainsKey(id)) return;
                 var detail = new CityDetailsView();
                 browser.ShowDetail(detail, back => ConfigureCurrentCityDetail(detail, world, id, back,
                     preparedRules: rules, selectionIds: list.Pages.CurrentCityIds,
                     returnSelection: list.ApplyDetailReturn, initialNameSortAscending: list.NameSortAscending));
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         });
     }
 
@@ -35,7 +35,7 @@ public partial class Main
         var session = _session!;
         var list = new ForceInformationListView();
         bool Current(DetailsView candidate) => IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(candidate) &&
-            ReferenceEquals(_session, session) && ReferenceEquals(session.World, world);
+            IsInspectionWorldCurrent(session, world);
         browser.ShowDetail(list, close =>
         {
             RetainCommandDetailSpeechWorld(list, next =>
@@ -44,14 +44,14 @@ public partial class Main
                 rules = _campaignComposition!.PrepareArmyQueries(next);
             });
             list.Configure(_repository!, _ui, pages, () => Current(list), close,
-            id => RunUiAction(() =>
+            id => RunInspectionUiAction(world, () =>
             {
                 if (!Current(list) || !world.Forces.ContainsKey(id)) return;
                 var detail = new ForceDetailsView();
                 browser.ShowDetail(detail, back => ConfigureCurrentForceDetail(detail, world, id, back,
                     preparedRules: rules, selectionIds: list.Pages.CurrentForceIds,
                     returnSelection: list.ApplyDetailReturn, initialNameSortAscending: list.NameSortAscending));
-            }), CurrentListScrollSpeed);
+            }), CurrentListScrollSpeed, TryBorrowApplicationUiResources(list));
         });
     }
 }

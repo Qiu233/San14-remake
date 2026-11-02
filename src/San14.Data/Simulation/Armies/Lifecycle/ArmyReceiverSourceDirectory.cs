@@ -1,4 +1,5 @@
 using San14.Core;
+using System.Collections.ObjectModel;
 
 namespace San14.Data;
 
@@ -6,19 +7,27 @@ namespace San14.Data;
 /// source-table ordinals. Empty and retired receivers retain their link.</summary>
 public sealed class ArmyReceiverSourceDirectory
 {
-    private readonly Dictionary<int, ArmyReceiverId> _receiversByOrdinal = new();
-    private readonly Dictionary<ArmyReceiverId, int> _ordinalsByReceiver = new();
+    private readonly Dictionary<int, ArmyReceiverId> _receiversByOrdinal;
+    private readonly Dictionary<ArmyReceiverId, int> _ordinalsByReceiver;
 
-    private ArmyReceiverSourceDirectory() { }
+    private ArmyReceiverSourceDirectory()
+    { _receiversByOrdinal = new(); _ordinalsByReceiver = new(); }
 
-    public ArmyReceiverSourceDirectory(ArmyLifecycleSourceView lifecycle)
-    {
-        foreach (var slot in lifecycle.Slots)
-            Add(slot.PhysicalSlot, slot.ReceiverId);
-    }
+    public ArmyReceiverSourceDirectory(ArmyLifecycleSourceView lifecycle) : this(lifecycle.Source) { }
     public ArmyReceiverSourceDirectory(ArmyLifecycleSourceState source)
     {
-        foreach (var slot in source.Slots) Add(slot.PhysicalSlot, slot.ReceiverId);
+        var shared = source.ReceiverDirectory;
+        _receiversByOrdinal = shared._receiversByOrdinal;
+        _ordinalsByReceiver = shared._ordinalsByReceiver;
+    }
+
+    internal static ArmyReceiverSourceDirectory FromOwnedSlots(IReadOnlyList<ArmyReceiverSourceSlot> slots)
+    {
+        var directory = new ArmyReceiverSourceDirectory();
+        directory._receiversByOrdinal.EnsureCapacity(slots.Count);
+        directory._ordinalsByReceiver.EnsureCapacity(slots.Count);
+        foreach (var slot in slots) directory.Add(slot.PhysicalSlot, slot.ReceiverId);
+        return directory;
     }
 
     /// <summary>Allocates the initial receiver directory before either source
@@ -43,4 +52,14 @@ public sealed class ArmyReceiverSourceDirectory
 
     public bool TryResolveSourceOrdinal(ArmyReceiverId receiverId, out int sourceOrdinal) =>
         _ordinalsByReceiver.TryGetValue(receiverId, out sourceOrdinal);
+}
+
+// The immutable admitted slot collection owns its derived identity index.
+// A record `with` that keeps Slots shares it; replacing Slots creates a new owner.
+internal sealed class ArmyReceiverSourceSlots(ArmyReceiverSourceSlot[] ownedSlots)
+    : ReadOnlyCollection<ArmyReceiverSourceSlot>(ownedSlots)
+{
+    private ArmyReceiverSourceDirectory? _directory;
+    internal ArmyReceiverSourceDirectory Directory => LazyInitializer.EnsureInitialized(ref _directory,
+        () => ArmyReceiverSourceDirectory.FromOwnedSlots(this));
 }

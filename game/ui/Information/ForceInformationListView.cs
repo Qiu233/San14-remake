@@ -8,11 +8,11 @@ internal partial class ForceInformationListView : PagedInformationListView
     internal ForceInformationPageSet Pages => pages;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         ForceInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed)
+        Action<int> inspect, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.pages = pages;
         ConfigureList(repository, text, new ForceInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "ForceInformationList", "force_information_group");
+            close, inspect, scrollSpeed, "ForceInformationList", "force_information_group", resources: resources);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

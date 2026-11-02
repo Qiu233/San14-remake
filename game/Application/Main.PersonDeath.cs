@@ -28,7 +28,7 @@ public partial class Main
             entry.Source == CampaignEffectSource.ArmyBattleDefeat && soundId is 6 or 8);
         _personnelSound = sound;
         RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
-        map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(false); HideDeploymentHud();
+        map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
         _ = Dispatch();
         return true;
 

@@ -34,6 +34,20 @@ internal sealed class UnitSelectionDraft
     internal UnitSelectionMember? RetainedMember(int unitId) =>
         byUnit.TryGetValue(unitId, out var row) ? row.Member : null;
 
+    //Initial group membership comes from the ordinary Scene entry vector.
+    //The thirty-selection limit applies to later Ctrl/box additions only.
+    internal void Initialize(IReadOnlyList<UnitSelectionMember> members, bool selected)
+    {
+        if (rows.Count != 0) throw new InvalidOperationException("Army selection is already initialized.");
+        foreach (var member in members)
+        {
+            var row = Retain(member);
+            row.Selected = selected;
+            if (selected) SelectedCount++;
+        }
+        Rebuild();
+    }
+
     internal bool Click(UnitSelectionMember member, bool control)
     {
         byUnit.TryGetValue(member.UnitId, out var row);

@@ -54,6 +54,7 @@ public sealed partial class MapSourceCreatedDirectionalLightingDeviceOwner
                 next.AdoptConstruction(construction);
                 return MapSourceCreatedDirectionalLightingSource.FromMainCamera(mainCamera,construction);
             }).ToArray();
+            RegisterReadySourceChildren(declarations,sources,providers,next);
             return new(this,declarations,sources,providers,next);
         }
         finally{gate.Release();}

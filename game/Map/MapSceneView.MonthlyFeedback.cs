@@ -97,7 +97,6 @@ public partial class MapSceneView
             if (!_loaded || !IsInsideTree() || TerrainMeshes is null || _sourceMainCameraFrame is not { } camera ||
                 !GodotObject.IsInstanceValid(_previewWorld))
                 throw new InvalidDataException("monthly.territory.map_not_ready");
-            if (_text.SourceLocale != "TC") throw new InvalidDataException("monthly.territory.SC_effect_scale");
             var world = _periodBorrowedCandidate ?? _logicalWorld ?? throw new InvalidDataException("monthly.territory.world");
             byte color = world.Forces.GetValueOrDefault(force)?.ReportColorIndex
                 ?? throw new InvalidDataException("monthly.territory.Force49");
@@ -112,6 +111,8 @@ public partial class MapSceneView
             var point = CeHexWorldCoordinates.Project(hex);
             Vector3 position = new((float)point.X,
                 MapGrounding.SampleHeight(TerrainMeshes, point.X, point.Z), (float)point.Z);
+            // These world-effect scales share the installed effect_info/CE1 resources
+            // across UI languages; TC and SC source data both specify 300/100 and 170/100.
             _monthlyTerritoryVisuals.Add(request, new(request.EventKind.Value, hex, force, position,
                 request.EventKind == 4 ? 3f : 1.7f, tint));
 

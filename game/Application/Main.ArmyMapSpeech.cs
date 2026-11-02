@@ -150,11 +150,11 @@ public partial class Main
             ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands) &&
             (!sound.BattleCue || ReferenceEquals(previous.ArmyDefeatContinuation, replacement.ArmyDefeatContinuation)) &&
             ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests)) sound.Owner = replacement;
-        if (session.PendingNormalPeriod is { } pending)
+        if ((session.PendingNormalPeriod?.Candidate ?? session.PendingArmyProgressCandidate) is { } pendingCandidate)
         {
             //Only this synchronous speech publication may adopt a retained
             //wait presentation. Its continuation and outbox owners are unchanged.
-            if (!ReferenceEquals(pending.Candidate, replacement) ||
+            if (!ReferenceEquals(pendingCandidate, replacement) ||
                 IntelligenceNarrationContinuation(previous) is null && !BaseCapturePersonPrefixProgress.IsPresentationPending(previous) &&
                     !HiredArmyCaptureProgress.IsPresentationPending(previous) ||
                 BaseCapturePersonPrefixProgress.IsPresentationPending(previous) &&

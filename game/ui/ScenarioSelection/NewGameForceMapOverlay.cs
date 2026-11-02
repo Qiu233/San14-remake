@@ -73,10 +73,9 @@ internal partial class NewGameForceMapOverlay : Control
             if(entry.Source.Force==46&&!specialAnchorUsed)
             {
                 specialAnchorUsed=true;
-                var point=CeHexWorldCoordinates.Project(3011);float x=(float)point.X,z=(float)point.Z;
-                float height=map.SourceMainCameraTerrain?.Query(x,z)??
-                    throw new InvalidDataException("The source Landscape for the title's special Hex is absent.");
-                position=new(x,Math.Max(445,height),z);
+                // The title's special Hex uses the same Scene Landscape
+                // world anchor as other Hex consumers, not the centered camera Field.
+                position=map.ResolveScenarioPreviewHexAnchor(3011);
             }
             var screen=MapControlProjection.Project(new(position,1),new(0,1000,0),
                 frame.Camera.SourceWorldToProjection,viewport,false,new(1920,1080));

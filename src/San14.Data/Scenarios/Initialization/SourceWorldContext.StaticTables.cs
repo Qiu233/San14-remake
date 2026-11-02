@@ -20,13 +20,37 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
         [0x81B50]=RegistryKind.Table81B50, [0x85A90]=RegistryKind.Scenery
     };
 
+    // Only the generic pointer channel borrows this immutable CE layout.
+    // Registry, map and specialized tables retain independent knowledge.
+    private static readonly FrozenDictionary<int,int> GenericStaticIdentityDefinitions = StaticTableCounts
+        .Where(pair => !StaticRegistryKinds.ContainsKey(pair.Key) &&
+            pair.Key is not (0xE270 or 0x73860 or 0x78490 or 0x85F20))
+        .ToFrozenDictionary(pair => pair.Key, pair => pair.Value);
+    private IReadOnlyDictionary<int,int>? _genericStaticPointerDefinitions;
+
+    private bool TryReadGenericStaticPointer(int tableOffset,int slot,out int? physical)
+    {
+        if (_staticTablePointers.TryGetValue((tableOffset,slot),out physical)) return true;
+        if (_genericStaticPointerDefinitions?.ContainsKey(tableOffset) == true)
+        { physical = slot; return true; }
+        physical = null; return false;
+    }
+
     /// <summary>Explicit successful allocation of the independent normal CE
     /// pointer-table profile. Creates pointers only, leaving consumed fields,
     /// source provenance, descriptors and runtime lists untouched.</summary>
     public void InitializeStaticTablePointers()
     {
+        _staticTablePointers.Clear();
+        _genericStaticPointerDefinitions = GenericStaticIdentityDefinitions;
         foreach (StaticTableRange range in StaticTablePostLoad.Ranges)
         {
+            if (GenericStaticIdentityDefinitions.ContainsKey(range.TableOffset)) continue;
+            if (range.TableOffset == 0x73A50)
+            {
+                _officerSources.InitializeTableReferences(range.Count);
+                continue;
+            }
             if (range.TableOffset == 0xE270 && _hexIdentityDefinitions is not null)
             {
                 //The campaign definition already owns the identity table.
@@ -51,7 +75,11 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
             case 0x73860: SetSurfaceTypeTablePointer(slot,physical); break;
             case 0x78490: _rankCapacityPointers[slot]=physical; break;
             case 0x85F20: SetDoctrinePanelTablePointer(slot,physical); break;
-            default: _staticTablePointers[(tableOffset,slot)]=physical; break;
+            default:
+                if (_genericStaticPointerDefinitions?.ContainsKey(tableOffset) == true && physical == slot)
+                    _staticTablePointers.Remove((tableOffset,slot));
+                else _staticTablePointers[(tableOffset,slot)] = physical;
+                break;
         }
     }
 
@@ -89,7 +117,7 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
                 if (panel is null) return null;
                 physical=panel.PhysicalSlot;break;
             default:
-                if (!_staticTablePointers.TryGetValue((tableOffset,slot),out physical)) return null;
+                if (!TryReadGenericStaticPointer(tableOffset,slot,out physical)) return null;
                 break;
         }
         PostLoadCallback? callback = physical.HasValue && _staticPostLoadCallbacks.TryGetValue((tableOffset,physical.Value),out var provided)
@@ -98,6 +126,6 @@ public sealed partial class SourceWorldContext : IStaticTablePostLoadState
     }
 
     public void ApplyStaticTablePostLoad() => StaticTablePostLoad.Apply(this);
-    private static int StaticTableCount(int tableOffset) => StaticTableCounts.TryGetValue(tableOffset, out int count)
-        ? count : throw new InvalidDataException($"Static table{tableOffset:X} is outside the supported CE profile.");
+    private int StaticTableCount(int tableOffset) => tableOffset == 0xE270 ? MapTileCount :
+        StaticTableCounts.TryGetValue(tableOffset, out int count) ? count : throw new InvalidDataException($"Static table{tableOffset:X} is outside the supported CE profile.");
 }

@@ -54,26 +54,13 @@ internal static class DuelOpportunityParameters
             foreach (var (key, value) in ScLoaderDefaults) values.Add(key, value);
             return;
         }
-        //One authorized eight-byte observation at the user's confirmed TC
-        //Yellow Turbans/intermediate new-map checkpoint (2026-10-24).
-        //These are measured zeroes, not virtual-data defaults. Normal source
-        //mode/selector identities are read from their existing domain owners.
-        //Other options were not stated: none is inferred or overwritten here.
-        if (state.NativeArmySimulation?.Parameters.Language != "TC" ||
-            state.ScenarioKey != "san14://file/0010_TC/scedaexce01.s14" ||
-            state.ContentHashes.GetValueOrDefault(state.ScenarioKey) !=
-                "28B8ECFF3FD42E770425247AE5CD07864EEA7FB6F3A6C3AC3199563A2858BF49" ||
-            // This fresh constructor precedes female reset. Its identity is
-            // the same actual loaded header later used by the event owner.
-            source.ScenarioSource.ResourceUri != state.ScenarioKey ||
-            source.ScenarioSource.Sha256 != state.ContentHashes.GetValueOrDefault(state.ScenarioKey) ||
-            source.Snapshot.WorldParameters is not { RawField48: 1, RawModeValue: 1 } ||
-            state.DifficultyId != "intermediate" || state.NewGameOptions?.DifficultyId != "intermediate" ||
-            BattleRemakeCurrentSettings.ReadSelectorE58(state) != 1 ||
-            BattleRemakeCurrentSettings.ReadInt32(state, 0x28) != 1 ||
-            state.Phase != TurnPhase.Strategy || state.PeriodNumber != 0 || state.Units.Count != 0 ||
-            state.NativeClock is not { UpdateOrdinal: 0, UpdatesIntoPeriod: 0 } ||
-            state.CampaignDuelService is not null || state.DuelOpportunityCount is not null) return;
+        // TC independently retains its own PE-loader initialization across
+        // the complete qualified scalar owner: no write or escaped address.
+        // These invariant fresh values do not depend on one measured game.
+        if (state.NativeArmySimulation?.Parameters is not { Language: "TC" } tc ||
+            source.Snapshot.Locale != "TC" ||
+            tc.RuleVersion != SimulationRuleIdentity.ForLocale("TC"))
+            throw Missing("fresh_tc_rule_profile");
         values.Add(Trait61OrEffect29Chance, 0);
         values.Add(Trait62Chance, 0);
     }

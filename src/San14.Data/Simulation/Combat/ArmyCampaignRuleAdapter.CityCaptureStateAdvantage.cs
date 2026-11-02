@@ -11,7 +11,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         SourceWorldContext current, CityCaptureAreaScope scope, NativeMapSeasonDate? date,
         List<CampaignEffectRequest> effects, bool suppressPrimary = false, bool eventPlaybackPresent = false)
     {
-        var transition = CityCaptureTerritorySource.RequireNoSpecialStateAdvantageTransition(state, current, scope);
+        var transition = CityCaptureTerritorySource.RequireNoSpecialStateAdvantageTransition(state, current, scope,
+            district => ReadCaptureAdviserCurrent(state, current, district));
         if (transition is null || !transition.Gained && !transition.Lost) return state;
         //The immediate flags and journey work above has already run. Record
         //the actual invocation before a missing/suppressed special effect can

@@ -90,10 +90,13 @@ public sealed class DirectionalProviderCallerCurrentFrame
 {
     private readonly byte[] camera,bytes;
     internal DirectionalProviderCallerCurrentFrame(DirectionalLightConstructionPacket root,
-        DirectionalProviderCallerProjection caller,ReadOnlySpan<byte> preparedCamera)
+        DirectionalProviderCallerProjection caller,ReadOnlySpan<byte> preparedCamera,
+        DirectionalLightProviderTemporary? currentTemporary=null)
     {
         RegisteredRoot=root;Caller=caller;camera=preparedCamera.ToArray();
-        Temporary=DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root);
+        if(currentTemporary is not null&&!ReferenceEquals(currentTemporary.Root,root))
+            throw new InvalidDataException("Current provider temporary belongs to another registered root.");
+        Temporary=currentTemporary??DirectionalLightConstruction.ConstructProviderRootZeroPairTemporary(root);
         var current=Temporary.ApplyCurrentCamera(camera);bytes=current.Bytes;
         Applied=current.Applied;SourceHighBitSwappedRows=current.SourceHighBitSwappedRows;
     }
@@ -112,13 +115,14 @@ public sealed class DirectionalProviderCallerCurrentFrame
 public sealed partial class MapDirectionalLightProviderOwner
 {
     public DirectionalProviderCallerCurrentFrame PrepareFreshCallerFrame(DirectionalLightConstructionPacket root,
-        DirectionalProviderCallerProjection caller,MainMapCameraFrame main,ReadOnlySpan<byte> preparedCamera3C0)
+        DirectionalProviderCallerProjection caller,MainMapCameraFrame main,ReadOnlySpan<byte> preparedCamera3C0,
+        DirectionalLightProviderTemporary? currentTemporary=null)
     {
         ArgumentNullException.ThrowIfNull(root);ArgumentNullException.ThrowIfNull(caller);
         ValidateRootBinding(root);caller.RequireSameMain(main);
         if(caller.Controls.FirstIndex!=-1||caller.Controls.PairFirstIndex!=0||caller.Controls.PairSecondIndex!=0||caller.PairWeight!=0||
             caller.Controls.ExternalCameraOverridePresent||!caller.InvocationGate)
             throw new InvalidDataException("Fresh provider caller is outside actual zero-pair temporary scope.");
-        return new(root,caller,preparedCamera3C0);
+        return new(root,caller,preparedCamera3C0,currentTemporary);
     }
 }

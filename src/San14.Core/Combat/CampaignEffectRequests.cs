@@ -288,6 +288,7 @@ public sealed record TalentCommandPresentationRequest(TalentCommandPresentationO
     int? SoundId, int? OfficerId, int? TargetOfficerId, bool? RecruitSucceeded, string? TextAtSource)
 {
     public TalentRecruitConversationContext? RecruitConversation { get; init; }
+    public int? CreditEpisodeSlot { get; init; }
     public TalentNarrationVoiceRequest? Voice { get; init; }
     public TalentOfficerPresentationContext? Speaker { get; init; }
 }
@@ -693,7 +694,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                         TalentCommandPresentationOperation.SoundCue =>
                             (talent.SoundId is 5 or 6 or 8 ||
                              batch.Source is (CampaignEffectSource.ArmyBattleDefeat or CampaignEffectSource.DiplomacyCommands) && talent.SoundId == 7 ||
-                             batch.Source == CampaignEffectSource.ArmyBattleDefeat && talent.SoundId is (4 or 23) ||
+                             batch.Source == CampaignEffectSource.ArmyBattleDefeat && talent.SoundId is (4 or 23 or 24) ||
                              batch.Source == CampaignEffectSource.MonthlyMaintenance && (talent.SoundId is 7 or 16 or 18 or 20 or 21 or 22 or 23 or 129) ||
                              batch.Source == CampaignEffectSource.StrategicCommands && talent.SoundId is (7 or 21) ||
                              batch.Source == CampaignEffectSource.ForeignTradeCommands && talent.SoundId is (4 or 7) ||
@@ -725,8 +726,8 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                         (talent.Operation is not (TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.ConditionalOfficerText) ||
                          talent.Operation == TalentCommandPresentationOperation.ConditionalOfficerText && talent.Speaker is null) ||
                         batch.Source == CampaignEffectSource.ArmyBattleDefeat &&
-                        (talent.Operation is not (TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.ConditionalOfficerText) ||
-                         talent.Operation == TalentCommandPresentationOperation.SoundCue && talent.SoundId is not (5 or 6 or 7 or 8) ||
+                        (talent.Operation is not (TalentCommandPresentationOperation.SoundCue or TalentCommandPresentationOperation.Announcement or TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText) ||
+                         talent.Operation == TalentCommandPresentationOperation.SoundCue && talent.SoundId is not (4 or 5 or 6 or 7 or 8 or 24) ||
                          talent.Operation == TalentCommandPresentationOperation.ConditionalOfficerText && talent.Speaker is null) ||
                         batch.Source == CampaignEffectSource.DoctrineResearchCommands &&
                         (talent.Operation != TalentCommandPresentationOperation.OfficerText || talent.Speaker is null) ||
@@ -745,6 +746,11 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                          speaker.OfficerId != talent.OfficerId || speaker.OfficerId is < 1 or > 6000 ||
                          speaker.NameAtSource is null))
                         throw new InvalidDataException("Invalid source-time officer presentation context.");
+                    if (talent.CreditEpisodeSlot is int episode &&
+                        (episode is < 1 or > 30 || batch.Source != CampaignEffectSource.PersonnelAdministrationCommands ||
+                         talent.Operation != TalentCommandPresentationOperation.OfficerText ||
+                         talent.RecruitConversation is null || talent.Voice is not null))
+                        throw new InvalidDataException("Invalid personnel credit episode presentation.");
                     if (talent.RecruitConversation is { } conversation &&
                         (batch.Source is not (CampaignEffectSource.TalentCommands or CampaignEffectSource.PersonnelAdministrationCommands) ||
                          talent.Operation != TalentCommandPresentationOperation.OfficerText ||
@@ -758,7 +764,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                         (talent.Operation is not (TalentCommandPresentationOperation.OfficerText or TalentCommandPresentationOperation.ConditionalOfficerText) ||
                          batch.Source == CampaignEffectSource.MonthlyMaintenance && talent.Speaker is null ||
                          voice.SpeakerId != talent.OfficerId || voice.SpeakerId is < 1 or > 6000 ||
-                         (batch.Source == CampaignEffectSource.ArmyBattleDefeat ? voice.VoiceId != 35 :
+                         (batch.Source == CampaignEffectSource.ArmyBattleDefeat ? voice.VoiceId is not (35 or 40 or 45) :
                           batch.Source == CampaignEffectSource.MonthlyMaintenance ? voice.VoiceId is not (33 or 40 or 42 or 43) :
                           batch.Source == CampaignEffectSource.StrategicCommands ? voice.VoiceId is not (33 or 42 or 43) :
                           batch.Source == CampaignEffectSource.DoctrineResearchCommands ? voice.VoiceId != 42 :

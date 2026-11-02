@@ -149,11 +149,15 @@ public sealed partial class ForceUnregisterSource
             if (primary.UnresolvedOwner is not null) throw Missing(primary.UnresolvedOwner);
             var refreshed = PersonAdvisorResetSource.RefreshWithinBaseCapture(state, current, winner);
             state = refreshed.State ?? throw Missing(refreshed.UnresolvedOwner ?? "neutral_27BE40");
-            GateCaptureTerritorySource.ApplyTerritoryAfterResources(state, current, gate, 0, oldDistrict, 0);
+            GateCaptureTerritorySource.ApplyTerritoryAfterResources(state, current, gate, 0, oldDistrict, 0,
+                readAdviser: adviceDistrict => package.ReadCaptureAdviserCurrent(state, current, adviceDistrict));
             int cap = Need(ArmyDestructionParameterSeed.ReadCurrent(state,
                 SimulationParameterKeys.Tactics.AbnormalCounterUpperBound), "neutral_threat_cap");
             byte zero = unchecked((byte)Math.Min(cap, 0));
-            current.SetCaptureBaseThreatFields(gate, new(zero, zero, 255, 0));
+            var threatFields = current.ReadCaptureBaseThreatFields(gate)
+                ?? throw Missing("neutral_threat_current_fields");
+            current.SetCaptureBaseThreatFields(gate, threatFields with
+                { Byte49 = zero, Byte4B = zero, Byte62 = 255, Word64 = 0 });
             GateCaptureRoutingSource.ClearTargetRouting(current, gate);
             current.ClearTemporaryHexList(relatedAreas); current.ReleaseTemporaryHexList(relatedAreas); relatedAreas = null;
             current.TransferModeStateReader = previousTransferModeReader;

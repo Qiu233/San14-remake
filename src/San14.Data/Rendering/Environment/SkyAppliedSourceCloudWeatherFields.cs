@@ -31,9 +31,9 @@ public sealed class SkyAppliedSourceCloudWeatherFields
     {
         var inputs = present.AcceptedSeasonCamera.Inputs;
         var source = inputs.Source;
-        if (!source.UsesSourceCreatedEmptyAxes || source.Selection.SecondPackage is not null ||
-            source.Selection.FirstPackage.Camera.ObjectId != MapSeasonCameraApplication.RootCameraObjectId)
-            throw new NotSupportedException("Cloud weather continuation requires the actual source-created direct Root package; edited weather/interpolated packages require their own writer.");
+        if (!source.UsesSourceDatabaseReset || source.Selection.SecondPackage is not null ||
+            (source.SuccessfulMainModeSelection is null && source.Selection.FirstPackage.Camera.ObjectId != MapSeasonCameraApplication.RootCameraObjectId))
+            throw new NotSupportedException("Cloud weather continuation requires the actual source-created direct database package; edited weather/interpolated packages require their own writer.");
         var quality = inputs.MainPostSelection?.QualityPatch;
         var state = SkyCloudWeatherState.Prepare(source.CloudWeatherSettings,
             inputs.Weather.Climate.Cloudiness, inputs.Weather.Climate.Humidity,

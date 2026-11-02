@@ -1,4 +1,5 @@
 {
+  "startup_loading": "读取中……",
   "new_game_preparing": "正在准备新游戏……",
   "new_game_prepare_failed": "新游戏准备失败。请返回后重试。",
   "play_unit_destination_none": "无",
@@ -148,7 +149,7 @@
   "hint": "直接读取原版安装数据；目前可核查剧本、城市、地图与肖像。结算规则仍在解析。",
   "language": "语言",
   "locale_sc": "简体中文",
-  "locale_tc": "繁體中文",
+  "locale_tc": "繁体中文",
   "scenarios": "剧本",
   "force_selection": "势力",
   "cities_unit": "城",

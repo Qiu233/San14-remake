@@ -1,4 +1,5 @@
 using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace San14.Data.Formats;
 
@@ -9,12 +10,39 @@ public sealed record ShaderBindingRow(int Index, int SourceOffset, int SourceByt
 public sealed record ShaderBindingCatalog(byte[] RawHeader,
     IReadOnlyList<ShaderBindingRow> Rows)
 {
+    // The parser owns and publishes immutable rows. Keep its index with that
+    // exact catalog; public record copies/custom row lists retain their normal
+    // live-list lookup semantics rather than inheriting a stale source index.
+    private static readonly ConditionalWeakTable<ShaderBindingCatalog, IdentifierIndex> Indices = new();
+    private sealed class IdentifierIndex
+    {
+        internal readonly Dictionary<uint, (ShaderBindingRow Row, int Count)> Rows = new();
+        internal IdentifierIndex(IReadOnlyList<ShaderBindingRow> source)
+        {
+            foreach (var row in source)
+            {
+                if (Rows.TryGetValue(row.IdentifierHash, out var found))
+                    Rows[row.IdentifierHash] = (found.Row, found.Count + 1);
+                else Rows.Add(row.IdentifierHash, (row, 1));
+            }
+        }
+    }
+
+    internal void PrepareParsedIdentifierIndex() => Indices.Add(this, new(Rows));
+
     public ShaderBindingRow RequireIdentifier(uint identifierHash)
     {
-        ShaderBindingRow[] found = Rows.Where(row => row.IdentifierHash == identifierHash).ToArray();
-        if (found.Length != 1)
-            throw new InvalidDataException($"Original shader binding identifier {identifierHash:X8} requires one exact row; found {found.Length}.");
-        return found[0];
+        if (!Indices.TryGetValue(this, out var index))
+        {
+            ShaderBindingRow[] rows = Rows.Where(row => row.IdentifierHash == identifierHash).ToArray();
+            if (rows.Length != 1)
+                throw new InvalidDataException($"Original shader binding identifier {identifierHash:X8} requires one exact row; found {rows.Length}.");
+            return rows[0];
+        }
+        index.Rows.TryGetValue(identifierHash, out var found);
+        if (found.Count != 1)
+            throw new InvalidDataException($"Original shader binding identifier {identifierHash:X8} requires one exact row; found {found.Count}.");
+        return found.Row;
     }
 }
 
@@ -49,7 +77,9 @@ public static class ShaderBindingCsvReader
                 fields[2], ResourceNameHash.Compute(fields[2]), raw));
         }
         if (rows.Count == 0) throw new InvalidDataException("Original shader binding CSV has no data rows.");
-        return new(header, rows.AsReadOnly());
+        var catalog = new ShaderBindingCatalog(header, rows.AsReadOnly());
+        catalog.PrepareParsedIdentifierIndex();
+        return catalog;
     }
 
     private static byte[] ReadLine(ReadOnlySpan<byte> bytes, ref int position)

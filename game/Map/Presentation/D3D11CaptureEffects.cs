@@ -28,6 +28,9 @@ internal sealed class D3D11CaptureEffects : IDisposable
         internal volatile bool Live;
         internal volatile bool Retired;
         internal volatile bool StopRequested;
+        // A later prepared scene cannot reject a ticket whose earlier real
+        // Canvas publication still owns its acceptance decision.
+        internal bool HasUnacceptedPublication;
         internal readonly TaskCompletionSource<bool> StopAccepted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource<CaptureEffectAdmission> Completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -164,14 +167,14 @@ internal sealed class D3D11CaptureEffects : IDisposable
         {
             if (ticket.Retired)
             {
-                ticket.Completion.TrySetResult(new(false, "capture_effect.retired"));
+                CompletePreparation(ticket,new(false, "capture_effect.retired"));
                 ticket.Retirement.TrySetResult(true); continue;
             }
             var allocated = admission.TryAllocate(ticket.EffectKind, ticket.Source,
                 Volatile.Read(ref ticket.Transform).Matrix, sourceCameraLevel, ticket.Variant);
             if (!allocated.Allocated)
             {
-                ticket.Completion.TrySetResult(new(false) { Culled = true });
+                CompletePreparation(ticket,new(false) { Culled = true });
                 ticket.Retirement.TrySetResult(true); continue;
             }
             ticket.Handle = allocated.Handle;
@@ -185,7 +188,7 @@ internal sealed class D3D11CaptureEffects : IDisposable
                 admission.Retire(handle, instance => instance.Dispose());
                 ticket.Instance = null; ticket.Live = false; active.Remove(ticket);
                 ticket.Retirement.TrySetResult(true);
-                ticket.Completion.TrySetResult(new(false, "capture_effect.retired")); continue;
+                CompletePreparation(ticket,new(false, "capture_effect.retired")); continue;
             }
             try
             {
@@ -235,11 +238,11 @@ internal sealed class D3D11CaptureEffects : IDisposable
                     //The real View clock remains independent of simulation pause.
                     if (actual.IsInitialized) { ticket.Time += (float)elapsedSeconds * framesPerSecond; ticket.Tick++; }
                     actual.Advance(new(framesPerSecond, ticket.Tick, ticket.Time));
-                    if (actual.Missing.Count != 0) ticket.Completion.TrySetResult(new(false, actual.Missing[0].Reason));
-                    else if (actual.HasPendingDirectStorage) ticket.Completion.TrySetResult(new(false, "capture_effect.direct_storage_owner"));
+                    if (actual.Missing.Count != 0) CompletePreparation(ticket,new(false, actual.Missing[0].Reason));
+                    else if (actual.HasPendingDirectStorage) CompletePreparation(ticket,new(false, "capture_effect.direct_storage_owner"));
                 }
                 if (ticket.Variant == 1 && ticket.Instance is { IsInitialized: true, IsFinished: true, HasPendingDirectStorage: false } finished && finished.Missing.Count == 0)
-                    ticket.Completion.TrySetResult(new(false) { NoVisualRequired = true, SourceAllocated = true });
+                    CompletePreparation(ticket,new(false) { NoVisualRequired = true, SourceAllocated = true });
                 bool retained = admission.Collect(handle, instance => instance.Dispose());
                 if (!admission.HasInstance(handle)) ticket.Instance = null;
                 ticket.Live = admission.IsValid(handle);
@@ -248,12 +251,12 @@ internal sealed class D3D11CaptureEffects : IDisposable
                     active.Remove(ticket); ticket.Retirement.TrySetResult(true);
                     //Only the actual source visibility/camera gate certifies a
                     //culled attempt. It is distinct from native acceptance.
-                    if ((slot.LifecycleFlags & 1) == 0) ticket.Completion.TrySetResult(new(false) { Culled = true });
+                    if ((slot.LifecycleFlags & 1) == 0) CompletePreparation(ticket,new(false) { Culled = true });
                 }
             }
             catch (Exception error)
             {
-                ticket.Completion.TrySetResult(new(false, error.Message));
+                CompletePreparation(ticket,new(false, error.Message));
                 admission.Retire(handle, instance => instance.Dispose());
                 ticket.Instance = null; ticket.Live = false; active.Remove(ticket); ticket.Retirement.TrySetResult(true);
             }
@@ -272,7 +275,7 @@ internal sealed class D3D11CaptureEffects : IDisposable
                 // A real renderer allocation can have an empty live queue.
                 // Publish its ownership once; it outlives particle retirement.
                 var owned = publisher.Build(currentSequence, [], mainBankZeroOwner: true).Publication;
-                pendingMainBankZeroOwnerSequence = currentSequence;
+                pendingMainBankZeroOwnerSequence ??= currentSequence;
                 return owned;
             }
             return publisher.Clear(currentSequence);
@@ -283,7 +286,7 @@ internal sealed class D3D11CaptureEffects : IDisposable
             if (directDraws is null) continue;
             var direct = directDraws.Prepare(currentSequence, ticket.Instance!.Resources, ticket.Instance,
                 ForTicket(ticket), publisher, resources[ticket.EffectKind].Gpu, ref directOrdinal);
-            if (!direct.IsComplete) ticket.Completion.TrySetResult(new(false, direct.Missing[0].Reason));
+            if (!direct.IsComplete) CompletePreparation(ticket,new(false, direct.Missing[0].Reason));
         }
         var sources = new List<G1EffectGpuFrameSource>();
         foreach (var group in ready.GroupBy(ticket => ticket.Variant))
@@ -324,14 +327,16 @@ internal sealed class D3D11CaptureEffects : IDisposable
                 : directDraws.PrepareCurrentLighting(frame);
         if (missing is not null)
         {
-            foreach (var ticket in ready) ticket.Completion.TrySetResult(new(false, missing));
+            foreach (var ticket in ready) CompletePreparation(ticket,new(false, missing));
             if (!everPublished) return null;
             everPublished = false; return publisher.Clear(currentSequence);
         }
         everPublished = true;
         if (mainBankZeroOwnerAllocated && !mainBankZeroOwnerPublished)
-            pendingMainBankZeroOwnerSequence = currentSequence;
-        awaitingAcceptance[currentSequence] = ready.Where(ticket => !ticket.Completion.Task.IsCompleted).ToArray();
+            pendingMainBankZeroOwnerSequence ??= currentSequence;
+        var awaiting=ready.Where(ticket => !ticket.Completion.Task.IsCompleted).ToArray();
+        foreach(var ticket in awaiting)ticket.HasUnacceptedPublication=true;
+        awaitingAcceptance[currentSequence] = awaiting;
         return built.Publication;
 
         G1EffectMapInputFrame ForTicket(Ticket ticket)
@@ -346,6 +351,11 @@ internal sealed class D3D11CaptureEffects : IDisposable
         }
     }
 
+    private static void CompletePreparation(Ticket ticket,CaptureEffectAdmission result)
+    {
+        if(!ticket.HasUnacceptedPublication)ticket.Completion.TrySetResult(result);
+    }
+
     internal void Accept(G1EffectGpuPublication? publication)
     {
         if (publication is null) return;
@@ -355,7 +365,11 @@ internal sealed class D3D11CaptureEffects : IDisposable
             pendingMainBankZeroOwnerSequence = null;
         }
         if (!awaitingAcceptance.TryRemove(publication.Sequence, out var accepted)) return;
-        foreach (var ticket in accepted) ticket.Completion.TrySetResult(new(true) { SourceAllocated = ticket.Handle is not null });
+        foreach (var ticket in accepted)
+        {
+            ticket.HasUnacceptedPublication=false;
+            ticket.Completion.TrySetResult(new(true) { SourceAllocated = ticket.Handle is not null });
+        }
     }
 
     internal void CancelPending()

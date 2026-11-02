@@ -11,6 +11,8 @@ public partial class MapSceneView
     private Control? _summaryRoot;
     private MapSummaryTicker? _summaryTicker;
     private MapSummaryResources? _summaryResources;
+    private Func<Control,(AdministrationPageChrome.Resources Resources, Action Release)>? _borrowSummaryResources;
+    private Action? _releaseSummaryResources;
     private readonly Dictionary<int,SummarySlotView> _summaryViews=[];
     private SourceWorldContext? _summaryInputCurrent, _summaryBoundCurrent, _summaryCachedCurrent;
     private GameState? _summaryInputWorld, _summaryBoundWorld, _summaryCachedWorld;
@@ -37,6 +39,13 @@ public partial class MapSceneView
     {
         internal Action? Tick;
         public override void _Process(double delta)=>Tick?.Invoke();
+    }
+
+    internal void SetApplicationSummaryResources(Func<Control,(AdministrationPageChrome.Resources Resources, Action Release)> borrow)
+    {
+        ArgumentNullException.ThrowIfNull(borrow);
+        if(_summaryRoot is not null)throw new InvalidOperationException("Summary resources are already bound to their live root.");
+        _borrowSummaryResources=borrow;
     }
 
     internal void SetMapSummaryQueries(Action<GameState,SourceWorldContext> bindCurrent,
@@ -67,8 +76,20 @@ public partial class MapSceneView
         var parent=StrategicMapOverlayParent();
         var root=new Control{Name="MapSummaryManager",MouseFilter=Control.MouseFilterEnum.Ignore,ZIndex=5};
         parent.AddChild(root);root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_summaryRoot=root;
-        var ticker=new MapSummaryTicker{Name="MapSummaryClock",Tick=TickMapSummaries};root.AddChild(ticker);_summaryTicker=ticker;
-        _summaryTargetClock=SummaryUiMilliseconds;PublishMapSummaryVisibility();
+        try
+        {
+            var borrow=_borrowSummaryResources??throw new InvalidOperationException("Map summaries require application UI resources.");
+            var borrowed=borrow(root);_releaseSummaryResources=borrowed.Release;
+            _summaryResources=new(_repository,borrowed.Resources){IndicatorPlayback=_summaryIndicators};
+            var ticker=new MapSummaryTicker{Name="MapSummaryClock",Tick=TickMapSummaryProcessFrame};root.AddChild(ticker);_summaryTicker=ticker;
+            _summaryTargetClock=SummaryUiMilliseconds;PublishMapSummaryVisibility();
+        }
+        catch
+        {
+            root.GetParent()?.RemoveChild(root);root.Free();_summaryRoot=null;_summaryTicker=null;_summaryResources=null;
+            ReleaseSummaryResourceLease();
+            throw;
+        }
     }
 
     //Retains the existing accepted-Scene-hover caller; this now serves all
@@ -79,14 +100,20 @@ public partial class MapSceneView
         TickMapSummaries();
     }
 
+    // Only the ticker's real process callback advances dialog indicators.
+    // Accepted-scene and hover queries may call TickMapSummaries repeatedly.
+    private void TickMapSummaryProcessFrame()
+    {
+        if (_summaryRoot is null) return;
+        if (_detailsOpen && IsVisibleInTree() && _summaryCanQuery?.Invoke() == true &&
+            _d3d11AnimationPacer is { } pacer && pacer.TryAcceptProcessFrame(Engine.GetProcessFrames()))
+            AdvanceMapSummaryIndicators(pacer.FramesPerSecond(pacer.FpsMode));
+        TickMapSummaries();
+    }
+
     private void TickMapSummaries()
     {
         if(_summaryRoot is null)return;
-        //A dialog stops camera input, while the normal UI manager retains
-        //its independent logical indicator callbacks, including hidden pages.
-        if(_detailsOpen&&IsVisibleInTree()&&_summaryCanQuery?.Invoke()==true&&
-            _d3d11AnimationPacer is{} pacer&&pacer.TryAccept())
-            AdvanceMapSummaryIndicators(pacer.FramesPerSecond(pacer.FpsMode));
         if((_detailsOpen&&_summaryHoverTarget is null)||_periodMapActive||!IsVisibleInTree()||_summaryCanQuery?.Invoke()!=true)
         {SuspendMapSummaries();return;}
         if(_logicalWorld is not{} world||_summaryInputCurrent is not{} current||
@@ -119,6 +146,7 @@ public partial class MapSceneView
                 SetMeta("source_summary_receiver_issue",error.Message);SuspendMapSummaries();return;
             }
         }
+        TickMapTerrainStatus(world,current,band,known);
         //An unavailable ray/filter is not a known empty ordinary hover. The
         //geographical pair has its independent current selection and display gate.
         if(!known&&!geographic){UpdateMapSummaryVisibility(band,false);return;}
@@ -219,12 +247,11 @@ public partial class MapSceneView
         {DetachSummaryPanel(previous);view.Panel=null;}
         if(view.Panel is null)
         {
-            _summaryResources??=new(_repository,_text.SourceLocale);
-            _summaryResources.IndicatorPlayback=_summaryIndicators;
+            var resources=_summaryResources??throw new InvalidOperationException("Map summary root has no resource borrower.");
             var panel=new MapSummaryPanel{Name="MapSummarySlot"+page.Slot,Visible=false};mount.AddChild(panel);
             try
             {
-                panel.Configure(_summaryResources,page.LayoutName);
+                panel.Configure(resources,page.LayoutName);
                 if(page.Slot is not (12 or 13))panel.Position=new(SceneryMapSummarySources.MountX,SceneryMapSummarySources.MountY);
                 view.Panel=panel;
             }
@@ -268,19 +295,28 @@ public partial class MapSceneView
     {if(_summaryViews.Remove(slot,out var view)&&view.Panel is{} panel)DetachSummaryPanel(panel);}
     private void SuspendMapSummaries()
     {
+        SuspendMapTerrainStatus();
         foreach(var view in _summaryViews.Values)HideSummaryPanel(view);
         _summarySuspended=true;PublishMapSummaryVisibility();
     }
+    private void ReleaseSummaryResourceLease()
+    {
+        var release=_releaseSummaryResources;_releaseSummaryResources=null;
+        release?.Invoke();
+    }
+
     private void ReleaseMapSummaries()
     {
+        ReleaseMapTerrainStatus();
         summaryFocusActive=false;summaryFocusWorld=null;summaryCityFocus=summaryAreaFocus=summaryFocusData=null;
         if(_summaryTicker is{} ticker&&GodotObject.IsInstanceValid(ticker))ticker.Tick=null;
         foreach(int slot in _summaryViews.Keys.ToArray())ReleaseSummarySlot(slot);
         if(_summaryRoot is{} root&&GodotObject.IsInstanceValid(root)){root.GetParent()?.RemoveChild(root);root.Free();}
         _summaryRoot=null;_summaryTicker=null;
-        //Every panel, including externally mounted geographical panels, has
-        //left the tree and been freed before shared fonts/textures retire.
-        _summaryResources?.Dispose();_summaryResources=null;
+        // All panels, including external geography, and their root are gone.
+        // Release here rather than depend on a descendant signal during the
+        // map's exit propagation. Main keeps the shared static resources.
+        _summaryResources=null;ReleaseSummaryResourceLease();
         _summaryInputCurrent=_summaryBoundCurrent=_summaryCachedCurrent=null;
         _summaryInputWorld=_summaryBoundWorld=_summaryCachedWorld=null;
         _summaryInputSelection=new(false,null);_summaryModels=null;_summaryFacilityModels.Clear();_summaryFacilityAbsent.Clear();

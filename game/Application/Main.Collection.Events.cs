@@ -46,7 +46,8 @@ public partial class Main
                     _collectionEvents == view && _titleMenu is not null && _collectionEventPlayback is null,
                 () => RunUiAction(() => CloseCollectionEvents(true)), CurrentListScrollSpeed, RunUiAction,
                 rowId => RunUiAction(() => PlayCollectionEvent(rowId)),
-                (rowId, requestId) => PrepareCollectionEventSelection(view, catalog, rowId, requestId));
+                (rowId, requestId) => PrepareCollectionEventSelection(view, catalog, rowId, requestId),
+                resources: TryBorrowApplicationUiResources(view));
         }
         catch { CloseCollectionEvents(true); throw; }
     }
@@ -73,8 +74,7 @@ public partial class Main
         var selection = new CollectionEventSelectionWorkspace(view, rowId, requestId);
         _collectionEventSelection = selection;
         string locale = _ui.SourceLocale;
-        string sourceDirectory = _repository.SourceDirectory;
-        string? overridesDirectory = _repository.OverrideDirectory;
+        var resourceSources = CaptureCampaignResourceSources();
         // This is the same project World RNG bootstrap as normal scenario
         // loading. Original App32 and CRT retain their separate actual owners.
         var inputs = new CollectionEventSessionInputs(1, new(_presentationRandom.State), CaptureApplicationCrtRandom(),
@@ -93,9 +93,9 @@ public partial class Main
                     result = await Task.Run(() =>
                     {
                         selection.Lifetime.Token.ThrowIfCancellationRequested();
-                        // Resource readers own mutable decode/index caches.
-                        // Keep this worker's reader separate from the UI's.
-                        var repository = new GameResourceRepository(sourceDirectory, overridesDirectory);
+                        // A private worker reader/ledger borrows process-owned
+                        // static content and the caller-captured portrait facts.
+                        var repository = resourceSources.CreateReadScope();
                         return catalog.PrepareSession(repository, rowId, inputs);
                     }, selection.Lifetime.Token);
                 }
@@ -163,10 +163,11 @@ public partial class Main
             try
             {
                 var map = new MapSceneView { Name = "CollectionEventWorld" };
+                map.SetStaticMapResources(BorrowApplicationMapResources());
                 ApplyCommittedCgQuality(map); owner.Map = map; AddChild(map);
                 map.SetSourceNavigationOptions(_preferences.Navigation); map.SetKeyboardBindings(_preferences.KeyboardBindings);
                 map.SetD3D11CurrentWorldQueries(session.Rules.CaptureCurrentDefinitions,
-                    session.Rules.CaptureGraphicsMotionInputs, session.Rules.CaptureMapArmyGroups);
+                    session.Rules.CaptureGraphicsMotionInputs, session.Rules.CaptureMapArmyGroups, session.Rules.CaptureMapArmyPresence);
                 owner.Presentation.BeginResidentMap();
                 map.SetSceneryMapBinding(owner.Presentation, session.Rules.CaptureSceneryMapCurrent);
                 map.Configure(_repository!, _ui, _safeUi, () => { }, preparation.Map!.Map, session.World,

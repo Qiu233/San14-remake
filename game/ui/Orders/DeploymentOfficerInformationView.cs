@@ -16,8 +16,6 @@ internal partial class DeploymentOfficerInformationView : Control
     private readonly List<AreaAdministrationTraitMarker> traits=[];
     private readonly Dictionary<int,UiSourceText> labels=[];
     private readonly Dictionary<int,UiSourcePortrait> portraits=[];
-    private readonly Dictionary<(string,string),LoadedSprite> sprites=[];
-    private LocalizedUiSpriteSource spriteSource=null!;
     private UiSourceSimpleTooltip tooltip=null!;
     private int? tooltipSlot;
     private AreaAdministrationQuery<IReadOnlyList<AreaAdministrationOfficerTrait>>? currentTraits;
@@ -30,7 +28,6 @@ internal partial class DeploymentOfficerInformationView : Control
     {
         this.repository=repository;this.assets=assets;this.shader=shader;this.font=font;this.text=text;
         source=new(repository,0xC11503D0);Size=source.Rectangle(0).Size;MouseFilter=MouseFilterEnum.Ignore;
-        spriteSource=new(repository);
         foreach(int node in new[]{27,28,29,32,40,46,52,54,60,66,72,74,84})
             source.Art(this,node,source.Rectangle(node),assets,shader);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
@@ -100,8 +97,7 @@ internal partial class DeploymentOfficerInformationView : Control
     private void AddPortrait(int node,OfficerPortraitRoute route)
     {
         if(route is not {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:{} pack,SpriteName:{} name})return;
-        var key=(pack,name);
-        if(!sprites.TryGetValue(key,out var sprite))sprites[key]=sprite=spriteSource.LoadTexturePackSprite(pack,name);
+        var sprite=assets.Portraits.RequireSource(pack,name);
         var box=source.Rectangle(node);var face=new UiSourcePortrait {Name="DeploymentOfficerPortrait"+node,Position=box.Position,Size=box.Size};
         AddChild(face);MoveChild(face,0);face.ConfigureLayoutPane(repository,assets,shader,sprite,source,node);portraits[node]=face;
     }

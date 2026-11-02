@@ -159,7 +159,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             else visible[1] = false;
             var formation = details.Formation?.Selected ?? throw SummaryArmyMissing("formation.current");
-            images.Add(new(4, ArmyMapUiSources.Create().IconName(formation.Icon)));
+            images.Add(new(4, ArmyMapUiSources.Create().IconName(formation.Icon),
+                formation.Icon.SpriteId == 0x3F0 ? "texture_pk_common" : null));
             colors[4] = MapSpritePalettes.Create()[21];
             var classification = DeploymentTroopClassificationSource.Read(state, current, person, formation.FormationId, unit.Troops);
             bool[] mask = classification.Marker switch

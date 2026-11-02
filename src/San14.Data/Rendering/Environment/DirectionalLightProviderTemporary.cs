@@ -38,6 +38,29 @@ public static partial class DirectionalLightConstruction
         ArgumentNullException.ThrowIfNull(root);
         return new(root,ProviderZeroPairBytes(root));
     }
+    public static DirectionalLightProviderTemporary ConstructProviderRootZeroPairTemporary(
+        DirectionalLightConstructionPacket root,MapGameLightQualityWrites currentGameControls)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        byte[] light=ProviderZeroPairOwned(root);
+        // Root/root at zero copies these four byte selectors unchanged. Applying
+        // the selected actor controls here commutes with that copy and precedes
+        // the temporary actor numeric preparation and current Camera consumer.
+        MapGameLightQualityOverlay.Write(light,currentGameControls);
+        PrepareNullCamera(light,root.ContextFlags3E4);
+        return new(root,light);
+    }
+    /// <summary>Selected actor v430 runs after its own quality callback. This
+    /// copies only that actor once when its controls change, not every frame.</summary>
+    public static byte[] PrepareSelectedGameLightData(DirectionalLightConstructionPacket selected,
+        MapGameLightQualityWrites controls)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        byte[] bytes=selected.Bytes.ToArray();
+        MapGameLightQualityOverlay.Write(bytes,controls);
+        PrepareNullCamera(bytes,selected.ContextFlags3E4);
+        return bytes;
+    }
     internal static byte[] ProviderZeroPairBytes(DirectionalLightConstructionPacket root)
     {
         byte[] light=ProviderZeroPairOwned(root);

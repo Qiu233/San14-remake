@@ -6,12 +6,23 @@ using San14.Data;
 using San14.Data.Formats;
 
 /// <summary>
-/// Static pose of the original three-part portrait. This adapter uses the inspected
-/// centered chara_B branch; animation and the separate masked branch are still pending.
-/// Its pivot interpretation is restricted to this portrait, not general LCSK rendering.
+/// Profile-based detail portrait host. Application-backed pages borrow the
+/// original three-layer or animated standing publication; the older static
+/// profile entry remains for consumers whose resource ownership is not migrated.
 /// </summary>
 public partial class PortraitView : Control
 {
+    // The real pre-game detail host supplies its application resource scope.
+    // Layer geometry, material and animation use the shared standing renderer.
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,
+        LoadedStandingPortraitSources sources,Rect2 rectangle)
+    {
+        Position=rectangle.Position;Size=rectangle.Size;ClipContents=true;MouseFilter=MouseFilterEnum.Ignore;
+        var portrait=new UiSourceStandingPortrait{Name="ResidentStandingPortrait"};AddChild(portrait);
+        portrait.Configure(repository,assets,shader,sources);portrait.Scale=rectangle.Size/portrait.Size;
+        SetMeta("portrait_kind",sources.Kind.ToString());SetMeta("resident_source_borrow",true);
+    }
+
     internal void Configure(GameResourceRepository repository, UiAssets assets,
         int appearanceCode, Rect2 rectangle)
     {

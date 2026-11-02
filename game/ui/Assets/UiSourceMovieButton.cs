@@ -7,7 +7,7 @@ internal partial class UiSourceMovieButton : UiSourceButton
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader,
         MapFont font, CollectionMovieRow row, Action selected)
     {
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "02_07_03_offset_movie"));
+        var source = assets.SourceLayout("02_07_03_offset_movie");
         Size = source.Rectangle(0).Size; ActionMode = ActionModeEnum.Release;
         int[][] nodes = [[3], [5, 6], [8, 9], [11], [13, 14]];
         var states = new Control[nodes.Length];

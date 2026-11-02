@@ -9,7 +9,7 @@ internal partial class MusicAssignmentRowView : UiSourceButton
         MapFont font, string context, string music, Action released)
     {
         this.released = released;
-        var source = new UiSourceLayout(MusicEditLayoutSource.LoadRow(repository));
+        var source = assets.SourceLayout("02_12_00_offset_00");
         var states = new Control[5];
         int[][] layers = [[2, 8, 9], [2, 6, 7, 8, 9], [12, 13, 8, 9], [2, 8, 9], [2, 8, 9]];
         for (int index = 0; index < states.Length; index++)

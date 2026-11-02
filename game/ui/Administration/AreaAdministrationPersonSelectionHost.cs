@@ -5,7 +5,7 @@ using San14.Data;
 /// stay distinct from physical receivers and from raw appointment identities.</summary>
 internal sealed class AreaAdministrationPersonSelectionHost(Node parent, GameResourceRepository repository,
     PreviewText text, AreaAdministrationDraft draft, Func<bool> admitted, Action<string> unavailable,
-    Func<int> scrollSpeed, Func<int,bool>? candidateAdmission = null) : IDisposable
+    Func<int> scrollSpeed, Func<int,bool>? candidateAdmission = null, AdministrationPageChrome.Resources? resources=null) : IDisposable
 {
     private readonly AreaAdministrationPersonListState state = new();
     private AreaAdministrationPersonSelectionView? active;
@@ -45,7 +45,7 @@ internal sealed class AreaAdministrationPersonSelectionHost(Node parent, GameRes
                     if (!Current()) return;
                     Close(); completed(value);
                 },reason=> { view.ApplyNotice(text.Get("detail_unknown")); unavailable(reason); },
-                (page,rows)=>Current()?QueryPage(page,rows):new(null,"area-draft.person_selector_stale"),scrollSpeed);
+                (page,rows)=>Current()?QueryPage(page,rows):new(null,"area-draft.person_selector_stale"),scrollSpeed,resources);
             if (!selection.InitialOrder.Available)
             {
                 view.SetMeta("initial_order_unresolved",selection.InitialOrder.UnresolvedInput!);

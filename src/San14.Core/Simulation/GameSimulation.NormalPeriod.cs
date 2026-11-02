@@ -26,6 +26,14 @@ public sealed partial class GameSimulation
             if (rulerResult.Accepted) _normalPeriod = new(rulerResult.State!);
             return rulerResult;
         }
+        if (pending.Candidate.ArmyReturnCaptiveContinuation is not null)
+        {
+            if (order is not (ConfirmArmyReturnCaptiveBatchOrder or ConfirmArmyReturnCaptiveExecutionOrder or CompleteArmyReturnCaptivePresentationOrder))
+                return CommandResult.Reject("The army return is awaiting its captive batch reply.", "command.pending_return_captives");
+            var reply = GameEngine.ApplyCandidate(pending.Candidate, order, rules, context, authority);
+            if (reply.Accepted) _normalPeriod = new(reply.State!);
+            return reply;
+        }
         if (pending.PendingCapturedRulerTreatment is { } treatment)
         {
             if (order is not ConfirmCapturedRulerTreatmentOrder selected || selected.ForceId != treatment.CapturingForceId ||
@@ -91,6 +99,10 @@ public sealed partial class GameSimulation
             throw new InvalidOperationException("The captured personnel notice requires its actual completion.");
         if (pending.Candidate.AutomaticEmperorCapture?.PendingDecision is not null || AutomaticEmperorCaptureLifecycle.IsPresentationPending(pending.Candidate))
             throw new InvalidOperationException("The emperor capture requires its actual choice or presentation receipts.");
+        if (pending.Candidate.ArmyReturnCaptiveContinuation?.Phase is
+            ArmyReturnCaptivePhase.AwaitingIntroduction or ArmyReturnCaptivePhase.AwaitingSelection or
+            ArmyReturnCaptivePhase.AwaitingExecutionConfirmation or ArmyReturnCaptivePhase.AwaitingBatchPresentation)
+            throw new InvalidOperationException("Captive treatment requires its actual presentation or player reply.");
         if (pending.PendingRulerSuccession is not null || pending.PendingCapturedRulerTreatment is not null)
             throw new InvalidOperationException("The ruler decision requires a player response.");
         if (pending.Candidate.NativeNormalTurnContinuation is { } turn)

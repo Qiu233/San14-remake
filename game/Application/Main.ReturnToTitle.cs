@@ -35,6 +35,13 @@ public partial class Main
     {
         try
         {
+            // Let this campaign's operation return its borrowed candidate before
+            // retiring the map that supplies its source frames.
+            _periodAdvanceCancellation?.Cancel();
+            if (_periodAdvanceTask is { } advance) await advance;
+            if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _failed || _shuttingDown ||
+                !ReferenceEquals(_session, session) || !ReferenceEquals(_campaignApplication, application)) return;
+
             RetireTutorialLessonForReturn();
             ResetMilitaryDeploymentComposition();
             LeaveSceneAudioContext();

@@ -10,6 +10,13 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// Selection/hover consume this publication without recapturing current state.</summary>
     public NewGameForceSelectionPreview CaptureNewGameForceSelection(GameState state,
         LoadedArmyFlagPaneNames names, NewGameForcePageApplication? application = null)
+        => CaptureNewGameForceSelection(state, names, application, previewWorldFlags16A8: null);
+
+    /// <summary>The fresh preview host supplies its actual constructor-owned
+    /// World flags explicitly; an existing saved campaign keeps its own flags.</summary>
+    public NewGameForceSelectionPreview CaptureNewGameForceSelection(GameState state,
+        LoadedArmyFlagPaneNames names, NewGameForcePageApplication? application,
+        uint? previewWorldFlags16A8)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(names);
         bool preview = ArmyOperationContext.IsNewGamePreview(state);
@@ -23,11 +30,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         ForceUnregisterInputs.BindCurrent(state, current);
         if (state.ReadArmyLifecycle() is { } arena)
             _ = WorldIndexContext.ImportOwnedState(current, arena.Indexes, state);
-        return new NewGameForcePageReader(this, state, current, names, application ?? new(null, null, null), preview).Read();
+        return new NewGameForcePageReader(this, state, current, names, application ?? new(null, null, null),
+            preview, previewWorldFlags16A8).Read();
     }
 
     private sealed class NewGameForcePageReader(ArmyCampaignRuleAdapter owner, GameState state,
-        SourceWorldContext current, LoadedArmyFlagPaneNames names, NewGameForcePageApplication application, bool preview)
+        SourceWorldContext current, LoadedArmyFlagPaneNames names, NewGameForcePageApplication application,
+        bool preview, uint? previewWorldFlags16A8)
     {
         private readonly List<string> issues = [];
         private readonly MapSpritePalettes palettes = MapSpritePalettes.Create();
@@ -36,6 +45,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly Dictionary<(int Force, int Province), int> provinceCities = [];
         private bool basesKnown, peopleKnown, provinceCitiesKnown;
         private IReadOnlyList<MessageRecord>? dataText;
+        private IReadOnlyList<MessageRecord>? annotationText;
         private sealed record BaseSample(BaseReference Receiver, int? Owner, bool? Valid,
             ushort? ObjectLink, int? Gold, int? Food, int? Troops, NewGameForceBaseMarker Marker);
         private sealed record PersonSample(int? Owner, byte? Status);
@@ -216,7 +226,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             int? gold = Value<int>(nameof(NewGameForcePreview.Gold), () => Total(forceId, BaseResourceKind.Gold));
             int? food = Value<int>(nameof(NewGameForcePreview.Food), () => Total(forceId, BaseResourceKind.Supplies));
             int? troops = Value<int>(nameof(NewGameForcePreview.Troops), () => Total(forceId, BaseResourceKind.Troops));
-            string? annotation = Text(nameof(NewGameForcePreview.ScenarioAnnotation), () => Annotation());
+            string? annotation = Text(nameof(NewGameForcePreview.ScenarioAnnotation), () => Annotation(forceId));
             string? heaven = Text(nameof(NewGameForcePreview.HeavenTiming), () => Heaven(forceId));
             IReadOnlyList<NewGameForceGeographicAdvantage>? geographical = null;
             try { geographical = Geography(forceId); }
@@ -258,14 +268,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             return value;
         }
-        private string? Annotation()
+        private string Annotation(int force)
         {
-            uint? flags = OwnedArmyReturnServiceInputs.ReadCurrent(state);
-            if (flags is null) throw Missing("ScenarioAnnotation.World16A8");
-            if ((flags.Value & 0x40000) != 0) return "";
-            //30C440's normal Data0 consumer is known, but its8x16-byte
-            //range table is absent from existing caches. No guessed row/index.
-            throw Missing("ScenarioAnnotation.range-table-start-end-base-flag");
+            if (!(current.ReadForceNativeValidity(new(force)) ?? throw Missing("ScenarioAnnotation.Force-validity")))
+                return "";
+            //The ordinary preview host supplies its actual fresh constructor
+            //owner. Initializing or a missing saved simulation proves no flags.
+            uint flags = (preview ? previewWorldFlags16A8 : OwnedArmyReturnServiceInputs.ReadCurrent(state))
+                ?? throw Missing("ScenarioAnnotation.World16A8");
+            if ((flags & 0x40000) != 0) return "";
+            int scenario = current.ReadScenarioId() ?? throw Missing("ScenarioAnnotation.World48");
+            int? index = ScenarioAnnotationMessageIndex.Read(scenario, force);
+            if (index is not int selected) return "";
+            annotationText ??= owner._repository.LoadMessages(owner._scenario.Snapshot.Locale, MessageKind.Data)
+                .Messages.Sections[0].Records;
+            if ((uint)selected >= annotationText.Count) throw Missing("ScenarioAnnotation.Data0-index");
+            return annotationText[selected].Text ?? throw Missing("ScenarioAnnotation.Data0-text");
         }
         private string? Heaven(int force)
         {
@@ -279,7 +297,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             if (!valid) return "";
             if (force is >= 46 and <= 50) return DataText(0x353);
             byte? flags = state.NativeForceUnregisterCurrent?.ForceResetImages.TryGetValue(force, out var reset) == true
-                ? reset[0x12] : state.NativeArmySimulation?.Forces.GetValueOrDefault(force)?.Flags12;
+                ? reset[0x12] : preview
+                    ? S14ForceScenarioFlagsReader.ReadFlags12(owner._scenario.Snapshot.Forces[force])
+                    : state.NativeArmySimulation?.Forces.GetValueOrDefault(force)?.Flags12;
             if (flags is not byte value) throw Missing("HeavenTiming.current-Force12");
             return (value & 8) != 0 ? DataText(0x338) : (value & 0x10) != 0 ? DataText(0x339) : "";
         }

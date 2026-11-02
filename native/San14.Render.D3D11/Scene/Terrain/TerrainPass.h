@@ -7,13 +7,14 @@
 #include "TerrainRasterState.h"
 #include "TerrainShadowGpu.h"
 #include <optional>
+#include "../../Device/TerrainPrograms.h"
 
 namespace San14::Render {
 class TerrainPass {
   public:
     TerrainPass(ID3D11Device *device, ID3D11DeviceContext *context, const fs::path &input,
-                bool groupedTerrain):raster_(device) {
-        prepareProgramsAndGeometry(device, input, groupedTerrain);
+                bool groupedTerrain,std::shared_ptr<const NativeTerrainPrograms> programs={}):raster_(device) {
+        prepareProgramsAndGeometry(device,input,groupedTerrain,std::move(programs));
         bindInitialGeometry(context);
         prepareMaterials(device, context, input);
         shadow_.prepare(device,input/"shadow");
@@ -26,8 +27,8 @@ class TerrainPass {
     void prepareCamera(ID3D11Device *device, const fs::path &input, UINT indexCount,
                        const fs::path &seasonalResources) {
         camera_ = prepareNativeTerrainCameraGpu(
-            device, input, layout_.Get(), positions_.Get(), indices_.Get(), vertexShader_.Get(),
-            pixelShader_.Get(), coarseVertexShader_.Get(), coarsePixelShader_.Get(), indexCount);
+            device, input, programs_->layout.Get(), positions_.Get(), indices_.Get(), programs_->vertex.Get(),
+            programs_->pixel.Get(), programs_->coarseVertex.Get(), programs_->coarsePixel.Get(), indexCount,programs_.get());
         seasonPalette_.reset();
         if (!seasonalResources.empty()) {
             seasonPalette_ = source_current_season_terrain::readPaletteBank(seasonalResources);
@@ -64,40 +65,10 @@ class TerrainPass {
 
   private:
     TerrainShadowGpu shadow_;
-    void prepareProgramsAndGeometry(ID3D11Device *device, const fs::path &input, bool groupedTerrain) {
-        auto vsBytes = load(input / (groupedTerrain ? "near-vs.dxbc" : "terrain-vs.dxbc"));
-        auto pixelProgramBytes = load(input / (groupedTerrain ? "near-ps.dxbc" : "terrain-ps.dxbc"));
-        check(device->CreateVertexShader(vsBytes.data(), vsBytes.size(), nullptr, &vertexShader_),
-              "original terrain VS");
-        check(device->CreatePixelShader(pixelProgramBytes.data(), pixelProgramBytes.size(), nullptr,
-                                        &pixelShader_),
-              "original terrain PS");
-        ComPtr<ID3D11ShaderReflection> reflection;
-        check(D3DReflect(vsBytes.data(), vsBytes.size(), __uuidof(ID3D11ShaderReflection),
-                         reinterpret_cast<void **>(reflection.GetAddressOf())),
-              "VS reflection");
-        D3D11_SHADER_DESC shaderDesc{};
-        reflection->GetDesc(&shaderDesc);
-        std::vector<D3D11_INPUT_ELEMENT_DESC> elements;
-        std::array<DXGI_FORMAT, 5> inputFormats{DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT,
-                                                DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
-                                                DXGI_FORMAT_R32G32B32A32_FLOAT};
-        std::array<UINT, 5> offsets{0, 0, 12, 24, 40};
-        for (UINT i = 0; i < shaderDesc.InputParameters; ++i) {
-            D3D11_SIGNATURE_PARAMETER_DESC p{};
-            reflection->GetInputParameterDesc(i, &p);
-            if (p.SystemValueType != D3D_NAME_UNDEFINED)
-                continue;
-            UINT n = UINT(elements.size());
-            if (n >= 5)
-                throw std::runtime_error("Unexpected Landscape vertex signature");
-            elements.push_back({p.SemanticName, p.SemanticIndex, inputFormats[n], n ? 1u : 0u, offsets[n],
-                                n ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA,
-                                n ? 1u : 0u});
-        }
-        check(device->CreateInputLayout(elements.data(), UINT(elements.size()), vsBytes.data(),
-                                        vsBytes.size(), &layout_),
-              "Landscape input layout");
+    void prepareProgramsAndGeometry(ID3D11Device *device,const fs::path& input,bool groupedTerrain,
+            std::shared_ptr<const NativeTerrainPrograms> programs) {
+        if(programs&&!groupedTerrain)throw std::runtime_error("Resident Landscape programs require the declared grouped terrain source");
+        programs_=programs?std::move(programs):NativeTerrainPrograms::load(device,input,groupedTerrain);
         positions_ = buffer(device, load(input / "positions.bin"), D3D11_BIND_VERTEX_BUFFER);
         initialInstances_ = buffer(device, load(input / "instances.bin"), D3D11_BIND_VERTEX_BUFFER);
         indices_ = buffer(device, load(input / "indices.bin"), D3D11_BIND_INDEX_BUFFER);
@@ -108,11 +79,6 @@ class TerrainPass {
             buffer(device, load(input / (groupedTerrain ? "near-ps-b0.bin" : "ps-b0.bin")),
                    D3D11_BIND_CONSTANT_BUFFER);
         if (groupedTerrain) {
-            auto cv = load(input / "coarse-vs.dxbc"), cp = load(input / "coarse-ps.dxbc");
-            check(device->CreateVertexShader(cv.data(), cv.size(), nullptr, &coarseVertexShader_),
-                  "original coarse terrain VS");
-            check(device->CreatePixelShader(cp.data(), cp.size(), nullptr, &coarsePixelShader_),
-                  "original coarse terrain PS");
             initialCoarseVertexConstants_ =
                 buffer(device, load(input / "coarse-vs-b0.bin"), D3D11_BIND_CONSTANT_BUFFER);
             initialCoarsePixelConstants_ =
@@ -122,12 +88,12 @@ class TerrainPass {
     void bindInitialGeometry(ID3D11DeviceContext *context) {
         ID3D11Buffer *vb[]{positions_.Get(), initialInstances_.Get()};
         UINT strides[]{12, 56}, vbOffsets[]{0, 0};
-        context->IASetInputLayout(layout_.Get());
+        context->IASetInputLayout(programs_->layout.Get());
         context->IASetVertexBuffers(0, 2, vb, strides, vbOffsets);
         context->IASetIndexBuffer(indices_.Get(), DXGI_FORMAT_R16_UINT, 0);
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        context->VSSetShader(vertexShader_.Get(), nullptr, 0);
-        context->PSSetShader(pixelShader_.Get(), nullptr, 0);
+        context->VSSetShader(programs_->vertex.Get(), nullptr, 0);
+        context->PSSetShader(programs_->pixel.Get(), nullptr, 0);
         auto cb = initialVertexConstants_.Get();
         context->VSSetConstantBuffers(0, 1, &cb);
         cb = initialPixelConstants_.Get();
@@ -184,9 +150,7 @@ class TerrainPass {
     }
 
     TerrainRasterState raster_;
-    ComPtr<ID3D11VertexShader> vertexShader_, coarseVertexShader_;
-    ComPtr<ID3D11PixelShader> pixelShader_, coarsePixelShader_;
-    ComPtr<ID3D11InputLayout> layout_;
+    std::shared_ptr<const NativeTerrainPrograms> programs_;
     ComPtr<ID3D11Buffer> positions_, initialInstances_, indices_;
     ComPtr<ID3D11Buffer> initialVertexConstants_, initialPixelConstants_;
     ComPtr<ID3D11Buffer> initialCoarseVertexConstants_, initialCoarsePixelConstants_;

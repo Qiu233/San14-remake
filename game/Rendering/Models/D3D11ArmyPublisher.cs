@@ -134,6 +134,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
     private readonly RemakeArmyFlagCurrentSource _flagCurrent;
     private readonly GameResourceRepository _sourceRepository;
     private readonly Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? _motionInputs;
+    private readonly Func<GameState,ArmyMapPresenceFrame?>? _mapPresence;
     private readonly ArmyGraphicsMotionClockSource? _motionClock;
     private D3D11ArmyDefaultActions? _defaultActions;
     private Dictionary<int,MapModelNativePreparedBounds> _bounds=[];
@@ -150,13 +151,14 @@ public sealed class D3D11ArmyPublisher:IDisposable
     public D3D11ArmyPublisher(GameResourceRepository repository,LoadedScenario scenario,LoadedMap map,
         MapWorldProjection projection,LoadedHeightField height,string locale,
         Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? motionInputs=null,
-        ArmyGraphicsActions? graphicsActions=null)
+        ArmyGraphicsActions? graphicsActions=null,Func<GameState,ArmyMapPresenceFrame?>? mapPresence=null)
     {
         ArgumentNullException.ThrowIfNull(repository);ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(map);ArgumentNullException.ThrowIfNull(projection);ArgumentNullException.ThrowIfNull(height);
         _sourceRepository=repository;_selection=PlayableArmyVisualAdapter.Load(repository,map,locale);
         _ordinary=new(repository,locale,projection,height);_flags=new(repository);_flagCurrent=new(repository,scenario,map);
         _motionInputs=motionInputs;
+        _mapPresence=mapPresence;
         if(graphicsActions is not null)_defaultActions=new(graphicsActions);
         if(motionInputs is not null)_motionClock=ArmyGraphicsMotionClockSource.Load(repository,locale);
     }
@@ -166,7 +168,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
     private D3D11ArmyPublisher(D3D11ArmyPublisher source)
     {
         _selection=source._selection;_flagCurrent=source._flagCurrent;_sourceRepository=source._sourceRepository;
-        _motionInputs=source._motionInputs;_motionClock=source._motionClock;
+        _motionInputs=source._motionInputs;_motionClock=source._motionClock;_mapPresence=source._mapPresence;
         _ordinary=source._ordinary.ForkLogicalState();_flags=source._flags.ForkLogicalState();
         _bounds=new(source._bounds);_defaultActions=source._defaultActions;
         _flagMaterials=source._flagMaterials;_lastAnimation=source._lastAnimation;
@@ -204,34 +206,72 @@ public sealed class D3D11ArmyPublisher:IDisposable
 
     internal D3D11ArmyPublisher ForkPresentation() => new(this);
 
+    // This synchronous borrow captures targets, model/formation and material
+    // facts. Never keep its worker-owned World as a presentation cache key.
+    internal D3D11ArmyPublication CapturePlaybackTargets(GameState world)
+    {
+        ObjectDisposedException.ThrowIf(_disposed,this);ArgumentNullException.ThrowIfNull(world);
+        using var candidate=new D3D11ArmyPublisher(this);
+        candidate._lastWorld=null;
+        var publication=candidate.CapturePrepared(world);
+        candidate._lastWorld=null;
+        Adopt(candidate);
+        return publication;
+    }
+
+    internal D3D11ArmyPublication AdvanceCapturedMotion(uint fpsMode)
+    {
+        ObjectDisposedException.ThrowIf(_disposed,this);
+        if(_current is null)throw new InvalidOperationException("Army motion targets have not been captured.");
+        using var candidate=new D3D11ArmyPublisher(this);
+        candidate._fpsMode=fpsMode;
+        candidate._lastWorld=null;
+        if(candidate._motionClock is not null)
+            candidate._motionChanged=candidate._ordinary.AdvanceMotion(candidate._motionClock.Resolve(fpsMode));
+        var publication=candidate.CapturePrepared(null,candidate._lastAnimation,capturedMotionOnly:true);
+        Adopt(candidate);
+        return publication;
+    }
+
     public D3D11ArmyPublication CaptureDeparture(GameState sourceWorld, int sourceUnitId,
-        ArmyGraphicsCurrentInputs sourceInputs, ArmyDepartureFlagInputs? sourceFlagInputs = null)
+        ArmyGraphicsCurrentInputs sourceInputs, ArmyDepartureFlagInputs? sourceFlagInputs = null, bool retainSourceWorld = true)
     {
         ObjectDisposedException.ThrowIf(_disposed,this);
         using var candidate=new D3D11ArmyPublisher(this);
         var publication=candidate.CapturePrepared(sourceWorld, null,
             (world,unit)=>unit.Id==sourceUnitId?sourceInputs:_motionInputs?.Invoke(world,unit),
             sourceUnitId,sourceFlagInputs);
+        if (!retainSourceWorld) candidate._lastWorld = null;
         Adopt(candidate);
         return publication;
     }
 
-    private D3D11ArmyPublication CapturePrepared(GameState world,D3D11ArmyReturnedPhases? returnedPhases=null,
+    private D3D11ArmyPublication CapturePrepared(GameState? world,D3D11ArmyReturnedPhases? returnedPhases=null,
         Func<GameState,UnitState,ArmyGraphicsCurrentInputs?>? sourceMotionInputs=null,
-        int? sourceFlagUnitId=null,ArmyDepartureFlagInputs? sourceFlagInputs=null)
+        int? sourceFlagUnitId=null,ArmyDepartureFlagInputs? sourceFlagInputs=null,
+        bool capturedMotionOnly=false)
     {
-        bool sameWorld=sourceMotionInputs is null&&sourceFlagInputs is null&&
-            _current is not null&&ReferenceEquals(world,_lastWorld);
-        if(sameWorld&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
+        bool reuseCapturedInputs=capturedMotionOnly||world is not null&&sourceMotionInputs is null&&
+            sourceFlagInputs is null&&_current is not null&&ReferenceEquals(world,_lastWorld);
+        if(reuseCapturedInputs&&!_motionChanged&&ReferenceEquals(returnedPhases,_lastAnimation))return _current!;
         D3D11ArmyActor[] actors;D3D11ArmyUnavailable[] unavailable;
         ReadOnlyCollection<ArmyFlagMaterialRequest>? flagRequests=_current?.FlagMaterialRequestOwner;
-        if(sameWorld&&!_motionChanged){actors=_current!.Actors.Select(a=>a with{ReturnedPhase=Phase(a.Key,returnedPhases)}).ToArray();unavailable=_current.Unavailable.ToArray();}
+        if(reuseCapturedInputs&&!_motionChanged){actors=_current!.Actors.Select(a=>a with{ReturnedPhase=Phase(a.Key,returnedPhases)}).ToArray();unavailable=_current.Unavailable.ToArray();}
         else{
-            if(!sameWorld){
-                var plan=_selection.Resolve(world);
+            if(!reuseCapturedInputs){
+                ArgumentNullException.ThrowIfNull(world);
+                var presence=_mapPresence?.Invoke(world);
+                IReadOnlySet<int>? visible=presence?.VisibleUnitIds;
+                // The dedicated departure owns its source appearance even
+                // while the registered Army is still inside its Home Base.
+                if(sourceFlagUnitId is int departing&&visible is not null&&!visible.Contains(departing))
+                    visible=visible.Append(departing).ToHashSet();
+                var plan=_selection.Resolve(world,visibleUnitIds:visible);
                 if(_motionInputs is null)_ordinary.Prepare(world,plan);
                 else _ordinary.PrepareMotion(world,plan,_motionClock!.Resolve(_fpsMode),sourceMotionInputs??_motionInputs);
                 var missingPlan=new List<D3D11ArmyUnavailable>();
+                if(presence is not null)
+                    missingPlan.AddRange(presence.Unavailable.Select(row=>new D3D11ArmyUnavailable(row.UnitId,row.Field)));
                 foreach(var failure in plan.Unresolved.Where(f=>!plan.Selections.ContainsKey(f.UnitId)))missingPlan.Add(new(failure.UnitId,failure.Reason));
                 foreach(var selection in plan.Selections.Values)if(!_ordinary.Frames.ContainsKey(selection.UnitId))
                     missingPlan.Add(new(selection.UnitId,"Army visual requires current source formation, direction, commander and mobility; unsupported model modes need their source producer."));
@@ -239,16 +279,16 @@ public sealed class D3D11ArmyPublisher:IDisposable
             }
             _flags.Prepare(_ordinary.Frames);
             var missing=new List<D3D11ArmyUnavailable>(_planUnavailable);
-            if(!sameWorld)_flagMaterials=_flags.Frames.Count==0?null:
-                _flagCurrent.Prepare(world,_flags.Frames.Keys,sourceFlagUnitId,sourceFlagInputs);
+            if(!reuseCapturedInputs)_flagMaterials=_flags.Frames.Count==0?null:
+                _flagCurrent.Prepare(world!,_flags.Frames.Keys,sourceFlagUnitId,sourceFlagInputs);
             var material=_flagMaterials;
             var current=new List<D3D11ArmyActor>();
             // Motion changes transforms and bounds, while the source world
             // owns commander, force/name/color and the selected model mode.
             // Retain this immutable owner until that actual world changes.
-            var requests=sameWorld?null:new Dictionary<(int Category,int Force,int Color,ushort Glyph),ArmyFlagMaterialRequest>();
+            var requests=reuseCapturedInputs?null:new Dictionary<(int Category,int Force,int Color,ushort Glyph),ArmyFlagMaterialRequest>();
             foreach(var frame in _ordinary.Frames.Values.OrderBy(f=>f.UnitId)){
-                if(world.Units[frame.UnitId].PositionKnowledge==ArmyPositionKnowledge.Conflicting)
+                if(world is not null&&world.Units[frame.UnitId].PositionKnowledge==ArmyPositionKnowledge.Conflicting)
                     throw new InvalidDataException("Army visual position has unresolved compatibility knowledge.");
                 foreach(var actor in frame.Publications.Values.OrderBy(a=>a.Key.DescriptorOffset).ThenBy(a=>a.Key.InstanceIndex)){
                     var key=new D3D11ArmyActorKey(frame.UnitId,actor.Category,actor.Key.DescriptorOffset,actor.Key.InstanceIndex);
@@ -290,7 +330,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
         IReadOnlyDictionary<int,int> actions;
         IReadOnlyDictionary<int,float> heights;
         IReadOnlyDictionary<int,uint> motions,modes,land,naval;
-        if(sameWorld&&!_motionChanged){
+        if(reuseCapturedInputs&&!_motionChanged){
             // Explicit animation phases do not change any unit-level input.
             centers=_current!.UnitCenters;actions=_current.UnitGraphicsActions;heights=_current.UnitGroundHeights;
             motions=_current.UnitMotionRevisions;modes=_current.UnitModelModes;
@@ -301,22 +341,22 @@ public sealed class D3D11ArmyPublisher:IDisposable
             var centerValues=new Dictionary<int,Vector3>(count);var actionValues=new Dictionary<int,int>(count);
             var heightValues=new Dictionary<int,float>(count);var motionValues=new Dictionary<int,uint>(count);
             var modeValues=new Dictionary<int,uint>(count);
-            var landValues=sameWorld?null:new Dictionary<int,uint>(count);
-            var navalValues=sameWorld?null:new Dictionary<int,uint>(count);
+            var landValues=reuseCapturedInputs?null:new Dictionary<int,uint>(count);
+            var navalValues=reuseCapturedInputs?null:new Dictionary<int,uint>(count);
             foreach(var (id,frame) in _ordinary.Frames){
                 centerValues.Add(id,frame.CurrentUnitPosition);actionValues.Add(id,frame.GraphicsAction60);
                 heightValues.Add(id,frame.CurrentGroundHeight);motionValues.Add(id,frame.MotionRevision);
                 modeValues.Add(id,(uint)frame.Mode);
-                if(!sameWorld){
-                    landValues!.Add(id,(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world,world.Units[id])!.Value);
-                    navalValues!.Add(id,(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world,world.Units[id])??0));
+                if(!reuseCapturedInputs){
+                    landValues!.Add(id,(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world!,world!.Units[id])!.Value);
+                    navalValues!.Add(id,(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world!,world!.Units[id])??0));
                 }
             }
             centers=new ReadOnlyDictionary<int,Vector3>(centerValues);actions=new ReadOnlyDictionary<int,int>(actionValues);
             heights=new ReadOnlyDictionary<int,float>(heightValues);motions=new ReadOnlyDictionary<int,uint>(motionValues);
             modes=new ReadOnlyDictionary<int,uint>(modeValues);
-            land=sameWorld?_current!.UnitSelectedFormations:new ReadOnlyDictionary<int,uint>(landValues!);
-            naval=sameWorld?_current!.UnitNavalFormations:new ReadOnlyDictionary<int,uint>(navalValues!);
+            land=reuseCapturedInputs?_current!.UnitSelectedFormations:new ReadOnlyDictionary<int,uint>(landValues!);
+            naval=reuseCapturedInputs?_current!.UnitNavalFormations:new ReadOnlyDictionary<int,uint>(navalValues!);
         }
         var next=new D3D11ArmyPublication(++_revision,actors,unavailable,returnedPhases?.Source??
             "Source current-Hex targets, retained nineteen-record motion and graphics ActionID; paced native manager owns player phase.",
@@ -330,7 +370,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
         candidate._fpsMode=fpsMode;
         candidate.CapturePrepared(world);
         if(candidate._motionClock is not null)
-            candidate._motionChanged=candidate._ordinary.AdvanceMotion(world,candidate._motionClock.Resolve(fpsMode));
+            candidate._motionChanged=candidate._ordinary.AdvanceMotion(candidate._motionClock.Resolve(fpsMode));
         var publication=candidate.CapturePrepared(world,candidate._lastAnimation);
         Adopt(candidate);
         return publication;

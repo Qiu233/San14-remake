@@ -38,6 +38,7 @@ public partial class Main
         if(candidates.Any(id=>id is <1 or >51||!world.Cities.ContainsKey(id)))
             throw new InvalidDataException("Registered-officer city candidates do not belong to the preview world.");
         var map=new MapSceneView{ZIndex=5};
+        map.SetApplicationNativeMapDevice(RequireApplicationNativeMapDevice());
         var controls=new RegisteredOfficerCityPickerView();
         var page=new RegisteredOfficerCityPicker(map,controls,world,logicalMap,loaded,session,parent,candidates,completed);
         _registeredOfficerCityPicker=page;AddChild(map);AddChild(controls);

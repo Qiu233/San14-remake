@@ -31,6 +31,7 @@ public partial class Main
         }
         if (_registeredOfficerNewGameAccepted) return false;
         var library = _registeredOfficerNewGameLibrary ?? GetRegisteredOfficerStore().Current;
+        if (library.Officers.IsEmpty && !PrepareHistoricalOfficerNewGameProfile(selection)) return false;
         var original = _repository.LoadScenario(selection);
         PrepareHistoricalOfficerNewGame(original, selection);
         if (library.Officers.IsEmpty && !HasHistoricalOfficerNewGameOverrides) return false;

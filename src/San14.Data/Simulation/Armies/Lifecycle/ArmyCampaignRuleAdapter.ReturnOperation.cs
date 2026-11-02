@@ -14,7 +14,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         NativeMapSeasonDate? operationDate = null, TacticSourceSamplerWorld? sampler = null,
         NativeArmyProgressStageMoment? moment = null)
     {
-        var captives = new ArmyReturnCaptivesSource(this, state, new(false));
+        var captives = new ArmyReturnCaptivesSource(this, state, new(true));
         var clock = state.NativeMapSeason ?? throw new InvalidDataException("return.operation.calendar");
         var date = moment?.PreWriterThirdDate ?? operationDate ?? clock.ThirdDate;
         long revision = moment?.CalendarCycleOrdinal ?? clock.AdvancedCalendarSteps;
@@ -23,6 +23,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         return ArmyOrdinaryReturnRuntime.PrepareCurrentResourceOutputs(army, target, nativeMode,
             current, pool, queries, presentation, captives, transportFlags26,
             (reached, person, assignment) => captives.ApplyAssignmentReports(reached, person, assignment, revision, Day),
-            (reached, inputs) => captives.BorrowDistrictOperationCurrent(reached, inputs, date, revision, Day));
+            (reached, inputs) => captives.BorrowDistrictOperationCurrent(reached, inputs, date, revision, Day, reached => sampler ?? ReadArmyDestructionSampler(reached, current)
+                ?? throw new InvalidDataException("return.operation.sampler")));
     }
 }

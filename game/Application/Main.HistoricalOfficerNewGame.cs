@@ -22,6 +22,20 @@ public partial class Main
         if (_repository is null) throw new InvalidOperationException("Historical officer resources are unavailable.");
         if (source.Snapshot.Locale != selection.Locale)
             throw new InvalidDataException("Historical officer new-game source language differs from the selected scenario.");
+        if (!PrepareHistoricalOfficerNewGameProfile(selection)) return;
+        if (_historicalOfficerNewGameCatalog is null || _historicalOfficerNewGameCatalog.Locale != selection.Locale)
+            _historicalOfficerNewGameCatalog = HistoricalOfficerEditorCatalog.Load(_repository, selection.Locale,
+                GetRegisteredOfficerStore().Current, CollectionOfficerAdmission.FromProfile(GetApplicationProfile().Current));
+        _historicalOfficerNewGameCandidates = HistoricalOfficerScenario.ReadNewGameCandidates(source,
+            _historicalOfficerNewGameProfile!, _historicalOfficerNewGameCatalog);
+        if (_historicalOfficerNewGameAdoptedIds.Any(id => !_historicalOfficerNewGameCandidates.Any(row => row.Id == id)))
+            throw new InvalidDataException("An adopted historical officer is unavailable in the selected new-game source.");
+    }
+
+    // Empty editor inputs need no second parse of the selected original
+    // scenario. Keep the same per-selection profile and reset semantics.
+    private bool PrepareHistoricalOfficerNewGameProfile(EffectiveScenario selection)
+    {
         var key = (selection.Number, selection.Edition);
         if (_historicalOfficerNewGameScenario != key)
         {
@@ -32,15 +46,9 @@ public partial class Main
         if (_historicalOfficerNewGameProfile.Overrides.IsEmpty)
         {
             _historicalOfficerNewGameCandidates = [];
-            return;
+            return false;
         }
-        if (_historicalOfficerNewGameCatalog is null || _historicalOfficerNewGameCatalog.Locale != selection.Locale)
-            _historicalOfficerNewGameCatalog = HistoricalOfficerEditorCatalog.Load(_repository, selection.Locale,
-                GetRegisteredOfficerStore().Current, CollectionOfficerAdmission.FromProfile(GetApplicationProfile().Current));
-        _historicalOfficerNewGameCandidates = HistoricalOfficerScenario.ReadNewGameCandidates(source,
-            _historicalOfficerNewGameProfile, _historicalOfficerNewGameCatalog);
-        if (_historicalOfficerNewGameAdoptedIds.Any(id => !_historicalOfficerNewGameCandidates.Any(row => row.Id == id)))
-            throw new InvalidDataException("An adopted historical officer is unavailable in the selected new-game source.");
+        return true;
     }
 
     // The ordinary management page invokes this child from its source history

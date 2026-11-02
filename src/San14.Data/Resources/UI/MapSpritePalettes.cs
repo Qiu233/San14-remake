@@ -9,6 +9,8 @@ public readonly record struct MapCornerColors(AreaMarkerColor LT, AreaMarkerColo
 /// numeric rules. Prepare once, retaining both authored and CPU colors.</summary>
 public sealed class MapSpritePalettes
 {
+    private static readonly MapSpritePalettes Shared = BuildShared();
+    private static readonly AreaMarkerColor[] ForceFills = MapUiRules.ForceFillColors.Select(Read).ToArray();
     private readonly MapCornerColors[] _rows;
     private readonly AreaMarkerColor[] _contrast;
     private readonly byte[] _contrastMap;
@@ -21,7 +23,9 @@ public sealed class MapSpritePalettes
         => (_rows, _contrast, _contrastMap, _contrastFallback, MoraleStyleThreshold, DurabilityStylePercent) =
             (rows, contrast, map, fallback, moraleThreshold, durabilityPercent);
 
-    public static MapSpritePalettes Create()
+    public static MapSpritePalettes Create() => Shared;
+
+    private static MapSpritePalettes BuildShared()
     {
         var rows = MapUiRules.SpriteStyles.Select(row =>
             new MapCornerColors(Read(row.LT), Read(row.RT), Read(row.LB), Read(row.RB))).ToArray();
@@ -38,7 +42,7 @@ public sealed class MapSpritePalettes
 
     /// <summary>2AD450(force,0): source Force.Color49, with the white entry60 fallback.</summary>
     public static AreaMarkerColor ForceFill(int actualForceColor49)
-        => Read(MapUiRules.ForceFillColors[(uint)actualForceColor49 < 60 ? actualForceColor49 : 60]);
+        => ForceFills[(uint)actualForceColor49 < 60 ? actualForceColor49 : 60];
 
     public static AreaMarkerColor FromAuthored(uint authored)
     {

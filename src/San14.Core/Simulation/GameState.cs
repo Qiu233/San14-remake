@@ -709,7 +709,9 @@ public static class StateValidator
         CampaignEventCommandValidation.Validate(state);
         TutorialLessonProgressValidation.Validate(state.TutorialLessonProgress);
         ProposalStateValidation.Validate(state.Proposals);
-        RulerDecisionContinuationValidation.Validate(state);
+        RulerDecisionContinuationValidation.Validate(state, operationContext);
+        ArmyReturnCaptiveContinuationValidation.Validate(state);
+        NativeArmyMovementContinuationValidation.Validate(state);
         AutomaticEmperorCaptureValidation.Validate(state);
         if (state.TutorialForceDefeat is { ExitParagraphIndex: < 0 })
             throw new InvalidDataException("The tutorial failure exit paragraph is invalid.");

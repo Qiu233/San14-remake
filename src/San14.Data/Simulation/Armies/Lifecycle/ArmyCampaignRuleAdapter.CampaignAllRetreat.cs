@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using San14.Core;
 
 namespace San14.Data;
@@ -36,75 +37,161 @@ public sealed partial class ArmyCampaignRuleAdapter : ICampaignExpeditionExecuti
             foreach (int id in campaignIds)
                 if (!owner.Expeditions.TryGetValue(id, out var expedition) || expedition.ProvinceId == 0)
                     return CommandResult.Reject("An expedition is no longer active.", "campaign.expedition.selection");
-            var working = state;
             var operation = FacilityOperation.Playable(state);
-            foreach (int id in campaignIds)
-            {
-                //734770 repeats the actual manager60 traversal per selected
-                //Campaign, in selection order. It does not filter Army Force.
-                var manager = (current.ReadRegistryReferences(RegistryKind.Army)
-                    ?? throw CampaignRetreatMissing("manager60")).ToArray();
-                foreach (var entry in manager)
-                {
-                    int physical = CK(entry?.PhysicalSlot, "manager60_Army");
-                    var image = CampaignRetreatArmyImage(working, physical);
-                    var source = working.ReadArmyLifecycle()!.Slots[physical];
-                    if (CK(image.NativeMapUiByte13C ?? source.MapUiByte13C, "Army13C") != id) continue;
-                    var army = new ArmyUnitReference(physical);
-                    ushort at = CK(current.ReadArmyUnitRawHex2A(army), "Army2A");
-                    var hex = current.ReadHexTableReference(at < 48400 ? at : 0)
-                        ?? throw CampaignRetreatMissing("Army_Hex");
-                    ushort link = CK(current.ReadHexObjectLink(hex), "Hex1A");
-                    var location = current.ReadCityTableReference(link <= 51 ? link : 0)
-                        ?? throw CampaignRetreatMissing("City_pointer");
-                    if (!CK(current.ReadBaseNativeValidity(location), "City_validity"))
-                        location = current.ReadGateTableReference(link is >= 52 and <= 61 ? link - 51 : 0)
-                            ?? throw CampaignRetreatMissing("Gate_pointer");
-                    if (!CK(current.ReadBaseNativeValidity(location), "Base_validity"))
-                        working = ApplyCampaignFieldWithdrawalCurrent(working, current, image, operation);
-                    else
-                        working = ReturnCampaignArmyAtBaseCurrent(working, current, pool, army, location, operation);
-                }
-                var reached = working.CampaignExpeditions ?? throw CampaignRetreatMissing("reached_controller");
-                var expedition = reached.Expeditions.GetValueOrDefault(id) ?? throw CampaignRetreatMissing("reached_Campaign");
-                working = working with { CampaignExpeditions = reached with
-                { Expeditions = new(reached.Expeditions) { [id] = expedition with { IsWithdrawing = true } } } };
-            }
-            //28E6D0 occurs once after all selected Campaigns, before District14.
-            working = ConsumeArmyLifecyclePendingCurrent(working, current, pool)
-                ?? throw CampaignRetreatMissing("pending70_cleanup");
-            var primary = ForcePrimaryDistrictSource.Resolve(current,
-                OwnedCurrentPlayerForce.ReadCurrentReference(working, current) ?? throw CampaignRetreatMissing("fee_player"));
-            int districtId = CK(primary.PhysicalSlot, "fee_primary_District");
-            var district = working.Districts.GetValueOrDefault(districtId) ?? throw CampaignRetreatMissing("fee_District_owner");
-            int before = district.OrdersRemaining ?? throw CampaignRetreatMissing("fee_District14");
-            int after = Math.Clamp(unchecked(before - ReadCampaignAllRetreatBookCostCurrent(working)), 0, 200);
-            current.SetDistrictRawByte(districtId, 0x14, (byte)after);
-            var districtFields = working.NativeForceUnregisterCurrent ?? throw CampaignRetreatMissing("fee_District_saved_fields");
-            var fields = districtFields.DistrictWindows10.GetValueOrDefault(districtId)?.ToArray()
-                ?? throw CampaignRetreatMissing("fee_District_saved_window");
-            fields[4] = (byte)after;
-            working = working with
-            {
-                Districts = new(working.Districts) { [districtId] = district with { OrdersRemaining = after } },
-                NativeForceUnregisterCurrent = districtFields with
-                { DistrictWindows10 = new(districtFields.DistrictWindows10) { [districtId] = fields } }
-            };
-            working = OwnedArmyReturnCurrentFields.PublishCurrent(working, current);
-            working = OwnedArmyLifecycleDetachedInputs.PublishCurrent(working, current);
-            working = OwnedArmyLifecycleTargets.PublishCurrent(working, current);
-            return CommandResult.Accept(working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
-                { Indexes = pool.ExportOwnedState() }));
+            return CommandResult.Accept(ContinueCampaignAllRetreatCurrent(state, current, pool,
+                campaignIds, operation, null));
         }
         catch (InvalidDataException error)
         { return CommandResult.RuleUnavailable(error.Message, "Expedition withdrawal is unresolved."); }
     }
 
+    // Both the initial command and a saved player captive reply enter this
+    // same loop. Only the interrupted Campaign uses its saved manager suffix.
+    private GameState ContinueCampaignAllRetreatCurrent(GameState state, SourceWorldContext current,
+        WorldIndexContext pool, IReadOnlyList<int> campaignIds, FacilityOperation operation,
+        ImmutableArray<int>? firstManagerSuffix)
+    {
+        var working = state;
+        for (int campaignIndex = 0; campaignIndex < campaignIds.Count; campaignIndex++)
+        {
+            int id = campaignIds[campaignIndex];
+            var manager = campaignIndex == 0 && firstManagerSuffix is { } saved ? saved :
+                (current.ReadRegistryReferences(RegistryKind.Army)
+                    ?? throw CampaignRetreatMissing("manager60"))
+                    .Select(entry => CK(entry?.PhysicalSlot, "manager60_Army")).ToImmutableArray();
+            for (int armyIndex = 0; armyIndex < manager.Length; armyIndex++)
+            {
+                int physical = manager[armyIndex];
+                var image = CampaignRetreatArmyImage(working, physical);
+                var source = working.ReadArmyLifecycle()!.Slots[physical];
+                if (CK(image.NativeMapUiByte13C ?? source.MapUiByte13C, "Army13C") != id) continue;
+                var army = new ArmyUnitReference(physical);
+                ushort at = CK(current.ReadArmyUnitRawHex2A(army), "Army2A");
+                var hex = current.ReadHexTableReference(at < 48400 ? at : 0)
+                    ?? throw CampaignRetreatMissing("Army_Hex");
+                ushort link = CK(current.ReadHexObjectLink(hex), "Hex1A");
+                var location = current.ReadCityTableReference(link <= 51 ? link : 0)
+                    ?? throw CampaignRetreatMissing("City_pointer");
+                if (!CK(current.ReadBaseNativeValidity(location), "City_validity"))
+                    location = current.ReadGateTableReference(link is >= 52 and <= 61 ? link - 51 : 0)
+                        ?? throw CampaignRetreatMissing("Gate_pointer");
+                if (!CK(current.ReadBaseNativeValidity(location), "Base_validity"))
+                    working = ApplyCampaignFieldWithdrawalCurrent(working, current, image, operation);
+                else
+                {
+                    working = ReturnCampaignArmyAtBaseCurrent(working, current, pool, army, location, operation,
+                        out int retainedPerson);
+                    if (working.ArmyReturnCaptiveContinuation is { } pending)
+                    {
+                        // The return prefix is committed, but this Army's
+                        // retained Person flag and Campaign tail are not.
+                        return working with { ArmyReturnCaptiveContinuation = pending with
+                        {
+                            Caller = ArmyReturnCaptiveCaller.CampaignWithdrawal,
+                            CampaignTail = new(id, campaignIds.Skip(campaignIndex + 1).ToImmutableArray(),
+                                operation.ReadDate(), operation.Revision)
+                            {
+                                RemainingArmyPhysicalSlots = manager.Skip(armyIndex + 1).ToImmutableArray(),
+                                RetainedCommanderPhysicalSlot = retainedPerson,
+                                OperationCampaignDay = operation.ReadCampaignDay(working)
+                            }
+                        } };
+                    }
+                }
+            }
+            var reached = working.CampaignExpeditions ?? throw CampaignRetreatMissing("reached_controller");
+            var expedition = reached.Expeditions.GetValueOrDefault(id) ?? throw CampaignRetreatMissing("reached_Campaign");
+            working = working with { CampaignExpeditions = reached with
+                { Expeditions = new(reached.Expeditions) { [id] = expedition with { IsWithdrawing = true } } } };
+        }
+        //28E6D0 occurs once after all selected Campaigns, before District14.
+        working = ConsumeArmyLifecyclePendingCurrent(working, current, pool)
+            ?? throw CampaignRetreatMissing("pending70_cleanup");
+        var primary = ForcePrimaryDistrictSource.Resolve(current,
+            OwnedCurrentPlayerForce.ReadCurrentReference(working, current) ?? throw CampaignRetreatMissing("fee_player"));
+        int districtId = CK(primary.PhysicalSlot, "fee_primary_District");
+        var district = working.Districts.GetValueOrDefault(districtId) ?? throw CampaignRetreatMissing("fee_District_owner");
+        int before = district.OrdersRemaining ?? throw CampaignRetreatMissing("fee_District14");
+        int after = Math.Clamp(unchecked(before - ReadCampaignAllRetreatBookCostCurrent(working)), 0, 200);
+        current.SetDistrictRawByte(districtId, 0x14, (byte)after);
+        var districtFields = working.NativeForceUnregisterCurrent ?? throw CampaignRetreatMissing("fee_District_saved_fields");
+        var fields = districtFields.DistrictWindows10.GetValueOrDefault(districtId)?.ToArray()
+            ?? throw CampaignRetreatMissing("fee_District_saved_window");
+        fields[4] = (byte)after;
+        working = working with
+        {
+            Districts = new(working.Districts) { [districtId] = district with { OrdersRemaining = after } },
+            NativeForceUnregisterCurrent = districtFields with
+            { DistrictWindows10 = new(districtFields.DistrictWindows10) { [districtId] = fields } }
+        };
+        working = OwnedArmyReturnCurrentFields.PublishCurrent(working, current);
+        working = OwnedArmyLifecycleDetachedInputs.PublishCurrent(working, current);
+        working = OwnedArmyLifecycleTargets.PublishCurrent(working, current);
+        return working.WithArmyLifecycle(working.ReadArmyLifecycle()! with
+            { Indexes = pool.ExportOwnedState() });
+    }
+
+    /// <summary>Continue only the caller suffix belonging to the already
+    /// committed return prefix. Selection replies never begin a new period.</summary>
+    internal GameState ResumeDirectArmyReturnCaptiveSuffix(GameState input)
+    {
+        var pending = input.ArmyReturnCaptiveContinuation
+            ?? throw CampaignRetreatMissing("captive_return_owner");
+        if (pending.Caller is not (ArmyReturnCaptiveCaller.OrdinaryEntry or ArmyReturnCaptiveCaller.CampaignWithdrawal))
+            throw CampaignRetreatMissing("captive_return_caller");
+        var world = CaptureOwnedArmyReturnWorld(input);
+        var working = ResumePlayerArmyReturnCurrent(input, world.Context, world.Pool);
+        if (pending.Caller == ArmyReturnCaptiveCaller.OrdinaryEntry)
+        {
+            if (pending.DeploymentCancellationTail is { } cancelled)
+            {
+                ClearCampaignReturningCommanderCurrent(world.Context, cancelled.RetainedCommanderPhysicalSlot);
+                var cancelledCity = world.Context.ReadCityTableReference(cancelled.CityId)
+                    ?? throw CampaignRetreatMissing("cancelled_return_City");
+                return FinishCancelledDeploymentReturnCurrent(working, world.Context, world.Pool,
+                    new(pending.ArmyPhysicalSlot), cancelledCity,
+                    new FacilityOperation(() => cancelled.OperationDate, cancelled.OperationRevision,
+                        _ => cancelled.OperationCampaignDay));
+            }
+            working = OwnedArmyLifecycleDetachedInputs.PublishCurrent(working, world.Context);
+            working = ConsumeArmyLifecyclePendingCurrent(working, world.Context, world.Pool)
+                ?? throw CampaignRetreatMissing("captive_return_pending70_cleanup");
+            if (pending.ImmediateEntryReportRuleId is { } reportRule)
+            {
+                var original = input.Units[pending.ArmyUnitId];
+                var settled = PlayableOfficerArrivalAftermath.Settle(working, [original.OfficerId]);
+                var reports = settled.Reports.Append(new PeriodReportEntry("unit_entered", original.ForceId,
+                    pending.Destination.Id, original.OfficerId, original.Troops, original.HexId, original.HexId)
+                    { LocationId = pending.Destination.Id, RuleId = reportRule }).ToArray();
+                working = settled.State with
+                {
+                    PeriodReports = settled.State.PeriodReports.Concat(reports).ToArray(),
+                    PendingCommandReports = settled.State.PendingCommandReports.Concat(reports).ToArray()
+                };
+            }
+            return working;
+        }
+        var tail = pending.CampaignTail ?? throw CampaignRetreatMissing("captive_Campaign_tail");
+        ClearCampaignReturningCommanderCurrent(world.Context, tail.RetainedCommanderPhysicalSlot);
+        var operation = new FacilityOperation(() => tail.OperationDate, tail.OperationRevision,
+            _ => tail.OperationCampaignDay);
+        return ContinueCampaignAllRetreatCurrent(working, world.Context, world.Pool,
+            new[] { tail.CurrentExpeditionId }.Concat(tail.RemainingExpeditionIds).ToArray(),
+            operation, tail.RemainingArmyPhysicalSlots);
+    }
+
+    private static void ClearCampaignReturningCommanderCurrent(SourceWorldContext current, int person)
+    {
+        ushort flags = CK(current.ReadArmyReturnPersonFlags196(person), "return_Person15E");
+        current.WriteArmyReturnPersonFlags196(person, (ushort)(flags & 0xFFFE));
+    }
+
     private GameState ReturnCampaignArmyAtBaseCurrent(GameState state, SourceWorldContext current,
-        WorldIndexContext pool, ArmyUnitReference army, BaseReference target, FacilityOperation operation)
+        WorldIndexContext pool, ArmyUnitReference army, BaseReference target, FacilityOperation operation,
+        out int person)
     {
         ushort rawCommander = CK(current.ReadArmyUnitCommanderId(army), "return_Commander12");
-        int person = CK((rawCommander <= 6000 ? current.ReadPersonLookupReference(rawCommander)
+        person = CK((rawCommander <= 6000 ? current.ReadPersonLookupReference(rawCommander)
             : current.ReadTransferPersonTableReference(0))?.PhysicalSlot, "return_Commander_pointer");
         var working = state;
         if (CK(current.ReadArmyUnitNativeValidity(army), "return_Army_validity") &&
@@ -119,13 +206,14 @@ public sealed partial class ArmyCampaignRuleAdapter : ICampaignExpeditionExecuti
                 current, pool, CreateCaptureGovernorQueries(working), new(false, false),
                 image.NativeTacticRuntime?.Status10 == 2 ? image.NativeTacticRuntime.Flags26 : null,
                 operationDate: operation.ReadDate());
+            if (prepared.Suspension is { } suspension)
+                return world.CommitSuspension(working, suspension);
             var packet = prepared.Packet ?? throw CampaignRetreatMissing(prepared.UnresolvedOwner ?? "29F220");
             working = world.CommitPrepared(working, packet) ?? throw CampaignRetreatMissing("29F220_publication");
         }
         //The caller clears this retained Person pointer even if29F220's own
         //validity/affiliation gate skipped its body. It does not ungroup yet.
-        ushort flags = CK(current.ReadArmyReturnPersonFlags196(person), "return_Person15E");
-        current.WriteArmyReturnPersonFlags196(person, (ushort)(flags & 0xFFFE));
+        ClearCampaignReturningCommanderCurrent(current, person);
         return working;
     }
 

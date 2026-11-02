@@ -32,6 +32,7 @@ public sealed class SkySeasonMainCameraSource
         SceneClockSeed=loaded.SceneClockSeed;Controller=loaded.Controller;
         SourceColorTemperature21C=loaded.SourceColorTemperature21C;Transmittance=loaded.Transmittance;
         UsesSourceCreatedEmptyAxes=loaded.UsesSourceCreatedEmptyAxes;
+        SuccessfulMainModeSelection=loaded.SuccessfulMainModeSelection;
         CameraPrefixScalars=loaded.CameraPrefixScalars;PostEffectScalarSource=loaded.PostEffectScalarSource;
         CloudTextures=loaded.CloudTextures;
         RenderingAtmosphere=loaded.RenderingAtmosphere;
@@ -86,6 +87,22 @@ public sealed class SkySeasonMainCameraSource
         throw new NotSupportedException("This rendering operation has no selected atmosphere provider.");
     public SkyAppliedSeasonCloudTextureSources CloudTextures{get;}
     public bool UsesSourceCreatedEmptyAxes{get;}
+    /// <summary>Only the successful ordinary Main V468 direct application
+    /// publishes these late controls. Invocation15C8 is not an external selector.</summary>
+    public int? SuccessfulMainModeSelection { get; private init; }
+    public bool UsesSourceDatabaseReset => UsesSourceCreatedEmptyAxes || SuccessfulMainModeSelection.HasValue;
+    internal SkySeasonMainCameraSource ApplySuccessfulMainMode(MapSeasonCalendarFrame calendar,
+        MainMapCameraModePacket mode)
+    {
+        MapSeasonRuntime.ValidateFrame(calendar);
+        if(calendar.GetType()!=Season.Calendar.GetType())
+            throw new InvalidDataException("Adopt the actual started calendar before preparing its Main mode packages.");
+        if(mode.FrameNumber!=calendar.FrameNumber||mode.AcceptedMainFrame.Camera.ExecutableLocale!=Transmittance.Atan.Locale||
+            mode.Mode288!=Selection.FirstIndex||Selection.SecondPackage is not null||
+            Selection.Provider.ExternalSelectorObjectId!=0)
+            throw new InvalidDataException("Successful Main application requires its actual mode, direct package and absent external selector.");
+        return new(calendar,this){SuccessfulMainModeSelection=mode.Mode288};
+    }
     public MapSeasonCameraPrefixScalars CameraPrefixScalars{get;}
     public WeatherFogProfile WeatherProfile => WeatherFogProfileImport.FromPackage(Selection.FirstPackage);
     /// <summary>Cloud declarations belong to this loaded source, independently

@@ -6,18 +6,20 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     internal GameState ApplyPersonnelCreditReportsCurrent(GameState state, SourceWorldContext current,
         int forceId, IReadOnlyList<int> selectedOfficerIds, bool rankup, List<CampaignEffectRequest> sink,
-        GameState sourceState, IReadOnlyList<int>? promotedIds = null)
+        GameState sourceState, IReadOnlyList<int>? promotedIds = null,
+        bool emitInitialSound = true, bool choiceOnly = false)
     {
         if (selectedOfficerIds.Count == 0) return state;
         int first = selectedOfficerIds[0];
         int ruler = PersonnelAdministrationRuler(sourceState, forceId);
-        PersonnelAdministrationSound(sink, rankup ? 5 : 4);
+        if (emitInitialSound) PersonnelAdministrationSound(sink, rankup ? 5 : 4);
         var line = FormatPersonnelAdministrationCurrent(state, current, 0x5C56,
             new(Person0: first, Person1: ruler));
         sink.Add(PersonnelAdministrationOfficerLine(current, sourceState, first, ruler, line));
         if (!rankup) PersonnelAdministrationSound(sink, 5);
         var notice = FormatPersonnelAdministrationCurrent(line.State, current,
-            rankup ? selectedOfficerIds.Count == 1 ? 0x5C51 : 0x5C52
+            rankup ? choiceOnly ? selectedOfficerIds.Count == 1 ? 0x5C53 : 0x5C54
+                : selectedOfficerIds.Count == 1 ? 0x5C51 : 0x5C52
                 : selectedOfficerIds.Count == 1 ? 0x5C5E : 0x5C5F,
             new(Person0: first));
         PersonnelAdministrationAnnouncement(sink, notice.Text);

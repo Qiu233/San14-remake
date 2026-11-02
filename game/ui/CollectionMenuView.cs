@@ -17,21 +17,21 @@ internal partial class CollectionMenuView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IReadOnlyList<bool> available, Func<bool> admitted, Action returned,
-        Action<CollectionMenuCommand> selected)
+        Action<CollectionMenuCommand> selected, AdministrationPageChrome.Resources? resources = null)
     {
         if (available.Count != 7) throw new ArgumentException("Collection menu requires seven consumers.", nameof(available));
         this.admitted = admitted; this.returned = returned; this.selected = selected;
         Name = "CollectionMenu"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x32, RequestBack, () => { }, returnOnly: true);
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "02_04_00_edit_top_new"));
+        chrome.Configure(repository, text, 0x32, RequestBack, () => { }, returnOnly: true, resources: resources);
+        var source = chrome.Assets.SourceLayout("02_04_00_edit_top_new");
         foreach (var node in source.Nodes.Where(node => node.Index != 4 && node.ParentIndex != 4))
         {
             if (node.Type is 1 or 3) source.Art(chrome.Canvas, node.Index, source.Rectangle(node.Index), chrome.Assets, chrome.SpriteShader);
             else if (node.Type == 6) source.Blur(chrome.Canvas, node.Index, source.Rectangle(node.Index));
         }
-        var buttonSource = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "02_04_00_btn_set_offset_00_new"));
+        var buttonSource = chrome.Assets.SourceLayout("02_04_00_btn_set_offset_00_new");
         Vector2 mount = source.Rectangle(2).Position;
         foreach (int index in new[] { 1, 2 })
             buttonSource.Art(chrome.Canvas, index, buttonSource.Rectangle(index, mount), chrome.Assets, chrome.SpriteShader);

@@ -14,6 +14,7 @@ public sealed class D3D11CurrentSeasonLight
         State = source.CurrentSource.PrepareCamera(camera);
     }
     public uint ObjectId { get; }
+    public uint SelectedObjectId => source.SelectedConstruction.SourceObjectId;
     public uint GroupMask { get; }
     public CurrentDirectionalLightState State { get; }
     public HdrLightState Lighting => State.Lighting;
@@ -22,7 +23,7 @@ public sealed class D3D11CurrentSeasonLight
     public PatternLightModifier PatternModifier => State.PatternModifier;
     // The implemented root/root provider preserves these resource slots;
     // camera preparation changes numeric lighting, not their captured owners.
-    internal IReadOnlyList<DirectionalLightResourceSlot> ResourceSlots => source.DefaultCaller.Root.ResourceSlots;
+    internal IReadOnlyList<DirectionalLightResourceSlot> ResourceSlots => source.SelectedConstruction.ResourceSlots;
     internal void WriteNumericPrefix(Span<byte> destination) =>
         source.NumericEncoding.Write(State, cameraPrefix.Span, destination);
 }
@@ -97,6 +98,8 @@ public sealed class D3D11CurrentSeasonFrame
 public sealed class D3D11CurrentSeasonPublisher
 {
     private D3D11CurrentSeasonResources _resources;
+    private MapGameLightQualityControlOwner _gameLightControls=null!;
+    private D3D11CurrentSeasonResources.Light[] _gameLights=[];
     private readonly MainMapCameraModeOwner _mode;
     private readonly MapMainCameraPostSelectionOwner _post;
     private readonly MapGameLightQualityOwner _quality;
@@ -119,6 +122,7 @@ public sealed class D3D11CurrentSeasonPublisher
         D3D11CurrentSeasonLibrary? resourceLibrary = null)
     {
         _resources = resources;
+        ResetGameLightControls(resources);
         _library = resourceLibrary;
         string locale = resources.Source.Locale;
         _mode = actualMainMode ?? MainMapCameraModeOwner.CreateFresh(locale, "native-current-season/App");
@@ -145,7 +149,14 @@ public sealed class D3D11CurrentSeasonPublisher
     {
         if (resources.Source.Locale != _resources.Source.Locale)
             throw new InvalidDataException("A live Main season cannot switch executable locale.");
+        if(!ReferenceEquals(_resources,resources))ResetGameLightControls(resources);
         _resources = resources;
+    }
+
+    private void ResetGameLightControls(D3D11CurrentSeasonResources resources)
+    {
+        _gameLightControls=new(resources.Lights.Select(light=>light.DefaultCaller.Root).ToArray());
+        _gameLights=resources.Lights.ToArray();
     }
 
     /// <summary>Called only after successful Start and a drained native pump.
@@ -207,8 +218,9 @@ public sealed class D3D11CurrentSeasonPublisher
     private D3D11CurrentSeasonFrame PrepareCalendar(MapSeasonCalendarFrame calendar,
         MainMapCameraFrame currentMain, float elapsedSeconds)
     {
-        var selected = _resources.Source.CameraSource.WithCalendar(calendar);
         var mode = _mode.PrepareCurrent(currentMain);
+        var selected = _resources.CameraModes.Prepare(calendar,mode);
+        var settings = _resources.ModeSettings[mode.Mode288];
         var post = _post.PrepareCurrent(selected, mode, _quality);
         var before = SkySeasonMainCameraProducer.PrepareBeforeFinalPreparation(
             selected, currentMain, mode.Mode288, _phase,
@@ -219,26 +231,35 @@ public sealed class D3D11CurrentSeasonPublisher
             selected.Transmittance.Power, NativeCameraTangentDispatch.Sse);
         var present = MapSourceCreatedSeasonLightingFrame.CapturePreparedSeason(rgb, weather);
         var actual = selected.PostEffectScalarSource.CaptureActualMainPreparation(before, currentMain.Camera);
-        var viewSettings = CameraViewSettingsEncoding.ApplyPreparedOverrides(_resources.ViewDefaults, actual.Scalars);
-        var surface = _resources.OceanSurface with
-        { CutoffDistance = actual.Scalars.QualityPatch.OceanCutoffDistance ?? _resources.OceanSurface.CutoffDistance };
-        var oceanOptics = _resources.OceanOptics with
-        { RefractionIndex = actual.Scalars.QualityPatch.OceanRefractionIndex ?? _resources.OceanOptics.RefractionIndex };
-        var heightFog = HeightFogSettingsEncoding.ApplyQualityPatch(_resources.HeightFog, actual.Scalars.QualityPatch);
-        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, _resources.ViewDefaults, _resources.OceanWaves, surface, oceanOptics,
-            _resources.CloudShaderSettings);
+        var viewSettings = CameraViewSettingsEncoding.ApplyPreparedOverrides(settings.View, actual.Scalars);
+        var surface = settings.Surface with
+        { CutoffDistance = actual.Scalars.QualityPatch.OceanCutoffDistance ?? settings.Surface.CutoffDistance };
+        var oceanOptics = settings.Optics with
+        { RefractionIndex = actual.Scalars.QualityPatch.OceanRefractionIndex ?? settings.Optics.RefractionIndex };
+        var heightFog = HeightFogSettingsEncoding.ApplyQualityPatch(settings.Fog, actual.Scalars.QualityPatch);
+        var words = D3D11CurrentSeasonEncoding.MainWrites(actual, settings.View, settings.Waves, surface, oceanOptics,
+            settings.Cloud);
         var prefix = present.PreparedCameraPrefix;
         var lightCamera = DirectionalLightCurrentCamera.Capture(prefix.Span);
-        var lights = _resources.Lights.Select(light => new D3D11CurrentSeasonLight(
+        _gameLightControls.ApplyCurrent(_quality.CurrentQualityOption18,mode.Mode288);
+        for(int index=0;index<_gameLights.Length;index++)
+        {
+            var registered=_resources.Lights[index];
+            var actor=_resources.SelectModeLight(index,selected.SuccessfulMainModeSelection!.Value);
+            var controls=_gameLightControls.ReadCurrentControls(actor.SourceObjectId);
+            if(ReferenceEquals(_gameLights[index].SelectedConstruction,actor)&&_gameLights[index].GameControls==controls)continue;
+            _gameLights[index]=new(registered,actor,controls);
+        }
+        var lights = _gameLights.Select(light => new D3D11CurrentSeasonLight(
             light, lightCamera, prefix)).ToArray();
         var atmosphereLight = lights.First(light => (light.GroupMask & 0x80) != 0).State;
         var atmosphere = D3D11CurrentAtmosphereFrame.Prepare(present,
             selected.Transmittance.Tangent, _color,
             atmosphereLight.SunBaseline, atmosphereLight.MoonBaseline,
-            _resources.ControllerGeometry40);
+            settings.Stars.ExposureScale);
         var prepared = new D3D11CurrentSeasonFrame(mode, calendar, rgb, present,
             words, lights, atmosphere, D3D11CurrentExposureLight.Capture(_resources.FreshExposureSelector, lights),
-            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, _resources.OceanWaves, surface, oceanOptics, _resources.OceanTextureMaterial, heightFog, _resources.CommonPolicy, _resources.OceanBubbleMaterial, _resources.Stars, _resources.PatternSettings, _resources.RainSettings);
+            CameraOpticsEncoding.DecodePrefix(currentMain.Camera.Source, prefix.Span, actual.Scalars.ApplyOpticalTailTo(currentMain.Camera.Optics)), viewSettings, settings.Waves, surface, oceanOptics, settings.Texture, heightFog, _resources.CommonPolicy, settings.Bubble, settings.Stars, settings.Pattern, settings.Rain);
         prepared.PostOptics=_postOptics?.Prepare(prepared);
         _lastPreparedFrame=prepared;
         return prepared;

@@ -32,6 +32,24 @@ public sealed class MapStaticModelAssetCatalog
         (_repository, Scene, _sdfDeclarations) = (repository, scene, sdfDeclarations);
     }
 
+    /// <summary>Borrow immutable source assets while creating independent
+    /// registration and lookup lifetimes for this actual map opening.</summary>
+    internal static MapStaticModelAssetCatalog CreateFromSources(GameResourceRepository repository,
+        D3D11ModelInputSources sources, D3D11SdfModelDeclarationPreparation sdfDeclarations)
+    {
+        ArgumentNullException.ThrowIfNull(sources); ArgumentNullException.ThrowIfNull(sdfDeclarations);
+        var catalog = new MapStaticModelAssetCatalog(repository, sources.Scene, sdfDeclarations);
+        foreach (var source in sources.Assets)
+        {
+            if (source.SceneUri != sources.Scene.Scene.Source.ResourceUri ||
+                source.SceneSha256 != sources.Scene.Scene.Source.DecodedSha256 || source.SdfRegistration is not null)
+                throw new InvalidDataException("Field model source asset has another scene or registration lifetime.");
+            catalog._assets.Add(source.CategoryIdentity, source with
+            { SdfRegistration = sdfDeclarations.RegisterFreshOwnedModel(source.Reference) });
+        }
+        return catalog;
+    }
+
     public MapStaticModelAsset LoadCity(CityVisualAssetCatalog catalog, CityVisualSelection selection)
     {
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(selection);

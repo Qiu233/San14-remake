@@ -36,10 +36,10 @@ public static class ArmyReturnResourceUpdater
             int commander = (context.ReadPersonLookupReference(commanderId <= 6000 ? commanderId : 0)
                 ?? throw Missing("current.Commander_lookup")).PhysicalSlot ?? throw Missing("current.Commander_pointer");
             if (!Get(context.ReadPersonNativeValidity(commander), "current.Commander_validity")) throw Missing("branch.invalid_commander");
-            byte forceSlot = Get(context.ReadPersonOldForceSlot(commander), "current.Army_force22CD80");
-            int baseForce = Get(context.ReadBaseForceSlot(target), "current.Base_virtualB0");
-            if (forceSlot != baseForce || forceSlot is < 1 or > 45) throw Missing("branch.return_resources_nonordinary_force");
-            var force = context.ReadForceTableReference(forceSlot) ?? throw Missing("current.Force_table");
+            //29F220 checks friendly affiliation before its Home/2EA9A0
+            //prefix. That prefix can legitimately free the Commander and
+            //leave this same Army pointer pending with current Force0.
+            //The two callers own entry admission; this is its resource tail.
             var fields = context.ReadArmyReturnResourceFields(army) ?? throw Missing("current.Army_return_resource_fields");
             ushort ready = Get(fields.Ready16, "current.Army_ready16"), wounded = Get(fields.Wounded18, "current.Army_wounded18");
             byte morale = Get(fields.Morale1A, "current.Army_morale1A");
@@ -47,7 +47,7 @@ public static class ArmyReturnResourceUpdater
             int oldReady = Get(context.ReadBaseResource(target, BaseResourceKind.Troops), "current.Base_ready3C");
             int oldWounded = Get(context.ReadArmyReturnBaseWounded40(target), "current.Base_wounded40");
             byte oldMorale = Get(context.ReadBaseMorale44(target), "current.Base_morale44");
-            int armyCap = BasePostLoad.ReadMoraleUpper(force, context); //22EB30→2690D0.
+            int armyCap = BasePostLoad.ReadMoraleUpper(context.ReadArmyUnitForceReference(army), context); //22EB30(Army)→2690D0.
             int mixed = oldMorale;
             if (ready != 0)
             {
@@ -60,7 +60,9 @@ public static class ArmyReturnResourceUpdater
                 float rounded = float.IsFinite(quotient) ? MathF.Round(quotient, MidpointRounding.AwayFromZero) : quotient;
                 mixed = !float.IsFinite(rounded) || rounded < int.MinValue || rounded >= 2147483648f ? int.MinValue : (int)rounded;
             }
-            int freshCap = BasePostLoad.ReadMoraleUpper(force, context); //22C990→22EBB0.
+            //22C990 is called on the Army again, not on the target Base.
+            //241790 below independently reacquires the Base's current Force.
+            int freshCap = BasePostLoad.ReadMoraleUpper(context.ReadArmyUnitForceReference(army), context); //22C990(Army)→22EBB0.
             int requestedMorale = Math.Min(mixed, freshCap);
             var draft = context;
             BasePostLoad.WriteMorale(target, requestedMorale, draft); //241790 fresh Force/cap.

@@ -18,10 +18,15 @@ internal partial class UiSourceAnimationView : Control
     internal bool AutomaticAnimationClock { get; set; } = true;
 
     protected void ConfigureAnimation(UiSourceLayout source, IReadOnlySet<string> names, IEnumerable<int> nodes)
+        => ConfigureAnimation(source, LcskAnimationReader.Read(source.Source.Layout, names)
+            .ToDictionary(clip => clip.Name), nodes);
+
+    protected void ConfigureAnimation(UiSourceLayout source,
+        IReadOnlyDictionary<string, LcskAnimationClip> preparedClips, IEnumerable<int> nodes)
     {
         MouseFilter = MouseFilterEnum.Ignore;
         AnimationLayout = source; Size = source.Rectangle(0).Size;
-        clips = LcskAnimationReader.Read(source.Source.Layout, names).ToDictionary(clip => clip.Name);
+        clips = preparedClips;
         foreach (int index in nodes)
         {
             var node = source.Nodes[index]; var transform = source.NodeTransform(index);
@@ -70,13 +75,14 @@ internal partial class UiSourceAnimationView : Control
 
     /// <summary>A media-clock owner samples a source clip directly. Holding its
     /// last sample is separate from the automatic name/number retirement path.</summary>
-    protected void ApplyAnimationAt(string name, double seconds, bool repeat = false)
+    protected void ApplyAnimationAt(string name, double seconds, bool repeat = false, bool reveal = true)
     {
         var clip = clips[name];
         foreach (var (index, pane) in AnimationPanes)
             pane.Visible = clip.NodeIds.Contains(index) && !HiddenAnimationPanes.Contains(index);
         if (repeat && clip.DurationSeconds > 0) seconds %= clip.DurationSeconds;
-        Show(); ApplyFrame(clip, clip.FrameAfter(Math.Max(0, seconds)));
+        if (reveal) Show();
+        ApplyFrame(clip, clip.FrameAfter(Math.Max(0, seconds)));
     }
 
     private void ApplyFrame(LcskAnimationClip clip, float frame)

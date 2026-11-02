@@ -5,6 +5,12 @@ public partial class Main
 {
     private Action<GameState>? _commandDetailsAdoptSpeechWorld;
 
+    // Only an actual held inspection World admits its input during execution.
+    // The normal path preserves RunUiAction's ordinary stage admission.
+    private void RunInspectionUiAction(GameState world, Action action)
+        => RunUiAction(action, allowDuringPeriod: _advancingPeriod &&
+            _session is { } session && IsInspectionWorldCurrent(session, world));
+
     // Independent inspectors supply their own exact retained-root admission.
     private bool IsInformationBrowserCurrent(MapInformationBrowserView browser) =>
         _commandDetailsView == browser || browser.IsRetainedSpeechHostCurrent;

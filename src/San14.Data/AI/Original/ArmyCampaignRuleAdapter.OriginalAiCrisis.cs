@@ -41,8 +41,12 @@ public sealed partial class ArmyCampaignRuleAdapter
                 enemy = AiCrisisKnown(current.ReadBaseObjectLink(chosen), "enemy_Base4E");
                 if (AiCrisisKnown(current.ReadBaseNativeValidity(chosen), "enemy_validity"))
                 {
-                    foreach (int rawHex in ArmyRouteSearch.OriginalAiCrisisPath(state, current,
-                        current.ReadBaseCurrentHexIndex(chosen), current.ReadBaseCurrentHexIndex(at)))
+                    var from = ArmyMarchSourceAdapter.ReadBaseMapDestination(state, current, chosen);
+                    var to = ArmyMarchSourceAdapter.ReadBaseMapDestination(state, current, at);
+                    int[] path = from is { Kind: ArmyMarchDestinationKind.Hex, HexId: int start } &&
+                        to is { Kind: ArmyMarchDestinationKind.Hex, HexId: int goal }
+                        ? ArmyRouteSearch.OriginalAiCrisisPath(state, current, start, goal) : [];
+                    foreach (int rawHex in path)
                     {
                         var hex = current.ReadHexTableReference((uint)rawHex < 48400 ? rawHex : 0)
                             ?? throw AiCrisisMissing("route_Hex_pointer");

@@ -1,0 +1,122 @@
+{
+  "upstream": "https://github.com/godotengine/godot",
+  "version": "4.7.2-stable",
+  "sourceCommit": "ed1daf0bf001b61586d9930840f2f1394092c079",
+  "templateName": "godot.windows.template_release.x86_64.mono.exe",
+  "verifiedFiles": [
+    {
+      "name": "godot.windows.template_release.x86_64.mono.exe",
+      "sha256": "213224E05264069916B92A7599F731039639FE57A4ACA7871329337BC5A2E0E7"
+    },
+    {
+      "name": "godot.windows.template_release.x86_64.mono.console.exe",
+      "sha256": "035B2C0D84B89CD17A2B1ADE9C04BBE21BF6D081C5F90846AE8D18A079ED08CD"
+    },
+    {
+      "name": "D3D12Core.dll",
+      "sha256": "560F9574372A52AB66AD95EE1222F1EB4C9F6161D8F6B7B025D89F684B07246C"
+    },
+    {
+      "name": "d3d12SDKLayers.dll",
+      "sha256": "BCEC9E1315FB4DBC767371926FB5EB8281DE1B3AB1FB530A636B3C193A9A2BBD"
+    }
+  ],
+  "agilitySdkVersion": "1.618.5",
+  "buildArguments": [
+    "platform=windows",
+    "arch=x86_64",
+    "target=template_release",
+    "module_mono_enabled=yes",
+    "d3d12=yes",
+    "vulkan=no",
+    "opengl3=no",
+    "angle=no",
+    "lto=none",
+    "optimize=speed",
+    "debug_symbols=no",
+    "use_pix=no",
+    "agility_sdk_multiarch=no"
+  ],
+  "recipeVersion": 3,
+  "patches": [
+    {
+      "file": "imported-texture-lifetime.patch",
+      "sha256": "44EFED90977AC02BA6556BF81281074D1D9FA012416118DCD517FFD75B460525",
+      "files": [
+        {
+          "path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+          "beforeSha256": "E78DA0DFA04FE9AC3C4A12D199388A9A230EB57F9F3980B9610039FE761C1F0B",
+          "afterSha256": "CCA768FD1E6BB5EC2A500BCEB66FB4E12F763772954E225933EC108531ED030E"
+        }
+      ]
+    },
+    {
+      "file": "preserve-rd-format.patch",
+      "sha256": "4E48CE5FD35C32657AB8264805DB41E7AD0C43CA8B4BB42881CE2B96E3619FF1",
+      "files": [
+        {
+          "path": "scene/resources/texture_rd.h",
+          "beforeSha256": "948F03E53F5257F2C407D5C2E56F071BA113BE30CE78EBE49437A7A4A17F35AD",
+          "afterSha256": "E4BB3A1693D7734D508AAB23658229BD94D2CD218AB3E24EF6BF0787825750E9"
+        },
+        {
+          "path": "scene/resources/texture_rd.cpp",
+          "beforeSha256": "559AE8D277275DBAFFBD2DBFE35BFBCD6FD8EFA67CFAB100143128F17E38E043",
+          "afterSha256": "AACE04529E054F57CACC86F7111530A69E2B2606079E1765960E070F999E825D"
+        },
+        {
+          "path": "servers/rendering/rendering_server.h",
+          "beforeSha256": "5E0E9B836F0C2E41C7237C0A72B76C5D60F632BD8294294A5F28FF1B975C2CD8",
+          "afterSha256": "63C628C1B968F0939C3ED14FCF95873D626C8B7341F2E89F922255DAAC966E5B"
+        },
+        {
+          "path": "servers/rendering/rendering_server.cpp",
+          "beforeSha256": "B108F62D9D6113061DD1261E7BEF51515FBDBA9080B4393245E84CECC67AD7CA",
+          "afterSha256": "C837435FF6159218B84409AC0437EA65229F1B324DCBD1B2E3C71ACE12EBD0A8"
+        },
+        {
+          "path": "servers/rendering/rendering_server_default.h",
+          "beforeSha256": "1EDAB81178754A27E70EB897B3A8D22E246C20DEE060072E785674F4FF62D6E6",
+          "afterSha256": "C6DF9CF98AA2763076483EF94E906A83C572E76CBC0330B6F9A7FC6EA3D2F9DB"
+        },
+        {
+          "path": "servers/rendering/storage/texture_storage.h",
+          "beforeSha256": "BB989B6BCC4CDDADF5D45468473C7038970AC9202686CD508C7D618E017C5018",
+          "afterSha256": "5EFF549A2F2A3D2B9FBDEC98975E10DC9FAF9FBFEE29F3FFE6CE85045440ACB4"
+        },
+        {
+          "path": "servers/rendering/renderer_rd/storage_rd/texture_storage.h",
+          "beforeSha256": "F82269D66F910973E051332CB32E443888AD809BF865B643D5AB71A78F67BDB9",
+          "afterSha256": "D56B521AC3DC4B0C47E38AB89AF82074DF1E79DFC086C2BD907C55B3149A9C89"
+        },
+        {
+          "path": "servers/rendering/renderer_rd/storage_rd/texture_storage.cpp",
+          "beforeSha256": "37D32F106CEFE17872676D7A35C9CA30E881AD6474F335D7DF18E826378A4917",
+          "afterSha256": "83EF8C41523122A8E10E2BBA685A73F063B335A8AA19EFBA35AA933991A4E9B6"
+        },
+        {
+          "path": "doc/classes/Texture2DRD.xml",
+          "beforeSha256": "AB945822A5A0A694D3706EF5C74F07954E18B611EAFBE66880137548CBEA8C9A",
+          "afterSha256": "95A314265D95B35697F6047DA715774B1919193829906C5A9EDF394E90991F92"
+        },
+        {
+          "path": "doc/classes/RenderingServer.xml",
+          "beforeSha256": "272EAFE130FF0012CB916DD84874AE7846622055E79ADD22C1EA99B41D4ABBB4",
+          "afterSha256": "CF3FAEAB47BF528B4BA2C2148E721C2F29125D95074A2DE5587BE4F419991DD8"
+        }
+      ]
+    },
+    {
+      "file": "bgra-srgb-view.patch",
+      "sha256": "F594C263F1C324194C5C78EA68A4F5A4BF51AAEFB02EC71A490A9EE951FA0949",
+      "files": [
+        {
+          "path": "drivers/d3d12/rendering_device_driver_d3d12.cpp",
+          "beforeSha256": "CCA768FD1E6BB5EC2A500BCEB66FB4E12F763772954E225933EC108531ED030E",
+          "afterSha256": "B8F8FC58CBF320F4576230B2D9A93E790A9B1FA49BC268AD6AFB99D4EFCCF01A"
+        }
+      ]
+    }
+  ],
+  "accessKitVersion": "0.22.3"
+}

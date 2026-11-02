@@ -25,9 +25,9 @@ internal static class DeploymentNarrationPlainParagraph
         return SplitPages(expanded);
     }
 
-    internal static IReadOnlyList<string> SplitKnownColourPages(string expanded)
+    internal static IReadOnlyList<string> SplitKnownColourPages(string expanded, bool allowPresetColours = false)
     {
-        RequireKnownColours(expanded);
+        RequireKnownColours(expanded, allowPresetColours);
         return SplitPages(expanded);
     }
 
@@ -53,23 +53,23 @@ internal static class DeploymentNarrationPlainParagraph
         return WrapPage(page, rawWidth);
     }
 
-    internal static string WrapOneKnownColourPage(string page, Func<string,int> rawWidth)
+    internal static string WrapOneKnownColourPage(string page, Func<string,int> rawWidth, bool allowPresetColours = false)
     {
-        RequireKnownColours(page);
-        return WrapPage(page, rawWidth);
+        RequireKnownColours(page, allowPresetColours);
+        return WrapPage(page, rawWidth, allowPresetColours: allowPresetColours);
     }
 
     // 30D290 is also used by the region officer's two-line bubble. Its
     // caller supplies the scaled whole-string wrap measure, independently
     // of the final width-fit measure used to render the resulting lines.
     internal static string WrapKnownColourParagraph(string paragraph, Func<string,int> wrapWidth,
-        int width, int softBreaks)
+        int width, int softBreaks, bool allowPresetColours = false)
     {
-        RequireKnownColours(paragraph);
-        return WrapPage(paragraph,wrapWidth,width,softBreaks);
+        RequireKnownColours(paragraph, allowPresetColours);
+        return WrapPage(paragraph,wrapWidth,width,softBreaks,allowPresetColours);
     }
 
-    private static string WrapPage(string page, Func<string,int> rawWidth, int width=672, int softBreaks=2)
+    private static string WrapPage(string page, Func<string,int> rawWidth, int width=672, int softBreaks=2, bool allowPresetColours=false)
     {
         ArgumentNullException.ThrowIfNull(rawWidth);
         int trailingStart = page.Length;
@@ -100,7 +100,8 @@ internal static class DeploymentNarrationPlainParagraph
             {
                 // 30D290 retains the source control atom in the output,
                 // but not in its raw-width buffer or previous-glyph state.
-                output.Append(page.AsSpan(cursor, 3)); cursor += 3;
+                int length = ReadBodyColourControl(page, cursor, allowPresetColours).Length;
+                output.Append(page.AsSpan(cursor, length)); cursor += length;
                 continue;
             }
             if (overflowScan)
@@ -134,7 +135,33 @@ internal static class DeploymentNarrationPlainParagraph
             throw new InvalidOperationException("Narration requires an admitted plain LF message; formatting/control input remains unresolved.");
     }
 
-    internal static void RequireKnownColours(string value)
+    // App's colour7 callback uses preset(argument - 1). Keep the complete
+    // variable-length atom out of glyph width and line-breaking state.
+    internal static (int Length, int? BodyPreset) ReadBodyColourControl(string value, int index, bool allowPresetColours = false)
+    {
+        if (index + 2 >= value.Length || value[index] != '^' || value[index + 1] != '0')
+            throw new InvalidOperationException("Narration colour command is unresolved.");
+        char command = value[index + 2];
+        if (command == '7')
+        {
+            if (!allowPresetColours)
+                throw new InvalidOperationException("This source text consumer does not handle preset body colours.");
+            if (index + 3 >= value.Length || value[index + 3] != '~')
+                throw new InvalidOperationException("Source body-colour argument is missing.");
+            int end = value.IndexOf('~', index + 4);
+            if (end < 0 || !int.TryParse(value.AsSpan(index + 4, end - index - 4),
+                System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture,
+                out int argument))
+                throw new InvalidOperationException("Source body-colour argument is invalid.");
+            return (end - index + 1, unchecked(argument - 1));
+        }
+        if (command is not ('0' or '2' or '3' or '5') ||
+            index + 3 < value.Length && value[index + 3] == '~')
+            throw new InvalidOperationException("Narration colour command is unresolved.");
+        return (3, command switch { '2' => 38, '3' => 40, '5' => 39, _ => (int?)null });
+    }
+
+    internal static void RequireKnownColours(string value, bool allowPresetColours = false)
     {
         ArgumentNullException.ThrowIfNull(value);
         for (int index = 0; index < value.Length; index++)
@@ -142,11 +169,7 @@ internal static class DeploymentNarrationPlainParagraph
             char code = value[index];
             if (code == '^')
             {
-                if (index + 2 >= value.Length || value[index + 1] != '0' ||
-                    value[index + 2] is not ('0' or '2' or '3' or '5') ||
-                    index + 3 < value.Length && value[index + 3] == '~')
-                    throw new InvalidOperationException("Narration colour command is unresolved.");
-                index += 2; continue;
+                index += ReadBodyColourControl(value, index, allowPresetColours).Length - 1; continue;
             }
             if (code is '\0' or '\r' || char.IsControl(code) && code != '\n')
                 throw new InvalidOperationException("Narration control input is unresolved.");

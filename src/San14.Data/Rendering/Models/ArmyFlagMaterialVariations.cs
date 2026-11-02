@@ -146,7 +146,8 @@ public static class ArmyFlagMaterialVariations
         var stageSource=repository.LoadRdbAsset("MaterialEditor",textures.StageTableResource);
         var stage=ReadStageTable(stageSource.Bytes);
         var bindingSource=repository.LoadRdbAsset("system",Scalar(material,0xAD260326));
-        var binding=ShaderBindingCsvReader.Read(bindingSource.Bytes).RequireIdentifier(Scalar(material,0x3DDC205C));
+        var binding=ModelShaderResources.LoadPreparedBindingCatalog(repository,bindingSource)
+            .RequireIdentifier(Scalar(material,0x3DDC205C));
         var owner=ModelShaderResources.ReadDeclaredShader(shaderObjects,binding.ObjectNameHash);
         var provider=ModelShaderResources.ResolveType16Interface(owner,18).Provider ?? throw Error("source material G-buffer provider is null");
         var references = new Dictionary<uint,uint> { [0x87814C77]=textures.RenderTargetGroup,

@@ -25,7 +25,7 @@ public sealed class MapSelection
 
     public void Clear() => Current = null;
 
-    public MapCellSelection Select(GameState world, int hexId, int? playerForceId)
+    public MapCellSelection Select(GameState world, int hexId, int? playerForceId,IReadOnlySet<int>? visibleUnitIds=null)
     {
         if (!world.Territory.TryGetValue(hexId, out TerritoryState? territory))
             throw new InvalidDataException($"Picked map cell {hexId} is absent from the current territory state.");
@@ -41,7 +41,7 @@ public sealed class MapSelection
             area.CityId is int areaCityId && world.Cities.TryGetValue(areaCityId, out CityState? areaCity) &&
             areaCity.ForceId == playerForceId && areaCity.AreaIds.Contains(areaId)
                 ? new(areaId, area.Name) : null;
-        var ownUnits = PlayerUnits(world, hexId, playerForceId);
+        var ownUnits = PlayerUnits(world, hexId, playerForceId,visibleUnitIds);
         int? previousUnit = Current is { } previous && previous.HexId == hexId ? previous.SelectedUnit?.Id : null;
         var selectedUnit = ownUnits.FirstOrDefault(unit => unit.Id == previousUnit) ?? ownUnits.FirstOrDefault();
         var building = world.Structures?.Values.FirstOrDefault(item => item.HexId == hexId);
@@ -52,7 +52,7 @@ public sealed class MapSelection
             Array.AsReadOnly(cities.OrderBy(item => item.Id).Select(item => item.Name)
                 .Concat(gates.OrderBy(item => item.Id).Select(item => item.Name)).ToArray()),
             building is null ? null : new(building.KindId, building.Durability, building.MaxDurability),
-            Array.AsReadOnly(world.Units.Values.Where(unit => unit.HexId == hexId)
+            Array.AsReadOnly(world.Units.Values.Where(unit => unit.HexId == hexId && (visibleUnitIds?.Contains(unit.Id)??true))
                 .OrderBy(unit => unit.Id).Select(unit => Describe(world, unit)).ToArray()),
             cities.Length == 1 ? new(cities[0].Id, cities[0].Name) : null,
             commands.Length == 1 ? commands[0] : null, areaCommand)
@@ -60,10 +60,10 @@ public sealed class MapSelection
         return Current;
     }
 
-    public MapSelectionUnit? CycleUnit(GameState world, int? playerForceId)
+    public MapSelectionUnit? CycleUnit(GameState world, int? playerForceId,IReadOnlySet<int>? visibleUnitIds=null)
     {
         if (Current is null || playerForceId is null) return null;
-        var units = PlayerUnits(world, Current.HexId, playerForceId);
+        var units = PlayerUnits(world, Current.HexId, playerForceId,visibleUnitIds);
         if (units.Length < 2) return null;
         int index = Array.FindIndex(units, unit => unit.Id == Current.SelectedUnit?.Id);
         var next = units[(index + 1) % units.Length];
@@ -71,17 +71,18 @@ public sealed class MapSelection
         return next;
     }
 
-    public MapSelectionUnit? SelectUnit(GameState world, int? playerForceId, int unitId)
+    public MapSelectionUnit? SelectUnit(GameState world, int? playerForceId, int unitId,IReadOnlySet<int>? visibleUnitIds=null)
     {
-        if (Current is null || !world.Units.TryGetValue(unitId, out var unit) || unit.ForceId != playerForceId)
+        if (Current is null || !world.Units.TryGetValue(unitId, out var unit) || unit.ForceId != playerForceId ||
+            visibleUnitIds is not null && !visibleUnitIds.Contains(unitId))
             return null;
         var selected = Describe(world, unit);
         Current = Current with { SelectedUnit = selected };
         return selected;
     }
 
-    private static MapSelectionUnit[] PlayerUnits(GameState world, int hexId, int? playerForceId) =>
-        world.Units.Values.Where(unit => unit.HexId == hexId && unit.ForceId == playerForceId)
+    private static MapSelectionUnit[] PlayerUnits(GameState world, int hexId, int? playerForceId,IReadOnlySet<int>? visibleUnitIds) =>
+        world.Units.Values.Where(unit => unit.HexId == hexId && unit.ForceId == playerForceId && (visibleUnitIds?.Contains(unit.Id)??true))
             .OrderBy(unit => unit.Id).Select(unit => Describe(world, unit)).ToArray();
 
     private static MapSelectionUnit Describe(GameState world, UnitState unit) =>

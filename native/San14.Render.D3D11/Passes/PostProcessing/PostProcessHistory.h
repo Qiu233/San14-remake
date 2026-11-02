@@ -16,9 +16,8 @@ struct PostHistoryFrame {
     float applyTime{}, deltaTime{};
     uint32_t warmupRemaining{}, stagingReadSide{};
     bool cocWriteSide{}, initializeCoc{}, rebuildAperture{}, readScatterFeedback{};
-    bool feedbackApplied{}, clearRearScatter{}, clearForeScatter{};
+    bool scatterPrepared{};
 };
-struct ScatterFeedback { bool clearRear{}, clearFore{}; };
 
 // One timeline per post processor. GPU resource aliases belong to its renderer;
 // this owner tracks only temporal decisions and the accepted application clock.
@@ -51,17 +50,18 @@ public:
     void begin(const PostHistoryFrame& frame) {
         state_.previousApplyTime=frame.applyTime;applicationInProgress_=true;
     }
-    void acceptScatterFeedback(PostHistoryFrame& frame,const ScatterFeedback& feedback) const {
-        if(!applicationInProgress_||frame.feedbackApplied)throw std::runtime_error("Post scatter feedback requires the current application");
-        frame.clearRearScatter=frame.readScatterFeedback?feedback.clearRear:true;
-        frame.clearForeScatter=frame.readScatterFeedback?feedback.clearFore:true;
-        frame.feedbackApplied=true;
+    // Records preparation, not GPU completion or a fabricated CPU counter.
+    // The renderer has queued both GPU clear arguments, or selected the
+    // source's known unconditional warmup/no-feedback clear path.
+    void prepareScatter(PostHistoryFrame& frame) const {
+        if(!applicationInProgress_||frame.scatterPrepared)throw std::runtime_error("Post scatter preparation requires the current application");
+        frame.scatterPrepared=true;
     }
     // The caller completes only after draw/dispatch execution and GPU alias
     // rotation succeed. Failed execution leaves the current application open.
     void complete(const PostHistoryFrame& frame,bool gatherEnabled,bool returned=true,
         uint32_t callIndex=0,uint32_t callCount=1) {
-        if(!applicationInProgress_||!frame.feedbackApplied)throw std::runtime_error("Post completion requires current scatter feedback and execution");
+        if(!applicationInProgress_||!frame.scatterPrepared)throw std::runtime_error("Post completion requires current scatter feedback and execution");
         if(state_.warmupApplications)--state_.warmupApplications;
         state_.apertureChanged=false;
         if(returned&&callIndex==callCount-1)state_.previousGatherApplied=gatherEnabled;

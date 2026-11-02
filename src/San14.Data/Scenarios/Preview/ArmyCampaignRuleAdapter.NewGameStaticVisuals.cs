@@ -64,9 +64,14 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     /// <summary>Actual Base registry order for the source map-label builder.
     /// Callers pair these bindings with native Unit18 after model creation.</summary>
-    public IReadOnlyList<NewGameFootholdVisualMarker> CaptureNewGameFootholdVisualMarkers(GameState state)
+    public IReadOnlyList<NewGameFootholdVisualMarker> CaptureNewGameFootholdVisualMarkers(GameState state) =>
+        ReadNewGameFootholdVisualMarkers(CaptureNewGameStaticObjectVisualDefinitions(state));
+
+    /// <summary>Reads map-label bindings from the same operation's prepared
+    /// static current. Visual postload changes durability and damage tier,
+    /// leaving this registry, validity, Object link and Force ownership intact.</summary>
+    public IReadOnlyList<NewGameFootholdVisualMarker> ReadNewGameFootholdVisualMarkers(SourceWorldContext current)
     {
-        var current = CaptureNewGameStaticObjectVisualDefinitions(state);
         var markers = new List<NewGameFootholdVisualMarker>();
         foreach (var target in current.ReadRegisteredBases() ?? throw NewGameStaticVisualMissing("Base-registry80"))
         {

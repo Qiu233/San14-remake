@@ -35,7 +35,7 @@ public partial class Main
         var feedback = new MonthlyFeedbackWorkspace(session, world, map, request);
         _monthlyFeedback = feedback;
         RetirePeriodReportView(); CloseActionReport(); map.CloseCityCommandMenu();
-        map.SetDetailsOpen(true, keepMapVisible: true); SetMapFocus(false); HideDeploymentHud();
+        map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
         _ = Dispatch();
         return true;
 

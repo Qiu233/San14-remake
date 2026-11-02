@@ -30,7 +30,7 @@ public partial class PlayablePeriodReportView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         string status, PeriodReportPresentation report, int period, Action finish, UiSourceHeaderStack headers,
-        int scrollSpeed, Func<int> currentScrollSpeed)
+        int scrollSpeed, Func<int> currentScrollSpeed, AdministrationPageChrome.Resources resources)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(finish);
@@ -39,11 +39,6 @@ public partial class PlayablePeriodReportView : Control
         MouseFilter = MouseFilterEnum.Stop;
         _finish = finish;
         _repository = repository; _text = text; _scrollSpeed = scrollSpeed; _currentScrollSpeed = currentScrollSpeed;
-        AddChild(new ColorRect
-        {
-            Name = "ReportBackdrop", Color = new Color(0.03f, 0.025f, 0.02f, 0.88f),
-            MouseFilter = MouseFilterEnum.Ignore, AnchorRight = 1, AnchorBottom = 1
-        });
         _canvas = new Control
         {
             Size = new Vector2(1920, 1080), MouseFilter = MouseFilterEnum.Stop,
@@ -53,15 +48,15 @@ public partial class PlayablePeriodReportView : Control
             }
         };
         AddChild(_canvas);
-        _assets = new UiAssets(repository);
-        _font = new MapFont(repository, text.SourceLocale);
-        _shader = UiSourceSprite.CreateShader();
+        _assets = resources.Assets;
+        _font = resources.Font;
+        _shader = resources.SpriteShader;
         _title = new UiSourceHeader { Name = "ReportTitle" };
         _canvas.AddChild(_title);
         _title.Configure(repository, _assets, _shader, _font, text.Get("play_report_heading"));
         _title.Publish(headers);
         _status = AddLabel("ReportPeriod", new Rect2(80, 120, 700, 48), 24, new Color("#efdfb4"));
-        var source = new UiSourceLayout(repository, 0xDBB537B1);
+        var source = _assets.SourceLayout(0xDBB537B1);
         source.Blur(_canvas, 3, source.Rectangle(3));
         source.Art(_canvas, 4, source.Rectangle(4), _assets, _shader);
         var allBox = source.Rectangle(17);
@@ -101,7 +96,7 @@ public partial class PlayablePeriodReportView : Control
             _presentation = report;
             if (_entries is { } previous)
             { previous.Abandon(); _canvas.RemoveChild(previous); previous.QueueFree(); }
-            var source = new UiSourceLayout(_repository, 0xDBB537B1);
+            var source = _assets!.SourceLayout(0xDBB537B1);
             var box = source.Rectangle(42); var scroll = source.Rectangle(76); scroll.Position -= box.Position;
             _entries = new PeriodReportEntriesView { Name = "PeriodReportEntries", Position = box.Position, Size = box.Size };
             _canvas.AddChild(_entries);
@@ -171,6 +166,7 @@ public partial class PlayablePeriodReportView : Control
     {
         _finish = null;
         _entries?.Abandon();
-        _font?.Dispose(); _assets?.Dispose(); _shader?.Dispose();
+        // Main's application lease outlives this view's child-first exit.
+        _font = null; _assets = null; _shader = null;
     }
 }

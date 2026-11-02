@@ -16,12 +16,12 @@ internal partial class PersonnelDevelopmentSelectorPage : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         OfficerInformationPageSet source, IReadOnlyDictionary<int, (bool Enabled, string? Reason)> eligibility,
         IReadOnlyList<int> initial, int maximum, bool single, string guide,
-        Func<bool> current, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed)
+        Func<bool> current, Action<IReadOnlyList<int>?> closed, Func<int> scrollSpeed,
+        AdministrationPageChrome.Resources resources)
     {
         this.current = current; this.closed = closed; selected = initial.ToArray();
         Name = "PersonnelDevelopmentSelector"; ZIndex = 5; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        AdministrationPageChrome.Resources? resources = null;
         bool selectionNext = true;
         Switch(0);
 
@@ -70,7 +70,6 @@ internal partial class PersonnelDevelopmentSelectorPage : Control
                         selectedGroup: index, groupSelected: Switch, nextSortDirections: nextDirections,
                         selectionSortable: !single, resources: resources);
                     page.ApplyTitle(source.Title);
-                    resources ??= new(page.SourceChrome.Assets, page.SourceChrome.Font, page.SourceChrome.SpriteShader);
                     page.Name = "PersonnelDevelopmentPage" + index;
                     page.SortOrderChanged = ids =>
                     { foreach (var other in visited.Values) if (other != page) other.ApplyRowOrder(ids); };

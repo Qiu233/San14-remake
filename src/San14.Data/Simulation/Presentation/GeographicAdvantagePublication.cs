@@ -34,7 +34,6 @@ public sealed partial class ArmyCampaignRuleAdapter
             var catalog = _growthQueries.Definitions.Catalog;
             var provinces = ImmutableArray.CreateBuilder<GeographicAdvantageProvince>(17);
             var provinceCities = new Dictionary<int,List<GeographicAdvantageCity>>();
-            var cityProvinces = new Dictionary<int,int>();
             //91A770 uses every registered City's current CE byte. Its map tint
             //is applied through Area35; no Force-color substitution is made.
             foreach (var entry in current.ReadRegistryReferences(RegistryKind.City) ?? throw GeoMissing("city_registry"))
@@ -43,7 +42,6 @@ public sealed partial class ArmyCampaignRuleAdapter
                 var city = new BaseReference(BaseKind.City,id);
                 if(!(current.ReadBaseNativeValidity(city) ?? throw GeoMissing("city_validity"))) continue;
                 int province = N(_growthQueries.ReadCityState(state,id) is byte raw ? raw : null,"city_province");
-                cityProvinces[id]=province;
                 if(province is <1 or >17) continue;
                 int force = N(current.ReadBaseForceSlot(city),"city_force");
                 var owner=state.Cities.GetValueOrDefault(id) ?? throw GeoMissing("city_owner");
@@ -79,10 +77,20 @@ public sealed partial class ArmyCampaignRuleAdapter
                     {QualifiedForceId=qualified,IllustrationIndex=definition.RawBytes[162]-1});
             }
             var areaProvinces=new int[501];
-            for(int area=0;area<areaProvinces.Length;area++)
+            //91A770 colors only registered, native-valid Areas. Unused
+            //receivers do not own a current35 and must not be queried.
+            foreach(var entry in current.ReadRegistryReferences(RegistryKind.Area) ?? throw GeoMissing("area_registry"))
             {
-                int city=N(current.ReadAreaCitySlot(new(area)),"area_city");
-                areaProvinces[area]=cityProvinces.GetValueOrDefault(city);
+                if(entry is not {Kind:RegistryKind.Area,PhysicalSlot:int area}) throw GeoMissing("area_payload");
+                if((uint)area>=areaProvinces.Length) throw GeoMissing("area_receiver_range");
+                var reference=new AreaReference(area);
+                if(!(current.ReadAreaNativeValidity(reference) ?? throw GeoMissing("area_validity"))) continue;
+                int rawCity=N(current.ReadAreaCitySlot(reference),"area_city");
+                var city=current.ReadCityTableReference(rawCity<52?rawCity:0) ?? throw GeoMissing("area_city_reference");
+                int cityPhysical=N(city.PhysicalSlot,"area_city_receiver");
+                //The source reads City.CE directly; no City-validity gate or
+                //missing-dictionary fallback may replace this field.
+                areaProvinces[area]=N(_growthQueries.ReadCityState(state,cityPhysical) is byte province?province:null,"area_city_province");
             }
             var colors=new byte[48400];Array.Fill(colors,(byte)60);
             var groups=new ushort[48400];

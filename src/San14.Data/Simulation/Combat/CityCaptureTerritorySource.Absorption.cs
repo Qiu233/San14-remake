@@ -15,7 +15,7 @@ public static partial class CityCaptureTerritorySource
         var center = CurrentGateMapQueries.FindHex(scope.City, current);
         Rings(state, current, center, unchecked(K(BaseCaptureResourceInputs.ReadCurrent(state,
             SimulationParameterKeys.BaseCapture.CentralTerritoryRadius), "absorption_center_radius") +
-            (fullCentralRadius ? 1 : 0)), scope.NewForcePhysical, eagerAdvice);
+            (fullCentralRadius ? 1 : 0)), scope.NewForcePhysical, eagerAdvice, operation);
         var changed = new List<int>();
         foreach (var hex in Footprint(current, scope.City)) Raw(current, hex, scope.NewForcePhysical, changed);
         int radius = ReadAreaRadius(operation.Latest(), current, districtPhysical, scope.NewForcePhysical, abilities);
@@ -36,7 +36,7 @@ public static partial class CityCaptureTerritorySource
                     if (scope.NewForcePhysical != 0 && K(current.ReadBaseNativeValidity(originalCity), "absorption_original_City_validity") &&
                         K(current.ReadBaseForceSlot(originalCity), "absorption_original_City_Force") == scope.NewForcePhysical)
                         current.AssignAreaCity(area, K(originalCity.PhysicalSlot, "absorption_original_City_identity"));
-                    if (scope.OldForcePhysical != 0) Rings(operation.Latest(), current, hex, radius, scope.NewForcePhysical, eagerAdvice);
+                    if (scope.OldForcePhysical != 0) Rings(operation.Latest(), current, hex, radius, scope.NewForcePhysical, eagerAdvice, operation);
                     continue;
                 }
                 var neighborhoods = (operation.Package ?? throw Missing("related_Gate_neighborhood_owner"))

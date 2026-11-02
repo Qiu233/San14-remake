@@ -100,14 +100,18 @@ public sealed class D3D11TerrainInputPreparation
     public static D3D11TerrainInputPreparation Load(GameResourceRepository repository,
         LoadedTerrainSceneResources source, string locale)
     {
-        ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(source);
-        var material = source.Material;
-        var scalar = TerrainGbufferSourceParameters.CreateFresh(locale, material);
-        var materialDraw = TerrainGbufferMaterialDrawSource.CreateFresh(locale, material);
-        byte callFlags = MainSceneNode51Source.Load(repository, locale, 56).InitialCallFlags;
-        var graph = repository.LoadRenderGraph("system", 0x024496EE);
-        var targets = RenderGraphTargetResources.Read(graph, 53, repository.LoadObjects("system", 0x93FB3280));
-        return new(source, scalar, materialDraw, callFlags, targets,TerrainShadowResources.Load(repository,source.Parameters));
+        return CreateOpening(D3D11TerrainInputSources.Load(repository, source, locale));
+    }
+
+    /// <summary>Each opening retains its own replaceable parameter lifetime;
+    /// all declarations and decoded media borrow the loaded static sources.</summary>
+    public static D3D11TerrainInputPreparation CreateOpening(D3D11TerrainInputSources sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var material = sources.Source.Material;
+        var scalar = TerrainGbufferSourceParameters.CreateFresh(sources.Locale, material);
+        var materialDraw = TerrainGbufferMaterialDrawSource.CreateFresh(sources.Locale, material);
+        return new(sources.Source, scalar, materialDraw, sources.OrdinaryCallFlags, sources.Targets, sources.Shadow);
     }
 
     /// <summary>Select the initial grouped stream from the accepted camera.
@@ -141,6 +145,10 @@ public sealed class D3D11TerrainInputPreparation
     /// not read an exported receipt or select a fixed position/date/frame.</summary>
     public D3D11TerrainPreparedInputs WriteNativeInputs(string directory,
         D3D11TerrainInputFrame frame)
+        => WriteNativeInputs(directory, frame, null);
+
+    public D3D11TerrainPreparedInputs WriteNativeInputs(string directory,
+        D3D11TerrainInputFrame frame, D3D11TerrainPreparedPrograms? terrainPrograms)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory); ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(frame.Camera);
@@ -179,13 +187,19 @@ public sealed class D3D11TerrainInputPreparation
             BinaryPrimitives.WriteUInt16LittleEndian(indexBytes.AsSpan(i * 2), indices[i]);
 
         Directory.CreateDirectory(directory);
-        Write("terrain-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
-        Write("terrain-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
-        Write("near-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
+        if (terrainPrograms is null)
+        {
+            // Legacy standalone Native owners still receive their complete
+            // opening package. Product openings borrow startup GPU programs.
+            Write("terrain-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
+            Write("terrain-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
+            Write("near-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, vertex).ToArray());
+            Write("near-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
+            Write("coarse-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarseVertex).ToArray());
+            Write("coarse-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarsePixel).ToArray());
+        }
+        else terrainPrograms.WriteReference(directory, Material);
         shadow.WriteNativeInputs(Path.Combine(directory,"shadow"));
-        Write("near-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, pixel).ToArray());
-        Write("coarse-vs.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarseVertex).ToArray());
-        Write("coarse-ps.dxbc", shader.Container.GetProgramBytes(shader.Source.Bytes, coarsePixel).ToArray());
         Write("vs-b0.bin", nearVertex); Write("ps-b0.bin", nearPixel);
         Write("near-vs-b0.bin", nearVertex); Write("near-ps-b0.bin", nearPixel);
         Write("coarse-vs-b0.bin", coarseVertexBytes); Write("coarse-ps-b0.bin", coarsePixelBytes);

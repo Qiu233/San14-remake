@@ -62,7 +62,9 @@ public partial class Main
         try
         {
             EnsureReportBackground(session, application, _actionReportMap, view);
-            view.ConfigureOwned(_repository, _ui.SourceLocale, lists, layers, false,
+            var resources = TryBorrowApplicationUiResources(view);
+            view.Configure(_repository, resources.Assets, resources.SpriteShader, resources.Font,
+                _ui.SourceLocale, lists, layers, false,
                 CurrentListScrollSpeed(), CurrentListScrollSpeed, ResolveActionReportRow,
                 (_, _, record, command) => RunUiAction(() => NavigateActionReport(record, command)),
                 category => PrepareActionReportCategory(view, category), () => ActionReportInputAdmitted(view),
@@ -123,7 +125,7 @@ public partial class Main
             view.Hide(); view.ProcessMode = ProcessModeEnum.Disabled;
             map.SetDetailsOpen(false); SetMapFocus(true);
             navigation.Configure(_repository!, _ui.SourceLocale, _sourceHeaders,
-                () => RunUiAction(ReturnFromReportMap));
+                () => RunUiAction(ReturnFromReportMap), TryBorrowApplicationUiResources(navigation));
         }
         catch { ReturnFromReportMap(); throw; }
     }

@@ -14,7 +14,7 @@ internal partial class MapSummaryPanel
             {
                 var pose=new UiSourceStandingPortrait {Name="SummaryStandingPortrait"+portrait.Node,Position=box.Position};
                 AddChild(pose);pose.Configure(resources.Repository,resources.Assets,resources.Shader,
-                    standing.LoadSprites(resources.Sprite));
+                    standing.LoadSources(resources.Assets.Portraits.RequireSource));
                 pose.Scale=box.Size/pose.Size;view=pose;
             }
             else if(portrait.Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:{} pack,SpriteName:{} sprite})
@@ -23,7 +23,7 @@ internal partial class MapSummaryPanel
                 int pane=portrait.SourceNode??portrait.Node;
                 var face=new UiSourcePortrait {Name="SummaryFace"+portrait.Node,Position=box.Position,Size=box.Size};
                 AddChild(face);face.ConfigureLayoutPane(resources.Repository,resources.Assets,resources.Shader,
-                    resources.Sprite(pack,sprite),faceLayout,pane);view=face;
+                    resources.Assets.Portraits.RequireSource(pack,sprite),faceLayout,pane);view=face;
             }
             if(view is null)return;
             view.ZIndex=portrait.Node;existing=(portrait,view);portraits[portrait.Node]=existing;

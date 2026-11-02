@@ -8,11 +8,11 @@ internal partial class ArmyInformationListView : PagedInformationListView
     internal ArmyInformationPageSet Pages => pages;
     internal void Configure(GameResourceRepository repository, PreviewText text,
         ArmyInformationPageSet pages, Func<bool> admitted, Action close,
-        Action<int> inspect, Func<int> scrollSpeed)
+        Action<int> inspect, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.pages = pages;
         ConfigureList(repository, text, new ArmyInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "ArmyInformationList", "army_information_group");
+            close, inspect, scrollSpeed, "ArmyInformationList", "army_information_group", resources: resources);
     }
     internal void AdoptPages(ArmyInformationPageSet replacement)
     {

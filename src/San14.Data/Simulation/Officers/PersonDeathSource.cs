@@ -13,6 +13,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
         private readonly Action<string, GameState>? observe;
+        private readonly Action<TalentCommandPresentationRequest>? copyInitialText;
         private readonly List<PersonAssignmentPrecallResult> associations = [];
         private int deathCause;
         private TransferPersonReference killer = new(null);
@@ -23,9 +24,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         private ForceReference? deathOriginalForce;
 
         internal PersonDeathSource(ArmyCampaignRuleAdapter package, GameState state,
-            SourceWorldContext current, WorldIndexContext pool, Action<string, GameState>? observe = null)
+            SourceWorldContext current, WorldIndexContext pool, Action<string, GameState>? observe = null,
+            Action<TalentCommandPresentationRequest>? copyInitialText = null)
         {
             this.package = package; latest = state; this.current = current; this.pool = pool; this.observe = observe;
+            this.copyInitialText = copyInitialText;
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
                 throw Missing("current_pool_binding");
             package._personRelationInputs.BindCurrent(() => latest, current);
@@ -162,7 +165,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                         {
                             int kind = new PersonReturnGovernorQueries(latest, package._governorInputs, current)
                                 .ReadCurrentAssociatedVirtual98(associated) ?? throw Missing("associated_virtual98");
-                            if (kind == 2) throw Missing("associated_type2_report1E6990");
+                            if (kind == 2)
+                            {
+                                //Report the current command before detaching its member.
+                                var effects = new List<CampaignEffectRequest>();
+                                latest = package.ReportAssociatedTalentDeathCurrent(latest, current, associated, effects);
+                                AppendInitialDeathEffects(effects);
+                            }
                         }
                     }
                     var detached = PersonReturnCommands.DetachPersonFromFirstAssociated(latest, current, person);
@@ -193,7 +202,16 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             if (capturedStatus == 6) ApplyCapturedItems(person, oldForce);
             if ((Known(current.ReadOwnedReturnPersonFlags(person), "tail_flags15E") & 0x4000) != 0 && Status(person) != 5)
-                throw Missing("appendix_World_unregister");
+            {
+                //295EE0 returns after 32BC50; action 53 owns the later reset,
+                //Person unregistration and hire-capacity release.
+                var releaseEffects = new List<CampaignEffectRequest>();
+                latest = package.QueuePersonnelHireReleaseCurrent(latest, current, person,
+                    DeathHistoryDay, releaseEffects);
+                AppendInitialDeathEffects(releaseEffects);
+                Observe("death.hire-release-tail");
+                return (latest, 0);
+            }
             ApplyItems(person, associated, killer);
             ResetPerson(person);
             SetStatus(person, 9);

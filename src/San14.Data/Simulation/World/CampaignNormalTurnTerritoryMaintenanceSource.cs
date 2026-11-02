@@ -23,6 +23,12 @@ public sealed partial class ArmyCampaignRuleAdapter
             current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
             current.MaterializeFixedScenery(package._landmarkDefinitions);
             for (int i = 0; i < 101; i++) current.SetSceneryFlags47(i, state.LandmarkInvestments?.GetValueOrDefault(i)?.Flags);
+            current.BindFixedConstructionSceneryLinks();
+            //The owned simulation has no original scenery-layout receiver.
+            //Territory publication below updates the real application map;
+            //preserve any explicitly installed layout reader or receiver.
+            if (current.SceneryLayoutReader is null && current.CurrentSceneryLayout is null)
+                current.CurrentSceneryLayout = new(null);
             package._baseCapacityInputs.BindCurrent(state, current);
             current.BaseForcePolicyEffectReader = (force, effect) =>
                 ForcePolicyScratchCurrent.ReadBeforeFreedom(state, current, force, effect, true).Value;

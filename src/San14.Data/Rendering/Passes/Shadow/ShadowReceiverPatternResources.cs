@@ -76,8 +76,18 @@ public sealed class ShadowReceiverPatternResources
     public void RequireCompatible(GameResourceRepository repository, MapSeasonCameraPackage package,
         IReadOnlyList<PatternLightTextureSource>? lights = null)
     {
+        if (PrepareReplacement(repository, package, lights) is not null)
+            throw new NotSupportedException("The Pattern texture generation requires installation before this request.");
+    }
+
+    /// <summary>Resolve an actual replacement without changing this installed
+    /// owner. The caller must install it at the native request boundary before
+    /// adopting its light roster. Identical bindings retain the current owner.</summary>
+    public ShadowReceiverPatternResources? PrepareReplacement(GameResourceRepository repository,
+        MapSeasonCameraPackage package, IReadOnlyList<PatternLightTextureSource>? lights = null)
+    {
         var selectedLights = lights ?? Array.Empty<PatternLightTextureSource>();
-        if (ReferenceEquals(acceptedPackage, package) && ReferenceEquals(acceptedLights, selectedLights)) return;
+        if (ReferenceEquals(acceptedPackage, package) && ReferenceEquals(acceptedLights, selectedLights)) return null;
         // A selected package can change without changing its retained texture
         // bindings. Loading a different physical generation needs installation.
         var next = loader.ReadDeclaration(package.Camera, package.SourceEvidence);
@@ -92,9 +102,10 @@ public sealed class ShadowReceiverPatternResources
         if (!Same(imported.OfflinePattern, OfflinePattern) || !Same(imported.MergedPattern, MergedPattern) ||
             imported.LocalTextures.Count != LocalTextures.Count || imported.LocalTextures.Any(pair =>
                 !LocalTextures.TryGetValue(pair.Key, out var previous) || !Same(pair.Value, previous)))
-            throw new NotSupportedException("The Pattern texture generation requires installation before this request.");
+            return imported;
         acceptedPackage = package;
         acceptedLights = selectedLights;
+        return null;
     }
 
     public void WriteNativeInputs(string inputRoot)

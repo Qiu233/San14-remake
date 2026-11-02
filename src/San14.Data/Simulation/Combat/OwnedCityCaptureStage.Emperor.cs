@@ -66,6 +66,17 @@ public sealed partial class OwnedCityCaptureStage
             var returned = package.PrepareOwnedArmyReturnCurrent(working, winner, target, 0,
                 returnWorld.Context, returnWorld.Pool, package.CreateCaptureGovernorQueries(working), new(false, false),
                 operationDate: operationDate, sampler: sampler);
+            if (returned.Suspension is { } suspendedReturn)
+            {
+                var returnTail = CaptureArmyReturnContinuationSource.Save(current, operation, counts,
+                    completingEmperorCapture: true, settlementIndex: saved.SettlementIndex);
+                working = CaptureArmyReturnContinuationSource.Attach(
+                    returnWorld.CommitSuspension(working, suspendedReturn), returnTail);
+                BaseCaptureRewardSource.ReleaseTerritoryRewards(current, counts); counts = null;
+                working = BaseCapturePersonPrefix.ReleaseWithinCapture(working, current, people); people = null;
+                working = BaseCapturePublicationSource.Publish(working, current, pool, projectOwnedRoles: true);
+                return new(working, null, null);
+            }
             working = returnWorld.CommitPrepared(working, returned.Packet ?? throw Missing(returned.UnresolvedOwner ?? "Emperor_winner_return"))
                 ?? throw Missing("Emperor_return_publication");
             current = returnWorld.Context;

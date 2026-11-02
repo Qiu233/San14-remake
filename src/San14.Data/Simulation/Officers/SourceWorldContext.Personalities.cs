@@ -7,7 +7,7 @@ public sealed partial class SourceWorldContext : IPersonalityNormalizationState
     public PersonalityReference? ReadPersonalityTableReference(int slot)
     {
         Check(slot,356,"personality table slot");
-        return _staticTablePointers.TryGetValue((0x7DD18,slot),out int? physical) ? new(physical) : null;
+        return TryReadGenericStaticPointer(0x7DD18,slot,out int? physical) ? new(physical) : null;
     }
     public int? ReadPersonalityPhysicalSlot(PersonalityReference personality)
         => MapPhysical(personality.PhysicalSlot,356,"personality");

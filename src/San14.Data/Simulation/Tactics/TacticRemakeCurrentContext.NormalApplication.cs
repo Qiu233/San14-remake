@@ -5,8 +5,8 @@ namespace San14.Data;
 public sealed partial class TacticRemakeCurrentContext
 {
     /// <summary>Actual17CFD0 inputs after the current target troop debit.
-    /// Ordinary middle/lower difficulty never reaches233B30's contribution.
-    /// Advanced difficulty player predicate remains distinct from World3A.</summary>
+    /// Ordinary middle/lower difficulty never reaches the player contribution.
+    /// The native predicate compares Force identities from the saved World player.</summary>
     internal NormalArmyCombatWoundedRatioInput? ResolveNormalWoundedRatioInput(GameState state,
         UnitState? attacker, UnitState target, int selector, int difficulty)
     {
@@ -41,20 +41,29 @@ public sealed partial class TacticRemakeCurrentContext
             if (value is null) return null;
             charm = value.Value;
         }
-        bool special = false, forceValid = false;
+        bool special = false, forceValid = false, forceIsPlayer = false;
         if (first is >= 1 and <= 61)
         {
             if (_definitions.ReadPersonForce(targetPerson)?.PhysicalSlot is not int force) return null;
             special = force is >= 46 and <= 50;
         }
-        //The native233B30 predicate is distinct from savedWorld3A reference
-        //equality. Only an actually reached contribution needs that producer.
+        //SC233B30/TC2338E0 compare native Force identities, with the
+        //current World player identity0 returning false before the target read.
         if (selector != 0)
         {
             if (_definitions.ReadPersonForce(targetPerson) is not { } force ||
                 _definitions.ReadForceNativeValidity(force) is not bool valid) return null;
             forceValid = valid;
-            if (valid && difficulty >= 3) return null;
+            if (valid && difficulty >= 3)
+            {
+                var player = OwnedCurrentPlayerForce.ReadCurrentReference(state, _definitions);
+                if (player is null || _definitions.ReadForcePhysicalSlot(player) is not int playerIdentity) return null;
+                if (playerIdentity != 0)
+                {
+                    if (_definitions.ReadForcePhysicalSlot(force) is not int targetIdentity) return null;
+                    forceIsPlayer = playerIdentity == targetIdentity;
+                }
+            }
         }
         int sourceEffect = 0, targetEffect = 0;
         if (attackerValid)
@@ -67,11 +76,11 @@ public sealed partial class TacticRemakeCurrentContext
         bool adjacent = attacker is not null && attacker.HexId != target.HexId && NativeHexOrder(target.HexId, 1).Contains(attacker.HexId);
         //CTerrainData's actual V18 is MOV EAX,1;RET for the complete loaded
         //31-entry table, including terrain0. Byte42 is the current row field.
-        //Below difficulty3 the helper's player boolean is an unused formal,
-        //not a resolved current233B30=false or a substitutedWorld3A identity.
+        //Below difficulty3 the player boolean remains an unused formal;
+        //that branch performs no current-player owner query.
         return new(targetValid, charm, Math.Min((int)morale, cap), adjacent, true, category,
             category == 1 ? NormalArmyCombatApplicationSourceMath.ReadCurrentTerrain1Addend(state) : null,
-            selector, difficulty, forceValid, false, attacker is not null, attackerValid, targetEffect, sourceEffect, special);
+            selector, difficulty, forceValid, forceIsPlayer, attacker is not null, attackerValid, targetEffect, sourceEffect, special);
     }
 
     internal int? ReadNormalApplicationLeadership(GameState state, UnitState target, bool singleDimension = false) =>

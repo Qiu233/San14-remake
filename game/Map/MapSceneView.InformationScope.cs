@@ -7,7 +7,7 @@ public partial class MapSceneView
     {
         if (informationMapOwner is not null || !FocusCommanderHex(targetHex)) return false;
         informationMapOwner = owner;
-        CloseCityCommandMenu(); ResetUnitSelectionPointer();
+        CloseCityCommandMenu(); CloseAreaHexCommandMenu(); ResetUnitSelectionPointer();
         SetDetailsOpen(false);
         return true;
     }

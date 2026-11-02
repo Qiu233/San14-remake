@@ -57,6 +57,12 @@ public sealed class RulerCaptureReleaseInputs
         return state with { NativeArmySimulation = native with { Parameters = native.Parameters with { Int32Values = values } } };
     }
 
+    internal short? ReadNormalLoadWord(int physical, int field)
+    {
+        int index = Array.IndexOf(CapturedWordOffsets, field);
+        return (uint)physical < words.Length && index >= 0 ? words[physical][index] : null;
+    }
+
     public static short? ReadCurrentWord(GameState state, int physical, int tcOffset) =>
         physical is >= 0 and < 1851 && state.NativeArmySimulation?.Parameters.Int32Values is { } bank && bank.GetValueOrDefault(VersionKey) == 1 &&
         bank.TryGetValue(PersonWordKey(physical, tcOffset), out int word) && word is >= short.MinValue and <= short.MaxValue ? (short)word : null;

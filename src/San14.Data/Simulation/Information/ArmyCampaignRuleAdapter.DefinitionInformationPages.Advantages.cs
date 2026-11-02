@@ -49,7 +49,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             for (int slot = 0; slot < 23; slot++)
             {
                 int physical = Need((current.ReadStaticTableReference(0xDC80, slot) ?? throw Missing("advantage.province_pointer")).PhysicalSlot, "advantage.province_receiver");
-                if (Need(rules._growthQueries.ReadStateAdvantage(state, physical), "advantage.province_effect") == id - AdvantageAnchor(0x85990)) result = physical;
+                if (AdvantageStateEffect(physical) == id - AdvantageAnchor(0x85990)) result = physical;
             }
             if (result == AdvantageAnchor(0xDC80)) result = null;
             advantageProvinces[id] = result;
@@ -63,13 +63,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             foreach (var city in current.ReadRegistryReferences(RegistryKind.City) ?? throw Missing("advantage.city_registry"))
             {
                 if (city is not { Kind: RegistryKind.City, PhysicalSlot: int physical }) throw Missing("advantage.city_payload");
-                if (Need(rules._growthQueries.ReadCityState(state, physical), "advantage.city_province") != province - AdvantageAnchor(0xDC80)) continue;
+                if (AdvantageCityProvince(physical) != province - AdvantageAnchor(0xDC80)) continue;
                 int force = Need(current.ReadBaseForceSlot(new(BaseKind.City, physical)), "advantage.city_force");
                 counts[force] = counts.GetValueOrDefault(force) + 1;
             }
-            int raw = Need(rules._growthQueries.ReadStateAdvantage(state, province), "advantage.owner_province_effect");
+            int raw = AdvantageStateEffect(province);
             int requiredId = Need((current.ReadStaticTableReference(0x85990, raw < 18 ? raw : 0) ?? throw Missing("advantage.owner_requirement_pointer")).PhysicalSlot, "advantage.owner_requirement_receiver");
-            int required = Need(rules._growthQueries.ReadAdvantageRequirement(state, requiredId), "advantage.required_cities");
+            int required = AdvantageRequiredCities(requiredId);
             foreach (var force in current.ReadRegistryReferences(RegistryKind.Force) ?? throw Missing("advantage.force_registry"))
             {
                 if (force is not { Kind: RegistryKind.Force, PhysicalSlot: int physical }) throw Missing("advantage.force_payload");
@@ -106,6 +106,19 @@ public sealed partial class ArmyCampaignRuleAdapter
             byte colour = Need(current.ReadForceReportColor(new(force)), "advantage.force_colour");
             return new(Data(1, 0x571) + body, MapSpritePalettes.ForceFill(colour));
         }
+        // These are the same normal-load fields used by521110 before
+        // Start. Ordinary information pages keep their saved current bank;
+        // only this real startup route reads the admitted initial resources.
+        private int AdvantageStateEffect(int province) => newGamePreview
+            ? rules._growthQueries.Definitions.Catalog.States[province].RawAdvantage30
+            : Need(rules._growthQueries.ReadStateAdvantage(state,province),"advantage.province_effect");
+        private int AdvantageCityProvince(int city) => newGamePreview
+            ? rules._scenario.Snapshot.Cities[city].GroupCode
+            : Need(rules._growthQueries.ReadCityState(state,city),"advantage.city_province");
+        private int AdvantageRequiredCities(int id) => newGamePreview
+            ? rules._growthQueries.Definitions.Catalog.Advantages[id].RequiredCitiesB3
+            : Need(rules._growthQueries.ReadAdvantageRequirement(state,id),"advantage.required_cities");
+
         private string AdvantageRequirement(int id)
         {
             //356F90 takes the FIRST native-valid matching State; the owner search uses the LAST.
@@ -113,9 +126,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 int province = Need((current.ReadStaticTableReference(0xDC80, slot) ?? throw Missing("advantage.requirement_province_pointer")).PhysicalSlot, "advantage.requirement_province_receiver");
                 if (!Need(current.ReadConditionStateValidity(new(province)), "advantage.requirement_province_validity") ||
-                    Need(rules._growthQueries.ReadStateAdvantage(state, province), "advantage.requirement_province_effect") != id - AdvantageAnchor(0x85990)) continue;
+                    AdvantageStateEffect(province) != id - AdvantageAnchor(0x85990)) continue;
                 string name = Formats.S14ForceNameDefinitionReader.ReadLiteralUnits(rules._growthQueries.Definitions.Catalog.States[province].RawBytes.AsSpan(24, 6));
-                int required = Need(rules._growthQueries.ReadAdvantageRequirement(state, id), "advantage.requirement_count");
+                int required = AdvantageRequiredCities(id);
                 var vm = new NarrationResourceMessages(rules._repository.LoadMessages(rules.Seed.Language, Formats.MessageKind.Game).Messages);
                 return vm.ResolveAdvantageInformationRequirement(name, required);
             }

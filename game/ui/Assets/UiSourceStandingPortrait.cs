@@ -33,14 +33,32 @@ internal partial class UiSourceStandingPortrait : Control
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,
         IReadOnlyList<LoadedSprite> layers)
+        =>ConfigureSources(repository,assets,shader,layers.Count,
+            (layers as LoadedStandingPortraitSprites)?.Kind??StandingPortraitKind.ThreePart,
+            (layers as LoadedStandingPortraitSprites)?.CurrentAppearanceIndex,
+            (index,uv)=>
+            {
+                var sprite=layers[index];
+                return MapPortraitQuad.UsesSrgbView(repository,assets,sprite.Definition.Name,sprite)
+                    ?assets.SrgbSpritePart(sprite.Definition.Name,uv,sprite):assets.SpritePart(sprite.Definition.Name,uv,sprite);
+            },index=>layers[index].Definition.Name,(_,_)=>{});
+
+    internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedStandingPortraitSources layers)
+        =>ConfigureSources(repository,assets,shader,layers.Count,layers.Kind,layers.CurrentAppearanceIndex,
+            (index,uv)=>assets.PortraitPart(layers[index],uv),index=>layers[index].Definition.Name,
+            (image,index)=>image.SetEncodedPortraitSampling(layers[index].Image));
+
+    private void ConfigureSources(GameResourceRepository repository,UiAssets assets,Shader shader,int layerCount,
+        StandingPortraitKind kind,ushort? currentAppearanceIndex,Func<int,LcskUvQuad,Texture2D> textureAt,
+        Func<int,string> spriteName,Action<UiSourceSprite,int> configureSampling)
     {
         if (storyLayout is not null) throw new InvalidOperationException("Standing portrait already has a resource owner.");
         SetProcess(false);
-        if(layers is LoadedStandingPortraitSprites { Kind:StandingPortraitKind.AnimatedFrames })
-        { ConfigureAnimated(repository,assets,shader,layers);ConfigureMotion(layers);return; }
-        if(layers.Count!=3)throw new InvalidDataException("Standing portrait requires its three resolved source layers.");
+        if(kind==StandingPortraitKind.AnimatedFrames)
+        { ConfigureAnimated(repository,assets,shader,layerCount,textureAt,spriteName,configureSampling);ConfigureMotion(currentAppearanceIndex);return; }
+        if(layerCount!=3)throw new InvalidDataException("Standing portrait requires its three resolved source layers.");
         MouseFilter=MouseFilterEnum.Ignore;
-        var layout=repository.LoadLayout("ScreenLayout",0xF8115B8B);
+        var layout=assets.Layout(0xF8115B8B);
         storyLayout = layout.Layout;
         var nodes=LcskNodeReader.Read(layout.Layout);
         var branch=nodes.Single(node=>node.Name=="chara_B");
@@ -75,17 +93,15 @@ internal partial class UiSourceStandingPortrait : Control
             var image=new UiSourceSprite{Name="StandingLayer"+index,
                 Position=size/2+attachment+new Vector2(node.HeaderValues[0],-node.HeaderValues[1])-pivot,Size=layerSize};
             AddChild(image);
-            var resolved=layers[index];var uv=sprite.Groups[0].Parts[0].Uv;
-            var texture=MapPortraitQuad.UsesSrgbView(repository,assets,resolved.Definition.Name,resolved)
-                ?assets.SrgbSpritePart(resolved.Definition.Name,uv,resolved)
-                :assets.SpritePart(resolved.Definition.Name,uv,resolved);
-            image.Configure(shader,texture,UiSourceSprite.Blend.SourceAlphaDestinationAlpha);
+            var uv=sprite.Groups[0].Parts[0].Uv;
+            image.Configure(shader,textureAt(index,uv),UiSourceSprite.Blend.SourceAlphaDestinationAlpha);
+            configureSampling(image,index);
             ConfigureMaterial(image, node);
             storyLayers.Add((node.Index, image));
-            image.SetMeta("portrait_sprite",resolved.Definition.Name);
+            image.SetMeta("portrait_sprite",spriteName(index));
             image.SetMeta("source_node_index",node.Index);
         }
-        ConfigureMotion(layers);
+        ConfigureMotion(currentAppearanceIndex);
         SetMeta("source_layout",layout.Source.ResourceUri);
     }
 

@@ -69,6 +69,35 @@ internal partial class UiSourcePortrait : Control
         ConfigureSource(repository,assets,shader,portrait,source,nodeIndex,components);
     }
 
+    internal void ConfigureFace1(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedUiSpriteSource portrait)
+        =>ConfigureLayoutPane(repository,assets,shader,portrait,assets.SourceLayout(0xA76F2721),1);
+
+    internal void ConfigureLayoutPane(GameResourceRepository repository,UiAssets assets,Shader shader,
+        LoadedUiSpriteSource portrait,UiSourceLayout source,int nodeIndex,int? expectedComponentCount=null, float materialSaturation=1)
+    {
+        MouseFilter=MouseFilterEnum.Ignore;
+        var group=LcskSpriteNodeReader.Read(source.Source.Layout,source.Nodes[nodeIndex]).Groups.Single();
+        if(group.ComponentCount is not(2 or 3)||group.Parts.Count!=group.ComponentCount||
+            expectedComponentCount is int expected&&group.ComponentCount!=expected)throw new InvalidDataException("Portrait requires its original two/three components.");
+        var parts=group.Parts;
+        for(int i=0;i<parts.Count;i++)if(parts[i].RawBytes[6]!=(i==0?0:3)||parts[i].RawBytes[7]!=(i==1?1:0)||parts[i].RawBytes[8]!=0)
+            throw new InvalidDataException("Face1 component modes differ from the original portrait source.");
+        var texture=assets.PortraitPart(portrait,parts[0].Uv);
+        Texture2D Mask(LcskSpriteNodePart part)
+        {
+            var declared=assets.SourceLayoutSprite(source.Source,part.SpriteName);
+            return MapPortraitQuad.UsesSrgbView(repository,assets,part.SpriteName,declared)
+                ?assets.SrgbSpritePart(part.SpriteName,part.Uv,declared):assets.SpritePart(part.SpriteName,part.Uv,declared);
+        }
+        var image=new UiSourceSprite{Name="PortraitQuad",Size=Size};AddChild(image);
+        image.Configure(shader,texture,parts.Count==3?UiSourceSprite.Blend.ThreeTexturePortrait:UiSourceSprite.Blend.TwoTexturePortrait);
+        if (materialSaturation != 1) image.SetMaterialSaturation(materialSaturation);
+        image.SetEncodedPortraitSampling(portrait.Image);
+        image.SetClipping(texture,Mask(parts[1]),new(Vector2.Zero,Size),parts.Count==3?Mask(parts[2]):null,new(Vector2.Zero,Size));
+        SetMeta("source_layout",source.Source.Source.ResourceUri);SetMeta("portrait_sprite",portrait.Definition.Name);
+        SetMeta("source_component_count",parts.Count);
+    }
+
     private void ConfigureSource(GameResourceRepository repository,UiAssets assets,Shader shader,LoadedSprite portrait,
         UiSourceLayout source,int nodeIndex,int componentCount)
     {

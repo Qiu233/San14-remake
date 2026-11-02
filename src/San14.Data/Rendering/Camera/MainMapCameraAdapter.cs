@@ -76,6 +76,14 @@ public sealed class MainMapCameraAdapter
     public float CurrentFar14 => retainedFar14;
     public MainMapCameraZoomSelection CurrentZoom => runtime.Selection;
 
+    /// <summary>Change the owned Main controller's distance interval once at
+    /// a mode boundary. Area administration uses band4 on entry and band6 on
+    /// exit; this neither restores a pose nor cancels current timed motion.</summary>
+    public void SetMaximumZoomBand(int maximumBand,bool currentMaximumYOverride,
+        Func<MainMapCameraTerrainPitchInput,MainMapCameraTerrainPitchResult>? lowBandTerrainQualifier=null)
+        => runtime=MapCameraController.SetMaximumZoomBand(runtime,Parameters,maximumBand,
+            currentMaximumYOverride,lowBandTerrainQualifier);
+
     /// <summary>A newly owned controller uses C880's actual constructor state.
     /// Event Collection does not execute the ordinary title's ruler focus.</summary>
     public static MainMapCameraAdapter FromFreshController(GameResourceRepository repository,

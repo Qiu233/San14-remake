@@ -108,6 +108,14 @@ public sealed class TacticRemakeParameterSeed
     private const int AbilitySecondaryBaseline = 100;
     private const int AbilitySecondaryAdjustment = 90;
 
+    // Paired CE_TC/CE_SC data-only extraction: original high-difficulty
+    // multi-candidate coefficients. Allocate once into the fresh current
+    // owner; restored saves retain their independently saved knowledge.
+    private const int AutomaticTargetCountScore = 5;
+    private const int AutomaticTerrainContextScore = 5;
+    private const int AutomaticEnemyNearOwnTerrainScore = 5;
+    private const int AutomaticSpecialDefinitionScore = 9;
+
     private static readonly (string Key, int Value)[] InitialDefaults =
     [
         (SimulationParameterKeys.Tactics.AbnormalCounterUpperBound, AbnormalCounterUpperBound),
@@ -139,6 +147,10 @@ public sealed class TacticRemakeParameterSeed
         (SimulationParameterKeys.Tactics.PlayerDifficulty1TrialRate, PlayerDifficulty1TrialRate),
         (SimulationParameterKeys.Tactics.PlayerDifficulty2TrialRate, PlayerDifficulty2TrialRate),
         (SimulationParameterKeys.Tactics.HighDifficultyNonplayerTrialRate, HighDifficultyNonplayerTrialRate),
+        (TacticRemakeCurrentContext.AutomaticTargetCountScoreKey, AutomaticTargetCountScore),
+        (TacticRemakeCurrentContext.AutomaticTerrainContextScoreKey, AutomaticTerrainContextScore),
+        (TacticRemakeCurrentContext.AutomaticEnemyNearOwnTerrainScoreKey, AutomaticEnemyNearOwnTerrainScore),
+        (TacticRemakeCurrentContext.AutomaticSpecialDefinitionScoreKey, AutomaticSpecialDefinitionScore),
         (SimulationParameterKeys.Tactics.EffectStageScale, EffectStageScale),
         (SimulationParameterKeys.Tactics.StrengthEffectDivisor, StrengthEffectDivisor),
         (SimulationParameterKeys.Tactics.IntelligenceEffectDivisor, IntelligenceEffectDivisor),

@@ -34,7 +34,9 @@ public partial class Main
 
     private void RefreshNativeTalentControls()
     {
-        if (_world?.NativeArmySimulation is null) return;
+        // The normal Talent pages own their eligibility and selection.
+        // Hidden legacy browser buttons have no consumer in this mode.
+        if (!DeveloperWorkspaceEnabled || _world?.NativeArmySimulation is null) return;
         if (_failed || _shuttingDown || _advancingPeriod || IsReturningToTitle || _session is null || _session.HasPendingOperation ||
             _world is not { Phase: TurnPhase.Strategy } world || _playerForceId is not int force ||
             _campaignComposition is null || SelectionId(_playCity) is not int city ||

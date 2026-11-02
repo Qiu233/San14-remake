@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 225;
+    public const int CurrentSchemaVersion = 227;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -105,6 +105,8 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         DuelPresentationSnapshotSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         DuelCaptureAnnouncementSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseCaptureContinuationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        ArmyReturnCaptiveSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
+        NativeArmyMovementSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         AutomaticEmperorCaptureSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseTacticPresentationSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         BaseCombatSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
@@ -255,6 +257,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         DoctrineResearchSaveFields.Migrate(stateDocument, version);
         CampaignTurnStopSaveFields.Migrate(stateDocument, version);
         OfficerPresentationSaveFields.Migrate(stateDocument, version);
+        PersonnelCreditEpisodeSaveFields.Migrate(stateDocument, version);
         ForeignRelationsSaveFields.Migrate(stateDocument, version);
         CoalitionCooldownSaveFields.Migrate(stateDocument, version);
         ForceFactionSaveFields.Migrate(stateDocument, version);
@@ -293,9 +296,11 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         FacilityArmySpeechSaveFields.Migrate(stateDocument, version);
         FacilityEffectsPresentationSaveFields.Migrate(stateDocument, version);
         FacilityConstructionConnectionSaveFields.Migrate(stateDocument, version);
-        NormalCombatImmediateSaveFields.Migrate(stateDocument, version);
-        DuelAftermathSaveFields.Migrate(stateDocument, version);
-        BaseCaptureContinuationSaveFields.Migrate(stateDocument, version);
+        NormalCombatImmediateSaveFields.Migrate(stateDocument, version, _operationContext);
+        DuelAftermathSaveFields.Migrate(stateDocument, version, _operationContext);
+        BaseCaptureContinuationSaveFields.Migrate(stateDocument, version, _operationContext);
+        ArmyReturnCaptiveSaveFields.Migrate(stateDocument, version);
+        NativeArmyMovementSaveFields.Migrate(stateDocument, version);
         AutomaticEmperorCaptureSaveFields.Migrate(stateDocument, version);
         BaseTacticPresentationSaveFields.Migrate(stateDocument, version);
         CoalitionCameraPresentationSaveFields.Migrate(stateDocument, version);
@@ -1511,6 +1516,7 @@ public static class AtomicSaveFiles
         string fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         string temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        int replacementAttempts = 0;
         try
         {
             using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -1518,12 +1524,56 @@ public static class AtomicSaveFiles
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
-            if (overwrite && File.Exists(fullPath)) File.Replace(temporary, fullPath, null);
+            if (overwrite && File.Exists(fullPath))
+            {
+                while (true)
+                {
+                    replacementAttempts++;
+                    try
+                    {
+                        File.Replace(temporary, fullPath, null);
+                        break;
+                    }
+                    catch (IOException failure) when (CanRetryReplacement(failure, temporary, fullPath, replacementAttempts))
+                    {
+                        // Reuse the same closed, durable payload. Never delete the target
+                        // or retry replacement failures that can have moved either file.
+                        Thread.Sleep(replacementAttempts switch { 1 => 25, 2 => 75, _ => 150 });
+                    }
+                }
+            }
             else File.Move(temporary, fullPath);
         }
-        finally
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
-            if (File.Exists(temporary)) File.Delete(temporary);
+            // Retain failed publication inputs. Cleanup must not discard the durable
+            // payload or mask the original OS failure with a second delete failure.
+            failure.Data["AtomicSave.Target"] = fullPath;
+            failure.Data["AtomicSave.Temporary"] = temporary;
+            failure.Data["AtomicSave.Win32Error"] = failure.HResult & 0xffff;
+            failure.Data["AtomicSave.ReplacementAttempts"] = replacementAttempts;
+            failure.Data["AtomicSave.TargetExists"] = File.Exists(fullPath);
+            failure.Data["AtomicSave.TemporaryExists"] = File.Exists(temporary);
+            throw;
+        }
+    }
+
+    private static bool CanRetryReplacement(IOException failure, string temporary, string target, int attempts)
+    {
+        if (!OperatingSystem.IsWindows() || (uint)failure.HResult >> 16 != 0x8007 || attempts >= 4 ||
+            (failure.HResult & 0xffff) is not (32 or 33 or 1175))
+            return false;
+        // These errors leave both names in place. Missing/renamed files, directories
+        // and access/attribute failures are not a transient replacement retry.
+        try
+        {
+            const FileAttributes rejected = FileAttributes.Directory | FileAttributes.ReadOnly | FileAttributes.ReparsePoint;
+            return (File.GetAttributes(temporary) & rejected) == 0 &&
+                (File.GetAttributes(target) & rejected) == 0;
+        }
+        catch (Exception observationFailure) when (observationFailure is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 }

@@ -15,11 +15,29 @@ public sealed record OfficerCommandBonusResult(int? Bonus, string? UnresolvedInp
 /// <summary>Current Person command capacity, shared by list cells and draft
 /// production. The caller supplies one already overlaid operation context with
 /// the existing morale-wave office/rank readers bound. No world is mutated.</summary>
+internal interface IOfficerCommandCapacityInputs
+{
+    int? ReadForceRank(int forcePhysical);
+    int? ReadOffice(int personPhysical);
+    int? ReadOfficeCapacity(int office);
+    int? ReadParameter(string key);
+    bool? ReadPolicyEnabled(int forcePhysical, int effect);
+    int? ReadPolicyEffect(ForceReference force, int effect);
+    OfficerCommandBonusResult ReadCreditBonus(int personPhysical);
+}
+
 public static class OfficerCommandCapacity
 {
     public static OfficerCommandCapacityResult Resolve(GameState state, SourceWorldContext current, int personPhysical)
+        => Resolve(state, current, personPhysical, new SavedCapacityInputs(state, current));
+
+    //Normal pre-start callers lend their actual read-only constructor/static
+    //inputs. The capacity formula and every early exit remain shared.
+    internal static OfficerCommandCapacityResult Resolve(GameState state, SourceWorldContext current, int personPhysical,
+        IOfficerCommandCapacityInputs inputs)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(inputs);
         try
         {
             if (!Need(current.ReadPersonNativeValidity(personPhysical), "person_validity")) return new(0, null);
@@ -32,15 +50,15 @@ public static class OfficerCommandCapacity
             int capacity;
             if (status == 1)
             {
-                int rank = Need(current.ReadMoraleWaveForceRank47(forcePhysical), "force_rank");
+                int rank = Need(inputs.ReadForceRank(forcePhysical), "force_rank");
                 rank = rank < 13 ? rank : 0;
                 capacity = state.ForceRanks.GetValueOrDefault(rank)?.CommandLimit is int value && value is >= 0 and <= 65535
                     ? value : throw Unknown("rank_capacity");
             }
             else
             {
-                int post = Need(current.ReadMoraleWavePersonPostE7(personPhysical), "person_office");
-                capacity = Need(OwnedArmyMoraleWaveInputs.ReadPostCommandCapacity(state, post), "office_capacity");
+                int post = Need(inputs.ReadOffice(personPhysical), "person_office");
+                capacity = Need(inputs.ReadOfficeCapacity(post), "office_capacity");
             }
             ushort firstLocation = Need(current.ReadPersonFirstLocation(personPhysical), "first_location");
             bool specialForce = firstLocation is >= 1 and <= 61 && forcePhysical is >= 46 and <= 50;
@@ -49,34 +67,53 @@ public static class OfficerCommandCapacity
                 unchecked((uint)(personId - 4191)) <= 9) && firstLocation is >= 1 and <= 61 && forcePhysical is not (>= 46 and <= 50);
             if (specialForce || specialPerson)
             {
-                var parameters = state.NativeArmySimulation?.Parameters;
-                if (parameters is null || parameters.Float32Values.ContainsKey(SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity) ||
-                    !parameters.Int32Values.TryGetValue(SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity, out capacity))
-                    throw Unknown("special_capacity_parameter");
+                capacity = Need(inputs.ReadParameter(SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity),
+                    "special_capacity_parameter");
             }
             else
             {
                 var traits = TacticRemakeCurrentTraits.CommanderCapacityTraits(current, personPhysical)
                     ?? throw Unknown("current_personalities");
-                if (state.NativeArmySimulation?.Parameters.Int32Values.TryGetValue(SimulationParameterKeys.Tactics.HealingCapacityCoefficient, out int coefficient) != true)
-                    throw Unknown("personality_coefficient");
+                int coefficient = Need(inputs.ReadParameter(SimulationParameterKeys.Tactics.HealingCapacityCoefficient),
+                    "personality_coefficient");
                 capacity = unchecked(Math.Min(unchecked(capacity + traits.Group256To355 * coefficient), 20000) + traits.OtherGroup * coefficient);
                 if (status != 1)
                 {
-                    var bonus = ResolveCreditBonus(state, current, personPhysical);
+                    var bonus = inputs.ReadCreditBonus(personPhysical);
                     capacity = unchecked(capacity + (bonus.Bonus ?? throw new InvalidDataException(bonus.UnresolvedInput)));
                 }
             }
             if (Need(current.ReadForceNativeValidity(forceReference), "force_validity"))
             {
-                if (!state.Forces.TryGetValue(forcePhysical, out var force)) throw Unknown("force_owner");
-                bool enabled = Need(force.PolicyEffects?.IsEnabled(0x37), "reform_activation");
-                int policy = enabled ? Need(current.BaseForceModifierReader?.Invoke(forceReference, 0x37), "active_reform_effect") : 0;
+                bool enabled = Need(inputs.ReadPolicyEnabled(forcePhysical, 0x37), "reform_activation");
+                int policy = enabled ? Need(inputs.ReadPolicyEffect(forceReference, 0x37), "active_reform_effect") : 0;
                 capacity = unchecked(capacity + policy);
             }
             return new(capacity, null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
+    }
+
+    private sealed class SavedCapacityInputs(GameState state, SourceWorldContext current) : IOfficerCommandCapacityInputs
+    {
+        public int? ReadForceRank(int forcePhysical) => current.ReadMoraleWaveForceRank47(forcePhysical);
+        public int? ReadOffice(int personPhysical) => current.ReadMoraleWavePersonPostE7(personPhysical);
+        public int? ReadOfficeCapacity(int office) => OwnedArmyMoraleWaveInputs.ReadPostCommandCapacity(state, office);
+        public int? ReadParameter(string key)
+        {
+            var parameters = state.NativeArmySimulation?.Parameters;
+            if (parameters is null || key == SimulationParameterKeys.Tactics.SpecialOfficerCommandCapacity &&
+                parameters.Float32Values.ContainsKey(key)) return null;
+            return parameters.Int32Values.TryGetValue(key, out int value) ? value : null;
+        }
+        public bool? ReadPolicyEnabled(int forcePhysical, int effect)
+        {
+            if (!state.Forces.TryGetValue(forcePhysical, out var force)) throw Unknown("force_owner");
+            return force.PolicyEffects?.IsEnabled(effect);
+        }
+        public int? ReadPolicyEffect(ForceReference force, int effect) => current.BaseForceModifierReader?.Invoke(force, effect);
+        public OfficerCommandBonusResult ReadCreditBonus(int personPhysical)
+            => ResolveCreditBonus(state, current, personPhysical);
     }
 
     private static T Need<T>(T? value, string input) where T : struct => value ?? throw Unknown(input);
@@ -130,18 +167,26 @@ public static class OfficerCommandCapacity
             throw Unknown("credit_current_user_gate");
         if (state.CampaignEventWorld?.ScenarioMode is not int mode) throw Unknown("credit_scenario_mode");
         if (mode == 3) throw Unknown("credit_person_selection_mode");
-        byte stage = Need(OfficerMeritSourceAdapter.EncodeStage(person.MeritState), "credit_stage");
+        return SumCreditSelections(person.MeritState,kind,
+            slot=>OwnedArmyMoraleWaveInputs.ReadCreditEffectKind(state,slot),
+            slot=>OwnedArmyMoraleWaveInputs.ReadCreditEffectAddition(state,slot));
+    }
+
+    internal static int SumCreditSelections(OfficerMeritState? credit,int kind,
+        Func<int,byte?> effectKind,Func<int,ushort?> effectAddition)
+    {
+        byte stage = Need(OfficerMeritSourceAdapter.EncodeStage(credit), "credit_stage");
         if (stage == 0) return 0;
-        int first = Need(OfficerMeritSourceAdapter.EncodeFirstSelectionCount(person.MeritState), "credit_first_count");
-        int second = Need(OfficerMeritSourceAdapter.EncodeSecondSelectionCount(person.MeritState), "credit_second_count");
+        int first = Need(OfficerMeritSourceAdapter.EncodeFirstSelectionCount(credit), "credit_first_count");
+        int second = Need(OfficerMeritSourceAdapter.EncodeSecondSelectionCount(credit), "credit_second_count");
         int sum = 0;
         for (int i = 0; i < first; i++) Add(i + 1 < 7 ? i + 1 : 0);
         for (int i = 0; i < second; i++) Add(i + 4 < 7 ? i + 4 : 0);
         return sum;
         void Add(int slot)
         {
-            if (Need(OwnedArmyMoraleWaveInputs.ReadCreditEffectKind(state, slot), "credit_effect_kind") == kind)
-                sum = unchecked(sum + Need(OwnedArmyMoraleWaveInputs.ReadCreditEffectAddition(state, slot), "credit_effect_addition"));
+            if (Need(effectKind(slot), "credit_effect_kind") == kind)
+                sum = unchecked(sum + Need(effectAddition(slot), "credit_effect_addition"));
         }
     }
 }
