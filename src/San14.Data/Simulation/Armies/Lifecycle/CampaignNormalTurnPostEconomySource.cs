@@ -24,18 +24,14 @@ public sealed partial class ArmyCampaignRuleAdapter
     private GameState AddNormalTurnMissionMeritCurrent(GameState state, SourceWorldContext current)
     {
         var working = state;
-        var tasks = current.ReadOwnedPersonCommandManager() ?? throw PostEconomyMissing("manager18_owner");
+        _ = current.ReadOwnedPersonCommandManager() ?? throw PostEconomyMissing("manager18_owner");
+        var commands = new PersonReturnGovernorQueries(state, _governorInputs, current);
         foreach (var entry in current.ReadCurrentPersonLinkedEntities() ?? throw PostEconomyMissing("manager18"))
         {
             var task = entry ?? throw PostEconomyMissing("manager18_pointer");
             if (!PostEconomyNeed(current.ReadLinkedEntityNativeValidity(task), "command_validity")) continue;
-            int id = PostEconomyNeed(task.Identity, "command_identity");
-            int kind = tasks.Returns.TryGetValue(id, out var returning) ? returning.IsReassignment ? 1 : 15 :
-                tasks.Disappearances?.ContainsKey(id) == true ? 16 :
-                tasks.Talents?.GetValueOrDefault(id) is { } talent ? talent.IsRecruitWait ? 22 : talent.Kind == TalentOrderKind.Search ? 3 : 2 :
-                tasks.Diplomacies?.GetValueOrDefault(id) is { } diplomacy ? diplomacy.NativeKind :
-                tasks.Strategies?.GetValueOrDefault(id) is { } strategic ? strategic.Kind :
-                tasks.Independences?.ContainsKey(id) == true ? 23 : throw PostEconomyMissing("command_virtual98");
+            _ = PostEconomyNeed(task.Identity, "command_identity");
+            int kind = PostEconomyNeed(commands.ReadCurrentAssociatedVirtual98(task), "command_virtual98");
             if (kind != 25) continue;
             foreach (var raw in current.ReadLinkedEntityMemberIds(task) ?? throw PostEconomyMissing("command_members"))
             {

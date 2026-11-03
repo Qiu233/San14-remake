@@ -299,10 +299,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         var linked = current.ReadPersonLinkedEntity(physical) ?? throw CreditMissing("Person_associated22AC00");
         if (CreditNeed(current.ReadLinkedEntityNativeValidity(linked), "associated_validity") &&
             CreditAssociatedElapsedCurrent(state, current, linked) != 0) return false;
-        var army = PersonArmyLocationSource.ReadCommanderArmy(current, physical) ?? throw CreditMissing("Person_Army22A200");
-        if (CreditNeed(current.ReadArmyUnitNativeValidity(army), "Person_Army_validity"))
+        bool armyValid = CreditNeed(PersonArmyLocationSource.ReadCommanderArmyValidity(state, current, physical, out var army), "Person_Army22A200");
+        if (armyValid)
         {
-            int slot = CreditNeed(army.PhysicalSlot, "Person_Army_physical");
+            int slot = CreditNeed(army?.PhysicalSlot, "Person_Army_physical");
             var arena = state.ReadArmyLifecycle() ?? throw CreditMissing("Army_arena");
             var source = arena.Slots[slot];
             var receiver = arena.Receivers.Find(source.ReceiverId) ?? throw CreditMissing("Person_Army_receiver");

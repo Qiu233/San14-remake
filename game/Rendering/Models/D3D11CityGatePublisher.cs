@@ -52,8 +52,13 @@ public sealed class D3D11CityGatePublisher
     public void PublishCompletedFlagMaterials(IEnumerable<D3D11CityGateFlagMaterialKey> actualCompleted){
         foreach(var key in actualCompleted){if(key.Force is <1 or >51||key.Color49 is <0 or >60)
                 throw new InvalidDataException("Completed flag material source identity out of range.");completedFlags.Add(key);}
-        if(current is not null)current=current with{
-            RequiredFlagMaterials=Array.AsReadOnly(current.RequiredFlagMaterials.Where(key=>!completedFlags.Contains(key)).ToArray())};
+        //The completion set can be replayed by every accepted Area frame.
+        //Only an actual pending-material removal changes this publication;
+        //otherwise Facility.Combine must keep borrowing the same encoded owner.
+        if(current is not {RequiredFlagMaterials.Count:>0})return;
+        var remaining=current.RequiredFlagMaterials.Where(key=>!completedFlags.Contains(key)).ToArray();
+        if(remaining.Length==current.RequiredFlagMaterials.Count)return;
+        current=current with{RequiredFlagMaterials=Array.AsReadOnly(remaining)};
     }
     public D3D11CityGatePublication Capture(GameState world,uint commonFrustumMode,
         IReadOnlyDictionary<string,MapStaticModelPublication>? actualNodes=null,

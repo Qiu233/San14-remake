@@ -8,6 +8,7 @@ public partial class Main
         Action<InformationDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null,
         Action<GameState>? adoptSpeechWorld = null)
     {
+        view.TransitionFailure = ReportPlayFailure;
         var rules = preparedRules ?? _campaignComposition?.PrepareArmyQueries(world)
             ?? throw new InvalidDataException("district-information.current_campaign_rules");
         RetainCommandDetailSpeechWorld(view, next =>
@@ -17,7 +18,7 @@ public partial class Main
             adoptSpeechWorld?.Invoke(next);
         });
         view.Configure(_repository ?? throw new InvalidDataException("district-information.resource_owner"),
-            rules.QueryDistrictInformation(world, districtId), _ui, Return, related,
+            rules.QueryDistrictInformation(world, districtId), _ui, Return, TryBorrowApplicationUiResources(view), related,
             PrepareDetailSelection(rules, world, InformationListKind.Districts, districtId, selectionIds)
                 with { InitialNameSortAscending = initialNameSortAscending },
             id => RunInspectionUiAction(world, () => view.Apply(rules.QueryDistrictInformation(world, id))));

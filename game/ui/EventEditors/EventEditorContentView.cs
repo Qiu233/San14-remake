@@ -32,11 +32,12 @@ internal partial class EventEditorContentView : Control
     private string unknown = "", notice = "";
     private bool busy, abandoned, messagePending;
     internal EditedEventContentValues Working { get; private set; } = null!;
+    internal UiAssets SourceAssets => chrome.Assets;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         EditedEventContentCatalog catalog, EditedEventContentValues initial,
         Func<bool> admitted, Action<EditedEventContentValues?> closed, Func<int> scrollSpeed,
-        Action<int, Action<int?>> editMessage,
+        Action<int, Action<int?>> editMessage, AdministrationPageChrome.Resources resources,
         Func<EditedEventContentValues, EventEditorContentPreview>? readPreview = null,
         Func<int?>? usedBytes = null)
     {
@@ -46,8 +47,8 @@ internal partial class EventEditorContentView : Control
         Working = initial;
         Name = "EventEditorContent"; ZIndex = 8; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        chrome = new(); AddChild(chrome); chrome.Configure(repository, text, 0x91, RequestBack, Accept);
-        var source = new UiSourceLayout(repository, 0x24C5A7C7);
+        chrome = new(); AddChild(chrome); chrome.Configure(repository, text, 0x91, RequestBack, Accept, resources: resources);
+        var source = resources.Assets.SourceLayout(0x24C5A7C7);
         var body = new Control { Name = "EventContentBody", Position = new(0, 122),
             Size = source.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Ignore };
         chrome.Canvas.AddChild(body);
@@ -88,7 +89,7 @@ internal partial class EventEditorContentView : Control
         preview.AddChild(scene);
         // This is the ordinary retained visual consumer, without a story
         // executor, audio owner, clock wait or message-advance permission.
-        scene.Configure(repository, text, () => false);
+        scene.Configure(repository, text, () => false, resources);
         scene.ZIndex = 0;
         unknown = text.Get("detail_unknown");
         SetMeta("source_layout", source.Source.Source.ResourceUri);

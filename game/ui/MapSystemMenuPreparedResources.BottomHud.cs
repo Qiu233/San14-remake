@@ -20,7 +20,12 @@ internal sealed partial class MapSystemMenuPreparedResources
         }
         var advice=assets.SourceLayout("00_02_00_mein_offset_50");assets.PrepareLayoutArt(advice.Source,[2],commonImports:true);
         _=assets.SourceLayout("00_02_00_mein_offset_40");
-        var log=assets.SourceLayout("00_02_00_mein_offset_41");assets.PrepareLayoutArt(log.Source,[5,8,12],commonImports:true);
+        var animation=assets.SourceLayout("00_02_00_mein_offset_41");
+        _=assets.SourceAnimationClips(animation,new HashSet<string>(StringComparer.Ordinal){"log"});
+        var log=assets.SourceLayout("00_02_00_mein_offset_42");
+        assets.PrepareLayoutArt(log.Source,[3,5,12,13,15,22,24],commonImports:true);
+        _=assets.ButtonStateProfile(log.Source,["0_normal","1_focus ","2_push ","0_normal","1_focus "]);
+        var flag=assets.SourceLayout("cmn_flag_force");assets.PrepareLayoutArt(flag.Source,[1],commonImports:true);
         var filter=assets.SourceLayout("00_02_00_mein_offset_43");assets.PrepareLayoutArt(filter.Source,[2],commonImports:true);_=filter.Type6(1);
         foreach(uint face in new uint[]{0xB20B608C,0xA9487A40})
         {
@@ -32,7 +37,7 @@ internal sealed partial class MapSystemMenuPreparedResources
                 assets.PrepareSprite(sprite,MapPortraitQuad.UsesSrgbView(repository,assets,part.SpriteName,sprite));
             }
         }
-        foreach(string icon in new[]{"000_cmn_icon_jogen","000_cmn_icon_log_add","000_cmn_icon_log_filter"})assets.PrepareCommonSprite(icon);
+        foreach(string icon in new[]{"000_cmn_icon_jogen","000_cmn_icon_log_add","000_cmn_icon_log_sub","000_cmn_icon_log_filter"})assets.PrepareCommonSprite(icon);
         assets.PrepareCommonSprite("000_cmn_icon_jogen_run","texture_pk_common");
         cancellationToken.ThrowIfCancellationRequested();
     }

@@ -11,7 +11,10 @@ internal partial class UiSourceButton : UiSourceHitButton
     private bool _selected;
 
     internal virtual UiAudioCue PressedCue => UiAudioCue.ButtonSelect;
-    internal event Action? FeedbackRequested;
+    internal event Action<UiAudioCue>? FeedbackRequested;
+    internal virtual bool SupportsDisabledFeedback => false;
+    internal bool DisabledFeedbackAdmitted => SupportsDisabledFeedback && Disabled &&
+        IsInsideTree() && IsVisibleInTree() && !IsQueuedForDeletion() && SourceInputAdmitted;
     internal Func<bool>? InputAdmission { get; set; }
     internal bool SourceInputAdmitted => CanProcess() && (InputAdmission?.Invoke() ?? true);
 
@@ -25,8 +28,15 @@ internal partial class UiSourceButton : UiSourceHitButton
     protected bool RequestFeedback()
     {
         if (!SourceInputAdmitted) return false;
-        FeedbackRequested?.Invoke();
+        FeedbackRequested?.Invoke(PressedCue);
         return true;
+    }
+
+    // Only source-qualified common controls publish this pointer attempt.
+    // It carries no Pressed event or business activation.
+    protected void RequestDisabledFeedback()
+    {
+        if (DisabledFeedbackAdmitted) FeedbackRequested?.Invoke(UiAudioCue.Invalid);
     }
 
     internal virtual bool Selected

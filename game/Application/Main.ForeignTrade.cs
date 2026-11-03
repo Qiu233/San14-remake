@@ -62,7 +62,7 @@ public partial class Main
         var rules=composition.PrepareArmyQueries(world);
         var draft=rules.CreateForeignTradeDraft(world,player,_tutorialLesson?.Lesson.World??world);
         _foreignTradeDraft=draft;_foreignTradeSession=session;_foreignTradeWorld=world;_foreignTradeMap=map;
-        _foreignTradeCardContent=new(_repository);
+        _foreignTradeCardContent=new();
         var view=new ForeignTradeOrdersView();_foreignTradeView=view;AddChild(view);
         try
         {
@@ -74,7 +74,7 @@ public partial class Main
                 gold=>RunUiAction(()=>OpenForeignTradeAmount(gold)),troops=>RunUiAction(()=>
                 {if(CanEditForeignTrade){draft.SetTroops(troops);RefreshForeignTradeOrders();}}),
                 ()=>RunUiAction(OpenForeignTradeItemSelection),()=>RunUiAction(()=>
-                {if(CanEditForeignTrade){draft.ResetItem();RefreshForeignTradeOrders();}}));
+                {if(CanEditForeignTrade){draft.ResetItem();RefreshForeignTradeOrders();}}), resources: TryBorrowApplicationUiResources(view));
             RefreshForeignTradeOrders();ObserveTutorialInformation(50);
         }
         catch{CloseForeignTradeOrders();throw;}

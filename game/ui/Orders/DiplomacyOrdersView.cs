@@ -8,7 +8,7 @@ internal sealed record DiplomacyOrdersPage(string ForceName, string CityName, st
     int? TravelDays, int AvailableBooks, int RequiredBooks, string GiftDescription, int SelectedGiftKind,
     string MonthsDescription, string ExistingAllianceDescription, bool CanSubmit, bool CanChooseExecutor,
     bool CanChooseCity, bool CanEditGold, bool CanEditSupplies, bool CanEditItem, bool CanEditArea,
-    string? Notice, LoadedSprite? AdvisorPortrait)
+    string? Notice, OfficerPortraitRoute? AdvisorPortrait)
 {
     internal IReadOnlyList<DiplomacyPersonVisual> CaptivePeople {get;init;}=[];
     internal string? CaptivePeopleUnresolvedInput {get;init;}
@@ -43,12 +43,12 @@ internal partial class DiplomacyOrdersView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text, DiplomaticMissionKind kind,
         Func<bool> admitted, Action returned, Action accepted, Action chooseForce, Action chooseCity,
         Action chooseExecutor, Action chooseMonths, Action<int> chooseGift, Action resetGift,
-        Action? chooseCaptives=null,Action<int>? chooseRequested=null,Action? resetRequested=null)
+        Action? chooseCaptives=null,Action<int>? chooseRequested=null,Action? resetRequested=null, AdministrationPageChrome.Resources? resources = null)
     {
         if(kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
         {
             ConfigureAdditional(repository,text,kind,admitted,returned,accepted,chooseForce,chooseExecutor,
-                chooseGift,resetGift,chooseCaptives,chooseRequested,resetRequested);return;
+                chooseGift,resetGift,chooseCaptives,chooseRequested,resetRequested, resources);return;
         }
         this.text = text; this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         bool alliance = kind == DiplomaticMissionKind.Alliance, cancel = kind == DiplomaticMissionKind.CancelAlliance;
@@ -65,7 +65,7 @@ internal partial class DiplomacyOrdersView : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, title, RequestBack, () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); });
+        chrome.Configure(repository, text, title, RequestBack, () => { if (ReadAdmission() && page?.CanSubmit == true) this.accepted?.Invoke(); }, resources: resources);
         var source = new UiSourceLayout(repository, file);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing diplomacy UI message {id:X4}.");

@@ -83,7 +83,7 @@ public partial class Main
             _=>throw new ArgumentOutOfRangeException(nameof(command))};
         var rules=composition.PrepareArmyQueries(world);
         _intelligenceSession=session;_intelligenceWorld=world;_intelligenceMap=map;
-        _intelligenceCards=new(_repository);_intelligenceReturnedOverview=false;
+        _intelligenceCards=new();_intelligenceReturnedOverview=false;
         try
         {
             SetMapFocus(true);map.CloseCityCommandMenu();map.SetDetailsOpen(true,keepMapVisible:true);HideDeploymentHud();
@@ -157,7 +157,7 @@ public partial class Main
             ()=>RunUiAction(OpenIntelligenceTargetSelection),()=>RunUiAction(OpenIntelligencePersonSelection),
             ()=>RunUiAction(()=>{if(CanEditIntelligence&&_intelligenceHomeEditor is {} editor){editor.SetPerson(null);RefreshIntelligenceEditor();}}),
             amount=>RunUiAction(()=>
-            {if(!CanEditIntelligence)return;if(_intelligenceAway is {} away)away.SetDuration(amount);else _intelligenceInspect?.SetLevel(amount);RefreshIntelligenceEditor();}));
+            {if(!CanEditIntelligence)return;if(_intelligenceAway is {} away)away.SetDuration(amount);else _intelligenceInspect?.SetLevel(amount);RefreshIntelligenceEditor();}), resources: TryBorrowApplicationUiResources(view));
         RefreshIntelligenceEditor();
     }
 

@@ -4,6 +4,7 @@ using San14.Data;
 
 public partial class MapSceneView
 {
+    private Control? bottomHudHost;
     private MapBottomHud? bottomHud;
     private GameState? bottomHudWorld;
     private Func<GameState,AreaAdministrationQuery<MapAdvicePublication>>? queryBottomAdvice;
@@ -26,17 +27,34 @@ public partial class MapSceneView
         executeBottomAdvice=execute;focusBottomLog=focus;
         AddChild(new BottomHudClock{Name="OrdinaryBottomHudClock",Tick=TickMapBottomHud});
     }
-    private bool BottomHudAdmitted()=>_summaryCanQuery?.Invoke()==true&&!_detailsOpen&&!_periodMapActive&&IsVisibleInTree();
+    // Both controls belong to the ordinary CGame HUD, after its command rail.
+    // Construct under the final owner; live source sprites cannot be reparented.
+    internal void SetOrdinaryBottomHudHost(Control? host)
+    {
+        if(ReferenceEquals(bottomHudHost,host))return;
+        ReleaseOrdinaryBottomHud();
+        bottomHudHost=host;
+    }
+    private void ReleaseOrdinaryBottomHud()
+    {
+        var view=bottomHud;bottomHud=null;bottomHudWorld=null;bottomHudHost=null;
+        if(view is not null&&GodotObject.IsInstanceValid(view))
+        {view.GetParent()?.RemoveChild(view);view.Free();}
+    }
+    private bool BottomHudAdmitted()=>_summaryCanQuery?.Invoke()==true&&!_detailsOpen&&!_periodMapActive&&
+        IsVisibleInTree()&&_summaryRoot is{} summary&&GodotObject.IsInstanceValid(summary)&&summary.IsVisibleInTree()&&
+        bottomHudHost is{} host&&GodotObject.IsInstanceValid(host)&&host.IsVisibleInTree();
     private void TickMapBottomHud(double delta)
     {
-        if(_summaryRoot is null||!GodotObject.IsInstanceValid(_summaryRoot)||_summaryResources is null)
-        {bottomHud=null;bottomHudWorld=null;return;}
+        if(_summaryRoot is null||!GodotObject.IsInstanceValid(_summaryRoot)||_summaryResources is null||
+            bottomHudHost is not{} host||!GodotObject.IsInstanceValid(host)||!host.IsInsideTree()||host.IsQueuedForDeletion())
+        {ReleaseOrdinaryBottomHud();return;}
         if(bottomHud is not null&&!GodotObject.IsInstanceValid(bottomHud)){bottomHud=null;bottomHudWorld=null;}
         if(!BottomHudAdmitted()||_logicalWorld is not{} world)
         {bottomHud?.Hide();return;}
         if(bottomHud is null)
         {
-            bottomHud=new();_summaryRoot.AddChild(bottomHud);
+            bottomHud=new();host.AddChild(bottomHud);
             bottomHud.Configure(_summaryResources,_text.SourceLocale,BottomHudAdmitted,
                 row=>executeBottomAdvice?.Invoke(row),hex=>focusBottomLog?.Invoke(hex));
         }

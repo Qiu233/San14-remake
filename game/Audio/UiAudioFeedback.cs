@@ -2,10 +2,10 @@ using Godot;
 using San14.Data;
 
 internal enum UiAudioAvailability { Loading, Ready, Unavailable }
-internal enum UiAudioCue { ButtonSelect, Tab, Cancel, None }
-internal sealed record UiAudioSource(string BankUri, string BankHash, int SelectFrames, int CancelFrames, int TabFrames);
+internal enum UiAudioCue { ButtonSelect, Tab, Cancel, None, Invalid }
+internal sealed record UiAudioSource(string BankUri, string BankHash, int SelectFrames, int CancelFrames, int TabFrames, int InvalidFrames);
 internal sealed record UiAudioFeedbackStatus(UiAudioAvailability Availability = UiAudioAvailability.Loading,
-    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null, int? TabCount = null)
+    string? Reason = null, UiAudioSource? Source = null, int? SelectCount = null, int? CancelCount = null, int? TabCount = null, int? InvalidCount = null)
 {
     internal string? SpeakerLayoutError { get; init; }
     internal GameAudioSpeakerLayout? RequestedSpeakerLayout { get; init; }
@@ -26,7 +26,7 @@ internal sealed class UiAudioFeedback : IDisposable
     private readonly Func<bool> _acceptPreparedClips;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _token;
-    private readonly Dictionary<ulong, (BaseButton Button, Action Handler)> _buttons = [];
+    private readonly Dictionary<ulong, (BaseButton Button, Action? Handler, Action<UiAudioCue>? SourceHandler)> _buttons = [];
     private bool _subscribed;
     private AudioPlaybackService? _service;
     private UiAudioClips? _clips;
@@ -150,7 +150,7 @@ internal sealed class UiAudioFeedback : IDisposable
             _clips = clips;
             var provenance = new UiAudioSource(clips.SourceBankUri, clips.SourceBankSha256,
                 clips.ButtonSelect.SampleFrames,
-                clips.Cancel.SampleFrames, clips.Tab.SampleFrames);
+                clips.Cancel.SampleFrames, clips.Tab.SampleFrames, clips.Invalid.SampleFrames);
             Publish(Status with { Availability = UiAudioAvailability.Ready, Source = provenance });
             GD.Print($"ORIGINAL_UI_AUDIO_READY bank={provenance.BankUri} " +
                 $"selectFrames={provenance.SelectFrames} cancelFrames={provenance.CancelFrames} preloadOnly=true");
@@ -179,6 +179,7 @@ internal sealed class UiAudioFeedback : IDisposable
                 UiAudioCue.ButtonSelect => _clips.ButtonSelect,
                 UiAudioCue.Tab => _clips.Tab,
                 UiAudioCue.Cancel => _clips.Cancel,
+                UiAudioCue.Invalid => _clips.Invalid,
                 _ => throw new ArgumentOutOfRangeException(nameof(cue))
             };
             if (!_service.TryPlayEffect(clip)) return;
@@ -186,6 +187,8 @@ internal sealed class UiAudioFeedback : IDisposable
             {
                 UiAudioCue.Cancel => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
                     CancelCount = (Status.CancelCount ?? 0) + 1 },
+                UiAudioCue.Invalid => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
+                    InvalidCount = (Status.InvalidCount ?? 0) + 1 },
                 UiAudioCue.Tab => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
                     TabCount = (Status.TabCount ?? 0) + 1 },
                 _ => Status with { Availability = UiAudioAvailability.Ready, Reason = null,
@@ -237,16 +240,28 @@ internal sealed class UiAudioFeedback : IDisposable
     private void HookButton(Node node)
     {
         if (node is not BaseButton button || !_host.IsAncestorOf(button) || _buttons.ContainsKey(button.GetInstanceId())) return;
-        Action handler = () =>
+        if (button is UiSourceButton sourceButton)
         {
-            if (button.Disabled) return;
-            Play(button is UiSourceButton source ? source.PressedCue :
-                button.Name == "CancelPreparedDeployment" || button.Name == "DiplomacyCancelAlliance" ||
-                button.Name == "TacticCancel" ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
-        };
-        _buttons.Add(button.GetInstanceId(), (button, handler));
-        if (button is UiSourceButton sourceButton) sourceButton.FeedbackRequested += handler;
-        else button.Pressed += handler;
+            Action<UiAudioCue> sourceHandler = cue =>
+            {
+                if (!sourceButton.SourceInputAdmitted ||
+                    (cue == UiAudioCue.Invalid ? !sourceButton.DisabledFeedbackAdmitted : sourceButton.Disabled)) return;
+                Play(cue);
+            };
+            _buttons.Add(button.GetInstanceId(), (button, null, sourceHandler));
+            sourceButton.FeedbackRequested += sourceHandler;
+        }
+        else
+        {
+            Action handler = () =>
+            {
+                if (button.Disabled) return;
+                Play(button.Name == "CancelPreparedDeployment" || button.Name == "DiplomacyCancelAlliance" ||
+                    button.Name == "TacticCancel" ? UiAudioCue.Cancel : UiAudioCue.ButtonSelect);
+            };
+            _buttons.Add(button.GetInstanceId(), (button, handler, null));
+            button.Pressed += handler;
+        }
     }
 
     private void ReleaseButton(Node node)
@@ -255,9 +270,9 @@ internal sealed class UiAudioFeedback : IDisposable
             DetachButton(subscription);
     }
 
-    private static void DetachButton((BaseButton Button, Action Handler) subscription)
+    private static void DetachButton((BaseButton Button, Action? Handler, Action<UiAudioCue>? SourceHandler) subscription)
     {
-        if (subscription.Button is UiSourceButton source) source.FeedbackRequested -= subscription.Handler;
+        if (subscription.Button is UiSourceButton source) source.FeedbackRequested -= subscription.SourceHandler;
         else subscription.Button.Pressed -= subscription.Handler;
     }
 

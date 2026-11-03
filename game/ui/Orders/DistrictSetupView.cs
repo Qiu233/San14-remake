@@ -38,14 +38,14 @@ internal partial class DistrictSetupView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text, bool editing,
         Func<bool> admitted, Action returned, Action<bool> accepted,
-        Action chooseCities, Action chooseLeader, Action chooseTarget, Action<DistrictSetupField, int> selected, Func<int,string> guide)
+        Action chooseCities, Action chooseLeader, Action chooseTarget, Action<DistrictSetupField, int> selected, Func<int,string> guide, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.returned = returned; this.accepted = accepted; this.selected = selected;
         Name = "DistrictSetup"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, editing ? 0x3A8 : 0x3A7, RequestBack, () => RequestApply(false), threeButtonFooter: true);
+        chrome.Configure(repository, text, editing ? 0x3A8 : 0x3A7, RequestBack, () => RequestApply(false), threeButtonFooter: true, resources: resources);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         again = new() { Name="ContinueDistrictAdministration", Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadAdmission };
         chrome.Canvas.AddChild(again);

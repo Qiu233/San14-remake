@@ -30,6 +30,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             var oldAdvisor = current.AssignmentAdvisorResetCallbacks;
             var oldArea = current.AssignmentAreaOfficerRemoval;
             var oldPolicy = current.BaseForcePolicyEffectReader;
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = (first, second, third) =>
+                latest = rules.RefreshPersonnelMilestoneCurrent(latest, current, first, second, third);
             try
             {
                 if (code == 163)
@@ -73,6 +76,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             finally
             {
+                current.TransferServiceRefresher = previousRefresh;
                 current.AssignmentAdvisorResetCallbacks = oldAdvisor;
                 current.AssignmentAreaOfficerRemoval = oldArea;
                 current.BaseForcePolicyEffectReader = oldPolicy;

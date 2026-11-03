@@ -9,6 +9,20 @@ public sealed partial class D3D11RenderSession
         IntPtr command,IntPtr routes,IntPtr effects,out NativeReceipt receipt);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int CopySceneCall(IntPtr owner,ulong output,ulong request,uint outputUse);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeHexFocusInputV1
+    {
+        public uint Size, Version, Hex, Reserved;
+    }
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int PrepareSceneFocusCall(IntPtr owner, in NativeInput input,
+        IntPtr command, IntPtr routes, IntPtr effects, in NativeHexFocusInputV1 focus, out NativeReceipt receipt);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SceneFocusNextCall(IntPtr owner, ulong output, in NativeInput input,
+        IntPtr command, IntPtr routes, IntPtr effects, in NativeHexFocusInputV1 focus,
+        uint outputUse, out NativeReceipt receipt);
+    private PrepareSceneFocusCall? _prepareSceneFocus;
+    private SceneFocusNextCall? _sceneFocusNext;
     private PrepareSceneCall? _prepareScene;
     private CopySceneCall? _copyScene;
 
@@ -21,8 +35,11 @@ public sealed partial class D3D11RenderSession
 
     private int PrepareSceneNative(D3D11MapInput input,in NativeInput native,
         ref WorldPins pins,out NativeReceipt receipt)
+        => RenderSceneExtensions(input, in native, ref pins, true, 0, 0, out receipt);
+
+    private int RenderSceneExtensions(D3D11MapInput input, in NativeInput native,
+        ref WorldPins pins, bool prepare, ulong output, uint outputUse, out NativeReceipt receipt)
     {
-        _prepareScene??=Export<PrepareSceneCall>("san14_render_prepare_scene_v1");
         GCHandle commandPin=default,resourcesPin=default,framePin=default,effectsPin=default;
         IntPtr routePointer=IntPtr.Zero;
         try
@@ -63,6 +80,19 @@ public sealed partial class D3D11RenderSession
                 effectsPin=GCHandle.Alloc(new[]{value},GCHandleType.Pinned);
                 effectsPointer=effectsPin.AddrOfPinnedObject();
             }
+            if (input.HexFocus is uint hex)
+            {
+                var focus = new NativeHexFocusInputV1
+                { Size = (uint)Marshal.SizeOf<NativeHexFocusInputV1>(), Version = 1, Hex = hex };
+                if (prepare)
+                {
+                    _prepareSceneFocus ??= Export<PrepareSceneFocusCall>("san14_render_prepare_scene_focus_v1");
+                    return _prepareSceneFocus(_owner, in native, commandPointer, routePointer, effectsPointer, in focus, out receipt);
+                }
+                _sceneFocusNext ??= Export<SceneFocusNextCall>("san14_render_next_map_focus_v1");
+                return _sceneFocusNext(_owner, output, in native, commandPointer, routePointer, effectsPointer, in focus, outputUse, out receipt);
+            }
+            _prepareScene ??= Export<PrepareSceneCall>("san14_render_prepare_scene_v1");
             return _prepareScene(_owner,in native,commandPointer,routePointer,effectsPointer,out receipt);
         }
         finally

@@ -38,7 +38,7 @@ internal partial class PersonnelItemPage : Control
     internal AdministrationPageChrome.Resources SharedResources => new(chrome.Assets, chrome.Font, chrome.SpriteShader);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> current,
-        Action returned, Action accepted, Action chooseItem, Action chooseTarget)
+        Action returned, Action accepted, Action chooseItem, Action chooseTarget, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; ui = text; this.current = current;
         this.returned = returned; this.accepted = accepted;
@@ -46,7 +46,7 @@ internal partial class PersonnelItemPage : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x246, RequestBack, RequestApply);
+        chrome.Configure(repository, text, 0x246, RequestBack, RequestApply, resources: resources);
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         source = new(repository, 0x49D2E4C6);
         foreach (var node in source.Nodes)

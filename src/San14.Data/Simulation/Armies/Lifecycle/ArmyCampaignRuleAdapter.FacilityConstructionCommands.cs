@@ -225,19 +225,39 @@ public sealed partial class ArmyCampaignRuleAdapter : IPlayableArmyConstructionC
 public sealed partial class SourceWorldContext
 {
     private bool _constructionSceneryLinksKnown;
-    internal void BindFixedConstructionSceneryLinks()
+    internal void BindFixedConstructionSceneryLinks() => BindFixedConstructionSceneryLinks(preserveCurrentLinks: false);
+    internal void BindMissingFixedConstructionSceneryLinks()
+    {
+        if (_constructionSceneryLinksKnown) return;
+        BindFixedConstructionSceneryLinks(preserveCurrentLinks: true);
+    }
+    private void BindFixedConstructionSceneryLinks(bool preserveCurrentLinks)
     {
         //44 placement is an immutable map resource.47 flags are overlaid from
         //the saved current landmark owner independently; this creates no registry.
         if (SceneryDefinitions is not { } definitions) throw FacilityConstructionDefinitions.Missing("fixed_scenery_definitions");
-        _hexScenerySlots.Clear();
-        _constructionSceneryLinksKnown = true;
+        // Remember only preexisting overlay keys. Newly assigned fixed links
+        // still follow the catalog's original order, including duplicate Hexes.
+        // Explicit current null and alias overrides must not be replaced.
+        var preserved = preserveCurrentLinks && _hexScenerySlots.Count != 0 ? _hexScenerySlots.Keys.ToHashSet() : null;
+        if (!preserveCurrentLinks)
+        {
+            _hexScenerySlots.Clear();
+            _constructionSceneryLinksKnown = true;
+        }
         foreach (var row in definitions.Sceneries)
-            if (ReadSceneryNativeValidity(new(row.Slot)) is true)
+        {
+            bool? valid = ReadSceneryNativeValidity(new(row.Slot));
+            if (preserveCurrentLinks && valid is null)
+                throw FacilityConstructionDefinitions.Missing("fixed_scenery_validity");
+            if (valid is true)
             {
                 var hex = ReadHexTableReference(row.RawHex44 < 48400 ? row.RawHex44 : 0)
                     ?? throw FacilityConstructionDefinitions.Missing("fixed_scenery_Hex_pointer");
-                _ = AssignHexScenery(hex, row.Slot, 1);
+                if (hex.PhysicalSlot is not int physical || preserved?.Contains(physical) != true)
+                    _ = AssignHexScenery(hex, row.Slot, 1);
             }
+        }
+        if (preserveCurrentLinks) _constructionSceneryLinksKnown = true;
     }
 }

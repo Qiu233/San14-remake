@@ -70,7 +70,7 @@ public partial class Main
         if (draft.UnresolvedOwner is { } missing) { StrategicOrdersUnavailable(missing); return; }
         if (initialTargetId is int initial && !draft.SelectTarget(initial))
         { StrategicOrdersUnavailable("strategic.page.initial_target"); return; }
-        var owner = new StrategicOrdersWorkspace(session, world, map, draft, new(_repository))
+        var owner = new StrategicOrdersWorkspace(session, world, map, draft, new())
             { Returned = returned, InitialTargetId = initialTargetId };
         var view = new StrategicOrdersView(); owner.View = view; _strategicOrders = owner; AddChild(view);
         try
@@ -84,7 +84,7 @@ public partial class Main
                 () => RunUiAction(() => OpenStrategicExecutorSelection(owner)),
                 () => RunUiAction(() => OpenStrategicMilitaryCalculator(owner)),
                 amount => RunUiAction(() => ChangeStrategicOrders(owner, () => draft.SetMilitaryIntelligence(amount))),
-                choice => RunUiAction(() => ChangeStrategicOrders(owner, () => draft.SetIndependenceChoice(choice))));
+                choice => RunUiAction(() => ChangeStrategicOrders(owner, () => draft.SetIndependenceChoice(choice))), resources: TryBorrowApplicationUiResources(view));
             map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true);
             SetMapFocus(true); HideDeploymentHud(); RefreshStrategicOrders(owner);
             if(kind==20)ObserveTutorialInformation(37);

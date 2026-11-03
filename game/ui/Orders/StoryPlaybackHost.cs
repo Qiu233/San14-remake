@@ -26,6 +26,7 @@ internal sealed record StoryPlaybackAccess(Func<CampaignStoryRequest?> ReadStory
 internal partial class StoryPlaybackHost : Control
 {
     private GameResourceRepository repository = null!;
+    private MapSystemMenuPreparedResources preparedUiResources = null!;
     private PreviewText text = null!;
     private StoryPlaybackAccess access = null!;
     private MapSceneView? map;
@@ -53,9 +54,11 @@ internal partial class StoryPlaybackHost : Control
         Func<bool> admitted, Func<AutomaticMessageAdvanceMode> automaticAdvance,
         Func<int> scrollSpeed, Func<InputEvent, DeploymentNarrationView?, bool> keyboardInput,
         Action<GameState>? prepared, Action completed, Action<Exception> failed,
+        MapSystemMenuPreparedResources preparedUiResources,
         Func<InputEvent, Func<int, bool>, bool>? inputWaitKeyboard = null)
     {
         this.repository = repository; this.text = text; this.access = access; this.map = map;
+        this.preparedUiResources = preparedUiResources;
         this.audio = audio; this.admitted = admitted; this.automaticAdvance = automaticAdvance;
         this.musicPreferences = musicPreferences;
         // This playback manager is freshly constructed; source 1B0 starts
@@ -71,7 +74,7 @@ internal partial class StoryPlaybackHost : Control
         scene.InputWaitKeyboard = input => inputWaitKeyboard?.Invoke(input, requestMode) ?? false;
         scene.ReadAccelerated = () => skipped || accelerated;
         scene.OpenLog = OpenLog;
-        scene.Configure(repository, text, CanUse);
+        scene.Configure(repository, text, CanUse, preparedUiResources.CreateChromeResources());
         map?.BeginStoryPresentation(this);
         RestoreScene();
         if (access.ReadStory() is { } restore && restore.Scene.OwnedEffects is { Length: > 0 })
@@ -112,13 +115,13 @@ internal partial class StoryPlaybackHost : Control
         var query = access.QueryPresentation(story);
         var publication = query.Available ? query.Value! :
             throw new InvalidDataException(query.UnresolvedInput ?? "story.presentation.publication");
-        var sprites = new LocalizedUiSpriteSource(repository);
+        var portraits = preparedUiResources.Assets.Portraits;
         var actors = publication.Actors.Select(actor =>
         {
             if (actor.UnresolvedOwner is not null || !actor.StandingPortrait.Available ||
                 actor.StandingPortrait.Value is not { } route)
                 throw new InvalidDataException(actor.UnresolvedOwner ?? actor.StandingPortrait.UnresolvedInput ?? "story.presentation.actor");
-            var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
+            var layers = route.LoadSources(portraits.RequireSource);
             return new StoryActorVisual(actor.Slot, actor.Speaker.OfficerId, layers) { Dark = actor.Dark };
         }).ToArray();
         scene.ApplyActors(actors, publication.HighlightedSlot, publication.PortraitDarkFlags);
@@ -362,22 +365,22 @@ internal partial class StoryPlaybackHost : Control
         {
             var texts = story.TextLog.AsEnumerable();
             if (story.PreparedStep?.Text is { } current) texts = texts.Append(current);
-            var sprites = new LocalizedUiSpriteSource(repository);
+            var portraits = preparedUiResources.Assets.Portraits;
             var entries = texts.Select(message =>
             {
-                LoadedSprite? face = null;
+                LoadedUiSpriteSource? face = null;
                 if (message.Speaker is { } speaker)
                 {
                     int appearance = speaker.PortraitAppearanceIndex ??
                         throw new InvalidDataException("story.log.source_appearance");
                     var route = repository.ResolveFacePortrait(appearance);
-                    face = sprites.LoadTexturePackSprite(route.ResourceName, route.SpriteName);
+                    face = portraits.RequireSource(route.ResourceName, route.SpriteName);
                 }
                 return new StoryLogVisual(message.SpeakerName, message.Text, face);
             }).ToArray();
             var view = new StoryLogView(); log = view; AddChild(view);
             view.Configure(repository, text, entries, () => !abandoned && admitted() && log == view,
-                CloseLog, scrollSpeed);
+                CloseLog, scrollSpeed, preparedUiResources.CreateChromeResources());
         }
         catch (Exception error) { CloseLog(); Fail(error); }
     }

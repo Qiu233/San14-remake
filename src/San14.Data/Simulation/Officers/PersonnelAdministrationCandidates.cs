@@ -71,10 +71,10 @@ internal static class PersonnelAdministrationCandidates
         var linked = current.ReadPersonLinkedEntity(physical) ?? throw Missing("Person22AC00");
         if (K(current.ReadLinkedEntityNativeValidity(linked), "linked_validity") &&
             ReadAssociatedElapsed(state, current, K(linked.Identity, "linked_receiver")) != 0) return false;
-        var army = PersonArmyLocationSource.ReadCommanderArmy(current, physical) ?? throw Missing("Person22A200");
-        if (K(current.ReadArmyUnitNativeValidity(army), "Army_validity"))
+        bool armyValid = K(PersonArmyLocationSource.ReadCommanderArmyValidity(state, current, physical, out var army), "Person22A200");
+        if (armyValid)
         {
-            int armyPhysical = K(army.PhysicalSlot, "Army_receiver");
+            int armyPhysical = K(army?.PhysicalSlot, "Army_receiver");
             var lifecycle = state.ReadArmyLifecycle() ?? throw Missing("Army_lifecycle");
             var receiver = lifecycle.Receivers.Find(lifecycle.Slots[armyPhysical].ReceiverId)
                 ?? throw Missing("Army_current_receiver");

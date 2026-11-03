@@ -27,6 +27,8 @@ public sealed class D3D11MapInput
     public TerrainPicker? TerrainPicker { get; init; }
     public D3D11TerritoryPublication? TerritoryOwnership { get; init; }
     public D3D11CommandMapPublication? CommandMap { get; init; }
+    // Independent first-focus scalar: null retains, the native invalid slot clears.
+    internal uint? HexFocus { get; init; }
     public D3D11RoutePublication? Routes { get; init; }
     public G1EffectGpuPublication? Effects { get; init; }
     public StoryEffectCommonCameraFrame? StoryEffectCamera { get; init; }
@@ -72,6 +74,7 @@ public sealed class D3D11MapInput
         TerrainPicker = input.TerrainPicker;
         TerritoryOwnership = input.TerritoryOwnership;
         CommandMap = input.CommandMap; CommandMapFpsMode = input.CommandMapFpsMode;
+        HexFocus = input.HexFocus;
         Routes = input.Routes;
         Effects = input.Effects;
         StoryEffectCamera = input.StoryEffectCamera;
@@ -335,6 +338,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         // Keep the established initial-create ABI and its first publication.
         if (input.CommandMap is not null) throw new InvalidOperationException("Command map display requires an initialized map.");
         if (input.Routes is not null) throw new InvalidOperationException("Route display requires an initialized map.");
+        if (input.HexFocus is not null) throw new InvalidOperationException("Hex focus requires an initialized map.");
         if (input.Effects is not null) throw new InvalidOperationException("Effect display requires an initialized map.");
         var native = input.ToNative();
         var pin = PinWorld(input, ref native);
@@ -402,6 +406,8 @@ public sealed partial class D3D11RenderSession : IDisposable
         {
             if (prepareSceneOnly)
                 result = PrepareSceneNative(input,in native,ref pin,out receipt);
+            else if (input.HexFocus is not null)
+                result = RenderSceneExtensions(input, in native, ref pin, false, output, outputUse, out receipt);
             else if (input.Effects is { } effects)
                 result = NextWithEffects(output, input, in native, effects, ref pin, outputUse, out receipt);
             else if (input.Routes is { } routes)

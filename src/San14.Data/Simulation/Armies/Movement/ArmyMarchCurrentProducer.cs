@@ -151,7 +151,9 @@ public sealed class ArmyMarchCurrentProducer : IArmyMarchCurrentQueries
         byte? status = army.NativeTacticRuntime?.Status10;
         byte? action = ArmyConfigurationSourceAdapter.ReadAction(state, army);
         if (state.Units.GetValueOrDefault(army.Id) != army || status is not (1 or 2) ||
-            status == 1 && action is not (1 or 4 or 5 or 7 or 8 or 9 or 10 or 13 or 14 or 16 or 17) &&
+            //3014C0's empty-Hex0 return1 is shared by ordinary entry/
+            //fallback2/3/11/12 as well as the other supported native orders.
+            status == 1 && action is not (1 or 2 or 3 or 4 or 5 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 16 or 17) &&
                 !(OrdinaryArmyRouteSource.HasTypedObjectOverride(army) && action is >= 0 and <= 17) &&
                 !(action == 6 && OrdinaryArmyRouteSource.UsesObjectCommandMovement(state, army)) ||
             status == 1 && action == 10 &&

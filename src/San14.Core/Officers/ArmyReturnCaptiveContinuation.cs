@@ -29,7 +29,12 @@ public sealed record ArmyReturnCaptiveTrial(int OfficerId, bool RecruitmentAccep
 
 public enum ArmyReturnCaptiveCaller { Unspecified, OrdinaryEntry, MovementArrival, BaseCapture, CampaignWithdrawal }
 public sealed record ArmyReturnCaptiveArrivalTail(byte Action, ushort GoalHexId, int DestinationLocationId,
-    NativeArmyProgressStageMoment Moment);
+    NativeArmyProgressStageMoment Moment)
+{
+    //Older saved arrivals already ran the march caller before the batch
+    //closed. New arrivals retain that unfinished work with this real owner.
+    public bool MarchCallerTailPending { get; init; }
+}
 public sealed record ArmyReturnCaptiveCaptureTail(BaseCaptureRequest Request, int WinningForceId,
     int WinningDistrictId, ImmutableArray<int> StatePhysicalSlots, ImmutableArray<int> RegionPhysicalSlots,
     int BeforeStateCount, int BeforeRegionCount)

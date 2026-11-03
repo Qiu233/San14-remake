@@ -13,7 +13,8 @@ public partial class Main
     private ActionReportPeopleDisplay? _actionReportPeople;
     private MapSceneView? _actionReportMap;
     private bool _reportMapPriorFocus;
-    private readonly Dictionary<ushort, LoadedSprite> _actionReportFaces = [];
+    private readonly Dictionary<ushort, LoadedUiSpriteSource> _actionReportFaces = [];
+    private AdministrationPageChrome.Resources? _actionReportUiResources;
     private ReportMapReturnView? _reportMapReturn;
     private bool HasActionReport => _actionReportView is not null;
 
@@ -51,10 +52,6 @@ public partial class Main
             content.StrategistPersonId, portraitVisible);
         var lists = content.Categories.ToDictionary(category => category.Category,
             category => new ActionReportListContent(category.Records, category.UsesEmptyFallback));
-        var sprites = new LocalizedUiSpriteSource(_repository);
-        IReadOnlyList<LoadedSprite>? layers = null;
-        if (_actionReportPeople.StrategistPortrait is { } route)
-            layers = route.LoadSprites(sprites.LoadTexturePackSprite);
         RetirePeriodReportView();
         var view = new ActionReportView { Name = "CampaignActionReport" };
         _actionReportView = view;
@@ -63,14 +60,16 @@ public partial class Main
         {
             EnsureReportBackground(session, application, _actionReportMap, view);
             var resources = TryBorrowApplicationUiResources(view);
+            _actionReportUiResources = resources;
+            var layers = _actionReportPeople.StrategistPortrait?.LoadSources(resources.Assets.Portraits.RequireSource);
             view.Configure(_repository, resources.Assets, resources.SpriteShader, resources.Font,
-                _ui.SourceLocale, lists, layers, false,
+                _ui.SourceLocale, lists, null, false,
                 CurrentListScrollSpeed(), CurrentListScrollSpeed, ResolveActionReportRow,
                 (_, _, record, command) => RunUiAction(() => NavigateActionReport(record, command)),
                 category => PrepareActionReportCategory(view, category), () => ActionReportInputAdmitted(view),
                 () => RunPlayAction(() => CompleteActionReport(view)),
                 error => { CloseActionReport(); ReportPlayFailure(error); RefreshPlayablePeriodReport(); },
-                _sourceHeaders, prepared.SelectedCategory);
+                _sourceHeaders, prepared.SelectedCategory, preparedStandingLayers: layers);
             _actionReportMap?.SetDetailsOpen(true, keepMapVisible: true);
             SetMeta("play_report_overlay_visible", true);
             return true;
@@ -100,7 +99,8 @@ public partial class Main
         if (!_actionReportFaces.TryGetValue(record.PersonId, out var face))
         {
             var route = person.Portrait;
-            face = new LocalizedUiSpriteSource(_repository!).LoadTexturePackSprite(route.ResourceName!, route.SpriteName!);
+            face = (_actionReportUiResources ?? throw new InvalidOperationException("Action report resource owner is absent."))
+                .Assets.Portraits.RequireSource(route.ResourceName!, route.SpriteName!);
             _actionReportFaces[record.PersonId] = face;
         }
         return new(record, person.Name, face);
@@ -180,7 +180,7 @@ public partial class Main
             map.SetDetailsOpen(false);
         _actionReportSession = null; _actionReportApplication = null;
         _actionReportMap = null;
-        _actionReportSource = null; _actionReportPeople = null; _actionReportFaces.Clear();
+        _actionReportSource = null; _actionReportPeople = null; _actionReportFaces.Clear(); _actionReportUiResources = null;
         if (view is not null && GodotObject.IsInstanceValid(view))
         {
             view.Abandon();

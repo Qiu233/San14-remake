@@ -246,7 +246,7 @@ public partial class Main
                 AdoptEndingWorld(owner); return true;
             }), owner.Map, audio, _preferences.MusicSelection, () => EndingInputAdmitted(owner),
             () => _preferences.AutomaticMessageAdvance, CurrentListScrollSpeed, HandleNarrationKeyboard,
-            _ => AdoptEndingWorld(owner), () => FinishEndingWait(owner), error => FailEnding(owner, error), inputWaitKeyboard: HandleNarrationKeyboard);
+            _ => AdoptEndingWorld(owner), () => FinishEndingWait(owner), error => FailEnding(owner, error), inputWaitKeyboard: HandleNarrationKeyboard, preparedUiResources: TryBorrowApplicationPreparedResources(host));
     }
 
     private void OpenEndingMovie(EndingWorkspace owner, CampaignEndingProgress progress,

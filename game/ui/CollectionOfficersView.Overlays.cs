@@ -31,7 +31,7 @@ internal partial class CollectionOfficersView
                     if (orderedRows.Count == 0) { appearanceVariants.Clear(); previousVoiceEvent = 0; return; }
                     bool retained = orderedRows.Any(row => row.OfficerId == officerId);
                     ShowDetail(retained ? officerId : orderedRows[0].OfficerId, retained ? selectedPage : 0);
-                }));
+                }), resources);
         }
         catch { CloseFilter(true); throw; }
     }
@@ -44,7 +44,7 @@ internal partial class CollectionOfficersView
         {
             view.Configure(repository, text, catalog, officerId, appearanceVariants.GetValueOrDefault(officerId),
                 () => ReadAdmission() && expansion == view,
-                () => runUiAction(() => CloseExpansion(true)));
+                () => runUiAction(() => CloseExpansion(true)), resources);
         }
         catch { CloseExpansion(true); throw; }
     }

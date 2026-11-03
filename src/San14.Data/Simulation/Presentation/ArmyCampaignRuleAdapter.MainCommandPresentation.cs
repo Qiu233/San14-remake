@@ -8,7 +8,29 @@ public sealed record MapMainCommandCategoryPresentation(MapCommandCategory Categ
 /// <summary>A published child-row predicate and original Game help identity.
 /// Unknown admission is distinct from a known source denial.</summary>
 public sealed record MapMainCommandEntryPresentation(MapMenuCommand Command, bool? Enabled,
-    int? GameMessageId, string? UnresolvedInput = null);
+    int? GameMessageId, string? UnresolvedInput = null)
+{
+    //70D0F0's restricted branch writes the predicate but leaves its existing
+    //help output untouched. This differs from unknown or a written empty ID.
+    public bool RetainGameMessage { get; init; }
+
+    //Only rows whose real predicate/help producer is projected require a
+    //known admission before the bound command can be clicked. Fixed Policy
+    //and Events are always source-enabled and keep their existing binding.
+    public static bool RequiresPublishedAdmission(MapMenuCommand command) => command is
+        MapMenuCommand.Deploy or MapMenuCommand.WithdrawAll or
+        MapMenuCommand.Office or MapMenuCommand.Research or MapMenuCommand.CreateDistrict or
+        MapMenuCommand.EditDistrict or MapMenuCommand.MoveGroup or MapMenuCommand.EditGroup or
+        MapMenuCommand.Search or MapMenuCommand.Recruit or MapMenuCommand.Employ or MapMenuCommand.Items or
+        MapMenuCommand.Reward or MapMenuCommand.Merit or MapMenuCommand.Award or MapMenuCommand.Expel or
+        MapMenuCommand.Learn or MapMenuCommand.Introduce or
+        MapMenuCommand.Poison or MapMenuCommand.Alienate or MapMenuCommand.PlacateArea or MapMenuCommand.Incite or
+        MapMenuCommand.ProvokeWar or MapMenuCommand.Sabotage or MapMenuCommand.Rumor or
+        MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or
+        MapMenuCommand.ReturnCaptives or MapMenuCommand.RequestAttack or MapMenuCommand.DemandSurrender or MapMenuCommand.Exchange or
+        MapMenuCommand.Spy or MapMenuCommand.Scout or MapMenuCommand.Patrol or
+        MapMenuCommand.Proposals or MapMenuCommand.CreatedEvents or MapMenuCommand.Trade;
+}
 
 public sealed record MapMainCommandPresentation(IReadOnlyList<MapMainCommandCategoryPresentation> Categories,
     IReadOnlyList<string> UnresolvedOwners)
@@ -62,26 +84,91 @@ public sealed partial class ArmyCampaignRuleAdapter
         //333EF0 or invalid Force does not refresh these Base caches. The view
         //retains its last actual publication; missing first state stays unknown.
         bool refresh = flags is uint bits && (bits & 0x100) == 0 && valid == true;
+        bool currentBound = false, indexesBound = false, itemsBound = false, areasBound = false;
+        var entryPresentations = new Dictionary<MapMenuCommand, MapMainCommandEntryPresentation>();
+        MapMainCommandEntryPresentation EntryPresentation(MapMenuCommand command)
+        {
+            if (!entryPresentations.TryGetValue(command, out var entry))
+            {
+                entry = command switch
+                {
+                    MapMenuCommand.Deploy or MapMenuCommand.WithdrawAll =>
+                        ReadCampaignCommandEntry(state, current, command, BindCommandCurrent),
+                    MapMenuCommand.Poison or MapMenuCommand.Alienate or MapMenuCommand.PlacateArea or MapMenuCommand.Incite or
+                    MapMenuCommand.ProvokeWar or MapMenuCommand.Sabotage or MapMenuCommand.Rumor =>
+                        ReadStrategyCommandEntry(state, current, command, special, BindCommandCurrent),
+                    MapMenuCommand.Goodwill or MapMenuCommand.Alliance or MapMenuCommand.CancelAlliance or
+                    MapMenuCommand.ReturnCaptives or MapMenuCommand.RequestAttack or MapMenuCommand.DemandSurrender or MapMenuCommand.Exchange =>
+                        ReadDiplomacyCommandEntry(state, current, command, special, BindCommandCurrent,
+                            BindCommandIndexes, BindCommandItems, BindCommandAreas),
+                    MapMenuCommand.Events => new(command, true, 0x3142),
+                    MapMenuCommand.Spy or MapMenuCommand.Scout or MapMenuCommand.Patrol =>
+                        ReadInformationCommandEntry(state, current, command, special, BindCommandCurrent),
+                    MapMenuCommand.Search or MapMenuCommand.Recruit or MapMenuCommand.Employ or MapMenuCommand.Items or
+                    MapMenuCommand.Reward or MapMenuCommand.Merit or MapMenuCommand.Award or MapMenuCommand.Expel or
+                    MapMenuCommand.Learn or MapMenuCommand.Introduce =>
+                        ReadPersonnelCommandEntry(state, current, command, special, BindCommandCurrent, BindCommandItems),
+                    MapMenuCommand.Policy or MapMenuCommand.Office or MapMenuCommand.Research or MapMenuCommand.CreateDistrict or
+                    MapMenuCommand.EditDistrict or MapMenuCommand.MoveGroup or MapMenuCommand.EditGroup =>
+                        ReadAppointmentCommandEntry(state, current, command, special, BindCommandCurrent),
+                    _ => throw new ArgumentOutOfRangeException(nameof(command))
+                };
+                entryPresentations.Add(command, entry);
+            }
+            return entry;
+        }
+        void BindCommandCurrent()
+        {
+            if (currentBound) return;
+            BindCommandIndexes();
+            _moraleWaveInputs.BindCurrent(state, current);
+            _baseCapacityInputs.BindCurrent(state, current);
+            _personAssignmentPrecallInputs.BindCurrent(state, current);
+            PersonReturnCommands.BindCurrent(state, current);
+            currentBound = true;
+        }
+        //Only reached producer branches bind these actual owners. A header
+        //publication shares each binding; early denials do not need later data.
+        void BindCommandIndexes()
+        {
+            if (indexesBound) return;
+            //CaptureSourcePrefixCore already owns an opening index pool;
+            //its existence does not mean the saved runtime graph is imported.
+            _ = WorldIndexContext.ImportOwnedState(current,
+                (state.ReadArmyLifecycle() ?? throw MainCommandMissing("command_indexes")).Indexes, state);
+            indexesBound = true;
+        }
+        void BindCommandItems()
+        {
+            if (itemsBound) return;
+            BindCommandIndexes();
+            if (state.NativeArmySimulation?.Parameters.Int32Values.GetValueOrDefault(PersonArmyCaptureInputs.VersionKey) != 1)
+                throw MainCommandMissing("command_Item_current_profile");
+            PersonArmyCaptureInputs.BindCurrent(state, current);
+            itemsBound = true;
+        }
+        void BindCommandAreas()
+        {
+            if (areasBound) return;
+            BindCommandIndexes();
+            AreaStatisticsSourceAdapter.BindCurrent(state, current);
+            areasBound = true;
+        }
         if (refresh)
         {
             var available = new Dictionary<MapMenuCommand, bool?>();
-            bool currentBound = false;
             bool? Availability(MapMenuCommand command)
             {
                 if (available.TryGetValue(command, out var known)) return known;
                 bool? value = Read(() =>
                 {
-                    if (!currentBound)
+                    if (MapMainCommandEntryPresentation.RequiresPublishedAdmission(command) &&
+                        command is not (MapMenuCommand.Proposals or MapMenuCommand.CreatedEvents or MapMenuCommand.Trade))
                     {
-                        _moraleWaveInputs.BindCurrent(state, current);
-                        _baseCapacityInputs.BindCurrent(state, current);
-                        _personAssignmentPrecallInputs.BindCurrent(state, current);
-                        PersonReturnCommands.BindCurrent(state, current);
-                        if (current.ReadOwnedCurrentListPool() is null)
-                            _ = WorldIndexContext.ImportOwnedState(current,
-                                (state.ReadArmyLifecycle() ?? throw MainCommandMissing("command_indexes")).Indexes, state);
-                        currentBound = true;
+                        var entry = EntryPresentation(command);
+                        return entry.Enabled ?? throw new InvalidDataException(entry.UnresolvedInput);
                     }
+                    BindCommandCurrent();
                     return ReadMainCommandAvailabilityCurrent(state, current, command);
                 });
                 available.Add(command, value); return value;
@@ -92,7 +179,13 @@ public sealed partial class ArmyCampaignRuleAdapter
             int? district = ReadDistrict();
             int? ReadDistrict()
             {
-                try { return ForcePrimaryDistrictSource.Resolve(current, player).PhysicalSlot ?? throw MainCommandMissing("primary_district"); }
+                try
+                {
+                    //This is the header's first actual District_D0 consumer.
+                    //Its saved graph must precede memoized notice predicates.
+                    BindCommandIndexes();
+                    return ForcePrimaryDistrictSource.Resolve(current, player).PhysicalSlot ?? throw MainCommandMissing("primary_district");
+                }
                 catch (InvalidDataException error) { issues.Add(error.Message); return null; }
             }
             bool? research = MainAnd(Notice(0x08000000), Read(() => district is int d
@@ -136,17 +229,34 @@ public sealed partial class ArmyCampaignRuleAdapter
         // 897B50 publishes Base32C/3F8 once with this header publication;
         // 892170 consumes that cached allowed/help pair when opening Decisions.
         // CampaignComposition caches the whole header by World/Force/display/revision.
-        MapMainCommandEntryPresentation[] entries = [];
+        var entries = new List<MapMainCommandEntryPresentation>();
         if (refresh)
         {
             var proposal = current.CurrentPlayerForce?.PhysicalSlot is int force
                 ? QueryProposalAdmission(state, force)
                 : AreaAdministrationQuery<ProposalAdmission>.Unknown("map.main_command.proposal_player_identity");
-            entries = proposal.Available && proposal.Value is { } admission
-                ? [new(MapMenuCommand.Proposals, admission.Allowed, admission.GameMessageId)]
-                : [new(MapMenuCommand.Proposals, null, null,
-                    proposal.UnresolvedInput ?? "map.main_command.proposal_admission")];
+            entries.Add(proposal.Available && proposal.Value is { } admission
+                ? new(MapMenuCommand.Proposals, admission.Allowed, admission.GameMessageId)
+                : new(MapMenuCommand.Proposals, null, null,
+                    proposal.UnresolvedInput ?? "map.main_command.proposal_admission"));
             if (!proposal.Available) issues.Add(entries[0].UnresolvedInput!);
+            entries.Add(ReadCreatedEventCommandEntry(state, special, tutorial));
+            entries.Add(ReadForeignTradeCommandEntry(state, current, special, BindCommandCurrent));
+            foreach (var command in new[] { MapMenuCommand.Spy, MapMenuCommand.Scout, MapMenuCommand.Patrol,
+                MapMenuCommand.Policy, MapMenuCommand.Office, MapMenuCommand.Research, MapMenuCommand.CreateDistrict,
+                MapMenuCommand.EditDistrict, MapMenuCommand.MoveGroup, MapMenuCommand.EditGroup,
+                MapMenuCommand.Search, MapMenuCommand.Recruit, MapMenuCommand.Employ, MapMenuCommand.Items,
+                MapMenuCommand.Reward, MapMenuCommand.Merit, MapMenuCommand.Award, MapMenuCommand.Expel,
+                MapMenuCommand.Learn, MapMenuCommand.Introduce,
+                MapMenuCommand.Deploy, MapMenuCommand.WithdrawAll,
+                MapMenuCommand.Poison, MapMenuCommand.Alienate, MapMenuCommand.PlacateArea, MapMenuCommand.Incite,
+                MapMenuCommand.ProvokeWar, MapMenuCommand.Sabotage, MapMenuCommand.Rumor,
+                MapMenuCommand.Goodwill, MapMenuCommand.Alliance, MapMenuCommand.CancelAlliance,
+                MapMenuCommand.ReturnCaptives, MapMenuCommand.RequestAttack, MapMenuCommand.DemandSurrender, MapMenuCommand.Exchange,
+                MapMenuCommand.Events })
+                entries.Add(EntryPresentation(command));
+            foreach (var entry in entries.Skip(1))
+                if (entry.UnresolvedInput is { } unresolved) issues.Add(unresolved);
         }
         var rows = Enumerable.Range(0, 7).Select(index =>
         {
@@ -156,7 +266,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             return new MapMainCommandCategoryPresentation((MapCommandCategory)index, enabled, attention[index], badges[index], missing);
         }).ToArray();
         return new(rows, issues.Distinct(StringComparer.Ordinal).ToArray())
-            { Entries = entries, Update = refresh ? MapHeaderUpdate.Updated : valid is null || flags is null ? MapHeaderUpdate.Unresolved : MapHeaderUpdate.Unchanged };
+            { Entries = entries.AsReadOnly(), Update = refresh ? MapHeaderUpdate.Updated : valid is null || flags is null ? MapHeaderUpdate.Unresolved : MapHeaderUpdate.Unchanged };
     }
 
     private static bool? MainNot(bool? value) => value.HasValue ? !value.Value : null;

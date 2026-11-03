@@ -21,7 +21,7 @@ public partial class Main
         int player, GameplaySession session, MapSceneView map, int? retainedOfficer)
     {
         if (_repository is null) return;
-        var content = new AreaAdministrationOfficerContent(_repository);
+        var content = new AreaAdministrationOfficerContent();
         if (command == MapMenuCommand.Employ) OpenHire();
         else if (command == MapMenuCommand.Learn) OpenLearn();
         else if (command == MapMenuCommand.Introduce) OpenMediation();
@@ -90,7 +90,7 @@ public partial class Main
                         if (!IsPersonnelAdministrationCurrent(view) || (keepOpen ? !draft.CanContinue : !draft.CanConfirm)) return;
                         RequestPersonnelDevelopmentConfirmation(view, draft.QueryConfirmation(), view.SetBusy,
                             () => Submit(view, draft.BuildOrder(), keepOpen, draft.OfficerId));
-                    }), ChooseOfficer, ChooseTactic, InspectTactic);
+                    }), ChooseOfficer, ChooseTactic, InspectTactic, resources: TryBorrowApplicationUiResources(view));
                 Refresh();
             }, view.Abandon, ClosePersonnelAdministration);
 
@@ -162,7 +162,7 @@ public partial class Main
                         if (!IsPersonnelAdministrationCurrent(view) || (marriage ? !draft.CanMarry : !draft.CanSwear)) return;
                         RequestPersonnelDevelopmentConfirmation(view, draft.QueryConfirmation(), view.SetBusy,
                             () => Submit(view, draft.BuildOrder(), false));
-                    }), ChoosePerson, () => RunUiAction(() => { if (IsPersonnelAdministrationCurrent(view)) { draft.Clear(); Refresh(); } }));
+                    }), ChoosePerson, () => RunUiAction(() => { if (IsPersonnelAdministrationCurrent(view)) { draft.Clear(); Refresh(); } }), resources: TryBorrowApplicationUiResources(view));
                 Refresh();
             }, view.Abandon, ClosePersonnelAdministration);
 
@@ -233,8 +233,12 @@ public partial class Main
     {
         if (_personnelHireCities?.IsMapMode != true || input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button)
             return false;
-        if (_personnelAdministrationMap!.SourceRightCancelReleased(button))
-        { RequestPersonnelAdministrationBack(); GetViewport().SetInputAsHandled(); }
+        // Arm only on down; Surface.GuiInput still owns orbit initiation.
+        if (button.Pressed) { _personnelAdministrationMap!.SourceRightCancelReleased(button); return true; }
+        var viewport = GetViewport();
+        viewport.SetInputAsHandled();
+        bool cancel = _personnelAdministrationMap!.SourceRightCancelReleased(button);
+        if (cancel) RequestPersonnelAdministrationBack();
         return true;
     }
 

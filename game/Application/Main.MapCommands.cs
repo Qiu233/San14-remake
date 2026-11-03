@@ -49,7 +49,7 @@ public partial class Main
             OpenStrategicOrders(command switch
             {
                 MapMenuCommand.ProvokeWar => 10, MapMenuCommand.Incite => 11, MapMenuCommand.Alienate => 12,
-                MapMenuCommand.Poison => 13, MapMenuCommand.PlacateArea => 14, MapMenuCommand.Sabotage => 20,
+                MapMenuCommand.Poison => 14, MapMenuCommand.PlacateArea => 13, MapMenuCommand.Sabotage => 20,
                 _ => 24
             });
             return;

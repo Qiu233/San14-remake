@@ -30,7 +30,7 @@ internal partial class IntelligenceOrdersView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,IntelligenceUiMode mode,
         Func<bool> admitted,Action returned,Action accepted,Action chooseForce,Action choosePerson,
-        Action resetPerson,Action<int> chooseDuration)
+        Action resetPerson,Action<int> chooseDuration, AdministrationPageChrome.Resources? resources = null)
     {
         this.text=text;this.admitted=admitted;this.returned=returned;
         Name=mode==IntelligenceUiMode.Home?"SpyHomeEditor":mode==IntelligenceUiMode.Away?"SpyAwayEditor":"SpyInspectEditor";ZIndex=5;
@@ -40,7 +40,7 @@ internal partial class IntelligenceOrdersView : Control
         chrome=new();AddChild(chrome);
         bool away=mode!=IntelligenceUiMode.Home,inspect=mode==IntelligenceUiMode.Inspect;
         chrome.Configure(repository,text,inspect?0xC6:away?0x9D:0x9C,RequestBack,
-            ()=>{if(ReadAdmission()&&page?.CanConfirm==true)accepted();});
+            ()=>{if(ReadAdmission()&&page?.CanConfirm==true)accepted();}, resources: resources);
         var source=new UiSourceLayout(repository,inspect?0x3FC6E25Au:away?0xE9BDB9C7u:0xD310A707u);
         Vector2 mount=inspect?new(450,290):away?new(450,200):new(450,249);
         int card=away?18:14;

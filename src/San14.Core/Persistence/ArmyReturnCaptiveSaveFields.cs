@@ -9,6 +9,9 @@ internal static class ArmyReturnCaptiveSaveFields
     {
         if (version < 227 && state[Owner] is not null)
             throw new InvalidDataException("Legacy world contains a future army-return captive continuation.");
+        if (version < 228 && state[Owner] is JsonObject owner && owner["ArrivalTail"] is JsonObject arrival &&
+            arrival.ContainsKey("MarchCallerTailPending"))
+            throw new InvalidDataException("Legacy world contains a future pending march caller tail.");
     }
     internal static void Migrate(JsonObject state, int version)
     {
@@ -37,6 +40,13 @@ internal static class ArmyReturnCaptiveSaveFields
                 !Boolean(trial["RecruitmentAccepted"]) || !Boolean(trial["ExecutionProtected"]) ||
                 !Boolean(trial["FailedRecruitNoticeShown"]) || !Boolean(trial["ExecutionProtectionNoticeShown"])) throw Invalid();
         RequireOptional(value, "ArrivalTail", "Action", "GoalHexId", "DestinationLocationId", "Moment");
+        if (value["ArrivalTail"] is JsonObject arrival)
+        {
+            //World227 published the caller tail before suspending29F220.
+            //Its stored prefix must not be replayed after the saved reply.
+            if (version < 228) arrival["MarchCallerTailPending"] = false;
+            else if (!Boolean(arrival["MarchCallerTailPending"])) throw Invalid();
+        }
         RequireOptional(value, "CaptureTail", "Request", "WinningForceId", "WinningDistrictId", "StatePhysicalSlots",
             "RegionPhysicalSlots", "BeforeStateCount", "BeforeRegionCount", "CompletingEmperorCapture", "Operation", "SettlementIndex");
         RequireOptional(value, "CampaignTail", "CurrentExpeditionId", "RemainingExpeditionIds", "OperationDate",

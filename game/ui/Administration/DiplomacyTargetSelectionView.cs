@@ -239,8 +239,12 @@ internal partial class DiplomacyTargetSelectionView : Control
     public override void _Input(InputEvent input)
     {
         if(!IsMapMode||!ReadAdmission()||input is not InputEventMouseButton{ButtonIndex:MouseButton.Right} button)return;
-        if(mapMode!.CancelReleased(button))RequestCancel();
-        GetViewport().SetInputAsHandled();
+        // The map must receive the down edge to start its normal orbit drag.
+        if(button.Pressed){mapMode!.CancelReleased(button);return;}
+        var viewport=GetViewport();
+        viewport.SetInputAsHandled();
+        bool cancel=mapMode!.CancelReleased(button);
+        if(cancel)RequestCancel();
     }
     internal void RequestApply(){if(selected.HasValue)Finish(selected);}
     internal void RequestCancel(){if(returnAllowed)Finish(null);}

@@ -38,6 +38,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             var oldAdvisor = current.AssignmentAdvisorResetCallbacks;
             var oldAreaRemoval = current.AssignmentAreaOfficerRemoval;
             var oldPolicy = current.BaseForcePolicyEffectReader;
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = (first, second, third) =>
+                latest = rules.RefreshPersonnelMilestoneCurrent(latest, current, first, second, third);
             try
             {
                 if (args.Count != 8) throw Missing("statement_arguments");
@@ -55,6 +58,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             finally
             {
+                current.TransferServiceRefresher = previousRefresh;
                 current.AssignmentAdvisorResetCallbacks = oldAdvisor;
                 current.AssignmentAreaOfficerRemoval = oldAreaRemoval;
                 current.BaseForcePolicyEffectReader = oldPolicy;

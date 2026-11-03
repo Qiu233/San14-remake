@@ -45,6 +45,7 @@ internal sealed partial class UiAssets
                 var caller=repository;
                 repository=repository.CreateReadScope(RecordDependency);
                 var declared=new LocalizedUiSpriteSource(repository);var naming=ArmyMapUiSources.Create();
+                var stockRequests=new List<(string Pack,string Sprite)>();
                 foreach(int appearance in RegisteredOfficerPortraitCatalog.StockAppearances)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -53,6 +54,15 @@ internal sealed partial class UiAssets
                     AddDeclared("texture_chara_unique_otomo_"+number,"face_"+number+"_unique");
                     var standing=RegisteredOfficerPortraitCatalog.StandingPortrait(appearance);
                     foreach(string sprite in standing.SpriteNames)AddDeclared(standing.ResourceName,sprite);
+                }
+                // Preload only the actual declared stock payloads. Immutable
+                // decoded assets enter the existing shared resident cache;
+                // all ordered sprite/format/sampler admission stays below.
+                declared.PrepareTexturePackPayloads(stockRequests.Select(row=>row.Pack).Distinct(StringComparer.Ordinal),cancellationToken);
+                foreach(var request in stockRequests)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Add(request.Pack,request.Sprite,declared);
                 }
                 foreach(var descriptor in DlcPortraitDescriptor.All)
                     for(int appearance=descriptor.First;appearance<descriptor.First+descriptor.Count;appearance++)
@@ -84,7 +94,7 @@ internal sealed partial class UiAssets
                 {
                     // Numerical ranges include reserved IDs. Only actual
                     // Common declarations form the installed stock closure.
-                    if(declared.HasTexturePackDeclaration(pack))Add(pack,sprite,declared);
+                    if(declared.HasTexturePackDeclaration(pack))stockRequests.Add((pack,sprite));
                 }
             }
         }

@@ -148,10 +148,14 @@ public partial class MapSceneView
     public bool HasNativeMapOutput => _d3d11Map is {IsClosed:false,LastReceipt:not null}||_nativeMapOwner?.Package.HasAcceptedOutput == true;
     public bool HasNativeWorldMapFactory => _nativeWorldMapDependencyFactory is not null;
     public Task NativeMapRetirement => Task.WhenAll(_nativeMapRetirement,_d3d11Retirement);
+    // Stop producers before UI teardown emits presentation changes.
+    // Mounted resources stay borrowed until the normal close below.
+    internal void BeginMapRetirement() => _nativeMapClosing = true;
+
     public Task CloseNativeMapAsync()
     {
         if (_nativeMapClose is { IsCompleted: false }) return _nativeMapClose;
-        _nativeMapClosing = true;
+        BeginMapRetirement();
         ++_sceneLoadGeneration;
         ReleaseNativeMap();
         return _nativeMapClose = DrainNativeMapAsync(NativeMapRetirement);
@@ -256,7 +260,7 @@ public partial class MapSceneView
     }
 
     private bool NativeMapGenerationIsCurrent(uint scene, int native) =>
-        scene == _sceneLoadGeneration && native == _nativeMapGeneration &&
+        !_nativeMapClosing && scene == _sceneLoadGeneration && native == _nativeMapGeneration &&
         GodotObject.IsInstanceValid(this) && IsInsideTree();
 
     private Task InitializeNativeMapAsync(uint sceneGeneration, NativeMapOwner? replacing = null,
@@ -460,6 +464,7 @@ public partial class MapSceneView
 
     private void ScheduleNativeMapFrame()
     {
+        if (_nativeMapClosing) return;
         if(_d3d11Map is not null){ScheduleD3D11MapFrame();return;}
         if (!_embedded || !_loaded || (_nativeMapOwner is null && !_nativeMapInitializing)) return;
         if (_nativeMapSuspendedWorldSource is not null)

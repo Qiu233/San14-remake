@@ -13,7 +13,7 @@ internal partial class CollectionItemDetailView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionItemCatalog catalog, CollectionItemDetail item,
         IReadOnlyList<CollectionDetailEntry> entries, Func<bool> admitted, Action returned,
-        Action<int> select, Func<int> scrollSpeed, Action openPoem)
+        Action<int> select, Func<int> scrollSpeed, Action openPoem, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.returned = returned;
         Name = "CollectionItemDetail"; MouseFilter = MouseFilterEnum.Stop;
@@ -27,12 +27,12 @@ internal partial class CollectionItemDetailView : Control
             [new("name", nameColumn.Caption, nameColumn.Width, false)],
             entries.Select(row => new MapInformationListRow(row.Id, [row.Name], true)).ToArray(),
             ReadAdmission, RequestBack, select, scrollSpeed, tabCaptions: [basic],
-            completeColumnProfile: true, normalColumnLayout: true, narrowTable: true);
+            completeColumnProfile: true, normalColumnLayout: true, narrowTable: true, resources: resources);
         selector.SelectSourceIndex(item.ItemId);
         var body = new Control { Name = "CollectionItemBody", Position = new(191, 197), Size = new(1540, 688),
             MouseFilter = MouseFilterEnum.Ignore };
         selector.SourceCanvas.AddChild(body);
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, "11_01_08_00_collection_item_cn"));
+        var source = selector.SourceAssets.SourceLayout("11_01_08_00_collection_item_cn");
         foreach (var node in source.Nodes.Where(node => node.Type is 1 or 3))
         {
             if (node.Index is 2 or 7) continue;
@@ -60,7 +60,7 @@ internal partial class CollectionItemDetailView : Control
         }
         if (item.CanAppreciatePoem)
         {
-            var footer = new UiSourceLayout(repository, 0xD8913AB2);
+            var footer = selector.SourceAssets.SourceLayout(0xD8913AB2);
             string caption = repository.LoadMessages(text.SourceLocale, MessageKind.Data)
                 .Messages.Sections[1].Records[0xAE].Text
                 ?? throw new InvalidDataException("Collection item poem caption is missing.");

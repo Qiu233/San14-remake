@@ -1,5 +1,6 @@
 using Godot;
 using San14.Data;
+using San14.Core;
 using System.Runtime.CompilerServices;
 using Environment=System.Environment;
 
@@ -13,6 +14,15 @@ public partial class D3D11MapSurface : Control
     public event Action<D3D11MapInput, D3D11MapReceipt>? FramePrepared;
     public event Action<Exception>? Failed;
     public D3D11MapInput? LastAcceptedInput { get; private set; }
+    // Keep only projection and weak source identity for the installed image.
+    // No render package or borrowed mutable World is retained by this consumer.
+    private MainMapCameraFrame? _displayedProjectionCamera;
+    private WeakReference<GameState>? _displayedProjectionWorld;
+    internal MainMapCameraFrame? DisplayedCameraFor(GameState world) =>
+        !_closed && LastError is null && _displayedProjectionWorld is { } identity &&
+        identity.TryGetTarget(out var source) && ReferenceEquals(source, world) ? _displayedProjectionCamera : null;
+    internal void ClearDisplayedProjection()
+    { _displayedProjectionCamera = null; _displayedProjectionWorld = null; }
     public D3D11MapReceipt? LastReceipt { get; private set; }
     public Exception? LastError { get; private set; }
     public bool IsRendering => _rendering;
@@ -405,6 +415,13 @@ public partial class D3D11MapSurface : Control
         _queueBridge!.WaitReady(output.NativeOutput,receipt.Request);
         var stage=new CanvasStage(output,input,receipt,_ownerMainThreadId);_stage=stage;_displayed=output;
         _image!.Texture=output.Presentation;
+        _displayedProjectionCamera=input.SourceFrame;
+        if (input.WorldState is { } sourceWorld)
+        {
+            if (_displayedProjectionWorld is { } identity) identity.SetTarget(sourceWorld);
+            else _displayedProjectionWorld = new(sourceWorld);
+        }
+        else _displayedProjectionWorld = null;
         FramePrepared?.Invoke(input,receipt);
         return stage;
     }
@@ -536,6 +553,7 @@ public partial class D3D11MapSurface : Control
         try
         {
             _closed=true;_pending=null;_openingInput=null;_pendingElapsed=0;_animationPending.Clear();
+            ClearDisplayedProjection();
             var pendingScene=_sceneAhead;pendingScene?.CancelCopy();
             if(_signalsAttached)
             {

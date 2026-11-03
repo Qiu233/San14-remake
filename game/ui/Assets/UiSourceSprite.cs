@@ -251,7 +251,10 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
 
     public override void _Notification(int what)
     {
-        if (what == NotificationTransformChanged || what == NotificationResized) QueueRedraw();
+        if (what == NotificationResized) QueueRedraw();
+        else if ((what == NotificationTransformChanged || what == NotificationVisibilityChanged) &&
+            _copy.IsValid && IsVisibleInTree())
+            RefreshDrawingPlacement();
     }
 
     public override void _Draw() => RecordDrawing();
@@ -271,11 +274,10 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
             RenderingServer.CanvasItemSetDefaultTextureFilter(_draw, RenderingServer.CanvasItemTextureFilter.Linear);
         }
-        Rect2 rectangle = new(Vector2.Zero, Size);
         if(_nativePortrait)RenderingServer.CanvasItemSetDefaultTextureRepeat(_draw,(_portraitWrapU||_portraitWrapV)
             ?RenderingServer.CanvasItemTextureRepeat.Enabled:RenderingServer.CanvasItemTextureRepeat.Disabled);
         _material.SetShaderParameter("draw_size", Size);
-        UiSourceBackBufferCopy.Configure(this, _copy, rectangle.Grow(1));
+        RefreshDrawingPlacement();
         Texture2D texture = _texture;
         Rect2 uv = new(Vector2.Zero, Vector2.One);
         if (texture is AtlasTexture atlas)
@@ -297,6 +299,11 @@ internal partial class UiSourceSprite : Control, IUiSourceDrawing
             new Vector2[] { Vector2.Zero, new(Size.X, 0), Size, new(0, Size.Y) }, colors,
             new Vector2[] { new(left,top),new(right,top),new(right,bottom),new(left,bottom) }, texture.GetRid());
     }
+
+    // Moving the retained draw child already moves its local vertices. Only
+    // the preceding viewport-aligned copy depends on the global transform.
+    private void RefreshDrawingPlacement() =>
+        UiSourceBackBufferCopy.Configure(this, _copy, new Rect2(Vector2.Zero, Size).Grow(1));
 
     private static Color ColorOf(AreaMarkerColor value) =>
         new(value.Red / 255f, value.Green / 255f, value.Blue / 255f, value.Alpha / 255f);

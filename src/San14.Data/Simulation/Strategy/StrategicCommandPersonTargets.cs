@@ -16,6 +16,59 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly Dictionary<(int Person, int Dimension), int> abilities = [];
         private TacticRemakeCurrentAbilities? abilitySource;
 
+        //7114C0 is existential and6BEEB0 counts qualifying receivers. Neither
+        //sorts a selector or reads its display names/abilities. The latter
+        //owns a successful-append City list and passes a fresh pooled copy to
+        //7144D0 for every Person while the original list remains alive.
+        internal bool HasMenuTarget(int kind, int minimum,
+            Func<ForceReference, ForceReference, bool> protection)
+        {
+            var people = current.ReadRegisteredPersonPhysicalSlots() ?? throw StrategyMissing("menu_target_Person100");
+            if (kind == 12)
+            {
+                foreach (int? entry in people)
+                    if (CanSeparate(StrategyNeed(entry, "menu_separation_Person"))) return true;
+                return false;
+            }
+            if (kind != 24) throw new ArgumentOutOfRangeException(nameof(kind));
+            var saturated = FinalizationTemporary(current);
+            try
+            {
+                foreach (var entry in current.ReadRegistryReferences(RegistryKind.City) ?? throw StrategyMissing("menu_rumor_City90"))
+                {
+                    if (entry is not { Kind: RegistryKind.City, PhysicalSlot: int id }) throw StrategyMissing("menu_rumor_City_pointer");
+                    var city = new BaseReference(BaseKind.City, id);
+                    int home = StrategyNeed(current.ReadBaseObjectLink(city), "menu_rumor_City4E");
+                    if (home is < 1 or > 61) continue;
+                    int count = 0;
+                    foreach (int? raw in people)
+                    {
+                        int person = StrategyNeed(raw, "menu_rumor_city_Person");
+                        if (Status(person) is < 1 or > 4 || Home(person) != home) continue;
+                        if ((Counters(person) & 255) == 0 || ++count <= 2) continue;
+                        if (!MainStrategyList(current, saturated).Contains(entry)) FinalizationAppend(current, saturated, entry);
+                        break;
+                    }
+                }
+                int targets = 0;
+                foreach (int? raw in people)
+                {
+                    var copy = FinalizationTemporary(current);
+                    try
+                    {
+                        foreach (var entry in MainStrategyList(current, saturated)) FinalizationAppend(current, copy, entry);
+                        var cities = MainStrategyList(current, copy).Select(entry =>
+                            entry.Kind == RegistryKind.City ? new BaseReference(BaseKind.City,
+                                StrategyNeed(entry.PhysicalSlot, "menu_rumor_copy_City")) : throw StrategyMissing("menu_rumor_copy_kind")).ToHashSet();
+                        if (CanSpreadRumor(StrategyNeed(raw, "menu_rumor_Person"), cities, protection) && ++targets >= minimum) return true;
+                    }
+                    finally { FinalizationRelease(current, copy); }
+                }
+                return false;
+            }
+            finally { FinalizationRelease(current, saturated); }
+        }
+
         internal IReadOnlyList<int> Read(int kind)
         {
             if (kind is not (12 or 24)) throw new ArgumentOutOfRangeException(nameof(kind));
@@ -95,7 +148,8 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ((ForceByte(forceId, 0x12) & 2) == 0 || (ForceByte(owner, 0x12) & 2) == 0);
         }
 
-        private bool CanSpreadRumor(int person, HashSet<BaseReference> saturated)
+        private bool CanSpreadRumor(int person, HashSet<BaseReference> saturated,
+            Func<ForceReference, ForceReference, bool>? protection = null)
         {
             if (Status(person) is < 1 or > 4 || Status(person) == 1) return false;
             int owner = ForceOrdinal(Force(person));
@@ -114,7 +168,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 Likes(ruler, person)) return false;
             // This existing leaf implements the same 2C3CA0 protected-pair
             // predicate, including coalition, alliance and dependency owners.
-            return !new DiplomacyCommandSource(state, current).HasTreaty(forceId, ForceOrdinal(Force(person)));
+            return protection is null
+                ? !new DiplomacyCommandSource(state, current).HasTreaty(forceId, ForceOrdinal(Force(person)))
+                : !protection(new(forceId), Force(person));
         }
 
         //1E9F50 rechecks the actual associated receiver, not the whole initial

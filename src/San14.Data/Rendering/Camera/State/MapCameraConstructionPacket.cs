@@ -84,6 +84,11 @@ public sealed class MapCameraConstructionPacket
     {
         if(frameNumber<0||string.IsNullOrWhiteSpace(frameProvenance))
             throw new InvalidDataException("Owned Camera snapshot requires an explicit render attempt and provenance.");
+        //A same-identity snapshot borrows its immutable optical writer.
+        //Only a new owned frame/provenance needs another writer identity.
+        if(frameNumber==FrameNumber&&frameProvenance==FrameProvenance)
+            return new(this,frameNumber,frameProvenance,
+                CurrentSeasonPostEffectScalars,CurrentSeasonPostEffectWriteIdentity);
         var write=CurrentSeasonPostEffectWriteIdentity?.ForOwnedFrame(frameNumber,frameProvenance);
         return new(this,frameNumber,frameProvenance,
             write?.Scalars??CurrentSeasonPostEffectScalars?.ForOwnedFrame(frameNumber,frameProvenance),write);

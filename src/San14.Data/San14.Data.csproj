@@ -1,10 +1,13 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Optimize Condition="'$(Configuration)' == 'ExportRelease'">true</Optimize>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ZlibNativeDirectory>$(MSBuildThisFileDirectory)..\..\native\San14.Compression.Zlib\</ZlibNativeDirectory>
+    <ZlibNativeLibrary>$(ZlibNativeDirectory)bin\x64\Release\San14.Compression.Zlib.dll</ZlibNativeLibrary>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,4 +20,12 @@
     <EmbeddedResource Include="Rendering/Shaders/G1EffectDirect.*.hlsl" LogicalName="San14.Data.Shaders.%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <_ZlibNativeSource Include="$(ZlibNativeDirectory)vendor\**\*.c;$(ZlibNativeDirectory)vendor\**\*.h;$(ZlibNativeDirectory)San14.Compression.Zlib.vcxproj;$(ZlibNativeDirectory)build-product.ps1" />
+    <None Include="$(ZlibNativeLibrary)" Link="San14.Compression.Zlib.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="BuildZlibCodec" BeforeTargets="PrepareForBuild" Inputs="@(_ZlibNativeSource)" Outputs="$(ZlibNativeLibrary)" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;$(ZlibNativeDirectory)build-product.ps1&quot;" />
+  </Target>
 </Project>

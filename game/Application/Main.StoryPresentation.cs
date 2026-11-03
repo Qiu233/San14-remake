@@ -17,6 +17,7 @@ public partial class Main
         internal readonly bool ReturnMapFocus = mapFocused;
         internal ArmyCampaignRuleAdapter Rules = rules;
         internal readonly StoryPresentationView View = view;
+        internal AdministrationPageChrome.Resources Resources = null!;
         internal readonly CancellationTokenSource Cancellation = new();
         internal int StartedStep = -1;
         internal bool OwnsVoice;
@@ -78,7 +79,8 @@ public partial class Main
         try
         {
             RetirePeriodReportView(); CloseActionReport();
-            view.Configure(_repository!, _ui, () => StoryInputAdmitted(binding));
+            binding.Resources = TryBorrowApplicationUiResources(view);
+            view.Configure(_repository!, _ui, () => StoryInputAdmitted(binding), binding.Resources);
             //The event observes the completed private Army period. Its map
             //reads that adopted candidate while command authority stays on
             //the committed session world until the normal Turn completes.
@@ -147,12 +149,12 @@ public partial class Main
         var query = binding.Rules.QueryStoryPresentation(binding.World, story);
         var publication = query.Available ? query.Value! :
             throw new InvalidDataException(query.UnresolvedInput ?? "story.presentation.publication");
-        var sprites = new LocalizedUiSpriteSource(_repository!);
+        var portraits = binding.Resources.Assets.Portraits;
         var actors = publication.Actors.Select(actor =>
         {
             if (actor.UnresolvedOwner is not null || !actor.StandingPortrait.Available || actor.StandingPortrait.Value is not { } route)
                 throw new InvalidDataException(actor.UnresolvedOwner ?? actor.StandingPortrait.UnresolvedInput ?? "story.presentation.actor");
-            var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
+            var layers = route.LoadSources(portraits.RequireSource);
             return new StoryActorVisual(actor.Slot, actor.Speaker.OfficerId, layers) { Dark = actor.Dark };
         }).ToArray();
         binding.View.ApplyActors(actors, publication.HighlightedSlot, publication.PortraitDarkFlags, immediateDark);
@@ -444,16 +446,16 @@ public partial class Main
             PendingCampaignStory(binding.Session) is not { } story) return;
         var messages = story.TextLog.AsEnumerable();
         if (story.PreparedStep?.Text is { } current) messages = messages.Append(current);
-        var sprites = new LocalizedUiSpriteSource(_repository!);
+        var portraits = binding.Resources.Assets.Portraits;
         var entries = messages.Select(message =>
         {
-            LoadedSprite? face = null;
+            LoadedUiSpriteSource? face = null;
             if (message.Speaker is { } speaker)
             {
                 int appearance = speaker.PortraitAppearanceIndex ??
                     throw new InvalidDataException("story.log.source_appearance");
                 var route = _repository!.ResolveFacePortrait(appearance);
-                face = sprites.LoadTexturePackSprite(route.ResourceName, route.SpriteName);
+                face = portraits.RequireSource(route.ResourceName, route.SpriteName);
             }
             return new StoryLogVisual(message.SpeakerName, message.Text, face);
         }).ToArray();
@@ -462,7 +464,7 @@ public partial class Main
         {
             log.Configure(_repository!, _ui, entries,
                 () => IsStoryCurrent(binding) && CanAdvanceNarration && !_advancingPeriod && binding.Log == log,
-                () => RunUiAction(() => CloseStoryLog(binding)), CurrentListScrollSpeed);
+                () => RunUiAction(() => CloseStoryLog(binding)), CurrentListScrollSpeed, binding.Resources);
         }
         catch { CloseStoryLog(binding); throw; }
     }

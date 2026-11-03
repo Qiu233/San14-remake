@@ -12,6 +12,8 @@ public partial class DistrictDetailsView : DetailsView
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
+    private Control bodyCanvas = null!;
+    private Node2D footerMotion = null!;
     private Control? currentBody;
     private UiSourceDetailSelector selector = null!;
 
@@ -19,42 +21,49 @@ public partial class DistrictDetailsView : DetailsView
     internal InformationDetailSelectionReturn ReadSelectionReturn() => selector.ReadReturn(CurrentDistrictId);
 
     internal void Configure(GameResourceRepository repository, DistrictInformationPage page,
-        PreviewText text, Action close, Action<InformationListKind>? related = null, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
+        PreviewText text, Action close, AdministrationPageChrome.Resources resources, Action<InformationListKind>? related = null, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
     {
         this.repository = repository; this.text = text;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         ConfigureCommonBackdrop(repository);
         var header = new UiSourceHeader { Name = "DistrictDetailsTitle" };
         ConfigureSourcePage("DistrictDetails", header, close);
         canvas = new() { Name = "DistrictSourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
+        var bodyMotion = new Node2D { Name = "DistrictDetailsBodyMotion" }; canvas.AddChild(bodyMotion);
+        bodyCanvas = new() { Name = "DistrictDetailsBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+        bodyMotion.AddChild(bodyCanvas);
+        var headerMotion = new Node2D { Name = "DistrictDetailsHeaderMotion" }; canvas.AddChild(headerMotion);
+        footerMotion = new() { Name = "DistrictDetailsFooterMotion" }; canvas.AddChild(footerMotion);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
-        shell.Blur(canvas, 2, shell.Rectangle(2, new(191, 147)));
-        shell.Art(canvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
-        canvas.AddChild(header); header.Configure(repository, assets, shader, font, Message(DistrictInformationSources.TitleId));
+        shell.Blur(bodyCanvas, 2, shell.Rectangle(2, new(191, 147)));
+        shell.Art(bodyCanvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
+        headerMotion.AddChild(header); header.Configure(repository, assets, shader, font, Message(DistrictInformationSources.TitleId));
         var tab = new UiSourceTabButton { Name = "BasicTab", Position = shell.Rectangle(4, new(191, 147)).Position,
             Size = new(Message(DistrictInformationSources.BasicTabCaptionId).Length * 28 + 36, 64), Selected = true };
-        canvas.AddChild(tab); tab.Configure(repository, assets, shader, font, Message(DistrictInformationSources.BasicTabCaptionId));
-        selector = new(); canvas.AddChild(selector);
+        bodyCanvas.AddChild(tab); tab.Configure(repository, assets, shader, font, Message(DistrictInformationSources.BasicTabCaptionId));
+        selector = new(); bodyCanvas.AddChild(selector);
         selector.Configure(repository, assets, shader, font, text,
             selection ?? new([new(page.DistrictId, page.Name, null)], () => 0),
-            InformationListKind.Districts, page.DistrictId, () => IsVisibleInTree() && !IsQueuedForDeletion(), select);
+            InformationListKind.Districts, page.DistrictId, () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion(), select);
 
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CloseDistrictDetails", Position = footer.Rectangle(1, new(0, 904)).Position,
-            InputAdmission = () => IsVisibleInTree() && !IsQueuedForDeletion() };
-        canvas.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
+            InputAdmission = () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion() };
+        footerMotion.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
         Apply(page);
         RelatedButtons(related);
+        ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14), new Dictionary<int, (Node2D, Vector2)>
+        { [1] = (bodyMotion, Vector2.Zero), [4] = (headerMotion, Vector2.Zero), [6] = (footerMotion, new(0, 904)) });
         Resized += Fit; Fit();
     }
 
     internal void Apply(DistrictInformationPage page)
     {
         int bodyIndex = currentBody?.GetIndex() ?? -1;
-        if (currentBody is { } previous) { canvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
+        if (currentBody is { } previous) { bodyCanvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
         BuildBody(page);
-        if (bodyIndex >= 0) canvas.MoveChild(currentBody!, bodyIndex);
+        if (bodyIndex >= 0) bodyCanvas.MoveChild(currentBody!, bodyIndex);
         selector.Select(page.DistrictId);
         SetMeta("district_id", page.DistrictId); SetMeta("source_unknown", page.UnresolvedOwner ?? "");
         CurrentDistrictId = page.DistrictId;
@@ -65,13 +74,12 @@ public partial class DistrictDetailsView : DetailsView
         var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, page.LayoutName));
         var body = new Control { Name = "CurrentDistrictDetails", Position = new(191, 197), Size = source.Rectangle(0).Size,
             MouseFilter = MouseFilterEnum.Ignore };
-        canvas.AddChild(body); currentBody = body;
+        bodyCanvas.AddChild(body); currentBody = body;
         var presets = MapTextPresets.Create();
-        var sprites = new LocalizedUiSpriteSource(repository);
         if (!Hidden(2) && page.StandingPortrait is { } standing)
         {
             var portrait = new UiSourceStandingPortrait { Name = "DistrictLeaderStanding", Position = source.Rectangle(2).Position };
-            body.AddChild(portrait); portrait.Configure(repository, assets, shader, standing.LoadSprites(sprites.LoadTexturePackSprite));
+            body.AddChild(portrait); portrait.Configure(repository, assets, shader, standing.LoadSources(assets.Portraits.RequireSource));
             portrait.Scale = source.Rectangle(2).Size / portrait.Size;
         }
         foreach (var node in source.Nodes)
@@ -170,8 +178,8 @@ public partial class DistrictDetailsView : DetailsView
             string caption = Message(action.Caption);
             var button = new UiSourceCommandButton { Name = action.Name, Position = position,
                 Size = new(Math.Max(96, caption.Length * 28 + 20), 48), Disabled = related is null,
-                InputAdmission = () => IsVisibleInTree() && !IsQueuedForDeletion() };
-            canvas.AddChild(button);
+                InputAdmission = () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion() };
+            footerMotion.AddChild(button);
             button.Configure(repository, assets, shader, font, caption, () => related?.Invoke(action.Kind));
             position.X += button.Size.X;
         }
@@ -186,6 +194,6 @@ public partial class DistrictDetailsView : DetailsView
     }
     public override void _ExitTree()
     {
-        font?.Dispose(); shader?.Dispose(); assets?.Dispose(); base._ExitTree();
+        base._ExitTree();
     }
 }

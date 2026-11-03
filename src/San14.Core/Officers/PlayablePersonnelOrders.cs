@@ -97,6 +97,11 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
             return CommandResult.Reject("District lacks uncommitted command books.", "personnel.insufficient_orders");
         if (city is not null && city.Gold < quote.Gold)
             return CommandResult.Reject("City lacks personnel funds.", "personnel.insufficient_gold");
+        if (quote.StoredLoyaltyBefore.HasValue != quote.StoredLoyaltyAfter.HasValue)
+            throw new InvalidDataException("Personnel stored loyalty quote has incomplete byte facts.");
+        if (quote.StoredLoyaltyAfter.HasValue &&
+            (evaluation.ItemTransferPreview is null || policy is not IPersonnelItemTransferCommandRules))
+            return CommandResult.RuleUnavailable("personnel.stored_loyalty_writer", "Stored item loyalty requires its source-owned transfer writer.");
         if (quote.LoyaltyDelta != 0 && target.Loyalty is null)
             return CommandResult.RuleUnavailable("personnel.loyalty", "Current loyalty is unresolved; effects cannot consume it as zero.");
         if (order is PreparePersonnelItemTransferOrder)
@@ -137,14 +142,27 @@ public sealed class PlayablePersonnelOrders(IOrderRules next, IPersonnelCommandR
                 transfer.DistrictBooksBefore != district?.OrdersRemaining ||
                 transfer.DistrictBooksAfter != Math.Clamp(unchecked(transfer.DistrictBooksBefore - quote.CommandBooks), 0, 200))
                 throw new InvalidDataException("Personnel transfer preview does not match the evaluated command.");
+            var quotedLoyalty = change.Kind == PersonnelActionKind.GrantItem ? transfer.NextHolder : transfer.PreviousHolder;
+            if (quote.StoredLoyaltyBefore != quotedLoyalty.StoredLoyaltyBefore ||
+                quote.StoredLoyaltyAfter != quotedLoyalty.StoredLoyaltyAfter)
+                throw new InvalidDataException("Personnel stored loyalty preview does not match its quote.");
             // Both source loyalty writes happen before the one holder change.
             // Effective abilities remain derived from the resulting inventory.
             foreach (var effect in new[] { transfer.PreviousHolder, transfer.NextHolder })
             {
                 if (!state.Officers.TryGetValue(effect.OfficerId, out var current) ||
-                    current.Loyalty != effect.LoyaltyBefore || effect.LoyaltyAfter is < 0 or > 100 ||
-                    (effect.LoyaltyBefore is null) != (effect.LoyaltyAfter is null))
+                    current.Loyalty != effect.LoyaltyBefore || effect.LoyaltyAfter is < 0 or > 100)
                     throw new InvalidDataException("Personnel transfer loyalty result has no matching current owner.");
+                if (effect.StoredLoyaltyBefore is byte storedBefore && effect.StoredLoyaltyAfter is byte storedAfter)
+                {
+                    int? projectedBefore = storedBefore <= 100 ? storedBefore : null;
+                    int? projectedAfter = storedAfter <= 100 ? storedAfter : null;
+                    if (effect.LoyaltyBefore != projectedBefore || effect.LoyaltyAfter != projectedAfter)
+                        throw new InvalidDataException("Personnel stored loyalty does not match its ordinary projection.");
+                }
+                else if (effect.StoredLoyaltyBefore.HasValue || effect.StoredLoyaltyAfter.HasValue ||
+                    (effect.LoyaltyBefore is null) != (effect.LoyaltyAfter is null))
+                    throw new InvalidDataException("Personnel transfer loyalty result has incomplete source facts.");
                 officers[effect.OfficerId] = current with { Loyalty = effect.LoyaltyAfter };
             }
         }

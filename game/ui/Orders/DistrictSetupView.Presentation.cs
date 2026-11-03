@@ -7,14 +7,14 @@ internal partial class DistrictSetupView
     private AreaAdministrationOfficerContent presentationContent=null!;
     private Control governorPortraitHost=null!;
     private UiSourcePortrait? governorPortrait;
-    private LoadedSprite? governorPortraitSource;
+    private LoadedUiSpriteSource? governorPortraitSource;
     private DistrictSetupOfficerChart governorChart=null!;
     private readonly List<DistrictSetupDistrictComparisonView> districtComparisons=[];
 
     internal void ConfigurePresentation(GameResourceRepository repository,PreviewText text,
         UiSourceLayout basic,Vector2 mount)
     {
-        presentationRepository=repository;presentationContent=new(repository);
+        presentationRepository=repository;presentationContent=new();
         var faceBox=basic.Rectangle(89,mount);
         //92CA60 converts the scaled placeholder dimensions to integers.
         faceBox=new(new Vector2((int)faceBox.Position.X,(int)faceBox.Position.Y),
@@ -59,12 +59,13 @@ internal partial class DistrictSetupView
         if(value is not null&&value.Districts.Count>districtComparisons.Count)
             throw new InvalidDataException("District setup supports its eight authored comparison rows.");
         var leader=presentationContent.Create(value?.Leader);
-        if(!ReferenceEquals(governorPortraitSource,leader.Portrait))
+        var face=chrome.Assets.RequireStockPortraitSource(leader.Portrait);
+        if(!ReferenceEquals(governorPortraitSource,face))
         {
             if(governorPortrait is not null)
             {governorPortrait.Hide();governorPortraitHost.RemoveChild(governorPortrait);governorPortrait.QueueFree();governorPortrait=null;}
-            governorPortraitSource=leader.Portrait;
-            if(leader.Portrait is {} image)
+            governorPortraitSource=face;
+            if(face is {} image)
             {
                 governorPortrait=new UiSourcePortrait {Name="DistrictGovernorFace2",Size=governorPortraitHost.Size};
                 governorPortraitHost.AddChild(governorPortrait);

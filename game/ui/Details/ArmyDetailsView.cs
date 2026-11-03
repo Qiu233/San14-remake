@@ -7,7 +7,7 @@ internal sealed record ArmyDetailsRadar(IReadOnlyList<int?> Before, IReadOnlyLis
 
 internal sealed record ArmyDetailsContent(IReadOnlyDictionary<int, string> Values,
     string CommanderName, string? CommanderRuby, bool? NameplateVisible, DetailForceAppearance? Force,
-    DeploymentFormationPresentation? Formation, IReadOnlyList<LoadedSprite>? PortraitLayers,
+    DeploymentFormationPresentation? Formation, LoadedStandingPortraitSources? PortraitLayers,
     bool? LandSelected, bool CanPreviewLand, bool CanPreviewNaval, int? Morale, int? MaximumMorale,
     ArmyDetailsRadar? Radar = null)
 {
@@ -24,7 +24,7 @@ internal partial class ArmyDetailsView : DetailsView
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
-    private Control canvas = null!, body = null!;
+    private Control canvas = null!, bodyCanvas = null!, body = null!;
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private Func<bool?, ArmyDetailsContent>? query;
@@ -39,35 +39,40 @@ internal partial class ArmyDetailsView : DetailsView
     private int? currentCommander;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        Func<bool?, ArmyDetailsContent> query, Action close, Func<bool?, UnitSourceParameters>? parameters = null,
+        Func<bool?, ArmyDetailsContent> query, Action close, AdministrationPageChrome.Resources resources,
+        Func<bool?, UnitSourceParameters>? parameters = null,
         Action<int>? inspectCommander = null, Action? inspectCaptives = null)
     {
         this.inspectCommander = inspectCommander; this.inspectCaptives = inspectCaptives;
         this.repository = repository; this.text = text; this.query = query; queryParameters = parameters;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         ConfigureCommonBackdrop(repository);
         canvas = new Control { Name = "ArmyDetailsCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        var header = new UiSourceHeader { Name = "ArmyDetailsTitle" }; canvas.AddChild(header);
+        var bodyMotion = new Node2D { Name = "ArmyDetailsBodyMotion" }; canvas.AddChild(bodyMotion);
+        bodyCanvas = new() { Name = "ArmyDetailsBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore }; bodyMotion.AddChild(bodyCanvas);
+        var headerMotion = new Node2D { Name = "ArmyDetailsHeaderMotion" }; canvas.AddChild(headerMotion);
+        var footerMotion = new Node2D { Name = "ArmyDetailsFooterMotion" }; canvas.AddChild(footerMotion);
+        var header = new UiSourceHeader { Name = "ArmyDetailsTitle" }; headerMotion.AddChild(header);
         ConfigureSourcePage("ArmyDetails", header, close);
         header.Configure(repository, assets, shader, font, Message(0x462));
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
         Vector2 mount = new(191, 147);
-        shell.Blur(canvas, 2, shell.Rectangle(2, mount));
-        shell.Art(canvas, 3, shell.Rectangle(3, mount), assets, shader);
+        shell.Blur(bodyCanvas, 2, shell.Rectangle(2, mount));
+        shell.Art(bodyCanvas, 3, shell.Rectangle(3, mount), assets, shader);
         string caption = Message(0x3CD);
         basic = new UiSourceTabButton { Name = "ArmyDefaultTab", Position = shell.Rectangle(4, mount).Position,
             Size = new(caption.Length * 28 + 36, 64), Selected = true };
-        canvas.AddChild(basic); basic.Configure(repository, assets, shader, font, caption, 0x172EDC24);
+        bodyCanvas.AddChild(basic); basic.Configure(repository, assets, shader, font, caption, 0x172EDC24);
         string parameterCaption = Message(0x452);
         parameter = new UiSourceTabButton { Name = "ArmyParameterTab", Position = basic.Position + new Vector2(basic.Size.X, 0),
             Size = new(parameterCaption.Length * 28 + 36, 64), Disabled = parameters is null };
-        canvas.AddChild(parameter); parameter.Configure(repository, assets, shader, font, parameterCaption, 0xD45873AA);
+        bodyCanvas.AddChild(parameter); parameter.Configure(repository, assets, shader, font, parameterCaption, 0xD45873AA);
         basic.Pressed += () => SelectPage(false);
         parameter.Pressed += () => SelectPage(true);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CloseArmyDetails", Position = footer.Rectangle(1, new(0, 904)).Position };
-        canvas.AddChild(back);
+        footerMotion.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestClose, UiAudioCue.Cancel);
         float x = footer.Rectangle(21).Position.X + 45;
         float y = footer.Rectangle(21).Position.Y - 103;
@@ -82,11 +87,13 @@ internal partial class ArmyDetailsView : DetailsView
             float width = Math.Max(96, label.Length * 28 + 20);
             var button = new UiSourceCommandButton { Name = name, Position = new(x, y), Size = new(width, 48),
                 InputAdmission = () => !closed && IsVisibleInTree() && CanProcess() };
-            canvas.AddChild(button);
+            footerMotion.AddChild(button);
             button.Configure(repository, assets, shader, font, label, action);
             x += width;
             return button;
         }
+        ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14), new Dictionary<int, (Node2D, Vector2)>
+        { [1] = (bodyMotion, Vector2.Zero), [4] = (headerMotion, Vector2.Zero), [6] = (footerMotion, new(0, 904)) });
         Resized += Fit; Fit();
         SetMeta("parameter_page_available", parameters is not null);
     }
@@ -106,9 +113,9 @@ internal partial class ArmyDetailsView : DetailsView
         commanderButton.Disabled = inspectCommander is null || currentCommander is null;
         captivesButton.Disabled = inspectCaptives is null || content.CaptivesAvailable != true;
         captivesButton.SetMeta("unresolved_owner", content.CaptivesUnresolvedOwner ?? "");
-        if (body is not null) { canvas.RemoveChild(body); body.QueueFree(); }
+        if (body is not null) { bodyCanvas.RemoveChild(body); body.QueueFree(); }
         body = new Control { Name = parameterPage ? "ArmyParameterPage" : "ArmyDefaultPage", Position = new(191, 197), Size = new(1540, 688), MouseFilter = MouseFilterEnum.Ignore };
-        canvas.AddChild(body);
+        bodyCanvas.AddChild(body);
         var source = new UiSourceLayout(repository, parameterPage ? 0x1243B03Cu : 0x946BF43Bu);
         SetMeta("source_layout", source.Source.Source.ResourceUri);
         var presets = MapTextPresets.Create();
@@ -233,5 +240,5 @@ internal partial class ArmyDetailsView : DetailsView
     }
 
     public override void _ExitTree()
-    { closed = true; query = null; queryParameters = null; inspectCommander = null; inspectCaptives = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); base._ExitTree(); }
+    { closed = true; query = null; queryParameters = null; inspectCommander = null; inspectCaptives = null; base._ExitTree(); }
 }

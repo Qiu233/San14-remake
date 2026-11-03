@@ -324,8 +324,9 @@ public sealed record ForceCoalitionVisualRequest(ForceCoalitionVisualOperation O
 /// Keeping the request does not imply that its scene has played.</summary>
 public sealed record ForceIndependenceSceneRequest(int OriginalForceId, int RulerOfficerId,
     int HomeLocationId, int SourceDay);
-/// <summary>The emergence scene queued after the new force's followers have
-/// migrated. It is distinct from the pre-creation independence scene.</summary>
+/// <summary>Legacy pending chronology write after the new force's followers
+/// migrated. The persisted name is retained for save compatibility; this is
+/// a permanent record with map snapshots, not an unplayed CG or dialog.</summary>
 public sealed record ForceEmergenceSceneRequest(int ForceId, int RulerOfficerId,
     int HomeLocationId, int SourceDay);
 public enum MonthlyDisasterConsequenceOperation { CameraFocus, AreaOrBaseEffect, ArmyLossNumber, Summary, CameraRestore }

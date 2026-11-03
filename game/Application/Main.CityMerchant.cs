@@ -48,7 +48,7 @@ public partial class Main
         if (!opened.Available) { CityMerchantUnavailable(opened.UnresolvedInput!); return; }
         _cityMerchantDraft = opened.Value!; _cityMerchantWorld = world;
         _cityMerchantSession = session; _cityMerchantMap = map; _cityMerchantFromGlobal = fromGlobal;
-        _cityMerchantOfficers = new(_repository);
+        _cityMerchantOfficers = new();
         var view = new CityMerchantView(); _cityMerchantView = view; AddChild(view);
         try
         {
@@ -63,7 +63,7 @@ public partial class Main
                 {
                     if (CanEditCityMerchant && AcceptCityMerchant(_cityMerchantDraft!.SetMode(CityMerchantMode.Buy)))
                         RefreshCityMerchant();
-                }));
+                }), resources: TryBorrowApplicationUiResources(view));
             RefreshCityMerchant();
         }
         catch { CloseCityMerchant(); throw; }
@@ -129,8 +129,7 @@ public partial class Main
                 {
                     if (!IsCityMerchantCurrent || _cityMerchantAmount != menu || _cityMerchantDraft != draft) return;
                     _cityMerchantAmount = null; menu.Abandon(); menu.QueueFree(); _cityMerchantView!.Show();
-                    if (result is int amount && AcceptCityMerchant(draft.SetMode(mode)))
-                        AcceptCityMerchant(draft.SetAmount(amount));
+                    if (result is int amount) AcceptCityMerchant(draft.SetTradeAmount(mode, amount));
                     RefreshCityMerchant();
                 }));
         }

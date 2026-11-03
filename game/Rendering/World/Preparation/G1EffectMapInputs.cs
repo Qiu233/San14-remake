@@ -27,7 +27,7 @@ public sealed record G1EffectMapInputFrame(G1EffectDrawCamera CpuCamera,
 /// registered current lights and prepared Sky media; no cache files are read.</summary>
 public sealed partial class G1EffectMapInputs
 {
-    private readonly D3D11CurrentSeasonResources resources;
+    private readonly MapSeasonCameraPackage cameraPackage;
     private readonly DeferredEarlyIndirectPatternMapState pattern;
     private readonly LoadedSkyPatternProjectionMatrixSource patternProjection;
     private readonly GameResourceRepository sourceRepository;
@@ -48,14 +48,22 @@ public sealed partial class G1EffectMapInputs
     private readonly uint lightingIndexFormat;
 
     public G1EffectMapInputs(GameResourceRepository repository, D3D11CurrentSeasonResources resources,
-        RenderResourceContext renderResources)
+        RenderResourceContext renderResources, int mainMode = 0)
+        : this(repository, resources, renderResources, mainMode, null) { }
+
+    public G1EffectMapInputs(GameResourceRepository repository, D3D11CurrentSeasonResources resources,
+        RenderResourceContext renderResources, int mainMode, LoadedShaderContainer? preparedLightingConsumer)
     {
         ArgumentNullException.ThrowIfNull(repository); ArgumentNullException.ThrowIfNull(resources);
         ArgumentNullException.ThrowIfNull(renderResources);
-        this.resources = resources;
+        var provider = resources.Source.CameraSource.Selection.Provider;
+        cameraPackage = mainMode == 0 ? provider.Root :
+            (uint)(mainMode - 1) < (uint)provider.CameraChildren.Count
+                ? provider.CameraChildren[mainMode - 1]
+                : throw new ArgumentOutOfRangeException(nameof(mainMode));
         this.renderResources = renderResources;
         sourceRepository = repository;
-        cameraIesReference = ReadCameraIesReference(resources.Source.CameraSource.Selection.FirstPackage.Camera);
+        cameraIesReference = ReadCameraIesReference(cameraPackage.Camera);
         var objects = repository.LoadObjects("system", 0x93FB3280);
         depthTarget = RenderTextureResources.Read(objects, 0xE13DDB4F);
         var samplerSource = RenderSamplerSourceAdapters.Load(repository.SourceDirectory, resources.Source.Locale);
@@ -84,13 +92,16 @@ public sealed partial class G1EffectMapInputs
         effectLightSource = G1EffectViewLightSource.Import(view,
             commonObjects.Document.Objects.Single(value => value.ObjectId == CommonRenderResources.SourceObjectId));
         lightingCluster = new(repository);
-        lightingConsumer = HdrShaderResources.Load(repository)[HdrShaderResources.MainLightingNode].Shader;
+        // The ordinary map already owns this exact static HDR generation.
+        // Standalone callers retain their original resource-loading entry.
+        lightingConsumer = preparedLightingConsumer ??
+            HdrShaderResources.Load(repository)[HdrShaderResources.MainLightingNode].Shader;
         lightingPower = SkyWeatherNativePowerSource.Create(resources.Source.Locale);
         uint maximum(uint hash) => BinaryPrimitives.ReadUInt32LittleEndian(view.Properties.Single(value => value.NameHash == hash).RawValue);
         lightingIndexFormat = maximum(0x91221B9A) > 65535 || maximum(0x2103C71C) > 65535 ? 42u : 57u;
         if (resources.Source.CameraSource.Selection.SecondPackage is not null)
             throw new NotSupportedException("Effect Main preparation requires its actual paired season producer.");
-        ambientRate = Scalar(resources.Source.CameraSource.Selection.FirstPackage.Camera, 977, 0x08367252);
+        ambientRate = Scalar(cameraPackage.Camera, 977, 0x08367252);
     }
 
     /// <summary>The current native map renderer resets Q before Main and its
@@ -119,7 +130,7 @@ public sealed partial class G1EffectMapInputs
     {
         ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(selection);
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
-        if (!ReferenceEquals(current.Rgb.Inputs.Source.Selection.FirstPackage, resources.Source.CameraSource.Selection.FirstPackage))
+        if (!ReferenceEquals(current.Rgb.Inputs.Source.Selection.FirstPackage, cameraPackage))
             throw new InvalidDataException("Effect frame belongs to another installed season resource generation.");
         var bytes = current.PreparedMain;
         if (bytes.Length != 0x3C0) throw new InvalidDataException("Effect frame requires the complete prepared Main prefix.");
@@ -175,7 +186,7 @@ public sealed partial class G1EffectMapInputs
             Ambient: outer.Lighting.PrepareAmbient(ambientRate),
             Occlusion: hasModifier ? new(primary!.Lighting.Modifier.OcclusionRates) : null);
         Vector4 flex = outer.Lighting.Ambient;
-        if (hasModifier)
+        if (hasModifier && primary!.Lighting.Modifier.AdjustsLighting)
         {
             float factor = primary!.Lighting.Modifier.AmbientFactor;
             flex = new(flex.X * factor, flex.Y * factor, flex.Z * factor, flex.W);
@@ -185,7 +196,7 @@ public sealed partial class G1EffectMapInputs
             foreach (var word in current.PreparedWords) if (word.Offset == at) return word.Bits;
             var camera = current.Mode.AcceptedMainFrame.Camera;
             if (camera.CurrentSeasonPostEffectScalars is { } scalars && scalars.TryReadWord(at, out uint value)) return value;
-            return Word(resources.Source.CameraSource.Selection.FirstPackage.Camera, ordinal, hash, type);
+            return Word(cameraPackage.Camera, ordinal, hash, type);
         }
         int lightGroup = unchecked((int)ActualWord(0xA00, 24, 0x0611DBC4, 4));
         float directionScale = BitConverter.UInt32BitsToSingle(ActualWord(0xA28, 129, 0x0D8D3389, 8));

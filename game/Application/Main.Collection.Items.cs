@@ -8,18 +8,20 @@ public partial class Main
     {
         if (_failed || _shuttingDown || _repository is null ||
             _collectionMenu is not { } parent || HasCollectionChild) return;
-        var catalog = _repository.LoadCollectionItemCatalog(_ui.SourceLocale);
         var view = new CollectionItemsView(); _collectionItems = view; AddChild(view); parent.Hide();
         try
         {
-            view.Configure(_repository, _ui, catalog,
+            var prepared = TryBorrowApplicationPreparedResources(view);
+            view.Configure(_repository, _ui, prepared.CollectionItems,
                 () => !_failed && !_shuttingDown && _collectionMenu == parent &&
                     _collectionItems == view && _titleMenu is not null,
                 () => RunUiAction(() => CloseCollectionItems(restoreMenu: true)),
                 CurrentListScrollSpeed, RunUiAction,
                 () => _sceneAudioBinding?.BeginPoemEvent(_ui.SourceLocale, _preferences.MusicSelection),
                 restore => _sceneAudioBinding?.EndPoemEvent(restore && !_failed && !_shuttingDown),
-                () => _sceneAudioBinding?.PlayPoemAppearanceSoundAsync() ?? Task.CompletedTask);
+                () => _sceneAudioBinding?.PlayPoemAppearanceSoundAsync() ?? Task.CompletedTask,
+                resources: prepared.CreateChromeResources(), preparedPoems: prepared.TitleCatalog,
+                preparedPoemEvents: prepared.PoemEvents);
         }
         catch { CloseCollectionItems(restoreMenu: true); throw; }
     }

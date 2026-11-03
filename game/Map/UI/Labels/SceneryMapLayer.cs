@@ -15,6 +15,7 @@ internal partial class SceneryMapLayer : Control
     internal D3D11ScenerySource Source {get;private set;}=null!;
     internal SceneryMapCapture? Prepared {get;private set;}
     internal SceneryMapCapture? Accepted {get;private set;}
+    private bool ownsResources;
     private MapFont font=null!;
     private UiAssets assets=null!;
     private Shader shader=null!;
@@ -22,10 +23,10 @@ internal partial class SceneryMapLayer : Control
     private Func<GameState,SourceWorldContext?> capture=null!;
     private GameState? currentWorld;
     private SourceWorldContext? current;
-    private bool retired,acceptAfterDraw;
+    private bool retired,acceptAfterDraw,acceptFrameSubscribed;
     private bool? capturedClipBypass;
     private Func<Vector2I>? renderExtent;
-    private Func<SourceWorldContext,SceneryMapHexSelection>? readPrimary;
+    private Func<GameState,SourceWorldContext,SceneryMapHexSelection>? readPrimary;
     private Func<bool>? inputAllowed;
 
     internal SceneryMapLayer()
@@ -36,12 +37,16 @@ internal partial class SceneryMapLayer : Control
     internal void Configure(GameResourceRepository repository,LoadedSceneResources scene,
         string fixedDataPath,string locale,GameState world,MapPresentationState presentation,
         Func<GameState,SourceWorldContext?> capture,Func<Vector2I?> pointer,Action<int> selected,
-        Func<Vector2I> renderExtent,Func<SourceWorldContext,SceneryMapHexSelection>? readPrimary=null,
-        Func<bool>? inputAllowed=null,Func<int,bool>? canPress=null)
+        Func<Vector2I> renderExtent,Func<GameState,SourceWorldContext,SceneryMapHexSelection>? readPrimary=null,
+        Func<bool>? inputAllowed=null,Func<int,bool>? canPress=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         this.presentation=presentation;this.capture=capture;this.renderExtent=renderExtent;
         this.readPrimary=readPrimary;this.inputAllowed=inputAllowed;
-        assets=new(repository);font=new(repository,locale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);
+        font=resources?.Font??new(repository,locale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         var definitions=repository.LoadSceneries(fixedDataPath);
         Source=new(repository,scene,definitions,Current)
         {ReadProjectionClipBypass=_=>capturedClipBypass};
@@ -49,6 +54,7 @@ internal partial class SceneryMapLayer : Control
             SceneryMapMarkerSources.Load(repository),assets,shader,font,MapTextPresets.Create(),
             MapSpritePalettes.Create(),AreaMapMarkerSources.LoadCurrentTc(repository),pointer,selected,canPress);
         RenderingServer.FramePostDraw+=AcceptGodotFrame;
+        acceptFrameSubscribed=true;
     }
     private SourceWorldContext Current(GameState world)
     {
@@ -78,7 +84,7 @@ internal partial class SceneryMapLayer : Control
         if(retired)return;
         if(inputAllowed?.Invoke()==false){Suspend();return;}
         Prepared=frame;acceptAfterDraw=ordinaryGodot;
-        Controller.BindCurrentInput(frame.Current,readPrimary?.Invoke(frame.Current)??new(false,null));
+        Controller.BindCurrentInput(frame.Current,readPrimary?.Invoke(frame.World,frame.Current)??new(false,null));
         var p=frame.Presentation;
         Controller.Present(frame.World,frame.Current,frame.Units,frame.Camera,p.Policy,
             frame.CameraStable,frame.Viewport,p.ProjectionClipBypass,frame.Surface,true,
@@ -105,13 +111,19 @@ internal partial class SceneryMapLayer : Control
         if(retired)return;
         retired=true;acceptAfterDraw=false;Prepared=null;Accepted=null;renderExtent=null;
         readPrimary=null;inputAllowed=null;
-        RenderingServer.FramePostDraw-=AcceptGodotFrame;
+        // Configure may fail before the actual signal subscription exists.
+        if(acceptFrameSubscribed)
+        {
+            acceptFrameSubscribed=false;
+            RenderingServer.FramePostDraw-=AcceptGodotFrame;
+        }
         Controller.Abandon();
     }
     internal void Suspend()
     {Prepared=null;acceptAfterDraw=false;Controller.SuspendPresentation();}
     public override void _ExitTree()
     {
-        Abandon();Source?.Dispose();font?.Dispose();assets?.Dispose();shader?.Dispose();
+        Abandon();Source?.Dispose();
+        if(ownsResources){font?.Dispose();assets?.Dispose();shader?.Dispose();}
     }
 }

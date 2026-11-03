@@ -181,7 +181,6 @@ internal partial class DiplomacyNegotiationView
     {
         Name="DiplomacyArrival";ZIndex=90;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
         canvas=new(){Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
         var data=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages;
         termsMessage=(section,id)=>data.Sections[section].Records[id].Text??
@@ -236,8 +235,8 @@ internal partial class DiplomacyNegotiationView
         }
         else if(people is null&&page.Ruler is {Available:true,Value:{} card})
         {
-            var values=new AreaAdministrationOfficerContent(repository).Create(card);
-            if(values.Portrait is {} fallback)
+            var values=new AreaAdministrationOfficerContent().Create(card);
+            if(assets!.RequireStockPortraitSource(values.Portrait) is {} fallback)
             {
                 var box=source.Rectangle(8,mount);var face=new UiSourcePortrait{Name="ArrivalRuler",
                     Position=box.Position,Size=box.Size};canvas.AddChild(face);face.ConfigureFace2(repository,assets!,shader!,fallback);

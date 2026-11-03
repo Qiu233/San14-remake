@@ -7,9 +7,9 @@ using San14.Data.Formats;
 /// here; the original condition editor has its own page and state.</summary>
 internal partial class DiplomacyNegotiationView : Control
 {
-    private UiAssets? assets;
-    private MapFont? font;
-    private Shader? shader;
+    private UiAssets assets=null!;
+    private MapFont font=null!;
+    private Shader shader=null!;
     private Control canvas = null!;
     private UiSourceHeader? header;
     private UiSourceText notice = null!;
@@ -22,8 +22,9 @@ internal partial class DiplomacyNegotiationView : Control
     internal void Configure(GameResourceRepository repository, GameState candidate,
         DiplomacyNegotiationRequest request, int playerForceId, DiplomacyNegotiationPage page,
         PreviewText text, Func<bool> admitted, Action<bool> submit, Action showForce, Action showMap,
-        DiplomacyPeopleVisuals? people = null)
+        DiplomacyPeopleVisuals? people = null, AdministrationPageChrome.Resources? resources = null)
     {
+        BorrowResources(resources);
         if (request.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
         {
             ConfigureAdditionalReply(repository,candidate,request,playerForceId,page,text,admitted,submit,showForce,showMap,people);
@@ -32,7 +33,6 @@ internal partial class DiplomacyNegotiationView : Control
         this.admitted = admitted; this.submit = submit; canAccept = page.CanAccept;
         Name = "DiplomacyNegotiation"; ZIndex = 90; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository,text.SourceLocale); shader = UiSourceSprite.CreateShader();
         canvas = new() { Name="SourceCanvas", Size=new(1920,1080), MouseFilter=MouseFilterEnum.Stop };
         AddChild(canvas);
         bool sender = request.ForceId == playerForceId;
@@ -89,8 +89,8 @@ internal partial class DiplomacyNegotiationView : Control
         Value(goodwill?32:decide?(alliance?46:51):46,condition);
         if(decide&&page.Ruler is { Available:true,Value:{} card })
         {
-            var values=new AreaAdministrationOfficerContent(repository).Create(card);
-            if(values.Portrait is {} portraitSource)
+            var values=new AreaAdministrationOfficerContent().Create(card);
+            if(assets.RequireStockPortraitSource(values.Portrait) is {} portraitSource)
             {
                 var box=source.Rectangle(8,mount);
                 var portrait=new UiSourcePortrait { Name="DiplomacyRecipientRuler",Position=box.Position,Size=box.Size };
@@ -157,5 +157,13 @@ internal partial class DiplomacyNegotiationView : Control
         float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*scale;
         canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
-    public override void _ExitTree(){admitted=null;submit=null;abandoned=true;font?.Dispose();assets?.Dispose();shader?.Dispose();}
+    // The actual Main view lease retires after this page's children exit.
+    // These resources belong to the application, not the negotiation surface.
+    public override void _ExitTree(){admitted=null;submit=null;abandoned=true;}
+
+    private void BorrowResources(AdministrationPageChrome.Resources? resources)
+    {
+        var shared=resources??throw new InvalidOperationException("Diplomacy negotiation requires prepared application UI resources.");
+        assets=shared.Assets;font=shared.Font;shader=shared.SpriteShader;
+    }
 }

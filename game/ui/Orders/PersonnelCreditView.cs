@@ -33,14 +33,14 @@ internal partial class PersonnelCreditView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text, bool rankup,
         Func<bool> admitted, Action returned, Action accepted, Action choosePeople,
-        Action<int, int> changeChoice, Action<int> applyAutomatic)
+        Action<int, int> changeChoice, Action<int> applyAutomatic, AdministrationPageChrome.Resources? resources = null)
     {
         this.rankup = rankup; this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         Name = rankup ? "PersonnelCreditRankup" : "PersonnelCreditGive"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, rankup ? 0x81E : 0x820, RequestBack, RequestApply);
+        chrome.Configure(repository, text, rankup ? 0x81E : 0x820, RequestBack, RequestApply, resources: resources);
         var source = new UiSourceLayout(repository, rankup ? 0x2CC45ACFu : 0x9DF18E97u);
         Vector2 mount = rankup ? new(334, 184) : new(450, 341);
         int[] replaced = rankup ? [8, 20, 21, 22, 25, 32, 36] : [6];

@@ -20,17 +20,19 @@ internal partial class CollectionOfficerDetailView : Control
     private UiSourceSimpleTooltip? tooltip;
     private CollectionTacticBalloonView? tacticBalloon;
     private bool abandoned;
+    private AdministrationPageChrome.Resources? resources;
     internal int SelectedPage { get; private set; }
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionOfficerCatalog catalog, CollectionOfficerDetail publication,
         IReadOnlyList<CollectionDetailEntry> entries, Func<bool> admitted, Action returned,
-        Action<int> selected, Func<int> scrollSpeed, Action<int> actionSelected, int selectedPage = 0)
+        Action<int> selected, Func<int> scrollSpeed, Action<int> actionSelected, int selectedPage = 0,
+        AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog;
         this.publication = publication; this.entries = entries; this.admitted = admitted;
         this.returned = returned; this.selected = selected; this.scrollSpeed = scrollSpeed;
-        this.actionSelected = actionSelected;
+        this.actionSelected = actionSelected; this.resources = resources;
         Name = "CollectionOfficerDetail"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ShowPage(Math.Clamp(selectedPage, 0, publication.Pages.Count - 1));
@@ -51,13 +53,13 @@ internal partial class CollectionOfficerDetailView : Control
             ReadAdmission, RequestBack, id => { if (ReadAdmission()) selected?.Invoke(id); }, scrollSpeed,
             tabCaptions: publication.Pages.Select(value => value.Caption).ToArray(), selectedTab: index,
             selectTab: target => { if (target != SelectedPage && ReadAdmission()) ShowPage(target); },
-            completeColumnProfile: true, normalColumnLayout: true, narrowTable: true);
+            completeColumnProfile: true, normalColumnLayout: true, narrowTable: true, resources: resources);
         selector.SelectSourceIndex(publication.OfficerId);
         var body = new Control { Name = "CollectionOfficerBody", Position = new(191, 197),
             Size = new(1540, 688), MouseFilter = MouseFilterEnum.Ignore };
         selector.SourceCanvas.AddChild(body);
         BuildBody(body, page);
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = selector.SourceAssets.SourceLayout(0xD8913AB2);
         Vector2 mount = footer.Rectangle(21, new(0, 904)).Position + new Vector2(45, -103);
         foreach (var action in publication.Actions)
         {
@@ -79,7 +81,7 @@ internal partial class CollectionOfficerDetailView : Control
 
     private void BuildBody(Control body, CollectionOfficerDetailPage page)
     {
-        var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, page.LayoutName));
+        var source = selector.SourceAssets.SourceLayout(page.LayoutName);
         var hidden = page.HiddenNodes.ToHashSet();
         foreach (int? node in new[] { page.PortraitNodeIndex, page.NameplateNodeIndex, page.AbilityChartNodeIndex })
             if (node is int value) hidden.Add(value);
@@ -131,7 +133,11 @@ internal partial class CollectionOfficerDetailView : Control
             var rectangle = source.Rectangle(related.NodeIndex);
             var portrait = new UiSourcePortrait { Position = rectangle.Position, Size = rectangle.Size };
             body.AddChild(portrait); body.MoveChild(portrait, Math.Min(1, body.GetChildCount() - 1));
-            portrait.Configure(repository, selector.SourceAssets, selector.SourceShader, Sprite(pack, name));
+            if (resources is null)
+                portrait.Configure(repository, selector.SourceAssets, selector.SourceShader, Sprite(pack, name));
+            else
+                portrait.Configure(repository, selector.SourceAssets, selector.SourceShader,
+                    selector.SourceAssets.Portraits.RequireSource(pack, name));
         }
         foreach (var trait in page.Traits)
         {
@@ -154,7 +160,7 @@ internal partial class CollectionOfficerDetailView : Control
 
     private void AddNameplate(Control body, Rect2 rectangle)
     {
-        var source = new UiSourceLayout(repository, 0x2E73723A);
+        var source = selector.SourceAssets.SourceLayout(0x2E73723A);
         var nameplate = new Control { Name = "CollectionOfficerNameplate", Position = rectangle.Position,
             Size = rectangle.Size, MouseFilter = MouseFilterEnum.Ignore };
         body.AddChild(nameplate); Paint(source, nameplate, new HashSet<int> { 4 });

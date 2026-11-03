@@ -16,6 +16,7 @@
 #include "../Interop/CurrentEffectInput.h"
 #include "../Scene/Terrain/TerritoryOwnership.h"
 #include "../Scene/Terrain/CommandMap.h"
+#include "../Scene/Terrain/HexFocus.h"
 #include "../Scene/Models/ArmyWorldPublication.h"
 #include "../Scene/Models/ArmyUnitHeight.h"
 #include "RenderConfiguration.h"
@@ -26,6 +27,7 @@
 
 namespace San14::Render {
 struct NativeTerrainPrograms;
+class NativeDirectEffectPrograms;
 struct NativePrimaryModelGpuMedia;
 struct NativePrimaryPassGpuMedia;
 enum class FrameInputFlag : unsigned {
@@ -81,6 +83,7 @@ struct AnimationState {
     float firstBodyPhase{},firstFlagPhase{};
 };
 struct RenderHost {
+    std::shared_ptr<const NativeDirectEffectPrograms> directEffectPrograms;
     std::uint32_t mainFlags{MainRenderPhaseState::FreshHostFlags};
     MainRenderPhaseState mainPhase;
     ID3D11Device* device{};
@@ -94,6 +97,7 @@ struct RenderHost {
     RenderInput input;
     TerritoryOwnershipPublication territoryOwnership;
     source_command_map::Publication commandMap;
+    source_hex_focus::Publication hexFocus;
     std::optional<ArmyWorldPublication> armyWorld;
     std::optional<source_current_season::Frame> currentSeason;
     std::optional<CityGateWorldPublication> cityGateWorld;

@@ -11,7 +11,7 @@ internal partial class UiSourceCitySubcommandButton : UiSourceButton
         MapFont font, string caption, Action released)
     {
         this.released = released;
-        var source = new UiSourceLayout(repository, 0xBD19DBED);
+        var source = assets.SourceLayout(0xBD19DBED);
         Size = source.Rectangle(0).Size;
         ActionMode = ActionModeEnum.Release;
         int[] art = [3, 6, 10, 15, 19], text = [4, 8, 12, 16, 21];

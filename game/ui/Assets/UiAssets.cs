@@ -29,7 +29,7 @@ internal sealed partial class UiAssets(GameResourceRepository repository, UiAsse
     private readonly Dictionary<(uint File, string Names), IReadOnlyDictionary<string, LcskAnimationClip>> _animationClips = [];
     private readonly Dictionary<string, uint> _namedLayouts = new(StringComparer.Ordinal);
     private readonly Dictionary<Vector2, UiSourceLayout> _commandLayouts = [];
-    private readonly Dictionary<LcskDocument,UiSourceButtonStateProfile> _buttonStateProfiles = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<LcskDocument,Dictionary<string,UiSourceButtonStateProfile>> _buttonStateProfiles = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(string Locale, string Caption), LoadedSprite> _captions = [];
     private sealed record PreparedLinearPixels(int Width, int Height, byte[] Bytes);
     private readonly Dictionary<SpriteCacheKey, PreparedLinearPixels> _preparedLinearPixels = [];
@@ -90,11 +90,14 @@ internal sealed partial class UiAssets(GameResourceRepository repository, UiAsse
         PrepareLinearSprite(name, source);
     }
 
-    internal UiSourceButtonStateProfile ButtonStateProfile(LoadedLayout layout)
+    internal UiSourceButtonStateProfile ButtonStateProfile(LoadedLayout layout,IReadOnlyList<string>? actionNames=null)
     {
         ObjectDisposedException.ThrowIf(_disposed,this);
-        if(!_buttonStateProfiles.TryGetValue(layout.Layout,out var profile))
-            _buttonStateProfiles.Add(layout.Layout,profile=new UiSourceButtonStateProfile(layout));
+        if(!_buttonStateProfiles.TryGetValue(layout.Layout,out var profiles))
+            _buttonStateProfiles.Add(layout.Layout,profiles=new(StringComparer.Ordinal));
+        string key=actionNames is null?"":string.Join('\0',actionNames);
+        if(!profiles.TryGetValue(key,out var profile))
+            profiles.Add(key,profile=new UiSourceButtonStateProfile(layout,actionNames));
         return profile;
     }
 
@@ -332,6 +335,7 @@ internal sealed partial class UiAssets(GameResourceRepository repository, UiAsse
         foreach (var prepared in _preparedEncodedSprites.Values)
             _ = Sprite(prepared.Name, prepared.Declaration);
         _preparedEncodedSprites.Clear();
+        MaterializePreparedSpriteParts();
     }
 
     private AtlasTexture MaterializeLinearSprite(SpriteCacheKey spriteKey, PreparedLinearPixels prepared)
@@ -499,6 +503,7 @@ internal sealed partial class UiAssets(GameResourceRepository repository, UiAsse
         _preparedLinearPixels.Clear();
         _preparedNativeSprites.Clear();
         _preparedEncodedSprites.Clear();
+        _preparedLinearParts.Clear();
         _sampling.Clear();
         _parts.Clear();
         _linearSprites.Clear();

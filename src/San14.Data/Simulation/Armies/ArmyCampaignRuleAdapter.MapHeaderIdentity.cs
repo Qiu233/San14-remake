@@ -32,7 +32,24 @@ public sealed partial class ArmyCampaignRuleAdapter
         MapHeaderDisplayState? displayed, LoadedArmyFlagPaneNames names)
     {
         SourceWorldContext current;
-        try { current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions); }
+        try
+        {
+            current = OwnedArmyReturnCurrentFields.CaptureCurrent(state, _definitions);
+            ForceUnregisterInputs.BindCurrent(state, current);
+            //The header's current extension window is not part of the static
+            //District identity capture. Borrow saved scalars/reset stores,
+            //then project the same live books owner used by the visible header
+            //and deployment quote. Old native windows may predate its grant.
+            foreach (var (physical, owner) in state.Districts)
+            {
+                //An explicit native reset remains later than the live Core
+                //projection, including an inactive historical District row.
+                if (state.NativeForceUnregisterCurrent?.DistrictWindows10.TryGetValue(physical, out var saved) == true &&
+                    saved[0] == 0) continue;
+                current.SetDistrictRawByte(physical, 0x14, owner.Id == physical &&
+                    owner.OrdersRemaining is int books && books is >= 0 and <= byte.MaxValue ? (byte)books : null);
+            }
+        }
         catch (InvalidDataException error)
         { return new(new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message), new(MapHeaderUpdate.Unresolved, UnresolvedInput: error.Message))
             { MainCommandStyle = new(null, error.Message), MainCommandPresentation = new([], [error.Message])

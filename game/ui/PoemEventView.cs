@@ -28,19 +28,24 @@ internal partial class PoemEventView : Control
     private Func<Task>? appearanceSound;
     private bool appearanceSoundRequested;
     private bool abandoned;
+    private bool ownsResources;
     private int phase, inertia, pointerX, previousPointerX;
     private double phaseMilliseconds, fadeMilliseconds, fadeDuration;
     private float fadeStart, fadeTarget;
     private bool dragging, pointerReleased;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, PoemEventPublication publication,
-        Func<bool> admitted, Action returned, Action<Exception> failed, Func<Task> appearanceSound)
+        Func<bool> admitted, Action returned, Action<Exception> failed, Func<Task> appearanceSound,
+        AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.publication = publication;
         this.admitted = admitted; this.returned = returned; this.failed = failed;
         this.appearanceSound = appearanceSound;
         Name = "PoemEvent"; MouseFilter = MouseFilterEnum.Stop; SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new() { Name = "PoemEventCanvas", Size = new(1920, 1080), ClipContents = true, MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas); BuildMedia(); BuildFooters(); BuildInformation();
         blackout = new() { Name = "PoemBlackout", Size = new(1920, 1080), Color = new(0, 0, 0, 0),
@@ -204,5 +209,6 @@ internal partial class PoemEventView : Control
         clips.Clear(); SetProcess(false); Hide();
     }
     public override void _ExitTree()
-    { Abandon(); foreach (var image in imagePanes) image.Dispose(); assets?.Dispose(); font?.Dispose(); shader?.Dispose(); }
+    { Abandon(); foreach (var image in imagePanes) image.Dispose();
+        if (ownsResources) { assets?.Dispose(); font?.Dispose(); shader?.Dispose(); } }
 }

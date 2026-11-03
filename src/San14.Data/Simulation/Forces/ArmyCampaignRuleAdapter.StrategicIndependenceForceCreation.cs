@@ -37,6 +37,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         int status = IndependenceForceNeed(current.ReadPersonStatus(rulerPhysical), "old_status");
         if (status is >= 1 and <= 4)
         {
+            // Freedom uses these saved owners before the Base transfer below.
+            // Preserve receivers already modified in the enclosing Turn current.
+            _personAssignmentPrecallInputs.BindMissingPersonAreaVectors(working, current);
+            RulerCaptureReleaseSource.BindMissingCurrent(working, current);
+            PersonArmyCaptureInputs.BindMissingCurrent(working, current);
             int oldRuler = IndependenceForceNeed(current.ReadForceRecord(oldForce)?.RawRuler10, "old_ruler");
             var former = current.ReadPersonLookupReference(oldRuler <= 6000 ? oldRuler : 0)
                 ?? throw IndependenceForceMissing("old_ruler_pointer");
@@ -310,6 +315,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         foreach (int value in existing) if (value == number) number++;
         current.SetDistrictRawByte(district, 0x11, (byte)Math.Clamp(number, 0, 8));
         operation.TouchedDistricts.Add(district);
+        // The selected receiver is now allocated even though its source
+        // leader is still the constructor's known0. Nested Base publication
+        // must see that real identity and its matching current source window.
+        working = PublishForceCreationDistrictCurrent(working, current, district);
         int? residentRuler = null;
         var node = current.ReadRegistryHead(new(bases.Identity)) ?? throw IndependenceForceMissing("Base_list_head");
         while (node.Identity.HasValue)
@@ -346,11 +355,30 @@ public sealed partial class ArmyCampaignRuleAdapter
         ObjectRegistration.Register(new(RegistryKind.District, district), current);
         working = PersonReturnDistrictReorganizationSource.PublishCurrent(working, current, operation);
         working = PersonReturnDistrictTransferSource.PublishAreaAssignments(working, current, operation.ChangedAreas, operation.ChangedGates);
-        state = working with { Districts = new(working.Districts) { [district] = new(district, forceId,
-            IndependenceForceNeed(current.ReadDistrictNumber(district), "published_District_number"),
-            IndependenceForceNeed(current.ReadDistrictLeader(district), "published_District_leader"))
-            { OrdersRemaining = IndependenceForceNeed(current.ReadDistrictRawByte(district, 0x14), "published_District_books") } } };
+        state = PublishForceCreationDistrictCurrent(working, current, district);
         return created;
+    }
+
+    private static GameState PublishForceCreationDistrictCurrent(GameState state,
+        SourceWorldContext current, int district)
+    {
+        var owner = state.NativeForceUnregisterCurrent ?? throw IndependenceForceMissing("created_District_source_owner");
+        int force = IndependenceForceNeed(current.ReadDistrictForceId(district), "published_District_force");
+        int number = IndependenceForceNeed(current.ReadDistrictNumber(district), "published_District_number");
+        int leader = IndependenceForceNeed(current.ReadDistrictLeader(district), "published_District_leader");
+        int books = IndependenceForceNeed(current.ReadDistrictRawByte(district, 0x14), "published_District_books");
+        var windows = new Dictionary<int, byte?[]>(owner.DistrictWindows10)
+        {
+            [district] = Enumerable.Range(0x10, 28).Select(at => current.ReadDistrictRawByte(district, at)).ToArray()
+        };
+        return state with
+        {
+            Districts = new(state.Districts)
+            {
+                [district] = new(district, force, number, leader == 0 ? null : (int?)leader) { OrdersRemaining = books }
+            },
+            NativeForceUnregisterCurrent = owner with { DistrictWindows10 = windows }
+        };
     }
 
     private static GameState ResetStrategicIndependenceForceCurrent(GameState state, SourceWorldContext current, int force)

@@ -152,7 +152,8 @@ public partial class Main
                     if (!session.TryCompletePersonnelPresentation(owner, entry.BatchSequence, entry.RequestIndex)) return;
                     if (!TryOpenPersonnelPresentation()) { RefreshPlayControls(); RefreshDiplomaticNegotiation(); }
                 }), () => _preferences.AutomaticMessageAdvance,
-                    () => CanAdvanceNarration && _personnelPresentation == view && IsResourceNoticeCurrent);
+                    () => CanAdvanceNarration && _personnelPresentation == view && IsResourceNoticeCurrent,
+                    resources: TryBorrowApplicationUiResources(view));
             }
             catch (OperationCanceledException) when (notice.Lifetime.IsCancellationRequested) { }
             catch (Exception error)

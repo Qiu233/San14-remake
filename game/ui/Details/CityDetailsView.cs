@@ -12,37 +12,49 @@ public partial class CityDetailsView : DetailsView
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
+    private Control bodyCanvas = null!;
+    private bool ownsResources;
     private Control? currentBody;
     private UiSourceDetailSelector selector = null!;
     private int currentIdentity;
     internal InformationDetailSelectionReturn ReadSelectionReturn() => selector.ReadReturn(currentIdentity);
 
     internal void Configure(GameResourceRepository repository, CityInformationPage page,
-        PreviewText text, Action close, bool mapBackdrop = false, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
+        PreviewText text, Action close, bool mapBackdrop = false, InformationDetailSelectionContext? selection = null,
+        Action<int>? select = null, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository); font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         ConfigureCommonBackdrop(repository);
         var header = new UiSourceHeader { Name = "CityDetailsTitle" };
         ConfigureSourcePage("CityDetails", header, close);
         canvas = new() { Name = "CitySourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
+        var bodyMotion = new Node2D { Name = "CityDetailsBodyMotion" }; canvas.AddChild(bodyMotion);
+        bodyCanvas = new() { Name = "CityDetailsBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+        bodyMotion.AddChild(bodyCanvas);
+        var headerMotion = new Node2D { Name = "CityDetailsHeaderMotion" }; canvas.AddChild(headerMotion);
+        var footerMotion = new Node2D { Name = "CityDetailsFooterMotion" }; canvas.AddChild(footerMotion);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
-        shell.Blur(canvas, 2, shell.Rectangle(2, new(191, 147)));
-        shell.Art(canvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
-        canvas.AddChild(header); header.Configure(repository, assets, shader, font, Message(CityInformationSources.TitleId));
+        shell.Blur(bodyCanvas, 2, shell.Rectangle(2, new(191, 147)));
+        shell.Art(bodyCanvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
+        headerMotion.AddChild(header); header.Configure(repository, assets, shader, font, Message(CityInformationSources.TitleId));
         var tab = new UiSourceTabButton { Name = "BasicTab", Position = shell.Rectangle(4, new(191, 147)).Position,
             Size = new(Message(CityInformationSources.BasicTabCaptionId).Length * 28 + 36, 64), Selected = true };
-        canvas.AddChild(tab); tab.Configure(repository, assets, shader, font, Message(CityInformationSources.BasicTabCaptionId));
-        selector = new(); canvas.AddChild(selector);
+        bodyCanvas.AddChild(tab); tab.Configure(repository, assets, shader, font, Message(CityInformationSources.BasicTabCaptionId));
+        selector = new(); bodyCanvas.AddChild(selector);
         selector.Configure(repository, assets, shader, font, text,
             selection ?? new([new(page.CityId, page.Name, null)], () => 0),
-            InformationListKind.Cities, page.CityId, () => IsVisibleInTree() && !IsQueuedForDeletion(), select);
+            InformationListKind.Cities, page.CityId, () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion(), select);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CloseCityDetails", Position = footer.Rectangle(1, new(0, 904)).Position,
-            InputAdmission = () => IsVisibleInTree() && !IsQueuedForDeletion() };
-        canvas.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
+            InputAdmission = () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion() };
+        footerMotion.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
         Apply(page);
+        ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14), new Dictionary<int, (Node2D, Vector2)>
+        { [1] = (bodyMotion, Vector2.Zero), [4] = (headerMotion, Vector2.Zero), [6] = (footerMotion, new(0, 904)) });
         Resized += Fit; Fit();
     }
 
@@ -50,9 +62,9 @@ public partial class CityDetailsView : DetailsView
     {
         currentIdentity = page.CityId;
         int bodyIndex = currentBody?.GetIndex() ?? -1;
-        if (currentBody is { } previous) { canvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
+        if (currentBody is { } previous) { bodyCanvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
         BuildBody(page);
-        if (bodyIndex >= 0) canvas.MoveChild(currentBody!, bodyIndex);
+        if (bodyIndex >= 0) bodyCanvas.MoveChild(currentBody!, bodyIndex);
         selector.Select(page.CityId);
         SetMeta("city_id", page.CityId); SetMeta("source_unknown", page.UnresolvedOwner ?? "");
         SetMeta("report_context", page.ReportContext);
@@ -63,7 +75,7 @@ public partial class CityDetailsView : DetailsView
         var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, page.LayoutName));
         var body = new Control { Name = "CurrentCityDetails", Position = new(191, 197), Size = source.Rectangle(0).Size,
             MouseFilter = MouseFilterEnum.Ignore };
-        canvas.AddChild(body); currentBody = body;
+        bodyCanvas.AddChild(body); currentBody = body;
         var presets = MapTextPresets.Create();
         var palettes = MapSpritePalettes.Create();
         var sprites = new LocalizedUiSpriteSource(repository);
@@ -196,6 +208,7 @@ public partial class CityDetailsView : DetailsView
     }
     public override void _ExitTree()
     {
-        font?.Dispose(); shader?.Dispose(); assets?.Dispose(); base._ExitTree();
+        if (ownsResources) { font?.Dispose(); shader?.Dispose(); assets?.Dispose(); }
+        base._ExitTree();
     }
 }

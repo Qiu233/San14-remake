@@ -41,6 +41,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         AutomaticEmperorCaptureInputs? automaticEmperorInputs = null, bool allowAutomaticEmperorPause = false,
         bool eventPlaybackPresent = false)
     {
+        // A normal-turn Force creation can enter with only the thin route
+        // current. Borrow the complete saved threat bank once for this Base
+        // business, preserving any fields already staged in the same current.
+        CaptureBaseThreatInputs.BindCurrent(state, current);
+        _personAssignmentPrecallInputs.BindMissingPersonAreaVectors(state, current);
         if (state.ForceTransferEmperorTail is { } pending)
         {
             if (target.Kind != BaseKind.City || pending.CityPhysicalSlot != target.PhysicalSlot ||

@@ -10,6 +10,7 @@ internal partial class MapCityCommandMenu : Control
 {
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
+    private bool ownsResources;
     private UiAssets assets = null!;
     private MapFont font = null!;
     private Shader shader = null!;
@@ -24,12 +25,15 @@ internal partial class MapCityCommandMenu : Control
     internal bool CancellationOpen { get; set; }
     internal event Action<int, MapCityCommand>? Command;
 
-    internal void Configure(GameResourceRepository repository, PreviewText text)
+    internal void Configure(GameResourceRepository repository, PreviewText text,
+        AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text;
         Name = "MapCityCommandMenu"; MouseFilter = MouseFilterEnum.Stop;
-        assets = new(repository); font = new(repository, text.SourceLocale);
-        shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         hintCanvas = new() { Name = "HintCanvas", MouseFilter = MouseFilterEnum.Ignore,
             Size = new(1920, 1080), ZIndex = 3 };
         AddChild(hintCanvas);
@@ -71,7 +75,7 @@ internal partial class MapCityCommandMenu : Control
         var projection = query.Value!;
         SetMeta("source_branch", projection.Branch.ToString());
         var roots = projection.Entries.Where(entry => entry.Parent is null).ToArray();
-        var source = new UiSourceLayout(repository, 0x26D980DF);
+        var source = assets.SourceLayout(0x26D980DF);
         int first = 3, last = 17;
         float span = source.Rectangle(last).Position.Y + source.Rectangle(last).Size.Y - source.Rectangle(first).Position.Y;
         int height = (int)source.Rectangle(2).Size.Y - (int)span + roots.Length * ((int)span / 8);
@@ -93,7 +97,7 @@ internal partial class MapCityCommandMenu : Control
             var children = projection.Entries.Where(item => item.Parent == entry.Command).ToArray();
             if (children.Length != 0)
             {
-                var childSource = new UiSourceLayout(repository, 0x6E4B5E76);
+                var childSource = assets.SourceLayout(0x6E4B5E76);
                 var pane = new Control { Name = entry.Command + "Children", Visible = false,
                     Position = source.Rectangle(35).Position + new Vector2(0, mount.Position.Y - source.Rectangle(7).Position.Y),
                     Size = childSource.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Ignore };
@@ -178,6 +182,6 @@ internal partial class MapCityCommandMenu : Control
     public override void _ExitTree()
     {
         foreach (var abandon in abandonButtons) abandon();
-        font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
     }
 }

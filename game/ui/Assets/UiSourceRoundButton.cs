@@ -7,6 +7,13 @@ internal partial class UiSourceRoundButton : UiSourceButton
     private UiAudioCue cue;
     private Action? sourceActivation;
     internal override UiAudioCue PressedCue => cue;
+    internal override bool SupportsDisabledFeedback => true;
+
+    public override void _GuiInput(InputEvent input)
+    {
+        if (input is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } mouse &&
+            _HasPoint(mouse.Position)) RequestDisabledFeedback();
+    }
 
     // The source's nonphysical v68/v48 path shares feedback and the action,
     // without pretending that a Godot Pressed input event occurred.

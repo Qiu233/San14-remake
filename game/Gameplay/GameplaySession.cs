@@ -106,6 +106,9 @@ public sealed partial class GameplaySession
         _simulation.TryCompleteNormalTurnStoryResult(expectedOwner, sequence, expectedSummary);
     public bool TryCompletePersonnelPresentation(GameState expectedOwner,long batchSequence,int requestIndex) =>
         _simulation.TryCompletePersonnelPresentation(expectedOwner,batchSequence,requestIndex);
+    public bool TryCompleteForceEmergenceChronicle(GameState expectedOwner, long batchSequence,
+        int requestIndex, IForceEmergenceChronicleRules rules) =>
+        _simulation.TryCompleteForceEmergenceChronicle(expectedOwner, batchSequence, requestIndex, rules);
     internal bool TryCompleteRegionEncirclementPresentation(GameState expectedOwner,RegionEncirclementPresentation expectedRequest) =>
         _simulation.TryCompleteRegionEncirclementPresentation(expectedOwner,expectedRequest);
     internal bool TryCompleteOccupationMapObjectPresentation(GameState expectedOwner,long batchSequence,int requestIndex,MapObjectPresentationRequest expectedRequest) =>

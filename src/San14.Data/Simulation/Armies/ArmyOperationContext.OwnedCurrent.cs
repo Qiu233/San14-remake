@@ -21,6 +21,10 @@ public sealed partial class ArmyOperationContext
         //Explicit current reset images retain their original final precedence.
         OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
         ForceUnregisterInputs.BindCurrent(state, current);
+        // Exclusion queries use this operation's real settlement queue and
+        // imported pending70 list, including writes staged in this same pool.
+        // A missing saved queue remains unknown; it is never an empty queue.
+        current.BindOwnedDestructionQueue(state.PendingCombatSettlements, state);
         return current;
     }
 }

@@ -17,6 +17,9 @@ public sealed partial class AreaAdministrationDraft : IDisposable
     private readonly int _cityId, _forceId;
     private readonly bool _forceValid;
     private readonly int[] _held;
+    // This city relation is fixed for the owned draft. Keep it separate from
+    // the held list, whose extra representative/force tests and order differ.
+    private readonly HashSet<int> _registeredCityAreas = [];
     private readonly Snapshot _parent;
     private Snapshot? _child;
     private int? _area;
@@ -46,6 +49,7 @@ public sealed partial class AreaAdministrationDraft : IDisposable
         foreach (int area in RegisteredAreas(current))
         {
             if (K(current.ReadAreaCitySlot(new(area)), "held_area_city") != city.Id) continue;
+            _registeredCityAreas.Add(area);
             int hex = K(current.ReadAreaHexIndex(new(area)), "held_area_hex");
             var reference = current.ReadHexTableReference(hex < 48400 ? hex : 0) ?? throw Missing("held_hex_pointer");
             if (K(current.ReadHexForceSlot(reference), "held_area_owner") == rawCityForce && hex != cityHex) held.Add(area);

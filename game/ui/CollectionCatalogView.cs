@@ -27,18 +27,21 @@ internal partial class CollectionCatalogView : Control
     private Action<bool>? poemLeft;
     private Func<Task>? poemAppearanceSound;
     private bool abandoned;
+    private AdministrationPageChrome.Resources? resources;
     internal bool HasPoemEvent => poemEvent is not null;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionCatalog catalog, CollectionCatalogKind kind, Func<bool> admitted,
         Action returned, Func<int> scrollSpeed, Action<Action> runUiAction,
-        Action poemEntered, Action<bool> poemLeft, Func<Task> poemAppearanceSound)
+        Action poemEntered, Action<bool> poemLeft, Func<Task> poemAppearanceSound,
+        AdministrationPageChrome.Resources? resources = null, PoemEventCatalog? preparedPoemEvents = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog; this.kind = kind;
         this.admitted = admitted; this.returned = returned;
         this.scrollSpeed = scrollSpeed; this.runUiAction = runUiAction;
         this.poemEntered = poemEntered; this.poemLeft = poemLeft;
         this.poemAppearanceSound = poemAppearanceSound;
+        this.resources = resources; poemEventCatalog = preparedPoemEvents;
         Name = kind == CollectionCatalogKind.Poems ? "CollectionPoems" : "CollectionScenery";
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Stop;
         sourceRows = kind == CollectionCatalogKind.Poems
@@ -58,7 +61,7 @@ internal partial class CollectionCatalogView : Control
                 column.Caption, column.Width, column.CanSort)).ToArray(), Rows(),
             () => ReadAdmission() && detail is null, RequestBack,
             id => runUiAction(() => ShowDetail(id)), scrollSpeed,
-            Sort, tabCaptions: [basic], completeColumnProfile: true, normalColumnLayout: true);
+            Sort, tabCaptions: [basic], completeColumnProfile: true, normalColumnLayout: true, resources: resources);
         SetMeta("collection_mode", true);
         SetMeta("catalog_count", sourceRows.Count);
         SetMeta("campaign_required", false);
@@ -100,7 +103,7 @@ internal partial class CollectionCatalogView : Control
                 orderedRows.Select(row => new CollectionDetailEntry(row.Id, row.Cells[0])).ToArray(),
                 () => ReadAdmission() && detail == page, CloseDetail,
                 next => runUiAction(() => ShowDetail(next)), scrollSpeed,
-                kind == CollectionCatalogKind.Poems ? () => runUiAction(() => ShowPoemEvent(id)) : null);
+                kind == CollectionCatalogKind.Poems ? () => runUiAction(() => ShowPoemEvent(id)) : null, resources: resources);
         }
         catch { CloseDetail(); throw; }
     }
@@ -123,7 +126,7 @@ internal partial class CollectionCatalogView : Control
                 () => ReadAdmission() && poemEvent == view,
                 () => runUiAction(() => ClosePoemEvent(restore: true)),
                 error => runUiAction(() => throw error),
-                () => poemAppearanceSound?.Invoke() ?? Task.CompletedTask);
+                () => poemAppearanceSound?.Invoke() ?? Task.CompletedTask, resources);
             poemEntered?.Invoke();
         }
         catch { ClosePoemEvent(restore: true); throw; }

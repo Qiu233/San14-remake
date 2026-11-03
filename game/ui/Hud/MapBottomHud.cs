@@ -24,6 +24,7 @@ internal partial class MapBottomHud : Control
     private readonly List<Control> logRows=[];
     private readonly MapBottomFilterButton[] filterButtons=new MapBottomFilterButton[6];
     private UiSourceScrollbar? scrollbar;
+    private int scrollbarRange=-1;
     private bool logMode,expanded;
     private int selected,scroll;
     private double elapsed;
@@ -53,8 +54,9 @@ internal partial class MapBottomHud : Control
         run=Function(adviceSource.Rectangle(27).Position,"000_cmn_icon_jogen_run",ExecuteAdvice,expansion:true);
         log=new(){Name="OrdinaryMapLog",Size=Size,MouseFilter=MouseFilterEnum.Ignore,Visible=false};AddChild(log);
         var logSource=resources.Layout("00_02_00_mein_offset_40");
-        expand=Function(logSource.Rectangle(91).Position,"000_cmn_icon_log_add",()=>{expanded=!expanded;scroll=0;RefreshLog();RefreshMode();},true);
-        filterSwitch=Function(logSource.Rectangle(96).Position,"000_cmn_icon_log_filter",()=>{filter.Visible=!filter.Visible;filterSwitch.Selected=filter.Visible;},true);
+        expand=Function(logSource.Rectangle(91).Position,"000_cmn_icon_log_add",()=>{expanded=!expanded;scroll=0;RefreshLog();RefreshMode();},
+            alternateIcon:"000_cmn_icon_log_sub");
+        filterSwitch=Function(logSource.Rectangle(96).Position,"000_cmn_icon_log_filter",()=>filter.Visible=!filter.Visible,true);
         filter=new(){Name="LogCategoryFilter",Position=logSource.Rectangle(63).Position,Size=new(348,102),MouseFilter=MouseFilterEnum.Stop,Visible=false};AddChild(filter);
         var filterSource=resources.Layout("00_02_00_mein_offset_43");
         filterSource.Blur(filter,1,filterSource.Rectangle(1));filterSource.Art(filter,2,filterSource.Rectangle(2),resources.Assets,resources.Shader);
@@ -62,7 +64,7 @@ internal partial class MapBottomHud : Control
         for(int i=0;i<6;i++)
         {
             int index=i;var b=new MapBottomFilterButton{Name="LogCategory"+i,Position=filterSource.Rectangle(nodes[i]).Position,Size=filterSource.Rectangle(nodes[i]).Size,InputAdmission=admitted};filter.AddChild(b);
-            b.Configure(resources,data[captions[i]],()=>{filters[index]=!filters[index];b.Selected=filters[index];scroll=0;RefreshLog();});filterButtons[i]=b;
+            b.Configure(resources,data[captions[i]],()=>{filters[index]=!filters[index];b.Selected=filters[index];scroll=0;RefreshLog();RefreshMode();});filterButtons[i]=b;
         }
         tooltip=new();AddChild(tooltip);tooltip.Configure(resources.Repository,resources.Assets,resources.Shader,resources.Font);
         var hint=new AdministrationMessages(resources.Repository,locale);
@@ -70,8 +72,8 @@ internal partial class MapBottomHud : Control
         Hover(next,()=>hint.Format(0x5BDC));Hover(run,()=>hint.Format(0x5BDD));
         Hover(expand,()=>data[expanded?0x603:0x602]);Hover(filterSwitch,()=>data[filter.Visible?0x605:0x604]);
         RefreshMode();
-        MapBottomFunctionButton Function(Vector2 position,string icon,Action pressed,bool checkable=false,bool expansion=false)
-        {var b=new MapBottomFunctionButton{Position=position,InputAdmission=admitted};AddChild(b);b.Configure(resources,icon,pressed,checkable,expansion);return b;}
+        MapBottomFunctionButton Function(Vector2 position,string icon,Action pressed,bool checkable=false,bool expansion=false,string? alternateIcon=null)
+        {var b=new MapBottomFunctionButton{Position=position,InputAdmission=admitted};AddChild(b);b.Configure(resources,icon,pressed,checkable,expansion,alternateIcon);return b;}
         void Hover(Control owner,Func<string> text)
         {owner.MouseEntered+=()=>{if(admitted())tooltip.DisplayKnownColourText(text());};owner.MouseExited+=()=>tooltip.DisplayText(null);}
     }
@@ -118,7 +120,7 @@ internal partial class MapBottomHud : Control
         adviceSwitch.Selected=!logMode;logSwitch.Selected=logMode;
         advice.Visible=!logMode&&publication?.Entries.Count is >0;log.Visible=logMode;
         next.Visible=run.Visible=!logMode;expand.Visible=filterSwitch.Visible=logMode;
-        expand.Selected=expanded;filterSwitch.Selected=filter.Visible;
+        expand.ShowAlternateIcon(expanded);filterSwitch.Selected=filters.Any(value=>value);
         if(!logMode)filter.Hide();
     }
     private bool Matches(MapBottomLogEntry row)
@@ -129,34 +131,50 @@ internal partial class MapBottomHud : Control
     private void RefreshLog()
     {
         foreach(var row in logRows){log.RemoveChild(row);row.QueueFree();}logRows.Clear();
-        if(scrollbar is not null){log.RemoveChild(scrollbar);scrollbar.QueueFree();scrollbar=null;}
-        if(logPublication is null)return;
-        var rows=logPublication.Entries.Where(Matches).Reverse().ToArray();int visible=expanded?18:1;scroll=Math.Clamp(scroll,0,Math.Max(0,rows.Length-visible));
-        var source=resources.Layout("00_02_00_mein_offset_41");
+        var rows=logPublication?.Entries.Where(Matches).Reverse().ToArray()??[];
+        int visible=expanded?19:4;scroll=Math.Clamp(scroll,0,Math.Max(0,rows.Length-visible));
+        var source=resources.Layout("00_02_00_mein_offset_40");
+        int pitch=(int)source.Rectangle(2).Size.Y;
         for(int i=0;i<Math.Min(visible,rows.Length-scroll);i++)
         {
-            var entry=rows[scroll+i];var row=new Control{Name="MapLogRecord"+entry.Slot,Position=new(0,991-i*38),Size=source.Rectangle(0).Size,MouseFilter=MouseFilterEnum.Stop};log.AddChild(row);logRows.Add(row);
-            source.Art(row,5,source.Rectangle(5),resources.Assets,resources.Shader);
-            source.Text(row,6,default,entry.PersonName,resources.Font);
-            var textBox=source.Rectangle(7);var text=new UiSourceParagraph{Position=textBox.Position,Size=textBox.Size};row.AddChild(text);
-            text.ConfigureFormattedMessage(resources.Font,MapFontProfile.FromNode(source.Nodes[7],source.Source.Source.ResourceUri));text.Apply(entry.Body);
-            if(entry.HexId is >=0 and <48400)
+            var entry=rows[scroll+i];
+            var row=new MapBottomLogRow{Name="MapLogRecord"+entry.Slot};
+            row.Configure(resources,entry,logPortraits.GetValueOrDefault(entry.PersonId),admitted,focus);
+            if(expanded)
             {
-                source.Art(row,8,source.Rectangle(8),resources.Assets,resources.Shader);
-                row.GuiInput+=input=>{if(input is InputEventMouseButton{ButtonIndex:MouseButton.Left,Pressed:false}&&admitted()){focus(entry.HexId);row.AcceptEvent();}};
+                // The latest record stays on the bottom prototype. Subsequent
+                // older entries use its eighteen actual authored row mounts.
+                row.Position=source.Rectangle(i==0?2:16+i).Position;
+                log.AddChild(row);logRows.Add(row);
             }
-            if(logPortraits.GetValueOrDefault(entry.PersonId) is{Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:{} pack,SpriteName:{} sprite})
-            {var b=source.Rectangle(10);var face=new UiSourcePortrait{Position=b.Position,Size=b.Size};row.AddChild(face);face.ConfigureFace2(resources.Repository,resources.Assets,resources.Shader,resources.Assets.Portraits.RequireSource(pack,sprite));}
-            var tint=MapSpritePalettes.ForceFill(entry.ForceColour);
-            source.Art(row,12,source.Rectangle(12),resources.Assets,resources.Shader,new(tint,tint,tint,tint));
-            source.Text(row,13,default,entry.ForceName,resources.Font);
-            row.GuiInput+=input=>{if(input is InputEventMouseButton{Pressed:true} mouse&&expanded){int direction=mouse.ButtonIndex switch{MouseButton.WheelUp=>1,MouseButton.WheelDown=>-1,_=>0};if(direction!=0){scroll=Math.Clamp(scroll+direction,0,Math.Max(0,rows.Length-visible));RefreshLog();row.AcceptEvent();}}};
+            else
+            {
+                var resting=new MapBottomLogRestingRow{Name="CollapsedMapLog"+i,Position=source.Rectangle(2).Position};
+                log.AddChild(resting);logRows.Add(resting);resting.Configure(resources,row,i);
+            }
+            row.GuiInput+=input=>
+            {
+                if(input is not InputEventMouseButton{Pressed:true} mouse||!expanded||!admitted())return;
+                int direction=mouse.ButtonIndex switch{MouseButton.WheelUp=>1,MouseButton.WheelDown=>-1,_=>0};
+                if(direction==0)return;
+                row.AcceptEvent();
+                int value=Math.Clamp(scroll+direction,0,Math.Max(0,rows.Length-visible));
+                if(scroll!=value){scroll=value;RefreshLog();}
+            };
         }
-        if(expanded&&rows.Length>visible)
+        int range=expanded?Math.Max(0,rows.Length-visible)*pitch:0;
+        if(scrollbarRange!=range)
         {
-            scrollbar=new(){Name="MapLogScrollbar",Position=new(30,307),Size=new(16,684)};log.AddChild(scrollbar);
-            scrollbar.Configure(resources.Repository,resources.Assets,resources.Shader,(rows.Length-visible)*38,0,pixel=>{int value=pixel/38;if(scroll!=value){scroll=value;RefreshLog();}},stepPixels:38);
-            scrollbar.SetValue(scroll*38);
+            if(scrollbar is not null){log.RemoveChild(scrollbar);scrollbar.QueueFree();scrollbar=null;}
+            scrollbarRange=range;
+            if(range>0)
+            {
+                var box=source.Rectangle(35);
+                scrollbar=new(){Name="MapLogScrollbar",Position=box.Position,Size=box.Size};log.AddChild(scrollbar);
+                scrollbar.Configure(resources.Repository,resources.Assets,resources.Shader,range,0,pixel=>
+                {int value=pixel/pitch;if(scroll!=value){scroll=value;RefreshLog();}},stepPixels:pitch);
+            }
         }
+        scrollbar?.SetValue(scroll*pitch);
     }
 }

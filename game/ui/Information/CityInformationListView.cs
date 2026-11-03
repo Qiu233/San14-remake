@@ -12,7 +12,7 @@ internal partial class CityInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new CityInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "CityInformationList", "city_information_group", resources: resources);
+            close, inspect, scrollSpeed, "CityInformationList", "city_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

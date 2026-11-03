@@ -57,19 +57,9 @@ public sealed record CollectionOfficerTrait(int Slot, int DefinitionId, string N
 public sealed record CollectionOfficerTactic(int Slot, int TacticId, string Name,
     IReadOnlyList<string> Effects, int NodeIndex)
 {
-    public CollectionTacticBalloon? Balloon { get; init; }
+    public TacticBalloonContent? Balloon { get; init; }
 }
 
-/// <summary>The title gallery's full tactic balloon, independent of any campaign.
-/// Slots retain their original positions, including an empty effect slot.</summary>
-public sealed record CollectionTacticBalloon(string Category, string TargetCaption,
-    string Target, string WaitingCaption, string WaitingDays,
-    IReadOnlyList<CollectionTacticBalloonEffect> Effects)
-{
-    public string LayoutName => "11_00_01_offset_05";
-}
-public sealed record CollectionTacticBalloonEffect(int Slot, int Opcode, string Caption,
-    int IconSpriteId, string IconSpriteName, int SpritePalette, int TextPreset);
 public sealed record CollectionOfficerFormation(int FormationId, string Name, bool Available,
     int NodeIndex);
 public sealed record CollectionOfficerRelatedPortrait(int NodeIndex, OfficerPortraitRoute? Portrait)

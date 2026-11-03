@@ -35,15 +35,15 @@ internal sealed class CityDomesticPresenter : IDisposable
     internal CityDomesticPresenter(CityDomesticView view, GameResourceRepository repository, PreviewText text,
         CityDomesticDraft draft, Func<bool> current, Action<Action> dispatch,
         Action<CityDomesticTerminal> completionRequested, Action<string> unavailable, Func<CityDomesticDuty, bool> selectorReady,
-        Func<CityDomesticPersonSelection, UiSourceCommonBlur, Action<CityDomesticCandidate?>, Action> openSelector)
+        Func<CityDomesticPersonSelection, UiSourceCommonBlur, Action<CityDomesticCandidate?>, Action> openSelector, AdministrationPageChrome.Resources? resources = null)
     {
         this.view = view; this.draft = draft; this.text = text; this.current = current;
         this.dispatch = dispatch; this.completionRequested = completionRequested;
         this.unavailable = unavailable; this.selectorReady = selectorReady; this.openSelector = openSelector;
-        messages = new(repository, text.SourceLocale); officers = new(repository);
+        messages = new(repository, text.SourceLocale); officers = new();
         view.Configure(repository, text, () => Run(Return), () => Run(Confirm),
             role => Run(() => Choose((CityDomesticDuty)role)),
-            role => Run(() => Dismiss((CityDomesticDuty)role)), policy => Run(() => SetPolicy((CityDomesticPolicy)policy)));
+            role => Run(() => Dismiss((CityDomesticDuty)role)), policy => Run(() => SetPolicy((CityDomesticPolicy)policy)), resources: resources);
         Refresh();
     }
     private bool Active => !disposed && current();

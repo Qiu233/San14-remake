@@ -7,7 +7,7 @@ using San14.Data.Formats;
 /// including the original invalid-person portrait. The immutable log remains
 /// the identity passed back to the report consumer.</summary>
 internal sealed record ActionReportDetailRowContent(CampaignHistoryRecord Record,
-    string PersonName,LoadedSprite Portrait);
+    string PersonName,LoadedUiSpriteSource Portrait);
 
 /// <summary>The original detailed action-report row. It consumes a prepared
 /// log snapshot and emits row events; map/details navigation belongs to its page.</summary>
@@ -22,7 +22,7 @@ internal partial class ActionReportDetailRow : Control
     private UiSourceParagraph body=null!;
     private UiSourceFunctionButton function=null!;
     private UiSourcePortrait? portrait;
-    private LoadedSprite? portraitSource;
+    private LoadedUiSpriteSource? portraitSource;
     private Action<ActionReportDetailRow,int>? dispatch;
     private int commandId;
 

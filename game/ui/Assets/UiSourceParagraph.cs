@@ -7,6 +7,7 @@ using San14.Data;
 internal partial class UiSourceParagraph : Control, IUiSourceDrawing
 {
     private MapFont font = null!;
+    private uint? drawingVisibilityLayer;
     private MapFontProfile original = null!, fitted = null!;
     private IReadOnlyList<NarrationParagraphLine> lines = [];
     private IReadOnlyList<float> baselines = [];
@@ -19,7 +20,13 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
     internal IReadOnlyList<NarrationParagraphLine> Lines => lines;
     internal MapFontProfile CurrentProfile => fitted;
     internal IReadOnlyList<float> Baselines => baselines;
-    public void SetDrawingVisibilityLayer(uint layer) => font.SetDrawingVisibilityLayer(this, layer);
+    // Compositor assignment/restoration may precede this borrowed font.
+    // Keep the requested layer for the first actual configured draw.
+    public void SetDrawingVisibilityLayer(uint layer)
+    {
+        drawingVisibilityLayer = layer;
+        if (font is not null) font.SetDrawingVisibilityLayer(this, layer);
+    }
 
     /// <summary>The formatted-message caller wraps the expanded text and then
     /// explicitly selects width-fit mode 3 and literal character mode 2. These
@@ -35,27 +42,54 @@ internal partial class UiSourceParagraph : Control, IUiSourceDrawing
             profile.RawLineArrange is not (0 or 1) || profile.WidthFitMode is not (0 or 3) || profile.RawCharacterMode != 2)
             throw new InvalidDataException("Unsupported ordinary source paragraph profile.");
         font = sourceFont; original = profile; fitted = profile;
+        if (drawingVisibilityLayer is uint layer) font.SetDrawingVisibilityLayer(this, layer);
         MouseFilter = MouseFilterEnum.Ignore; SetNotifyTransform(true);
+    }
+
+    // Startup and the live paragraph share the same line/fitting algorithm.
+    // The resource worker prepares immutable pixels without creating Controls.
+    private static (string WrappedText, IReadOnlyList<NarrationParagraphLine> Lines, MapFontProfile Profile)
+        LayoutText(MapFontSource source, string text, MapFontProfile original, Vector2 size)
+    {
+        int WrapWidth(string line)
+        {
+            int raw = 0;
+            foreach (char code in line) raw += source.Record(code, original.Face).HorizontalAdvance;
+            return (int)(raw * original.ScaleX);
+        }
+        int nominal = source.Record('\u3042', original.Face).Height;
+        int allowedLf = 0;
+        while (allowedLf < 64 && (int)(unchecked((short)(nominal * (allowedLf + 2))) * original.ScaleY +
+            original.VerticalSpace * allowedLf) <= (int)size.Y) allowedLf++;
+        string wrapped = original.WidthFitMode == 0
+            ? DeploymentNarrationPlainParagraph.WrapContainedKnownColourParagraph(
+                text, line => source.Measure(line, original).Width, (int)size.X, allowPresetColours: true)
+            : DeploymentNarrationPlainParagraph.WrapKnownColourParagraph(
+                text, WrapWidth, (int)size.X, allowedLf, allowPresetColours: true);
+        var preparedLines = DeploymentNarrationParagraphPlan.Runs(wrapped, allowPresetColours: true);
+        string widest = preparedLines.MaxBy(line => source.Measure(line.VisibleText, original).Width)!.VisibleText;
+        var profile = source.FitToWidth(widest, original, size.X) with { WidthFitMode = 0 };
+        return (wrapped, preparedLines, profile);
+    }
+
+    internal static void PrepareLiteralText(MapFontSource font, string text, MapFontProfile profile, Vector2 size,
+        IDictionary<MapFont.PreparedTextKey, MapTextCache> caches)
+    {
+        var layout = LayoutText(font, text, profile, size);
+        var drawing = layout.Profile.UsesFixedLineHeight
+            ? layout.Profile with { RawAlign = 0, RawLineArrange = 1 } : layout.Profile;
+        foreach (var line in layout.Lines)
+            MapFont.PrepareText(font, line.VisibleText, drawing, size.X, caches);
     }
 
     internal void Apply(string text)
     {
         if (expanded == text && preparedSize == Size) return;
-        int WrapWidth(string line)
-        {
-            int raw = 0;
-            foreach (char code in line) raw += font.Source.Record(code, original.Face).HorizontalAdvance;
-            return (int)(raw * original.ScaleX);
-        }
+        var layout = LayoutText(font.Source, text, original, Size);
+        var wrapped = layout.WrappedText;
+        var preparedLines = layout.Lines;
+        var profile = layout.Profile;
         int nominal = font.Source.Record('\u3042', original.Face).Height;
-        int allowedLf = 0;
-        while (allowedLf < 64 && (int)(unchecked((short)(nominal * (allowedLf + 2))) * original.ScaleY +
-            original.VerticalSpace * allowedLf) <= (int)Size.Y) allowedLf++;
-        string wrapped = DeploymentNarrationPlainParagraph.WrapKnownColourParagraph(
-            text, WrapWidth, (int)Size.X, allowedLf, allowPresetColours: true);
-        var preparedLines = DeploymentNarrationParagraphPlan.Runs(wrapped, allowPresetColours: true);
-        string widest = preparedLines.MaxBy(line => font.Measure(line.VisibleText, original).Width)!.VisibleText;
-        var profile = font.Source.FitToWidth(widest, original, Size.X) with { WidthFitMode = 0 };
         var presets = MapTextPresets.Create();
         var positions = new List<float>();
         var preparedColours = new List<IReadOnlyList<uint?>>();

@@ -19,6 +19,9 @@ internal partial class MapCommanderCardView : Control
     private CommanderCardActionButton automatic=null!,remove=null!;
     private readonly UiSourceCaptionButton[] tactics=new UiSourceCaptionButton[3];
     private readonly string?[] tacticNames=new string?[3];
+    private readonly CommanderHudTacticSlot?[] tacticSources=new CommanderHudTacticSlot?[3];
+    private int? hoveredTactic;
+    internal Action<int,CommanderHudTacticSlot?,bool>? TacticHovered {get;set;}
     private CommanderHudCard? current;
     private ArmyMapIconSelection? shownFormation;
     private int? shownSupply;
@@ -70,6 +73,16 @@ internal partial class MapCommanderCardView : Control
             int slot=i;Rect2 place=source.Rectangle(45+i*6);
             var button=new UiSourceCaptionButton {Name="CommanderTactic"+i,Position=place.Position,Size=place.Size,
                 InputAdmission=admission};AddChild(button);tactics[i]=button;
+            button.MouseEntered+=()=>
+            {
+                if(!admission()||!button.IsVisibleInTree())return;
+                hoveredTactic=slot;TacticHovered?.Invoke(slot,tacticSources[slot],true);
+            };
+            button.MouseExited+=()=>
+            {
+                if(hoveredTactic!=slot)return;
+                hoveredTactic=null;TacticHovered?.Invoke(slot,null,false);
+            };
             button.Configure(repository,assets,shader,font,0x60C991A4,"",()=>
             {if(admission()&&current is{} card)tacticSelected(card.Slot,slot);});
         }
@@ -87,6 +100,10 @@ internal partial class MapCommanderCardView : Control
     internal void Apply(CommanderHudCard card,OfficerPortraitRoute? portrait,string shortcut,string unknown,
         bool canSelect,int? selectedUnit,int? selectedSlot)
     {
+        bool bindingChanged=current?.OfficerId!=card.OfficerId||current?.UnitId!=card.UnitId||
+            hoveredTactic is int activeSlot&&current?.Tactics.FirstOrDefault(row=>row.Slot==activeSlot)?.TacticId!=
+                card.Tactics.FirstOrDefault(row=>row.Slot==activeSlot)?.TacticId;
+        if(bindingChanged&&hoveredTactic is int previousSlot)TacticHovered?.Invoke(previousSlot,null,false);
         current=card;
         bool occupied=card.OfficerId.HasValue;
         bool army=card.State is CommanderHudCardState.ReadyArmy or CommanderHudCardState.WaitingArmy;
@@ -126,17 +143,25 @@ internal partial class MapCommanderCardView : Control
         if(supply is not null)supply.Visible=army;
         for(int i=0;i<tactics.Length;i++)
         {
-            var row=card.Tactics.FirstOrDefault(value=>value.Slot==i);
+            var row=card.Tactics.FirstOrDefault(value=>value.Slot==i);tacticSources[i]=row;
             bool visible=card.State==CommanderHudCardState.ReadyArmy&&row?.TacticId is not null;
             tactics[i].Visible=visible;tactics[i].Disabled=!visible||row?.Enabled!=true||!admission();
             if(row?.Name!=tacticNames[i])
             {tacticNames[i]=row?.Name;tactics[i].ApplyCaption(row?.Name??unknown);}
             tactics[i].Selected=visible&&card.UnitId==selectedUnit&&selectedSlot==i;
         }
+        if(hoveredTactic is int hovered)
+        {
+            bool active=admission()&&tactics[hovered].IsVisibleInTree();
+            TacticHovered?.Invoke(hovered,active?tacticSources[hovered]:null,bindingChanged);
+            if(!active)hoveredTactic=null;
+        }
         SetMeta("commander_slot",card.Slot);SetMeta("officer_id",card.OfficerId??-1);
         SetMeta("source_card_state",card.State?.ToString()??"Unknown");
         SetMeta("source_current_issues",string.Join(";",card.UnresolvedFields.Select(row=>row.Key+":"+row.Value)));
     }
+
+    public override void _ExitTree(){TacticHovered=null;hoveredTactic=null;}
 
     private void ApplyFocusInteraction() => focusVisual.ApplyInteraction(focus.IsHovered(),
         !focus.Disabled && focus.GetDrawMode() is BaseButton.DrawMode.Pressed or BaseButton.DrawMode.HoverPressed);

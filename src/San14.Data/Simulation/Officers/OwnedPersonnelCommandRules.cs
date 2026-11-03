@@ -83,7 +83,9 @@ internal sealed partial class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter
                     hired, guards, PersonnelCommandParameters.Revision)
                 {
                     ChargedDistrictId = ForcePrimaryDistrictSource.Resolve(current, new(force.Id)).PhysicalSlot
-                        ?? throw Missing()
+                        ?? throw Missing(),
+                    StoredLoyalty = PersonnelLoyaltyMath.ShouldChange(guards) == true
+                        ? army.ReadPersonnelStoredLoyaltyCurrent(state, current, person) : null
                 };
                 ushort Id(int p) => Need(current.ReadPersonIdentity(p));
                 bool Valid(int p) => Need(current.ReadPersonNativeValidity(p));
@@ -109,5 +111,9 @@ internal sealed partial class OwnedPersonnelCommandRules(ArmyCampaignRuleAdapter
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    internal byte ReadPersonnelStoredLoyaltyCurrent(GameState state, SourceWorldContext current, int person)
+        => ArmyDestructionLoyalty.ReadCurrentRawE8(state, current, person, _governorInputs)
+            ?? throw new InvalidDataException("personnel.item_stored_loyalty");
+
     public IPersonnelCommandRules CreatePersonnelCommandRules() => new OwnedPersonnelCommandRules(this);
 }

@@ -23,7 +23,7 @@ internal partial class CityMerchantView : Control
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         Action returned, Action accepted, Action chooseOfficers,
-        Action<CityMerchantMode> chooseAmount, Action reset)
+        Action<CityMerchantMode> chooseAmount, Action reset, AdministrationPageChrome.Resources? resources = null)
     {
         this.returned = returned; this.accepted = accepted; this.chooseOfficers = chooseOfficers;
         this.chooseAmount = chooseAmount; clear = reset;
@@ -32,7 +32,7 @@ internal partial class CityMerchantView : Control
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new() { Name = "MerchantChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x02B0, RequestBack,
-            () => { if (!abandoned && !busy) this.accepted?.Invoke(); });
+            () => { if (!abandoned && !busy) this.accepted?.Invoke(); }, resources: resources);
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         var source = new UiSourceLayout(repository, 0xC8EDC19A);
         var panel = new Control { Name = "MerchantPanel", Position = new(460, 229),
@@ -106,7 +106,7 @@ internal partial class CityMerchantView : Control
     {
         if (page is not { } value || abandoned) return;
         officer.Apply(card, value.SelectedOfficerIds.Count, !busy && value.Candidates.Count > 0);
-        buy.Selected = value.Mode == CityMerchantMode.Buy; sell.Selected = value.Mode == CityMerchantMode.Sell;
+        buy.Selected = value.SelectedMode == CityMerchantMode.Buy; sell.Selected = value.SelectedMode == CityMerchantMode.Sell;
         buy.Disabled = busy || value.CanBuy != true; sell.Disabled = busy || value.CanSell != true;
         reset.Disabled = busy;
         chrome.ApplyReturn(!busy); chrome.ApplyDecision(!busy && value.CanConfirm == true, true);

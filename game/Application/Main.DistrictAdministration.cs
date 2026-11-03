@@ -75,7 +75,7 @@ public partial class Main
                 () => RunUiAction(() => ChooseDistrictLeader(owner)),
                 () => RunUiAction(() => BeginDistrictTargetSelection(owner)),
                 (field, value) => RunUiAction(() => ChangeDistrictSetting(owner, field, value)),
-                root => DistrictAdministrationGuide(owner, root));
+                root => DistrictAdministrationGuide(owner, root), resources: TryBorrowApplicationUiResources(owner.Setup));
             map.CloseCityCommandMenu(); SetMapFocus(true); RefreshDistrictAdministration(owner); HideDeploymentHud();
         }
         catch { CloseDistrictAdministration(); throw; }

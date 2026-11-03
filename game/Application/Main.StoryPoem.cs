@@ -7,12 +7,13 @@ public partial class Main
     private void OpenStoryPoem(StoryPresentationBinding binding,StoryPoemEvent request,long sequence,int step)
     {
         if(!IsStoryCurrent(binding)||binding.PoemEvent is not null)return;
-        var publication=PoemEventCatalog.Load(_repository!,_ui.SourceLocale).ReadEvent(request.RawId);
         var audio=_sceneAudioBinding??throw new InvalidDataException("story.poem.audio_owner");
         var view=new PoemEventView();binding.PoemEvent=view;AddChild(view);
         binding.View.Hide();
         try
         {
+            var prepared=TryBorrowApplicationPreparedResources(view);
+            var publication=prepared.PoemEvents.ReadEvent(request.RawId);
             view.Configure(_repository!,_ui,publication,
                 ()=>IsStoryCurrent(binding)&&ReferenceEquals(binding.PoemEvent,view)&&
                     !binding.Cancellation.IsCancellationRequested&&!_failed&&!_shuttingDown,
@@ -25,7 +26,7 @@ public partial class Main
                     CompleteStoryStep(binding,sequence,step);
                 }),
                 error=>RunUiAction(()=>ReportPlayFailure(error)),
-                ()=>audio.PlayPoemAppearanceSoundAsync());
+                ()=>audio.PlayPoemAppearanceSoundAsync(),prepared.CreateChromeResources());
             audio.BeginPoemEvent(_ui.SourceLocale,_preferences.MusicSelection);
         }
         catch{CloseStoryPoem(binding,restore:false);throw;}

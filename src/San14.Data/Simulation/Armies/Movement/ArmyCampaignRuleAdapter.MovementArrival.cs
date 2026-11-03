@@ -73,7 +73,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 returned = returned with { ArmyReturnCaptiveContinuation = owner with
                 {
                     Caller = ArmyReturnCaptiveCaller.MovementArrival,
-                    ArrivalTail = new(action, goal, location, moment)
+                    ArrivalTail = new(action, goal, location, moment) { MarchCallerTailPending = true }
                 } };
                 return OwnedArmyLifecycleDetachedInputs.PublishCurrent(returned, current);
             }
@@ -101,12 +101,21 @@ public sealed partial class ArmyCampaignRuleAdapter
         //The actual returning image still exists before the suffix admits it
         //to pending70. Retain it locally for the source arrival speech only.
         var returned = ResumePlayerArmyReturnCurrent(state, current, pool);
-        if (returned.ArmyReturnCaptiveContinuation is not null || tail.Action is 11 or 12) return returned;
-        var operation = new FacilityOperation(() => tail.Moment.PreWriterThirdDate,
-            tail.Moment.CalendarCycleOrdinal,
-            _ => throw new InvalidDataException("current.movement_arrival.unused_campaign_day"));
-        return AppendArmyCommandSpeech(returned, current, army, operation, CombatSpeechEvent.ArmyEnteredBase,
-            new(tail.GoalHexId, tail.DestinationLocationId));
+        if (returned.ArmyReturnCaptiveContinuation is not null) return returned;
+        if (tail.Action is not (11 or 12))
+        {
+            var operation = new FacilityOperation(() => tail.Moment.PreWriterThirdDate,
+                tail.Moment.CalendarCycleOrdinal,
+                _ => throw new InvalidDataException("current.movement_arrival.unused_campaign_day"));
+            returned = AppendArmyCommandSpeech(returned, current, army, operation, CombatSpeechEvent.ArmyEnteredBase,
+                new(tail.GoalHexId, tail.DestinationLocationId));
+        }
+        //The original caller's position/credit/waypoint prefix was committed
+        //before suspension. Resume only its previously unexecuted remainder.
+        return tail.MarchCallerTailPending
+            ? new ArmyMarchCrossingSource(this, current).CompleteMovementCallerAfterArrivalCurrent(returned,
+                current, pending.ArmyPhysicalSlot, tail.Moment)
+            : returned; //World227 already executed this caller remainder before saving its pending batch.
     }
 
     private sealed class MovementReturnGovernorQueries(GameState state, OwnedArmyGovernorComparatorInputs inputs)

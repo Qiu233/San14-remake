@@ -64,6 +64,9 @@ public abstract partial class DetailsView : Control
         var transition = new UiSourceModalTransition { Name = "SourceReturnTransition", ProcessMode = ProcessModeEnum.Always };
         AddChild(transition);
         transition.Configure(source, _ownsCommonBackdrop ? _commonBackdrop : null, groups);
+        transition.ApplyShownState();
+        if (_returnTransition is { } previous)
+        { RemoveChild(previous); previous.QueueFree(); }
         _returnTransition = transition;
     }
 

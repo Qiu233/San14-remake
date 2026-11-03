@@ -11,6 +11,7 @@ internal sealed class UiSourceType6Pass : IDisposable
     internal UiSourceType6Quad Vertical { get; private set; }
     private readonly List<ShaderMaterial> materials = [];
     private bool disposed;
+    private readonly Action<SubViewport, Rid> setRenderParent;
     private readonly ShaderMaterial horizontalKernel, verticalKernel;
     private readonly ShaderMaterial copyMaterial, prefillMaterial;
     private readonly UiSourceType6Quad prefillQuad, horizontalQuad;
@@ -18,20 +19,22 @@ internal sealed class UiSourceType6Pass : IDisposable
     internal UiSourceType6Pass(SubViewport successor, SubViewport predecessor,
         Control originalCanvas, UiSourceType6Parameters parameters, Vector2[] screenQuad,
         Vector2[] sourceUvs, Rect2I sourceRegion, Vector2I contextSize, uint drawingLayer,
-        float effectiveAlpha, Vector4 captureColor, Vector4 prefillColor, UiSourceType6Shaders shaders)
+        float effectiveAlpha, Vector4 captureColor, Vector4 prefillColor, UiSourceType6Shaders shaders,
+        Action<SubViewport, Rid> setRenderParent)
     {
         if (successor.Size != predecessor.Size || screenQuad.Length != 4 || sourceUvs.Length != 4 ||
             contextSize.X <= 0 || contextSize.Y <= 0 || predecessor.Size.X < 4 || predecessor.Size.Y < 4 ||
             !float.IsFinite(effectiveAlpha) || effectiveAlpha < 0 || effectiveAlpha > 1)
             throw new ArgumentException("Type6 requires an actual full-size prefix and four quad corners.");
+        this.setRenderParent = setRenderParent;
         Vector2I quarter = new(predecessor.Size.X / 4, predecessor.Size.Y / 4);
         Horizontal = Viewport("Type6Horizontal", quarter);
         Capture = Viewport("Type6Capture", quarter);
         successor.AddChild(Horizontal);
         Horizontal.AddChild(Capture);
-        // Every dependency is a child of its consumer. Moving the predecessor
-        // preserves its shared World2D and does not move the original Controls.
-        predecessor.Reparent(Capture);
+        // Native producer ordering is independent of stable Node ownership.
+        // Do not exit/reenter an existing prefix's Canvas subtree at PreDraw.
+        setRenderParent(predecessor, Capture.GetViewportRid());
 
         copyMaterial = Material(shaders.Copy, "Type6EncodedRgbaCopy");
         copyMaterial.SetShaderParameter("source_image", predecessor.GetTexture());
@@ -93,13 +96,17 @@ internal sealed class UiSourceType6Pass : IDisposable
         // Targets stay with this composition. Controls and their current
         // screen-space geometry can change independently of these GPU images.
         if (Horizontal.GetParent() != successor) Horizontal.Reparent(successor);
-        if (predecessor.GetParent() != Capture) predecessor.Reparent(Capture);
+        setRenderParent(predecessor, Capture.GetViewportRid());
         copyMaterial.SetShaderParameter("source_image", predecessor.GetTexture());
         copyMaterial.SetShaderParameter("copy_color", captureColor);
+        prefillMaterial.SetShaderParameter("source_image", Capture.GetTexture());
         prefillMaterial.SetShaderParameter("copy_color", prefillColor);
+        horizontalKernel.SetShaderParameter("source_image", Capture.GetTexture());
+        verticalKernel.SetShaderParameter("source_image", Horizontal.GetTexture());
         prefillQuad.Visible = sourceRegion.Size != contextSize;
         Vector2I quarter = Horizontal.Size;
         horizontalQuad.SetGeometry(screenQuad.Select(p => p / (Vector2)contextSize * (Vector2)quarter).ToArray(), sourceUvs, 1);
+        horizontalQuad.Show();
         var inverse = drawingParent.GetGlobalTransformWithCanvas().AffineInverse();
         var positions = screenQuad.Select(p => inverse * p).ToArray();
         if (!GodotObject.IsInstanceValid(Vertical) || Vertical.IsQueuedForDeletion())
@@ -112,7 +119,9 @@ internal sealed class UiSourceType6Pass : IDisposable
         }
         else if (Vertical.GetParent() != drawingParent) Vertical.Reparent(drawingParent, false);
         Vertical.VisibilityLayer = drawingLayer;
+        Vertical.Material = verticalKernel;
         Vertical.SetGeometry(positions, sourceUvs, effectiveAlpha);
+        Vertical.Show();
         if (drawingParent is UiSourceType6) drawingParent.MoveChild(Vertical, 0);
         Vector2 perPixel = parameters.PerPixel(contextSize);
         Vector4 region = UiSourceType6Parameters.BlurRegion(sourceRegion, contextSize, quarter);
@@ -123,6 +132,42 @@ internal sealed class UiSourceType6Pass : IDisposable
         verticalKernel.SetShaderParameter("destination_image", predecessor.GetTexture());
         verticalKernel.SetShaderParameter("blend_kind", (int)parameters.Blend);
         SetWeight(parameters);
+        Capture.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+        Horizontal.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+    }
+
+    // Only the composition's same-size ordinary graph can park this pass.
+    // Its GPU targets stay owned here, but no original Control or its current
+    // geometry remains attached to the idle rendering branch.
+    internal void Suspend()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        Capture.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
+        Horizontal.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
+        copyMaterial.SetShaderParameter("source_image", default(Variant));
+        prefillMaterial.SetShaderParameter("source_image", default(Variant));
+        horizontalKernel.SetShaderParameter("source_image", default(Variant));
+        verticalKernel.SetShaderParameter("source_image", default(Variant));
+        verticalKernel.SetShaderParameter("destination_image", default(Variant));
+        prefillQuad.Hide(); horizontalQuad.Hide();
+        ClearGeometry(horizontalQuad);
+        if (GodotObject.IsInstanceValid(Vertical))
+        {
+            Vertical.Hide(); Vertical.Material = null;
+            if (!Vertical.IsQueuedForDeletion())
+            {
+                Vertical.Reparent(Horizontal, false);
+                ClearGeometry(Vertical);
+            }
+            else Vertical = null!;
+        }
+        else Vertical = null!;
+
+        static void ClearGeometry(UiSourceType6Quad quad)
+        {
+            quad.Positions = []; quad.Uvs = []; quad.Alpha = 1;
+            RenderingServer.CanvasItemClear(quad.GetCanvasItem());
+        }
     }
 
     internal void SetWeight(UiSourceType6Parameters parameters)
@@ -286,6 +331,8 @@ internal partial class UiSourceType6Quad : Control
         // Canvas redraw queue has run. Record this pure render payload now;
         // later redraws replace it without replaying any UI business callback.
         RenderingServer.CanvasItemClear(GetCanvasItem());
+        // A composition-owned idle pass deliberately has no source geometry.
+        if (Positions.Length == 0) return;
         RenderingServer.CanvasItemAddTriangleArray(GetCanvasItem(), [0, 1, 2, 1, 3, 2], Positions,
             Enumerable.Repeat(new Color(1, 1, 1, Alpha), Positions.Length).ToArray(), Uvs, [], [], default);
     }

@@ -42,7 +42,7 @@ public partial class Main
         if (!opened.Available) { CityOfficerMovementUnavailable(opened.UnresolvedInput!); return; }
         _cityOfficerMovementDraft = opened.Value!; _cityOfficerMovementSession = session;
         _cityOfficerMovementWorld = world; _cityOfficerMovementMap = map;
-        _cityOfficerMovementCardContent = new(_repository);
+        _cityOfficerMovementCardContent = new();
         var view = new CityOfficerMovementView(); _cityOfficerMovementView = view; AddChild(view);
         try
         {
@@ -55,7 +55,7 @@ public partial class Main
                 }),
                 () => RunPlayAction(() => ConfirmCityOfficerMovement(force)),
                 () => RunUiAction(OpenCityOfficerMovementPersons),
-                () => RunUiAction(OpenCityOfficerMovementCities));
+                () => RunUiAction(OpenCityOfficerMovementCities), resources: TryBorrowApplicationUiResources(view));
             RefreshCityOfficerMovement();
         }
         catch { CloseCityOfficerMovement(); throw; }
@@ -184,8 +184,12 @@ public partial class Main
     {
         if (!HasCityOfficerMovementMapSelection || input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button)
             return false;
-        if (_cityOfficerMovementMap!.SourceRightCancelReleased(button))
-        { RequestCityOfficerMovementBack(); GetViewport().SetInputAsHandled(); }
+        // Arm only on down; Surface.GuiInput still owns orbit initiation.
+        if (button.Pressed) { _cityOfficerMovementMap!.SourceRightCancelReleased(button); return true; }
+        var viewport = GetViewport();
+        viewport.SetInputAsHandled();
+        bool cancel = _cityOfficerMovementMap!.SourceRightCancelReleased(button);
+        if (cancel) RequestCityOfficerMovementBack();
         return true;
     }
 

@@ -2,7 +2,7 @@ using San14.Core;
 
 namespace San14.Data;
 
-/// <summary>Owned scalar keys and the independently qualified SC static
+/// <summary>Owned scalar keys and the independently qualified TC/SC static
 /// defaults. Existing saved values retain precedence over those defaults.</summary>
 internal static class AutomaticTacticDamageCurrentParameters
 {
@@ -15,10 +15,11 @@ internal static class AutomaticTacticDamageCurrentParameters
     internal const string OrdinaryReductionPercent = Prefix + "ordinary-reduction-percent";
     internal const string ProvokedOtherSourcePercent = Prefix + "provoked-other-source-percent";
 
-    //Current SC176970/177370 consume these file-backed parameters. Their
-    //separate source qualification is recorded offline in source88; the game
-    //does not read an executable, native address or instruction fingerprint.
-    private static readonly IReadOnlyDictionary<string, int> ScDefaults = new Dictionary<string, int>
+    //TC176C10/177610 and SC176970/177370 have independently qualified
+    //file-backed initial rules. Both language profiles use this same set;
+    //an explicitly saved current value still wins. No original executable
+    //or cached program execution is consumed by the game.
+    private static readonly IReadOnlyDictionary<string, int> CeDefaults = new Dictionary<string, int>
     {
         [AbilityBaseline] = 5,
         [TroopDivisor] = 200,
@@ -35,8 +36,8 @@ internal static class AutomaticTacticDamageCurrentParameters
         var bank = state.NativeArmySimulation?.Parameters;
         if (bank is null || bank.Float32Values.ContainsKey(key)) return null;
         if (bank.Int32Values.TryGetValue(key, out int current)) return current;
-        return bank.Language == "SC" && bank.RuleVersion == SimulationRuleIdentity.Version &&
-            ScDefaults.TryGetValue(key, out int value) ? value : null;
+        return bank.Language is "TC" or "SC" && bank.RuleVersion == SimulationRuleIdentity.Version &&
+            CeDefaults.TryGetValue(key, out int value) ? value : null;
     }
 
     internal static GameState InstallFresh(GameState state)
@@ -44,9 +45,9 @@ internal static class AutomaticTacticDamageCurrentParameters
         var simulation = state.NativeArmySimulation
             ?? throw new InvalidDataException("Automatic tactic parameters have no fresh simulation owner.");
         var parameters = simulation.Parameters;
-        if (parameters.Language != "SC" || parameters.RuleVersion != SimulationRuleIdentity.Version) return state;
+        if (parameters.Language is not ("TC" or "SC") || parameters.RuleVersion != SimulationRuleIdentity.Version) return state;
         var values = new Dictionary<string, int>(parameters.Int32Values);
-        foreach (var row in ScDefaults)
+        foreach (var row in CeDefaults)
         {
             if (parameters.Float32Values.ContainsKey(row.Key))
                 throw new InvalidDataException("Automatic tactic parameter has a non-integer saved owner: " + row.Key);

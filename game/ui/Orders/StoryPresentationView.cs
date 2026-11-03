@@ -2,7 +2,7 @@ using Godot;
 using San14.Data;
 using San14.Data.Formats;
 
-internal sealed record StoryActorVisual(int Slot, int OfficerId, IReadOnlyList<LoadedSprite> Layers)
+internal sealed record StoryActorVisual(int Slot, int OfficerId, LoadedStandingPortraitSources Layers)
 {
     internal bool? Dark { get; init; }
 }
@@ -13,6 +13,7 @@ internal partial class StoryPresentationView : Control
 {
     private UiAssets? assets;
     private Shader? shader;
+    private AdministrationPageChrome.Resources resources = null!;
     private GameResourceRepository repository = null!;
     private PreviewText text = null!;
     private Control canvas = null!, backgroundRoot = null!, actorRoot = null!, illustrationRoot = null!, smallIllustrationRoot = null!, itemIllustrationRoot = null!, ownedEffectRoot = null!;
@@ -41,10 +42,11 @@ internal partial class StoryPresentationView : Control
     internal Func<bool>? ReadAccelerated { get; set; }
     internal Action? OpenLog { get; set; }
 
-    internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted)
+    internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
+        AdministrationPageChrome.Resources resources)
     {
         this.repository = repository; this.text = text; this.admitted = admitted;
-        assets = new(repository); shader = UiSourceSprite.CreateShader();
+        this.resources = resources; assets = resources.Assets; shader = resources.SpriteShader;
         Name = "CampaignStoryScene"; ZIndex = 96; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         canvas = new() { Name = "StorySourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop }; AddChild(canvas);
@@ -63,8 +65,8 @@ internal partial class StoryPresentationView : Control
 
     private void BuildPlaybackControls()
     {
-        var root = new UiSourceLayout(repository, 0xD8B39FC6);
-        var source = new UiSourceLayout(repository, 0xE6F9D1D6);
+        var root = assets!.SourceLayout(0xD8B39FC6);
+        var source = assets!.SourceLayout(0xE6F9D1D6);
         playbackControls = new Control { Name = "StoryPlaybackControls", Position = root.Rectangle(6).Position,
             Size = source.Rectangle(0).Size, ZIndex = 15, Visible = false, MouseFilter = MouseFilterEnum.Ignore };
         canvas.AddChild(playbackControls);
@@ -96,11 +98,11 @@ internal partial class StoryPresentationView : Control
         string family = resourceKind switch { 14 => "stl_event_d_", 15 => "stl_event_bg_",
             _ => throw new InvalidDataException("story.background.resource_kind") };
         string suffix = identity.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
-        var layout = new UiSourceLayout(repository, 0xF6352F00);
+        var layout = assets!.SourceLayout(0xF6352F00);
         layout.Art(backgroundRoot, 1, layout.Rectangle(1), assets!, shader!,
             commonTexturePack: "texture_" + family + suffix, commonSpriteOverride: family + suffix);
         if (resourceKind == 14) return;
-        var blur = new UiSourceLayout(repository, 0xAEF1609E);
+        var blur = assets!.SourceLayout(0xAEF1609E);
         Vector2 mount = layout.Rectangle(3).Position;
         blur.Blur(backgroundRoot, 1, blur.Rectangle(1, mount), weightInput: 100);
         blur.Blur(backgroundRoot, 2, blur.Rectangle(2, mount), weightInput: 100);
@@ -116,7 +118,7 @@ internal partial class StoryPresentationView : Control
         ClearActors();
         if (identity < 0) return; // Native lookup has no matching image, retaining its nonzero scene identity.
         string suffix = identity.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
-        var layout = new UiSourceLayout(repository, 0xC6CCCD9C);
+        var layout = assets!.SourceLayout(0xC6CCCD9C);
         layout.Art(illustrationRoot, 1, layout.Rectangle(1), assets!, shader!,
             commonTexturePack: "texture_stl_event_" + suffix, commonSpriteOverride: "stl_event_" + suffix);
     }
@@ -129,7 +131,7 @@ internal partial class StoryPresentationView : Control
         if (identity <= 0) return;
         ClearActors();
         string suffix = identity.ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
-        var layout = new UiSourceLayout(repository, 0xC6CCCD9C);
+        var layout = assets!.SourceLayout(0xC6CCCD9C);
         layout.Art(smallIllustrationRoot, 8, layout.Rectangle(8), assets!, shader!,
             commonTexturePack: "texture_stl_event_komono_" + suffix, commonSpriteOverride: "stl_event_komono_" + suffix);
     }
@@ -147,7 +149,7 @@ internal partial class StoryPresentationView : Control
         if (identity is not int image) return;
         if (image < 0) throw new InvalidDataException("story.item_illustration.identity");
         var route = CollectionImageRoute.ForItem(image);
-        var layout = new UiSourceLayout(repository, 0xC6CCCD9C);
+        var layout = assets!.SourceLayout(0xC6CCCD9C);
         layout.Art(itemIllustrationRoot, 12, layout.Rectangle(12), assets!, shader!,
             commonTexturePack: route.TexturePack, commonSpriteOverride: route.SpriteName);
     }
@@ -178,7 +180,7 @@ internal partial class StoryPresentationView : Control
             for (int slot = 0; slot < portraitDarkFlags.Length; slot++)
                 if (darkFlags[slot] is bool dark) portraitDarkFlags[slot] = dark;
         }
-        var positions = new UiSourceLayout(repository, 0x86BA499F);
+        var positions = assets!.SourceLayout(0x86BA499F);
         int[] nodes = [2, 3, 4, 6, 5];
         foreach (int slot in actors.Keys.Where(slot => current.All(actor => actor.Slot != slot)).ToArray())
         { var previous = actors[slot].View; previous.Hide(); actorRoot.RemoveChild(previous); previous.QueueFree(); actors.Remove(slot); }
@@ -187,7 +189,7 @@ internal partial class StoryPresentationView : Control
             if ((uint)actor.Slot >= 5) throw new InvalidDataException("Story actor slot is outside the source scene.");
             if(actor.Layers.Count==0)throw new InvalidDataException("Story actor has no resolved standing portrait.");
             string firstSprite=actor.Layers[0].Definition.Name;
-            ushort? appearance=(actor.Layers as LoadedStandingPortraitSprites)?.CurrentAppearanceIndex;
+            ushort? appearance=actor.Layers.CurrentAppearanceIndex;
             if (!actors.TryGetValue(actor.Slot, out var previous) || previous.Officer != actor.OfficerId ||
                 previous.FirstSprite!=firstSprite || previous.Appearance!=appearance)
             {
@@ -223,7 +225,7 @@ internal partial class StoryPresentationView : Control
         {
             if (!InputAdmitted() || message != view) return;
             consumed();
-        }, automaticAdvance, InputAdmitted, singleWait);
+        }, automaticAdvance, InputAdmitted, singleWait, resources);
     }
 
     internal void RestoreMessage(string speaker, string expanded, bool singleWait = false)
@@ -360,6 +362,6 @@ internal partial class StoryPresentationView : Control
     {
         admitted = null; waitCompleted = null; abandoned = true;
         if (GodotObject.IsInstanceValid(canvas)) canvas.Draw -= ObserveDraw;
-        assets?.Dispose(); shader?.Dispose();
+        assets = null; shader = null;
     }
 }

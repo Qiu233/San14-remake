@@ -43,7 +43,7 @@ public partial class Main
             RetainCommandDetailSpeechWorld(view,_=>Finish());
             view.Configure(_repository!,_ui,page,Current,
                 ()=>RunInspectionUiAction(world, ()=>{if(HostCurrent())Finish();}),
-                snapshot=>{if(Current())map.UpdateChronology(view,snapshot);},CurrentListScrollSpeed);
+                snapshot=>{if(Current())map.UpdateChronology(view,snapshot);},CurrentListScrollSpeed,TryBorrowApplicationUiResources(view));
         });
     }
 }

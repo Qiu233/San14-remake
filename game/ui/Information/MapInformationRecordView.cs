@@ -17,21 +17,21 @@ internal partial class MapInformationRecordView : DetailsView
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, string title,
-        IReadOnlyList<MapInformationRecordField> fields, Action close, Func<int> scrollSpeed)
+        IReadOnlyList<MapInformationRecordField> fields, Action close, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var header = new UiSourceHeader(); canvas.AddChild(header);
         ConfigureSourcePage("InformationRecord", header, close);
         header.Configure(repository, assets, shader, font, title);
-        var source = new UiSourceLayout(repository, 0xA3B4A82E);
+        var source = assets.SourceLayout(0xA3B4A82E);
         source.Blur(canvas, 2, source.Rectangle(2, new(191, 147)));
         source.Art(canvas, 3, source.Rectangle(3, new(191, 147)), assets, shader);
         rows = new() { Position = new(230, 177), Size = new(1432, 652), ClipContents = true,
             MouseFilter = MouseFilterEnum.Pass };
         canvas.AddChild(rows);
-        var help = new UiSourceLayout(repository, 0xAB6ADAA7);
+        var help = assets.SourceLayout(0xAB6ADAA7);
         var helpNode = help.Nodes.Single(node => node.Type == 2);
         var profile = MapFontProfile.FromNode(helpNode, help.Source.Source.ResourceUri)
             .WithPreset(MapTextPresets.Create()[13]);
@@ -58,7 +58,7 @@ internal partial class MapInformationRecordView : DetailsView
         rows.GuiInput += input => { if (!abandoned) scrollbar.HandleWheel(input); };
         foreach (var entry in entries)
             entry.Row.GuiInput += input => { if (!abandoned) scrollbar.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Position = footer.Rectangle(1, new(0, 904)).Position,
             InputAdmission = () => !abandoned && IsVisibleInTree() };
         canvas.AddChild(back);
@@ -84,5 +84,5 @@ internal partial class MapInformationRecordView : DetailsView
         canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
     public override void _ExitTree()
-    { abandoned = true; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); base._ExitTree(); }
+    { abandoned = true;  base._ExitTree(); }
 }

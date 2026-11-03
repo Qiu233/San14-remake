@@ -69,6 +69,57 @@ internal static class DeploymentNarrationPlainParagraph
         return WrapPage(paragraph,wrapWidth,width,softBreaks,allowPresetColours);
     }
 
+    // Plain authored cells have no final width fit. Select a legal break
+    // before the next glyph would exceed their actual rendered advance. The
+    // original narration path below deliberately wraps before its whole-page fit.
+    internal static string WrapContainedKnownColourParagraph(string paragraph, Func<string, int> measure,
+        int width, bool allowPresetColours = false)
+    {
+        ArgumentNullException.ThrowIfNull(measure);
+        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+        RequireKnownColours(paragraph, allowPresetColours);
+        var output = new StringBuilder();
+        var sourceLines = paragraph.Split('\n');
+        for (int sourceIndex = 0; sourceIndex < sourceLines.Length; sourceIndex++)
+        {
+            if (sourceIndex != 0) output.Append('\n');
+            string source = sourceLines[sourceIndex];
+            var visible = new StringBuilder();
+            var glyphPositions = new List<int>();
+            for (int at = 0; at < source.Length; at++)
+            {
+                if (source[at] == '^')
+                {
+                    at += ReadBodyColourControl(source, at, allowPresetColours).Length - 1;
+                    continue;
+                }
+                glyphPositions.Add(at); visible.Append(source[at]);
+            }
+            string glyphs = visible.ToString();
+            int start = 0, rawStart = 0;
+            while (start < glyphs.Length)
+            {
+                int lastBreak = -1, end = start + 1;
+                for (; end <= glyphs.Length; end++)
+                {
+                    if (measure(glyphs[start..end]) > width) break;
+                    if (end == glyphs.Length || !Tail.Contains(glyphs[end - 1]) && !Head.Contains(glyphs[end]))
+                        lastBreak = end;
+                }
+                if (end > glyphs.Length) break;
+                if (lastBreak <= start)
+                    throw new InvalidOperationException("The authored paragraph width has no legal contained line break.");
+                int cut = glyphPositions[lastBreak];
+                output.Append(source.AsSpan(rawStart, cut - rawStart)); output.Append('\n');
+                start = lastBreak; rawStart = cut;
+            }
+            // Keep every colour atom and character, including trailing controls
+            // and spaces. Colour provenance already persists across LF in Runs.
+            output.Append(source.AsSpan(rawStart));
+        }
+        return output.ToString();
+    }
+
     private static string WrapPage(string page, Func<string,int> rawWidth, int width=672, int softBreaks=2, bool allowPresetColours=false)
     {
         ArgumentNullException.ThrowIfNull(rawWidth);

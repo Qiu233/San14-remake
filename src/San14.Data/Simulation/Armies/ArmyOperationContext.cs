@@ -166,8 +166,11 @@ public sealed partial class ArmyOperationContext
             native.SetObjectRawField14(gate.Id, gate.Durability is >= 0 and <= ushort.MaxValue
                 ? (ushort)gate.Durability.Value : null);
         }
-        if (state.LandmarkInvestments is { } landmarks)
-            foreach (var (id, landmark) in landmarks) native.SetSceneryFlags47(id, landmark.Flags);
+        // Current discovery/control flags belong to the saved campaign, not
+        // the scenario prefix. A missing current row must shadow that prefix
+        // with unknown just as the ordinary occupation binder does.
+        for (int id = 0; id < 101; id++)
+            native.SetSceneryFlags47(id, state.LandmarkInvestments?.GetValueOrDefault(id)?.Flags);
         OwnedMapObjectLifecycle.BindCurrent(state, native);
         return native;
     }

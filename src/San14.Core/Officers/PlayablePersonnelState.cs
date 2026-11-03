@@ -16,12 +16,17 @@ public sealed record PersonnelQuote(int? DistrictId, int? GoldCityId, int Comman
 {
     // Optional source-backed custody flag write; legacy/custom quotes omit it.
     public byte? ItemFlagsAfter { get; init; }
+    // Source byte facts are independent of the ordinary0..100 projection.
+    public byte? StoredLoyaltyBefore { get; init; }
+    public byte? StoredLoyaltyAfter { get; init; }
 }
 /// <summary>A current item transfer query. Ability values use the normal full
 /// current ability resolver; they are preview results, never saved caches.</summary>
 public sealed record PersonnelItemOfficerPreview(int OfficerId, int? LoyaltyBefore,
     int? LoyaltyAfter, OfficerAbilities AbilitiesBefore, OfficerAbilities AbilitiesAfter)
 {
+    public byte? StoredLoyaltyBefore { get; init; }
+    public byte? StoredLoyaltyAfter { get; init; }
     public bool IsRuler { get; init; }
     public bool LoyaltyChangeVisible { get; init; }
     public int? DisplayLoyaltyChangeMagnitude { get; init; }

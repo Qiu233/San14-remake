@@ -130,6 +130,7 @@ internal partial class IncomeReportNumericView : Control
         footer.SetInputGuidesVisible(visible);
     }
     internal void ApplyStrategistPortrait(IReadOnlyList<LoadedSprite>? standingLayers) => strategist.ApplyPortrait(standingLayers);
+    internal void ApplyPreparedStrategistPortrait(LoadedStandingPortraitSources? standingLayers) => strategist.ApplyPreparedPortrait(standingLayers);
     internal void ToggleGraph()
     {
         if (graph is null) throw new InvalidOperationException("Income history graph has no publication.");

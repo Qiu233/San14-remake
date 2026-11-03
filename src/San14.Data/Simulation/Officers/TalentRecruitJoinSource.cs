@@ -152,7 +152,11 @@ public sealed partial class ArmyCampaignRuleAdapter
         {
             working = ApplyPersonAssociationRemovalReports(working, current, personPhysical, result, readDay450, sink);
         });
-        PersonDistrictTransfer.Apply(personPhysical, districtPhysical, transfer);
+        var previousRefresh = current.TransferServiceRefresher;
+        current.TransferServiceRefresher = (first, second, third) =>
+            working = RefreshPersonnelMilestoneCurrent(working, current, first, second, third);
+        try { PersonDistrictTransfer.Apply(personPhysical, districtPhysical, transfer); }
+        finally { current.TransferServiceRefresher = previousRefresh; }
         if (associations.Count != 0)
             working = PersonAssignmentPrecallInputs.PublishDeathTouched(working, current, personPhysical, associations);
         ushort destination = (ushort)Math.Min(Need(current.ReadBaseObjectLink(destinationHome), "destination_Base4E"), (ushort)61);

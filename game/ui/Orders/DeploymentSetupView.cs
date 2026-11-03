@@ -22,7 +22,9 @@ internal partial class DeploymentSetupView : Control
 
 
     private DeploymentSummaryList summaries=null!;
-    private UiSourceRoundButton confirm=null!;
+    private UiSourceRoundButton confirm=null!,returnButton=null!;
+    private string returnHint="";
+    private bool returnHintActive;
     private Action? decide;
     private UiSourceText hintText=null!;
     private string defaultHint="";
@@ -42,7 +44,7 @@ internal partial class DeploymentSetupView : Control
     {
         abandoned=true;selectionChild=null;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
         foreach(var button in batchButtons)button.Disabled=true;
-        balloonOwner=null;balloon?.DisplayText(null);
+        balloonOwner=null;balloon?.DisplayText(null);ClearReturnHint();
         Hide();
     }
 
@@ -87,7 +89,9 @@ internal partial class DeploymentSetupView : Control
         Tab(0x172EDC24, page.Rectangle(41), Message(0x035D), true);
         Tab(0xD45873AA, page.Rectangle(43), Message(0x035E), false);
         confirm=Round(new(827,955), "000_cmn_txt_decision_kettei", disabled:true, ()=>decide?.Invoke());
-        Round(new(965,955), "000_cmn_txt_decision_modoru", disabled:false, RequestClose, cue:UiAudioCue.Cancel);
+        returnButton=Round(new(965,955), "000_cmn_txt_decision_modoru", disabled:false, RequestClose, cue:UiAudioCue.Cancel);
+        returnButton.MouseEntered+=RefreshReturnHint;
+        returnButton.MouseExited+=ClearReturnHint;
         int[] bottomMessages=[0x032F,0x005F,0x0060];
         string[] batchNames=["AutomaticDeployment","SetAllDeploymentTroops","MaximizeDeploymentTroops"];
         for(int i=0;i<3;i++)
@@ -109,6 +113,7 @@ internal partial class DeploymentSetupView : Control
         // Game messages retain bytecode; Text is reserved for data tables.
         var narration=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2].Records[0x085F];
         string prompt=narration.Literals.Single().Text;
+        returnHint=new AdministrationMessages(repository,text.SourceLocale).Format(0x2733);
         normalHint=defaultHint=prompt;
         insufficientGoldHint=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2]
             .Records[0x08AB].Literals.Single().Text;
@@ -122,6 +127,7 @@ internal partial class DeploymentSetupView : Control
         SetMeta("source_city_id",city.Id);
         SetMeta("deployment_available_troops",availableTroops);
         SetMeta("deployment_empty",true);
+        VisibilityChanged+=()=>{if(!IsVisibleInTree())ClearReturnHint();};
         Resized += Fit; Fit();
 
         void Art(UiSourceLayout layout,int index,Vector2 mount=default) => layout.Art(canvas,index,layout.Rectangle(index,mount),assets,shader);
@@ -159,7 +165,7 @@ internal partial class DeploymentSetupView : Control
         if(!ReferenceEquals(owner.GetParent(),this))
             throw new InvalidOperationException("The deployment selection child must belong to this setup.");
         selectionCanvasVisible=canvas.Visible;selectionBackdropVisible=CommonBackdrop.Visible;
-        selectionChild=owner;balloonOwner=null;balloon?.DisplayText(null);
+        selectionChild=owner;balloonOwner=null;balloon?.DisplayText(null);ClearReturnHint();
         canvas.Hide();if(!keepBackdrop)CommonBackdrop.Hide();
     }
 
@@ -176,9 +182,10 @@ internal partial class DeploymentSetupView : Control
     {
         resourceHeader.Apply(resources);
         defaultHint=resources.Gold is {RemainingGold:<0}?insufficientGoldHint:normalHint;
-        hintText.Text=defaultHint;
+        if(!returnHintActive)hintText.Text=defaultHint;
     }
-    internal void ApplyHint(string? value)=>hintText.Text=value??defaultHint;
+    internal void ApplyHint(string? value)
+    {returnHintActive=false;hintText.Text=value??defaultHint;}
     internal void AddAutomaticMenu(DeploymentAutomaticMenu menu)=>canvas.AddChild(menu);
     internal void ApplyBalloon(Control owner,string? value)
     {
@@ -214,7 +221,25 @@ internal partial class DeploymentSetupView : Control
             ApplyBalloon(owner,null);
     }
 
-    public override void _Process(double delta)=>RefreshBatchBalloon();
+    private void RefreshReturnHint()
+    {
+        if(abandoned||hintText is null||returnButton is null)return;
+        bool hovered=selectionChild is null&&IsVisibleInTree()&&canvas.IsVisibleInTree()&&CanProcess()&&
+            returnButton.IsVisibleInTree()&&!returnButton.Disabled&&GetViewport().GuiGetHoveredControl()==returnButton;
+        if(!hovered){ClearReturnHint();return;}
+        if(returnHintActive)return;
+        returnHintActive=true;hintText.Text=returnHint;
+    }
+
+    private void ClearReturnHint()
+    {
+        // An old exit must not erase a later writer of the footer channel.
+        if(!returnHintActive)return;
+        returnHintActive=false;if(hintText is not null)hintText.Text=defaultHint;
+    }
+
+    public override void _Process(double delta)
+    {RefreshBatchBalloon();RefreshReturnHint();}
 
     internal void ApplyDraftSummaries(GameResourceRepository repository,IReadOnlyList<DeploymentSummaryRowContent> contents,
         int? selectedOfficer,Action<int> selected,Action<int> removed,Action add,int scrollSpeedSetting=0,Func<int>? currentScrollSpeed=null)
@@ -243,7 +268,7 @@ internal partial class DeploymentSetupView : Control
     }
     public override void _ExitTree()
     {
-        selectionChild=null;close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
+        returnHintActive=false;selectionChild=null;close=null;decide=null;batchRequested=null;CommonBackdrop=null!;
         if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
     }
 }

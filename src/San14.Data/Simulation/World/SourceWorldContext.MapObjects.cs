@@ -17,6 +17,11 @@ public sealed partial class SourceWorldContext
         other.CurrentMapObjectDirectory = CurrentMapObjectDirectory;
         other._currentObjectPositions.Clear(); other._currentObjectKinds.Clear();
         other._currentObjectFields16.Clear();
+        // Each batch already owns its complete input counts. Reserve once so
+        // copying the same fields does not repeatedly grow intermediate arrays.
+        other._currentObjectFields16.EnsureCapacity(_currentObjectFields16.Count);
+        other._currentObjectPositions.EnsureCapacity(_currentObjectPositions.Count);
+        other._currentObjectKinds.EnsureCapacity(_currentObjectKinds.Count);
         foreach (var value in _currentObjectFields16) other._currentObjectFields16.Add(value.Key, value.Value);
         foreach (var value in _currentObjectPositions) other._currentObjectPositions.Add(value.Key, value.Value);
         foreach (var value in _currentObjectKinds) other._currentObjectKinds.Add(value.Key, value.Value);
@@ -35,6 +40,16 @@ public sealed partial class SourceWorldContext
         if (state.MapObjects is not { } owner || source is null) return;
         var directory = source.Directory;
         CurrentMapObjectDirectory = directory;
+        // These are complete receiver and lookup batches, not inferred live
+        // object counts. Unknown entries still receive their original writes.
+        int physicalCount = source.PhysicalReceivers.Count;
+        _objects.EnsureCapacity(physicalCount);
+        _objectForceSlots13.EnsureCapacity(physicalCount);
+        _objectRawFields14.EnsureCapacity(physicalCount);
+        _currentObjectPositions.EnsureCapacity(physicalCount);
+        _currentObjectKinds.EnsureCapacity(physicalCount);
+        _currentObjectFields16.EnsureCapacity(source.CurrentFields16.Count);
+        _objectPointers.EnsureCapacity(source.LookupPhysicalSlots.Count);
         foreach (var field in source.CurrentFields16) _currentObjectFields16[field.Key] = field.Value;
         var rows = owner.Receivers.ToDictionary(x => x.Id);
         for (int ordinal = 0; ordinal < source.LookupPhysicalSlots.Count; ordinal++)
@@ -84,6 +99,7 @@ public sealed partial class SourceWorldContext
         if (owner.HexBindings is { } bindings)
         {
             _emptyHexObjectLinksKnown = true;
+            _hexObjectLinks.EnsureCapacity(checked(bindings.Occupied.Count + source.HexObjectLookupAliases.Count));
             foreach (var (hex, receiver) in bindings.Occupied)
                 SetHexObjectLink(hex, directory.EncodeHexBinding(hex, receiver));
             foreach (int hex in source.HexObjectLookupAliases.Keys)
@@ -91,9 +107,12 @@ public sealed partial class SourceWorldContext
             // The usual known empty default is raw0. If0 resolves to another
             // receiver, an empty cell without an observed alias is unknown.
             if (directory.Lookup(0) is { } zero && zero != directory.ReceiverAtPhysical(0))
+            {
+                _hexObjectLinks.EnsureCapacity(bindings.TileCount);
                 for (int hex = 0; hex < bindings.TileCount; hex++)
                     if (!bindings.Occupied.ContainsKey(hex) && !source.HexObjectLookupAliases.ContainsKey(hex))
                         SetHexObjectLink(hex, null);
+            }
         }
     }
 }

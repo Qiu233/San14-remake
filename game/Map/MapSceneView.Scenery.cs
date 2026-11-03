@@ -31,10 +31,14 @@ public partial class MapSceneView
         InitializeMapSummaries();
         try
         {
+            // The label layer borrows the already materialized UI generation.
+            // Its own Source/Controller remain local to this real map layer.
+            var shared=_borrowSummaryResources?.Invoke(layer);
+            if(shared is {} borrowed)layer.TreeExited+=borrowed.Release;
             layer.Configure(_repository,_loadedSceneResources,scenario.FixedDataPath,_text.SourceLocale,
                 world,_mapPresentation,_captureSceneryCurrent,()=>_sceneryPointer,SelectSceneryMapEntry,
                 ()=>((SubViewport)_surface.GetChild(0)).Size,ReadMapHover,
-                ()=>!_detailsOpen&&!_periodMapActive&&IsVisibleInTree(),CanPressSceneryMapEntry);
+                ()=>!_detailsOpen&&!_periodMapActive&&IsVisibleInTree(),CanPressSceneryMapEntry,shared?.Resources);
             _sceneryWindow=GetTree().Root;
             _sceneryWindow.WindowInput+=CaptureSceneryPointer;
         }
@@ -64,6 +68,7 @@ public partial class MapSceneView
     }
     private void SceneryPresentationChanged()
     {
+        if (_nativeMapClosing) return;
         ApplyKeyboardMapInformation();
         if(!_loaded)return;
         if(UseD3D11Map)ScheduleD3D11MapFrame();

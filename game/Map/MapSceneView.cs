@@ -347,18 +347,22 @@ public partial class MapSceneView : Control
         _selection.ItemSelected += index => _ = StartSceneLoadAsync((int)index);
         Run(() =>
         {
-            using Godot.FileAccess sceneFile = Godot.FileAccess.Open("res://ui/scene-preview.json", Godot.FileAccess.ModeFlags.Read)
-                ?? throw new InvalidDataException("Scene preview configuration is missing.");
-            using Godot.FileAccess projectionFile = Godot.FileAccess.Open("res://ui/map-projection.json", Godot.FileAccess.ModeFlags.Read)
-                ?? throw new InvalidDataException("Map projection configuration is missing.");
-            _sceneConfig = MapSceneConfiguration.Parse(sceneFile.GetAsText(), projectionFile.GetAsText(), _embedded);
+            var prepared = _worldScene
+                ? _staticMapResources ?? throw new InvalidOperationException(
+                    "The product map requires its actual startup static resource owner.")
+                : null;
+            if (prepared is not null) _sceneConfig = prepared.Configuration;
+            else
+            {
+                using Godot.FileAccess sceneFile = Godot.FileAccess.Open("res://ui/scene-preview.json", Godot.FileAccess.ModeFlags.Read)
+                    ?? throw new InvalidDataException("Scene preview configuration is missing.");
+                using Godot.FileAccess projectionFile = Godot.FileAccess.Open("res://ui/map-projection.json", Godot.FileAccess.ModeFlags.Read)
+                    ?? throw new InvalidDataException("Map projection configuration is missing.");
+                _sceneConfig = MapSceneConfiguration.Parse(sceneFile.GetAsText(), projectionFile.GetAsText(), _embedded);
+            }
             foreach (MapSceneDefinition scene in _sceneConfig.Scenes)
                 _selection.AddItem(text.Get(scene.LabelKey));
-            uint? mainStageFileId = _worldScene
-                ? (_staticMapResources ?? throw new InvalidOperationException(
-                    "The product map requires its actual startup static resource owner.")).MainStageFileId
-                : null;
-            int initialScene = _sceneConfig.InitialSceneIndex(_worldScene, mainStageFileId);
+            int initialScene = _sceneConfig.InitialSceneIndex(_worldScene, prepared?.MainStageFileId);
             _selection.Select(initialScene);
             InitialSceneLoad = StartSceneLoadAsync(initialScene);
         });
@@ -1335,7 +1339,7 @@ public partial class MapSceneView : Control
         if(_detailsOpen)return;
         if(UseD3D11Map && !D3D11MapInteractive)return;
         if(_periodMapActive){HandleSourceCameraInput(input);return;}
-        if ((IsCityCommandMenuOpen||IsAreaHexCommandMenuOpen) && input is InputEventMouseButton { Pressed: true })
+        if ((IsCityCommandMenuOpen||IsAreaHexCommandMenuOpen) && input is InputEventMouseButton { Pressed: true, ButtonIndex: not MouseButton.Right })
         {
             CloseCityCommandMenu();
             CloseAreaHexCommandMenu();
@@ -1420,7 +1424,8 @@ public partial class MapSceneView : Control
     {
         if (HandleSourceNavigationKey(input)) { GetViewport().SetInputAsHandled(); return; }
         if (_embedded || _acceptHex is null || _detailsOpen || !IsVisibleInTree() || input is not InputEventMouseButton
-            { ButtonIndex: MouseButton.Right, Pressed: true }) return;
+            { ButtonIndex: MouseButton.Right } button) return;
+        if (!SourceRightCancelReleased(button)) return;
         GetViewport().SetInputAsHandled();
         Run(() => _closeScene?.Invoke());
     }

@@ -105,7 +105,7 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
     internal G1EffectGpuResourceUpload CaptureResources()
     {
         if (!dirty && upload is not null) return upload;
-        using var blob = new Blob();
+        using var blob = new Blob(MeasureResourceBytes());
         int header = blob.Reserve(48);
         int pipelineRows = blob.Reserve(checked(pipelines.Count * 32));
         int meshRows = blob.Reserve(checked(meshes.Count * 28));
@@ -181,12 +181,45 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
             int offset = blob.Append(description.Span);
             blob.Words(samplerRows + id * 12, id, offset, description.Length);
         }
-        upload = new(generation, blob.ToArray()); dirty = false; return upload;
+        upload = new(generation, blob.TakeArray()); dirty = false; return upload;
+    }
+
+    // Compute storage from the same selected resources and CER row widths.
+    // Only lengths are read; no encoded payload is copied during this pass.
+    private int MeasureResourceBytes()
+    {
+        int size = 0;
+        void Reserve(int length) => size = checked(((size + 3) & ~3) + length);
+        Reserve(48);
+        Reserve(checked(pipelines.Count * 32));
+        Reserve(checked(meshes.Count * 28));
+        Reserve(checked(textures.Count * 40));
+        Reserve(checked(samplers.Count * 12));
+        foreach (var pipeline in pipelines.Keys)
+        {
+            Reserve(checked(pipeline.Stages.Count * 12));
+            foreach (var stage in pipeline.Stages) Reserve(stage.Bytecode.Length);
+            Reserve(checked(pipeline.InputLayout.Count * 56));
+        }
+        foreach (var mesh in meshes.Keys)
+        {
+            Reserve(mesh.VertexBytes.Length);
+            Reserve(mesh.IndexBytes.Length);
+        }
+        foreach (var texture in textures.Keys)
+        {
+            Reserve(checked(texture.Mips.Count * 16));
+            foreach (var mip in texture.Mips) Reserve(mip.Bytes.Length);
+        }
+        foreach (var sampler in samplers.Keys) Reserve(52);
+        return size;
     }
 
     private sealed class Blob : IDisposable
     {
-        private readonly MemoryStream stream = new();
+        private readonly MemoryStream stream;
+        internal Blob() => stream = new();
+        internal Blob(int capacity) => stream = new(capacity);
         internal int Reserve(int length, int alignment = 4)
         {
             if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
@@ -206,6 +239,9 @@ internal sealed class G1EffectGpuPackageEncoder(ulong generation)
             }
         }
         internal byte[] ToArray() => stream.ToArray();
+        // Final write has completed; this local stream never reuses its storage.
+        // Keep the payload exact if a later format change does not fill its estimate.
+        internal byte[] TakeArray() => stream.Length == stream.Capacity ? stream.GetBuffer() : stream.ToArray();
         public void Dispose() => stream.Dispose();
     }
 }

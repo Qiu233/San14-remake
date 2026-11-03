@@ -196,6 +196,17 @@ internal sealed class UiSourceLayout
         return new UiSourceArtwork(parent,shader,[plan]).Root;
     }
 
+    // A resolved application portrait changes only the texture owner.
+    // Keep the same authored part geometry, UVs, tint and projection as Art.
+    internal Control EncodedArt(CanvasItem parent, int index, Rect2 rectangle, UiAssets assets,
+        Shader shader, LoadedUiSpriteSource sprite)
+    {
+        var plan = PrepareArt(index, rectangle, assets, encodedSprite: sprite);
+        var artwork = new UiSourceArtwork(parent, shader, [plan]);
+        artwork.SetEncodedPortraitSampling(sprite);
+        return artwork.Root;
+    }
+
     // The table buttons have five authored visual sources, but only one is
     // drawn. Resolve all source plans and keep one owned part tree for them.
     internal UiSourceArtwork StateArt(CanvasItem parent, int[] indices, Rect2 rectangle,
@@ -213,7 +224,7 @@ internal sealed class UiSourceLayout
     private UiSourceArtPlan PrepareArt(int index, Rect2 rectangle, UiAssets assets,
         MapCornerColors? colors = null, string? commonSpriteOverride = null, bool expansionCommonSprite = false,
         UiSourceSprite.Blend blend = UiSourceSprite.Blend.Ordinary, string? commonTexturePack = null,
-        bool localCoordinates = false, bool sourceMaterial = false)
+        bool localCoordinates = false, bool sourceMaterial = false, LoadedUiSpriteSource? encodedSprite = null)
     {
         var material = sourceMaterial ? UiSourceStaticArtMaterial.Read(Nodes, index) : null;
         if (material is not null) blend = material.Blend;
@@ -289,10 +300,11 @@ internal sealed class UiSourceLayout
             // Runtime common-sprite rebinding replaces the texture description;
             // it preserves the authored geometry, margins and local UVs.
             AtlasTexture? addressedTexture=null;UiAssets.SourceSampling addressing=default;
-            bool addressed=blend==UiSourceSprite.Blend.Ordinary&&commonSpriteOverride is null&&!constantU&&!constantV&&
+            bool addressed=encodedSprite is null&&blend==UiSourceSprite.Blend.Ordinary&&commonSpriteOverride is null&&!constantU&&!constantV&&
                 (uv.TopLeft.U<0||uv.TopLeft.V<0||uv.BottomRight.U>1||uv.BottomRight.V>1)&&
                 assets.TrySrgbLayoutAddressedSprite(Source,part.SpriteName,uv,out addressedTexture,out addressing);
-            Texture2D texture=addressed?addressedTexture!:commonSpriteOverride is null
+            Texture2D texture=encodedSprite is not null?assets.PortraitPart(encodedSprite,uv)
+                :addressed?addressedTexture!:commonSpriteOverride is null
                 ?assets.SrgbLayoutSpritePart(Source,part.SpriteName,uv)
                 :commonTexturePack is not null
                     ?assets.SrgbTexturePackSpritePart(commonTexturePack,commonSpriteOverride,uv)

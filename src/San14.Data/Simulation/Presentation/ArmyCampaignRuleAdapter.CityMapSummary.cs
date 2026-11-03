@@ -84,17 +84,27 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         // These are the actual nested Area presentations, not a full detail
         // page. The Area author owns their shared source-current readers.
+        var areaNodes = gate ? GateSummaryAreaNodes : CitySummaryAreaNodes;
+        int securityGaugeNode = gate ? 112 : 130;
         try
         {
             var area = CurrentGateMapQueries.FindArea(target, current);
             page = MergeFootholdSummaryArea(page, BuildBaseAreaMapSummaryCurrent(state, current, receiver, area,
-                layout, gate ? GateSummaryAreaNodes : CitySummaryAreaNodes, gate ? 112 : 130));
-            children.Add(new("area-coverage", gate ? 135 : 153,
-                BuildAreaMapSummaryCoverageCurrent(state, current, receiver, area)));
-            children.Add(new("area-disaster", gate ? 58 : 84,
-                BuildAreaMapSummaryDisasterCurrent(state, current, receiver, area)));
+                layout, areaNodes, securityGaugeNode));
+            Child("area-coverage", gate ? 135 : 153,
+                () => BuildAreaMapSummaryCoverageCurrent(state, current, receiver, area));
+            Child("area-disaster", gate ? 58 : 84,
+                () => BuildAreaMapSummaryDisasterCurrent(state, current, receiver, area));
         }
-        catch (InvalidDataException error) { missing[gate ? 112 : 130] = error.Message; }
+        catch (InvalidDataException error)
+        {
+            missing[securityGaugeNode] = error.Message;
+            // These current values and nested mounts need the representative
+            // Area. Keep the independent City fields and static captions.
+            Hide(areaNodes[0], areaNodes[1], areaNodes[2], areaNodes[3],
+                areaNodes[5], areaNodes[7], areaNodes[8], areaNodes[9], areaNodes[10],
+                securityGaugeNode, gate ? 135 : 153, gate ? 58 : 84);
+        }
         return page with { Children = [.. children, .. page.Children], UnresolvedFields = MergeFootholdSummaryMap(page.UnresolvedFields, missing) };
 
         void StaticText(int node, int caption)
@@ -103,8 +113,20 @@ public sealed partial class ArmyCampaignRuleAdapter
             => Child(key, mount, () => SummaryCityPair(receiver, caption, String(mount, read)));
         void Child(string key, int mount, Func<MapSummaryPage> read)
         {
-            try { children.Add(new(key, mount, read())); }
-            catch (InvalidDataException error) { missing[mount] = error.Message; }
+            try
+            {
+                var child = read();
+                var visibility = new Dictionary<int, bool>(child.Visibility);
+                foreach (int node in child.UnresolvedFields.Keys) if (node >= 0) visibility[node] = false;
+                children.Add(new(key, mount, child with { Visibility = visibility }));
+            }
+            catch (InvalidDataException error) { missing[mount] = error.Message; Hide(mount); }
+        }
+        void Hide(params int[] nodes)
+        {
+            var visibility = new Dictionary<int, bool>(page.Visibility);
+            foreach (int node in nodes) visibility[node] = false;
+            page = page with { Visibility = visibility };
         }
         string? String(int node, Func<string> read)
         { try { return read(); } catch (InvalidDataException error) { missing[node] = error.Message; return null; } }

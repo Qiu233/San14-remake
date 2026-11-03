@@ -170,8 +170,15 @@ public sealed partial class ArmyCampaignRuleAdapter
     //gates. A country that cannot append a pool node does not enable the menu.
     private bool NormalTurnForeignTradeAvailable(GameState state, SourceWorldContext current,
         ForceReference force, DistrictReference district, int districtId)
+        => ReadForeignTradeAdmissionCurrent(state, current, force, district, districtId, readNotification: true).Notification;
+
+    //70EC60 owns the ordered allowed/help pair. The normal-turn caller adds
+    //a second target-list/technology test only when it requests notification.
+    private (bool Allowed, int GameMessageId, bool Notification) ReadForeignTradeAdmissionCurrent(
+        GameState state, SourceWorldContext current, ForceReference force, DistrictReference district,
+        int districtId, bool readNotification)
     {
-        if (ReadApplicationInformationRestriction(state) ?? throw FinalizationMissing("trade_application_selection")) return false;
+        if (ReadApplicationInformationRestriction(state) ?? throw FinalizationMissing("trade_application_selection")) return (false, 0x11171, false);
         int own = FinalizationNeed(current.ReadForcePhysicalSlot(force), "trade_Force_ordinal");
         var app = ReadApplicationGameplay();
         bool Eligible(int country) => PersonReturnPathSource.ReadForeignTradeEligibility(state, current, force, country, app);
@@ -182,7 +189,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 ?? throw FinalizationMissing("trade_country_table")).PhysicalSlot, "trade_country_ordinal");
             if (country != 0 && Eligible(country)) any = true;
         }
-        if (!any) return false;
+        if (!any) return (false, 0x5BDF, false);
         int rankRaw = FinalizationNeed(current.ReadMoraleWaveForceRank47(own), "trade_Force47");
         int rank = FinalizationNeed((current.ReadStaticTableReference(0x78490, rankRaw < 13 ? rankRaw : 0)
             ?? throw FinalizationMissing("trade_Rank_table")).PhysicalSlot, "trade_Rank_receiver");
@@ -190,15 +197,15 @@ public sealed partial class ArmyCampaignRuleAdapter
         if ((uint)rank >= (uint)ranks.Count) throw FinalizationMissing("trade_Rank_range");
         byte[] row = Convert.FromHexString(ranks[rank].RawBytesHex);
         if (row.Length <= 156) throw FinalizationMissing("trade_RankAC");
-        if (row[156] > P("maximum-rank")) return false;
-        if (FinalizationNeed(current.ReadDistrictRawByte(districtId, 0x14), "trade_District14") < P("command-books")) return false;
+        if (row[156] > P("maximum-rank")) return (false, 0x5BE0, false);
+        if (FinalizationNeed(current.ReadDistrictRawByte(districtId, 0x14), "trade_District14") < P("command-books")) return (false, 0x57C7, false);
         int ruler = FinalizationNeed((current.ReadPersonLookupReference(TalentRulerCurrent(current, force))
             ?? throw FinalizationMissing("trade_ruler_lookup")).PhysicalSlot, "trade_ruler_pointer");
         var home = BaseLookup.Find(FinalizationNeed(current.ReadPersonFirstLocation(ruler), "trade_rulerE2"), current);
         var treasury = BaseCurrencyAdditionSource.CurrencyCity(home, current);
-        if (FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Gold), "trade_Gold") < P("gold") ||
-            FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Supplies), "trade_Food") < P("food") ||
-            FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "trade_Troops") < P("troops")) return false;
+        if (FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Gold), "trade_Gold") < P("gold")) return (false, 0x5BE2, false);
+        if (FinalizationNeed(current.ReadBaseResource(treasury, BaseResourceKind.Supplies), "trade_Food") < P("food")) return (false, 0x5BE3, false);
+        if (FinalizationNeed(current.ReadBaseResource(home, BaseResourceKind.Troops), "trade_Troops") < P("troops")) return (false, 0x5BE4, false);
         bool executor = false;
         foreach (int person in NormalTurnServingPeople(current, own, districtId, false))
         {
@@ -209,14 +216,15 @@ public sealed partial class ArmyCampaignRuleAdapter
                 (FinalizationNeed(current.ReadArmyReturnPersonFlags196(person), "trade_Person15E4000") & 0x4000) != 0) continue;
             executor = true; break;
         }
-        if (!executor) return false;
+        if (!executor) return (false, 0x5BE5, false);
         var manager = current.ReadOwnedPersonCommandManager() ?? throw FinalizationMissing("trade_command_manager");
         var caravans = manager.Caravans ?? throw FinalizationMissing("trade_caravan_owner");
         var first = FinalizationTemporary(current);
         bool hasCountries;
         try { Fill(first); hasCountries = FinalizationNeed(current.ReadTemporaryHexListCount(first), "trade_first_count") != 0; }
         finally { FinalizationRelease(current, first); }
-        if (!hasCountries) return false;
+        if (!hasCountries) return (false, 0x5BE6, false);
+        if (!readNotification) return (true, 0x5BDE, false);
         var second = FinalizationTemporary(current);
         try
         {
@@ -229,10 +237,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             {
                 var pointer = current.ReadCurrentListPayload(cursor) as StaticTableReference ?? throw FinalizationMissing("trade_country_payload");
                 int country = Math.Clamp(FinalizationNeed(pointer.PhysicalSlot, "trade_country_identity"), 0, 4);
-                if (progress.AcquiredTechnologyLevels[country] < 4) return true;
+                if (progress.AcquiredTechnologyLevels[country] < 4) return (true, 0x5BDE, true);
                 node = current.ReadHexListNodeNext(node) ?? throw FinalizationMissing("trade_country_next");
             }
-            return false;
+            return (true, 0x5BDE, false);
         }
         finally { FinalizationRelease(current, second); }
 

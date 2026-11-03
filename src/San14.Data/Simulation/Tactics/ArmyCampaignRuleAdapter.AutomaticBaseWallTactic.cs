@@ -63,8 +63,8 @@ public sealed partial class ArmyCampaignRuleAdapter
 public sealed partial class TacticRemakeCurrentContext
 {
     //The separate177610 reduction key is shared by the qualified wrappers.
-    //SC fresh defaults have their own source profile; an absent TC saved
-    //current remains unresolved rather than borrowing that language's value.
+    //TC and SC static defaults are independently qualified by the common
+    //mechanism catalog; explicitly saved current values keep precedence.
     internal const string BaseWallTacticSmallDamageReductionPercent =
         "simulation.tactics.base-wall-small-damage-reduction-percent";
 

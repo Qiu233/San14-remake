@@ -396,8 +396,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         ArmyReturnDistrictOperationQueries operation)
     {
         var results = new List<PersonAssignmentPrecallResult>();
-        PersonDistrictTransfer.Apply(person, district, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
-            results, result => operation.Assignment(person, result)));
+        var previousService = current.TransferServiceRefresher;
+        current.TransferServiceRefresher = operation.RefreshPersonnelMilestoneCurrent;
+        try
+        {
+            PersonDistrictTransfer.Apply(person, district, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
+                results, result => operation.Assignment(person, result)));
+        }
+        finally { current.TransferServiceRefresher = previousService; }
     }
     private static IEnumerable<int> DistrictCreationHomePeople(SourceWorldContext current, BaseReference at)
     {

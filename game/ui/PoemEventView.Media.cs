@@ -8,22 +8,20 @@ internal partial class PoemEventView
     {
         internal float X = x, Y = y, ScaleX = sx, ScaleY = sy, Alpha = 1, U, V;
     }
-    private sealed class ImagePane(GameResourceRepository repository, Node2D root,
+    private sealed class ImagePane(UiAssets resources, Node2D root,
         Vector2 size, Func<UiAssets, Control> build, Action<Control> refresh) : IDisposable
     {
-        private UiAssets? resources;
         private Control? art;
         internal void Update(Rect2 viewport)
         {
             bool visible = (root.GetGlobalTransformWithCanvas() * new Rect2(Vector2.Zero, size)).Intersects(viewport);
             if (!visible) { Dispose(); return; }
-            if (art is null) { resources = new(repository); art = build(resources); }
+            if (art is null) art = build(resources);
             refresh(art);
         }
         public void Dispose()
         {
             if (art is { } old) { old.Hide(); old.GetParent()?.RemoveChild(old); old.QueueFree(); art = null; }
-            resources?.Dispose(); resources = null;
         }
     }
     private UiSourceLayout source = null!;
@@ -36,7 +34,7 @@ internal partial class PoemEventView
 
     private void BuildMedia()
     {
-        source = new(publication.Layout);
+        source = assets.SourceLayout(publication.LayoutName);
         visuals = new Node2D[source.Nodes.Count]; poses = new Pose[source.Nodes.Count]; baseTransforms = new Transform2D[source.Nodes.Count];
         foreach (var node in source.Nodes)
         {
@@ -55,7 +53,7 @@ internal partial class PoemEventView
             {
                 int glyph = image.NodeId, colour = glyph + 1; glyphs.Add(glyph); glyphs.Add(colour);
                 var size = new Vector2(source.Nodes[colour].Value44, source.Nodes[colour].Value46);
-                imagePanes.Add(new(repository, visuals[colour], size, local =>
+                imagePanes.Add(new(assets, visuals[colour], size, local =>
                 {
                     var alphaPart = LcskSpriteNodeReader.Read(source.Source.Layout, source.Nodes[glyph]).Groups.Single().Parts.Single();
                     var colorPart = LcskSpriteNodeReader.Read(source.Source.Layout, source.Nodes[colour]).Groups.Single().Parts.Single();
@@ -84,7 +82,7 @@ internal partial class PoemEventView
             var size = new Vector2(node.Value44, node.Value46);
             if (replacements.TryGetValue(node.Index, out var replacement))
             {
-                imagePanes.Add(new(repository, visuals[node.Index], size,
+                imagePanes.Add(new(assets, visuals[node.Index], size,
                     local => BuildPane(node.Index, local, replacement.Image),
                     draw => { if (draw is UiSourceSprite mask) mask.SetMaskUvOffset(new(poses[node.Index].U, poses[node.Index].V)); }));
             }
@@ -175,8 +173,8 @@ internal partial class PoemEventView
 
     private void BuildFooters()
     {
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
-        var help = new UiSourceLayout(repository, 0xAB6ADAA7);
+        var footer = assets.SourceLayout(0xD8913AB2);
+        var help = assets.SourceLayout(0xAB6ADAA7);
         Control Make(string name, bool back, int message)
         {
             var root = new Control { Name = name, Size = canvas.Size, MouseFilter = MouseFilterEnum.Ignore, ZIndex = 10 }; canvas.AddChild(root);
@@ -195,8 +193,8 @@ internal partial class PoemEventView
 
     private void BuildInformation()
     {
-        var info = new UiSourceLayout(publication.Info.Layout); var poem = publication.Info.Poem;
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var info = assets.SourceLayout(publication.Info.Layout.Source.FileId); var poem = publication.Info.Poem;
+        var footer = assets.SourceLayout(0xD8913AB2);
         information = new() { Name = "PoemInformationPanel", Size = new(info.Nodes[0].Value44, info.Nodes[0].Value46),
             Position = new((1920 - info.Nodes[0].Value44) / 2f,
                 (footer.Rectangle(19, new(0, 904)).Position.Y - info.Nodes[0].Value46) / 2),

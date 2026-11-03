@@ -78,6 +78,22 @@ public sealed class PersonArmyCaptureInputs
         }
     }
 
+    internal static void BindMissingCurrent(GameState state, SourceWorldContext current)
+    {
+        if (current.HasCompleteCaptureItemReceivers ||
+            state.NativeArmySimulation?.Parameters.Int32Values is not { } bank || bank.GetValueOrDefault(VersionKey) != 1) return;
+        for (int physical = 0; physical < 202; physical++)
+        {
+            var item = state.Items?.GetValueOrDefault(physical);
+            current.BindMissingCaptureItemFields(physical,
+                physical == 0 ? ItemStatusKnowledge.Exact(0) : item?.Lifecycle?.Status,
+                physical == 0 ? (ushort)0 : item?.Holder is { } holder &&
+                    (holder.OfficerId is null || holder.OfficerId is >= 0 and <= 65535) ? (ushort)(holder.OfficerId ?? 0) : null,
+                bank.TryGetValue(ItemSubtype47Key(physical), out int raw) && raw is >= 0 and <= 255 ? (byte)raw : null,
+                bank.TryGetValue(ItemLifespanExtensionKey(physical), out int extension) && extension is >= 0 and <= 255 ? (byte)extension : null);
+        }
+    }
+
     public static byte? ReadTerrainFlags2C(GameState state, int physical) =>
         state.NativeArmySimulation?.Parameters.Int32Values is { } bank && bank.GetValueOrDefault(VersionKey) == 1 &&
         bank.TryGetValue(TerrainFlags2CKey(physical), out int value) && value is >= 0 and <= 255 ? (byte)value : null;
@@ -88,6 +104,19 @@ public sealed partial class SourceWorldContext
     private readonly Dictionary<int, ushort?> _captureItemOwners4A = [];
     private readonly Dictionary<int, byte?> _captureItemSubtypes47 = [];
     private readonly Dictionary<int, byte?> _itemLifespanExtensions = [];
+    internal bool HasCompleteCaptureItemReceivers => _registryItemPointers.Count == 202 &&
+        _registryItemStatuses.Count == 202 && _captureItemOwners4A.Count == 202 &&
+        _captureItemSubtypes47.Count == 202 && _itemLifespanExtensions.Count == 202;
+    internal void BindMissingCaptureItemFields(int physical, ItemStatusKnowledge? status, ushort? owner,
+        byte? subtype, byte? lifespanExtension)
+    {
+        Check(physical, 202, "capture Item");
+        _registryItemPointers.TryAdd(physical, physical);
+        _registryItemStatuses.TryAdd(physical, status);
+        _captureItemOwners4A.TryAdd(physical, owner);
+        _captureItemSubtypes47.TryAdd(physical, subtype);
+        _itemLifespanExtensions.TryAdd(physical, lifespanExtension);
+    }
     public void SetItemLifespanExtension(int physical, byte? value)
     { Check(physical, 202, "item lifespan extension"); _itemLifespanExtensions[physical] = value; }
     public byte? ReadItemLifespanExtension(int physical) => _itemLifespanExtensions.GetValueOrDefault(physical);

@@ -55,5 +55,6 @@ $engineNotices = Join-Path $buildFolder 'licenses'
 New-Item -ItemType Directory -Path $engineNotices -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'godot/LICENSE.txt') -Destination (Join-Path $engineNotices 'Godot-LICENSE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'godot/Agility-LICENSE.txt') -Destination (Join-Path $engineNotices 'Agility-LICENSE.txt') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses/Zlib-LICENSE.txt') -Destination (Join-Path $engineNotices 'Zlib-LICENSE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD_PARTY.md') -Destination $buildFolder -Force
 Write-Output "Windows client, renderer and third-party runtime built: $exportExe"

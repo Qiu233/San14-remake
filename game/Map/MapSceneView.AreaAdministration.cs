@@ -24,6 +24,7 @@ public partial class MapSceneView
             unavailable(controls.UnresolvedInput ?? "area-map.scenery_qualification");
             return false;
         }
+        if (!PrepareAdministrationEffects(draft, unavailable, out var effects)) return false;
         var data = D3D11CommandMapData.Capture(draft);
         int band = camera.CurrentZoom.Band1E0;
         if (band < 3 || band >= 5)
@@ -56,12 +57,14 @@ public partial class MapSceneView
         StrategicMapOverlayParent().AddChild(layer);
         layer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         layer.Configure(this, repository, resources, draft, unavailable);
+        BeginAdministrationEffects(effects!, unavailable);
         ScheduleD3D11MapFrame();
         return true;
     }
 
     internal void EndAdministrationMapDisplay()
     {
+        EndAdministrationEffects();
         if (_administrationMapLayer is { } layer)
         {
             _administrationMapLayer = null; layer.Retire();
@@ -89,8 +92,23 @@ public partial class MapSceneView
         ScheduleD3D11MapFrame();
     }
 
-    internal MainMapCameraFrame? DisplayedAdministrationCamera => UseD3D11Map
-        ? _d3d11PresentedInput?.SourceFrame : _sourceMainCameraFrame;
+    internal MainMapCameraFrame? DisplayedAdministrationCamera
+    {
+        get
+        {
+            if (!UseD3D11Map) return _sourceMainCameraFrame;
+            return _logicalWorld is { } world ? _d3d11Map?.DisplayedCameraFor(world) : null;
+        }
+    }
+
+    internal MainMapCameraFrame? AdministrationFallbackCamera => UseD3D11Map ? null : _sourceMainCameraFrame;
+
+    private void PresentAdministrationMap(D3D11MapInput input)
+    {
+        // FramePrepared installs this same input's map texture before Canvas.
+        // Never project a retired World publication into the current draft.
+        _administrationMapLayer?.Present(ReferenceEquals(input.WorldState, _logicalWorld) ? input.SourceFrame : null);
+    }
 
     internal bool AdministrationMapPointerAllowed(int hex) =>
         _administrationMapLayer is not null && _commandTargetPicked is not null &&
@@ -113,18 +131,37 @@ public partial class MapSceneView
         pixel = new(point.X, point.Y); return true;
     }
 
+    private D3D11CommandMapPublication? CurrentAdministrationHoverDisplay() =>
+        _commandMapDisplay is { Data.Kind: D3D11CommandMapDisplayKind.AreaAdministration } display &&
+        !_dragging && !_panning && !_sourceCameraLeftUiPressed &&
+        !_sourceCameraRawNow70[0] && !_sourceCameraRawNow70[1] && !_sourceCameraRawNow70[2]
+            ? display : null;
+
     private void UpdateAdministrationMapHover(InputEvent input)
     {
-        if (input is not InputEventMouseMotion motion || _commandMapDisplay is not { Data: { } data } display ||
-            data.Kind != D3D11CommandMapDisplayKind.AreaAdministration ||
-            _dragging || _panning || _sourceCameraLeftUiPressed ||
-            _sourceCameraRawNow70[0] || _sourceCameraRawNow70[1] || _sourceCameraRawNow70[2] ||
+        if (input is not InputEventMouseMotion motion || CurrentAdministrationHoverDisplay() is not { } display ||
             !TryPickCommandTarget(motion.Position, out int hex)) return;
-        // Invalid/no pointer retains the previous focus. Area0 is a real raw
-        // value; neither held membership nor Area lookup participates here.
-        ushort previous = display.HoverHex < D3D11CommandMapData.CellCount
+        PublishAdministrationMapHover(display, hex);
+    }
+
+    // The Domestic label owns a real map hit pane. Its admitted GUI motion
+    // supplies the representative Hex, using the same focus path as terrain.
+    internal void HoverAdministrationMapTarget(int hex)
+    {
+        if (CurrentAdministrationHoverDisplay() is { } display)
+            PublishAdministrationMapHover(display, hex);
+    }
+
+    private void PublishAdministrationMapHover(D3D11CommandMapPublication display, int hex)
+    {
+        var data = display.Data!;
+        if ((uint)hex >= (uint)data.RawAreas.Length) return;
+        // Invalid/no pointer retains the previous focus. The tint keeps raw
+        // Hex12; the effect consumer independently resolves its Area receiver.
+        ushort previous = display.HoverHex < data.RawAreas.Length
             ? data.RawAreas[display.HoverHex] : (ushort)0;
         if (data.RawAreas[hex] == previous) return;
+        UpdateAdministrationEffectHover(hex);
         _commandMapDisplay = new(data, checked(++_commandMapRevision), display.DataRevision,
             display.ProviderGeneration, (uint)hex);
         ScheduleD3D11MapFrame();

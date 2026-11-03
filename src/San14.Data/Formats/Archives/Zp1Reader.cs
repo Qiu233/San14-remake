@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.IO.Compression;
 
 namespace San14.Data.Formats;
 
@@ -46,22 +45,7 @@ public static class Zp1Reader
                 ((compressed[0] << 8) + compressed[1]) % 31 != 0 || (compressed[1] & 32) != 0)
                 throw new InvalidDataException($"Zp1 chunk {index} has an unsupported zlib header.");
             int expected = (int)Math.Min(chunkSize, decodedLength - (uint)outputPosition);
-            try
-            {
-                // Limit every underlying read to one byte. ZLibStream otherwise reads ahead
-                // beyond the first zlib stream, so MemoryStream.Position would hide a suffix.
-                using var input = new SingleByteReadStream(compressed.ToArray());
-                using var inflater = new ZLibStream(input, CompressionMode.Decompress);
-                inflater.ReadExactly(output.AsSpan(outputPosition, expected));
-                if (inflater.ReadByte() != -1)
-                    throw new InvalidDataException($"Zp1 chunk {index} exceeds its declared decoded length.");
-                if (input.Position != input.Length)
-                    throw new InvalidDataException($"Zp1 chunk {index} contains bytes after its zlib stream.");
-            }
-            catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
-            {
-                throw new InvalidDataException($"Zp1 chunk {index} cannot be decoded to its declared length.", error);
-            }
+            ZlibBufferDecoder.Decode(compressed, output.AsSpan(outputPosition, expected), index);
             if (BinaryPrimitives.ReadUInt32BigEndian(compressed[^4..]) !=
                 Adler32(output.AsSpan(outputPosition, expected)))
                 throw new InvalidDataException($"Zp1 chunk {index} checksum differs from its decoded bytes.");
@@ -81,15 +65,6 @@ public static class Zp1Reader
 
     private static uint U32(ReadOnlySpan<byte> bytes, int offset) =>
         BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(offset, 4));
-
-    private sealed class SingleByteReadStream(byte[] bytes) : MemoryStream(bytes, writable: false)
-    {
-        public override int Read(byte[] buffer, int offset, int count) =>
-            base.Read(buffer, offset, Math.Min(count, 1));
-
-        public override int Read(Span<byte> buffer) =>
-            base.Read(buffer[..Math.Min(buffer.Length, 1)]);
-    }
 
     private static uint Adler32(ReadOnlySpan<byte> bytes)
     {

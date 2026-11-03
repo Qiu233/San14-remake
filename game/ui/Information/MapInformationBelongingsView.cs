@@ -15,10 +15,10 @@ internal partial class MapInformationBelongingsView : DetailsView
     private string unknown="";
 
     internal void Configure(GameResourceRepository repository,PreviewText text,BelongingsInformationPage publication,
-        Func<bool> admitted,Action close,Action<int> inspect,Func<int> scrollSpeed)
+        Func<bool> admitted,Action close,Action<int> inspect,Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.publication=publication;this.admitted=admitted;this.inspect=inspect;unknown=text.Get("detail_unknown");
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        assets=resources.Assets;font=resources.Font;shader=resources.SpriteShader;
         canvas=new(){Name="SourceHeaderCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
         var header=new UiSourceHeader();canvas.AddChild(header);header.Configure(repository,assets,shader,font,publication.Title);
         ConfigureSourcePage("InformationBelongings",header,close);
@@ -48,7 +48,7 @@ internal partial class MapInformationBelongingsView : DetailsView
                         if(!result.Available||result.Value is not { } sorted){GD.PushWarning(result.UnresolvedInput??"belongings.sort");return null;}
                         return Rows(index,sorted);
                     },page.UnresolvedOwner is null?null:text.Get("information_partial"),captions,index,Select,
-                    includeHeader:false,completeColumnProfile:true,normalColumnLayout:true,retainSortDirections:true,rowExtentWidth:1464);
+                    includeHeader:false,completeColumnProfile:true,normalColumnLayout:true,retainSortDirections:true,rowExtentWidth:1464,resources:resources);
                 view.Name=index==0?"BelongingsItems":"BelongingsGems";
             }
             view.ProcessMode=ProcessModeEnum.Inherit;view.Show();
@@ -83,6 +83,6 @@ internal partial class MapInformationBelongingsView : DetailsView
     {
         abandoned=true;admitted=null;inspect=null;
         foreach(var list in lists.Values)list.Abandon();lists.Clear();publication=null!;
-        base._ExitTree();font?.Dispose();assets?.Dispose();shader?.Dispose();
+        base._ExitTree();
     }
 }

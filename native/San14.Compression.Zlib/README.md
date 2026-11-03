@@ -1,0 +1,7 @@
+# Zp1 zlib dependency
+
+This project builds the decompression portion of the unmodified official zlib 1.3.2 sources for Windows x64. The unique DLL name prevents accidental binding to another program's zlib. Data uses only the public `uncompress2_z` API; no z_stream layout or internal symbol crosses the managed boundary. The upstream size_t API maps to .NET nuint. The native build uses the static MSVC runtime and does not enable invalid-distance recovery or disable checksum validation.
+
+The Data project builds this dependency before compiling, copies the DLL beside its assembly, and includes it in normal .NET publish output. The application and resource owners keep their existing lifetime; zlib creates and frees its decoder inside each complete buffer call. The managed caller pins the original compressed span and final output span only during that call, then checks success, exact consumed input and exact decoded output. Zp1's existing header, Adler32, alignment and padding checks remain.
+
+Vendored source: https://zlib.net/zlib132.zip . Archive SHA-256: E8BF55F3017AA181690990CB58A994E77885DA140609FC8F94ABE9B65D2CAE28, matching the hash published at https://zlib.net/ . All included C/header files and upstream notices are byte-identical to that archive. Only the ordinary MSBuild project and build script are project authored. Seven decompression C files and the root headers are retained; compression and gzip file APIs are not built. Full upstream LICENSE is retained in the vendor folder and build/licenses/Zlib-LICENSE.txt.

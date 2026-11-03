@@ -70,18 +70,25 @@ public static class OfficerLocationSourceAdapter
     }
     internal static GameState PublishPositions(GameState state, SourceWorldContext current)
     {
-        var people = new Dictionary<int, OfficerState>(state.Officers);
+        Dictionary<int, OfficerState>? people = null;
         var residues = CampaignSourceKnowledge.From(state.ResourceState);
+        var locationUpdates = new List<OfficerLocationSourceResidue>(state.Officers.Count);
         foreach (var person in state.Officers.Values)
         {
             int physical = current.ResolveOfficerSource(person.Id) ?? throw new InvalidDataException("Current officer position identity is missing.");
             var location = person.LocationState ?? throw new InvalidDataException("Current officer position owner is missing.");
             var position = current.ReadOfficerLocation(person.Id)?.Position;
             var previous = residues.Find(person.Id);
-            residues = residues.With(new(person.Id, current.ReadOfficerLocationResidue(person.Id)?.LocationCode, previous?.DistrictCode));
-            people[person.Id] = person with { LocationState = location with { Position = position } };
+            locationUpdates.Add(new(person.Id, current.ReadOfficerLocationResidue(person.Id)?.LocationCode, previous?.DistrictCode));
+            if (location.Position != position)
+            {
+                people ??= new(state.Officers);
+                people[person.Id] = person with { LocationState = location with { Position = position } };
+            }
         }
-        return state with { Officers = people, ResourceState = residues };
+        // Publish this complete position batch once. Rebuilding the immutable
+        // compatibility channels for every officer repeats the same merge.
+        return state with { Officers = people ?? state.Officers, ResourceState = residues.WithOfficerLocations(locationUpdates) };
     }
     private static ArmyReceiverId Resolve(ArmyReceiverSourceDirectory receivers, int ordinal)
     {

@@ -80,6 +80,16 @@ public partial class Main
             if(entry.Request.ArmyTraitViewRefresh is null)armyViewRefreshSource=null;
             if (entry.Source == CampaignEffectSource.ProposalCommands)
                 return TryPresentProposalEffects(session, composition, map);
+            // This legacy request name represents a permanent chronicle
+            // write. Complete that real write before the later camera restore.
+            if (entry.Request.ForceEmergenceScene is not null)
+            {
+                if (!session.TryCompleteForceEmergenceChronicle(owner, entry.BatchSequence,
+                        entry.RequestIndex, composition.PrepareArmyQueries(owner)))
+                    throw new InvalidOperationException($"force-emergence.chronicle.source_head batch={entry.BatchSequence} index={entry.RequestIndex}");
+                owner = SynchronizePersonnelPresentationOwner(session);
+                continue;
+            }
             if (entry.Request.ForceCoalitionVisual is { } coalition)
             {
                 if (coalition.Operation is ForceCoalitionVisualOperation.CameraFocus or ForceCoalitionVisualOperation.CameraRestore)
@@ -323,6 +333,7 @@ public partial class Main
             AddChild(view);
             try
             {
+                var resources=TryBorrowApplicationUiResources(view);
                 if(scenery is not null)
                 {
                     var projected=composition.PrepareArmyQueries(owner).QuerySceneryDiscoveryPanel(owner,scenery);
@@ -340,14 +351,14 @@ public partial class Main
                         GD.PushWarning(reason);view.SetMeta("portrait_unavailable",reason);
                     }
                     view.ConfigureSceneryDiscovery(_repository,_ui,panel,scenery.DiscoveryTextAtSource!,layers,
-                        Completed,()=>_preferences.AutomaticMessageAdvance,Admitted);
+                        Completed,()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                 }
                 else if(growth?.Narration is {} growthText)
                     view.ConfigureAnnouncement(_repository,_ui,growthText.Text,Completed,
-                        ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                        ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                 else if(payload!.Operation==TalentCommandPresentationOperation.Announcement)
                     view.ConfigureAnnouncement(_repository,_ui,payload.TextAtSource!,Completed,
-                        ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                        ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                 else
                 {
                     var queries=composition.PrepareArmyQueries(owner);
@@ -362,10 +373,10 @@ public partial class Main
                         if(entry.Source==CampaignEffectSource.PersonnelAdministrationCommands&&payload.CreditEpisodeSlot is null)
                             view.Configure(_repository,_ui,speaker,payload.TextAtSource!,
                                 executorSpeaking?executorLayers:targetLayers,Completed,
-                                ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         else view.ConfigureRecruitConversation(_repository,_ui,speaker,payload.TextAtSource!,
                             executorLayers,targetLayers,executorSpeaking,Completed,
-                            ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                            ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         if(!actors.Available)GD.PushWarning(actors.UnresolvedInput);
 
                         IReadOnlyList<LoadedSprite> StandingLayers(PersonnelPresentationSpeaker? actor)
@@ -394,17 +405,17 @@ public partial class Main
                                 portrait=sprites.LoadTexturePackSprite(smallFace.ResourceName,smallFace.SpriteName);
                             else GD.PushWarning(speaker?.PortraitUnresolvedInput??query.UnresolvedInput??"Strategic subtitle portrait is unavailable.");
                             view.ConfigurePersonMessage(_repository,_ui,speaker?.Name??payload.Speaker?.NameAtSource??"",payload.TextAtSource!,
-                                portrait,Completed,()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                portrait,Completed,()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         }
                         else if(!standingSpeaker&&speaker?.Face2Portrait is {Kind:OfficerPortraitRouteKind.StockNamed,ResourceName:not null,SpriteName:not null} face)
                             view.ConfigurePersonMessage(_repository,_ui,speaker.Name,payload.TextAtSource!,
                                 sprites.LoadTexturePackSprite(face.ResourceName!,face.SpriteName!),Completed,
-                                ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         else if(speaker?.StandingPortrait is {} standing)
                         {
                             var layers=standing.LoadSprites(sprites.LoadTexturePackSprite);
                             view.Configure(_repository,_ui,speaker.Name,payload.TextAtSource!,layers,Completed,
-                                ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         }
                         else
                         {
@@ -414,9 +425,9 @@ public partial class Main
                             //unimplemented animated/legacy appearance stays absent.
                             if(!standingSpeaker&&payload.OfficerId==5012)
                                 view.ConfigurePersonMessage(_repository,_ui,speaker?.Name??"",payload.TextAtSource!,null,
-                                    Completed,()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                    Completed,()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                             else view.Configure(_repository,_ui,speaker?.Name??"",payload.TextAtSource!,[],Completed,
-                                ()=>_preferences.AutomaticMessageAdvance,Admitted);
+                                ()=>_preferences.AutomaticMessageAdvance,Admitted,resources:resources);
                         }
                     }
                 }
@@ -439,8 +450,8 @@ public partial class Main
                 if(!IsPersonnelPresentationCurrent){ClosePersonnelPresentation();return;}
                 //A real map-speech commit may have replaced this same view's
                 //owner. Capture its adopted owner before closing the view.
-                var receiptOwner = _personnelPresentationIntelligenceWait || _personnelPresentationBaseCaptureWait || _personnelPresentationHiredCaptureWait
-                    ? _personnelPresentationWorld! : owner;
+                bool typedWait = _personnelPresentationIntelligenceWait || _personnelPresentationBaseCaptureWait || _personnelPresentationHiredCaptureWait;
+                var receiptOwner = _personnelPresentationWorld!;
                 ClosePersonnelPresentation();
                 bool intelligenceWait = entry.Source == CampaignEffectSource.IntelligenceCommands &&
                     IntelligenceNarrationContinuation(receiptOwner) is
@@ -454,7 +465,11 @@ public partial class Main
                     : baseCaptureWait
                         ? session.TryCompleteBaseCaptureSpecialNotice(receiptOwner, entry.BatchSequence, entry.RequestIndex, new(_presentationRandom.State))
                         : session.TryCompletePersonnelPresentation(receiptOwner, entry.BatchSequence, entry.RequestIndex);
-                if(!consumed)return;
+                if (!consumed)
+                {
+                    if (!typedWait) throw new InvalidOperationException($"personnel.presentation.source_head source={entry.Source} batch={entry.BatchSequence} index={entry.RequestIndex} sameOwner={ReferenceEquals(receiptOwner, PersonnelPresentationOwner(session))}");
+                    return;
+                }
                 //Only the effect outbox changed. Keep the resident map resources;
                 //the next domain publication refreshes them normally.
                 if(!TryOpenPersonnelPresentation())

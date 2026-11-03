@@ -33,8 +33,8 @@ class StaticModelResources {
 
     template <class AcceptedCameraFrame, class CurrentFieldDisplay>
     void selectCamera(const AcceptedCameraFrame &frame, const CurrentFieldDisplay &display) {
-        candidate_ = selectNativeModelContinuousFromCameraFrame(catalog_, frame);
-        display.selectOrdinary(candidate_, catalog_);
+        candidate_ = selectNativeModelContinuousFromCameraFrame(catalog_, frame,
+            [&display](unsigned sourceIndex){return display.admitsOrdinary(sourceIndex);});
     }
 
     // Upload each selected primitive's constants, then filter its ordinary54

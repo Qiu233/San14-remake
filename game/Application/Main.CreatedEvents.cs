@@ -187,7 +187,7 @@ public partial class Main
                 !HasPersonnelPresentation && !HasRulerDecision,
             () => _preferences.AutomaticMessageAdvance, CurrentListScrollSpeed, HandleNarrationKeyboard,
             AdoptStoryRandom, () => RunUiAction(() => TryResumeCreatedEventResults()),
-            error => RunUiAction(() => FailCreatedEventPlayback(owner, error)), inputWaitKeyboard: HandleNarrationKeyboard);
+            error => RunUiAction(() => FailCreatedEventPlayback(owner, error)), inputWaitKeyboard: HandleNarrationKeyboard, preparedUiResources: TryBorrowApplicationPreparedResources(host));
         host.Name = "CreatedEventStoryPlayback";
     }
 

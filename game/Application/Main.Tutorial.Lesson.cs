@@ -390,7 +390,7 @@ public partial class Main
             {
                 CloseTutorialStory(owner); owner.LastProgress = null;
                 Callable.From(() => ObserveTutorialLesson(owner, true)).CallDeferred();
-            }, error => TutorialLessonFailed(owner, error), inputWaitKeyboard: HandleNarrationKeyboard);
+            }, error => TutorialLessonFailed(owner, error), inputWaitKeyboard: HandleNarrationKeyboard, preparedUiResources: TryBorrowApplicationPreparedResources(host));
     }
 
     private bool TutorialStoryAdmitted(TutorialWorkspace owner) => IsTutorialLessonCurrent(owner) &&

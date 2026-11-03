@@ -29,6 +29,10 @@ internal partial class DeploymentUnitInformationView : Control
     private int? primaryTroops,secondaryTroops;
     private Control? landChoices;
     private bool formationSelectionBound;
+    private DeploymentFormationBalloonView formationBalloon = null!;
+    private readonly Dictionary<Control, (DeploymentLandFormationChoice Choice,
+        AreaAdministrationQuery<DeploymentFormationBalloon>? Query)> formationBalloonOwners = [];
+    private Func<bool>? formationBalloonAdmission;
     internal bool FormationSelectionActive=>!abandoned&&!IsQueuedForDeletion()&&IsVisibleInTree()&&
         CanProcess()&&formationSelectionBound&&landChoices is { } choices&&
         !choices.IsQueuedForDeletion()&&choices.IsVisibleInTree();
@@ -58,6 +62,15 @@ internal partial class DeploymentUnitInformationView : Control
         chart=new DeploymentCombatChart {Name="UnitCombatChart",Position=source.Rectangle(7).Position};AddChild(chart);
         chart.Configure(repository,assets,shader,font,text);
         ConfigureUnitPresentation(modalHost);
+        formationBalloon = new DeploymentFormationBalloonView(); GetParent<Control>().AddChild(formationBalloon);
+        formationBalloon.Configure(repository, assets, shader, font, text);
+        ConfigureTacticBalloon();
+        VisibilityChanged += () => { if (!IsVisibleInTree()) formationBalloon.Hide(); };
+        TreeExiting += () =>
+        {
+            formationBalloonOwners.Clear(); formationBalloonAdmission = null;
+            if (GodotObject.IsInstanceValid(formationBalloon)) { formationBalloon.Hide(); formationBalloon.QueueFree(); }
+        };
         ApplySelection(null,null,null,null,null);
 
         UiSourceTroopThresholdButton Threshold(string name,int node,int classification,Func<int?> value)
@@ -138,6 +151,7 @@ internal partial class DeploymentUnitInformationView : Control
     internal void AbandonInteraction()
     {
         abandoned=true;
+        formationBalloonOwners.Clear(); formationBalloonAdmission=null;formationBalloon.Hide();
         AbandonTacticInteraction();
         AbandonDefinitionButtons();
         AbandonUnitPresentation();
@@ -148,10 +162,12 @@ internal partial class DeploymentUnitInformationView : Control
         if(calculator is { } dialog){calculator=null;dialog.Abandon();dialog.QueueFree();}
     }
 
-    internal void ApplyLandFormationChoices(DeploymentLandFormationChoices? query,int selectedFormation,Action<int>? choose)
+    internal void ApplyLandFormationChoices(DeploymentLandFormationChoices? query,int selectedFormation,Action<int>? choose,
+        Func<bool>? canShowBalloon = null)
     {
         if(abandoned)return;
         formationSelectionBound=false;SelectedFormationId=null;
+        formationBalloonOwners.Clear();formationBalloonAdmission=canShowBalloon;formationBalloon.Hide();
         if(landChoices is not null){landChoices.Hide();landChoices.Name="PreviousLandFormationChoices";landChoices.QueueFree();landChoices=null;}
         if(query?.Choices is not { } choices)return;
         SelectedFormationId=selectedFormation;
@@ -164,7 +180,23 @@ internal partial class DeploymentUnitInformationView : Control
             var button=new DeploymentLandFormationButton {Name="LandFormation"+choice.FormationId,
                 Position=new(96+index++*118,456),Selected=choice.FormationId==selectedFormation,Disabled=choose is null};
             landChoices.AddChild(button);button.Configure(repository,assets,shader,font,choice,id=>choose?.Invoke(id));
+            formationBalloonOwners.Add(button,(choice,query.Balloons.GetValueOrDefault(choice.FormationId)));
         }
         formationSelectionBound=choose is not null&&index>0;
     }
+    public override void _Process(double delta)
+    {
+        if (formationBalloon is null) return;
+        // Use the actual hovered Control identity, including selected/disabled
+        // radios. Parent interaction owns all modal and child-selection gates.
+        var hovered = GetViewport().GuiGetHoveredControl();
+        RefreshTacticBalloon(hovered);
+        if (abandoned || !IsVisibleInTree() || !CanProcess() || HasCalculator ||
+            formationBalloonAdmission?.Invoke() != true || hovered is null ||
+            !formationBalloonOwners.TryGetValue(hovered, out var owner) ||
+            hovered.IsQueuedForDeletion() || !hovered.IsVisibleInTree())
+        { formationBalloon.Hide(); return; }
+        formationBalloon.Display(owner.Choice, owner.Query, formationBalloon.GetParent<Control>().GetLocalMousePosition());
+    }
+
 }

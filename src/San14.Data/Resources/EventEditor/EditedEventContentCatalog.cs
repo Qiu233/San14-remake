@@ -7,10 +7,21 @@ namespace San14.Data;
 public sealed record EditedEventContentChoice(int Value, string Caption, int? Kind = null,
     bool Enabled = true, string? UnresolvedOwner = null);
 
+public sealed record EditedEventStillFamily(int Kind, int First, int Last, int CaptionMessage, string SpriteStem);
+
 /// <summary>Title-owned content directories. No campaign or synthetic persons
 /// are constructed to supply editor choices.</summary>
 public sealed class EditedEventContentCatalog
 {
+    // The original static descriptors are shared by editor choices and
+    // application startup. Neither consumer needs a campaign or unlock state.
+    public static IReadOnlyList<EditedEventStillFamily> StillFamilies { get; } = Array.AsReadOnly(new[]
+    {
+        new EditedEventStillFamily(15, 1, 51, 0x305, "stl_event_bg_"),
+        new EditedEventStillFamily(13, 1, 81, 0x307, "stl_event_"),
+        new EditedEventStillFamily(14, 1, 18, 0x306, "stl_event_d_"),
+        new EditedEventStillFamily(16, 1, 7, 0x308, "stl_event_komono_")
+    });
     public IReadOnlyList<EditedEventContentChoice> Backgrounds { get; }
     public IReadOnlyList<EditedEventContentChoice> Illustrations { get; }
     public IReadOnlyList<EditedEventContentChoice> Music { get; }
@@ -45,14 +56,15 @@ public sealed class EditedEventContentCatalog
         string Text(int section, int index) => messages.Sections[section].Records[index].Text
             ?? throw new InvalidDataException($"event_editor.content.data.{section}.{index}");
         string none = Text(1, 0x53F);
-        EditedEventContentChoice[] Stills(int kind, int caption, int last) =>
-            Enumerable.Range(0, last + 1).Select(index => new EditedEventContentChoice(index,
-                index == 0 ? none : Text(1, caption) + " " + index.ToString(CultureInfo.InvariantCulture), kind)).ToArray();
+        EditedEventContentChoice[] Stills(EditedEventStillFamily family) =>
+            new[] { new EditedEventContentChoice(0, none, family.Kind) }
+                .Concat(Enumerable.Range(family.First, family.Last - family.First + 1)
+                    .Select(index => new EditedEventContentChoice(index,
+                        Text(1, family.CaptionMessage) + " " + index.ToString(CultureInfo.InvariantCulture), family.Kind))).ToArray();
         //5FCF20/5FD000 descriptors; 5FE0E0 appends a zero entry for
         //each kind, followed by the inclusive first..last interval.
-        Backgrounds = Array.AsReadOnly(Stills(15, 0x305, 51));
-        Illustrations = Array.AsReadOnly(Stills(13, 0x307, 81)
-            .Concat(Stills(14, 0x306, 18)).Concat(Stills(16, 0x308, 7)).ToArray());
+        Backgrounds = Array.AsReadOnly(Stills(StillFamilies.Single(family => family.Kind == 15)));
+        Illustrations = Array.AsReadOnly(StillFamilies.Where(family => family.Kind != 15).SelectMany(Stills).ToArray());
         //The 117-int editor table and admission helper are the same normal
         //directory already used by MusicEditCatalog, with -1 slots omitted.
         var music = MusicEditCatalog.Load(repository, locale);

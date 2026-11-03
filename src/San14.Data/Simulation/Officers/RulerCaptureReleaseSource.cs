@@ -206,6 +206,15 @@ public static class RulerCaptureReleaseSource
                 current.SetRulerReleaseRelation13(force, other, fields?.Relations13 is { Length: 52 } bytes ? bytes[other] : null);
         }
     }
+    internal static void BindMissingCurrent(GameState state, SourceWorldContext current)
+    {
+        if (current.HasCompleteRulerReleaseReceivers) return;
+        for (int force = 0; force < 52; force++)
+        {
+            var fields = state.NativeArmySimulation?.Forces.GetValueOrDefault(force)?.NormalAftermath;
+            current.BindMissingRulerReleaseFields(force, fields?.Development1BE, fields?.Relations13);
+        }
+    }
     private static byte ReadRelation(GameState state, SourceWorldContext current, int a, int b) =>
         current.TryReadRulerReleaseRelation13(a, b, out var value) ? K(value, "current.Lord_Force_relation13") :
         state.NativeArmySimulation?.Forces.GetValueOrDefault(a)?.NormalAftermath?.Relations13 is { Length: 52 } bytes && b is >= 0 and < 52
@@ -236,6 +245,16 @@ public sealed partial class SourceWorldContext
 {
     private readonly Dictionary<(int, int), byte?> rulerReleaseRelations13 = [];
     private readonly Dictionary<int, short?> rulerReleasePopularity1BE = [];
+    internal bool HasCompleteRulerReleaseReceivers =>
+        (rulerReleasePopularity1BE.Count == 52 || RulerReleasePopularity1BEReader is not null) &&
+        rulerReleaseRelations13.Count == 52 * 52;
+    internal void BindMissingRulerReleaseFields(int force, short? popularity, byte[]? relations)
+    {
+        Check(force, 52, "Lord popularity Force");
+        if (RulerReleasePopularity1BEReader is null) rulerReleasePopularity1BE.TryAdd(force, popularity);
+        for (int other = 0; other < 52; other++)
+            rulerReleaseRelations13.TryAdd((force, other), relations is { Length: 52 } ? relations[other] : null);
+    }
     public void SetRulerReleaseRelation13(int force, int other, byte? value)
     { Check(force, 52, "Lord relation Force"); Check(other, 52, "Lord relation target"); rulerReleaseRelations13[(force, other)] = value; }
     internal bool TryReadRulerReleaseRelation13(int force, int other, out byte? value) => rulerReleaseRelations13.TryGetValue((force, other), out value);

@@ -81,14 +81,15 @@ public partial class Main
             }
             catch{CloseDiplomaticNegotiationAuxiliary();throw;}
         }
+        var uiResources=TryBorrowApplicationUiResources(view);
         if(draft is not null)
             view.ConfigureTerms(_repository,pending.Candidate,draft,player,
                 appearances,
                 _ui,Current,Submit,()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap),
                 kind=>RunUiAction(()=>ChooseCondition(kind)),()=>RunUiAction(()=>Edit(draft.ClearCondition)),
-                ()=>RunUiAction(CalculateIntelligence),amount=>RunUiAction(()=>Edit(()=>draft.SetMilitaryIntelligence(amount))),people);
+                ()=>RunUiAction(CalculateIntelligence),amount=>RunUiAction(()=>Edit(()=>draft.SetMilitaryIntelligence(amount))),people, resources: uiResources);
         else view.Configure(_repository,pending.Candidate,request,player,page,_ui,Current,Submit,
-            ()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap),people);
+            ()=>RunUiAction(ShowForce),()=>RunUiAction(ShowMap),people, resources: uiResources);
         view.RegisterHeader(_sourceHeaders);
         if (_diplomacyNegotiationNotice is { } message)
         { view.SetNotice(message); _diplomacyNegotiationNotice = null; }

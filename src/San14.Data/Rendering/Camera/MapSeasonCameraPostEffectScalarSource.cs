@@ -83,7 +83,10 @@ public sealed class MapSeasonCameraPostEffectScalarWriteIdentity
         MainResourceUri=prior.MainResourceUri;MainResourceSha256=prior.MainResourceSha256;MainCameraObjectId=prior.MainCameraObjectId;
         SelectedResourceUri=prior.SelectedResourceUri;SelectedResourceSha256=prior.SelectedResourceSha256;
         SelectedCameraObjectId=prior.SelectedCameraObjectId;SelectionPolicy=prior.SelectionPolicy;
-        FirstIndex=prior.FirstIndex;WeightBits=prior.WeightBits;words=prior.words.ToArray();
+        FirstIndex=prior.FirstIndex;WeightBits=prior.WeightBits;
+        //Private encoded values never change and are not exposed to callers.
+        //A new frame retargets metadata while borrowing the same value owner.
+        words=prior.words;
         PreparedSpecialRectangleFlag1510=prior.PreparedSpecialRectangleFlag1510;
         actualMainPreparation=prior.actualMainPreparation;
     }

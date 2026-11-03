@@ -5,6 +5,7 @@ namespace San14.Data;
 public sealed partial class SourceWorldContext
 {
     private ushort?[]? _captureHexWords16;
+    private bool _captureHexWords16Owned;
     private Dictionary<int, NativeCityCaptureFields>? _captureCityFields;
     private ushort? _captureWorld1562;
     internal HashSet<int> CaptureHex16Writes { get; } = [];
@@ -16,7 +17,10 @@ public sealed partial class SourceWorldContext
 
     internal void BindBaseCaptureCurrent(NativeBaseCaptureCurrentState? owner)
     {
-        _captureHexWords16 = owner?.HexWords16.ToArray();
+        //The saved World is the operation's immutable baseline. A private
+        //buffer is needed only when this current actually writes a Hex word.
+        _captureHexWords16 = owner?.HexWords16;
+        _captureHexWords16Owned = false;
         _captureCityFields = owner is null ? null : new(owner.Cities);
         _captureWorld1562 = owner?.World1562;
         ClearBaseCaptureCurrentWrites();
@@ -33,9 +37,18 @@ public sealed partial class SourceWorldContext
         Check(physical, MapTileCount, "capture Hex physical slot");
         //Null-initialized storage means unknown for all other fields. Only
         //the explicit setter below supplies this reached native write.
-        _captureHexWords16 ??= new ushort?[MapTileCount];
+        if (_captureHexWords16 is null)
+        {
+            _captureHexWords16 = new ushort?[MapTileCount];
+            _captureHexWords16Owned = true;
+        }
         if (physical >= _captureHexWords16.Length)
             throw new InvalidDataException("Current capture Hex owner does not cover this map index.");
+        if (!_captureHexWords16Owned)
+        {
+            _captureHexWords16 = _captureHexWords16.ToArray();
+            _captureHexWords16Owned = true;
+        }
         _captureHexWords16[physical] = value; CaptureHex16Writes.Add(physical);
     }
 
@@ -78,7 +91,10 @@ public sealed partial class SourceWorldContext
 
     internal void CopyBaseCaptureCurrentTo(SourceWorldContext draft)
     {
-        draft._captureHexWords16 = _captureHexWords16?.ToArray();
+        //A borrowed immutable baseline can stay shared. An already-private
+        //source may be written again after this copy, so its draft must detach.
+        draft._captureHexWords16 = _captureHexWords16Owned ? _captureHexWords16?.ToArray() : _captureHexWords16;
+        draft._captureHexWords16Owned = _captureHexWords16Owned;
         draft._captureCityFields = _captureCityFields is null ? null : new(_captureCityFields);
         draft._captureWorld1562 = _captureWorld1562;
         draft.CaptureHex16Writes.UnionWith(CaptureHex16Writes);

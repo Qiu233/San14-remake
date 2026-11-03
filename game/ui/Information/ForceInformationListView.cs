@@ -12,7 +12,7 @@ internal partial class ForceInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new ForceInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "ForceInformationList", "force_information_group", resources: resources);
+            close, inspect, scrollSpeed, "ForceInformationList", "force_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

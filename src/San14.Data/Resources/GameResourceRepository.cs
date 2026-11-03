@@ -752,7 +752,14 @@ public sealed partial class GameResourceRepository
 
     public LoadedTextureContainer LoadTextureContainer(string archiveName, uint fileId)
     {
-        LoadedRdbAsset asset = LoadRdbAsset(archiveName, fileId);
+        return ParseTextureContainer(LoadRdbAsset(archiveName, fileId));
+    }
+
+    // The caller already holds the actual immutable resident payload. Keeping
+    // parsing here preserves the resource-format/error boundary for owners
+    // which reuse a parsed image directory within that same publication.
+    internal static LoadedTextureContainer ParseTextureContainer(LoadedRdbAsset asset)
+    {
         try { return new(G1TextureContainerReader.Read(asset.Bytes), asset); }
         catch (InvalidDataException error)
         {

@@ -52,7 +52,7 @@ public partial class Main
         _personnelItemSession = session; _personnelItemWorld = world; _personnelItemMap = map;
         int? itemId = null, targetId = null;
         GameOrder? order = null;
-        var content = new AreaAdministrationOfficerContent(_repository);
+        var content = new AreaAdministrationOfficerContent();
         var sprites = new LocalizedUiSpriteSource(_repository);
         var messages = _repository.LoadMessages(_ui.SourceLocale, MessageKind.Data).Messages;
         string Message(int id, int section = 1) => messages.Sections[section].Records[id].Text
@@ -65,7 +65,7 @@ public partial class Main
         {
             page.Configure(_repository, _ui, Current, RequestPersonnelItemBack,
                 () => RunUiAction(() => { if (Current() && order is not null) RequestPersonnelOrder(order, page); }),
-                () => RunUiAction(ChooseItem), () => RunUiAction(ChooseTarget));
+                () => RunUiAction(ChooseItem), () => RunUiAction(ChooseTarget), resources: TryBorrowApplicationUiResources(page));
             _refreshPersonnelItemPage = Refresh;
             Refresh();
             SetMapFocus(true); map.CloseCityCommandMenu(); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();

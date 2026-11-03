@@ -20,11 +20,13 @@ internal partial class GateDetailsView : DetailsView
         new(candidateOrder.Select(row => row.Item.Id).ToArray(), CurrentGateId, list.NameSortAscending);
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        GateInformationPage publication, Action close, Action? officers = null,
+        GateInformationPage publication, Action close, AdministrationPageChrome.Resources resources, Action? officers = null,
         InformationDetailSelectionContext? selection = null, Action<int>? select = null)
     {
         this.repository = repository; this.text = text; this.close = close; this.officers = officers;
-        Name = "GateDetails"; ZIndex = 4; MouseFilter = MouseFilterEnum.Stop;
+        ConfigureCommonBackdrop(repository);
+        ConfigureSourcePage("GateDetails", null, close);
+        ZIndex = 4;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         list = new() { Name = "GateDetailSelection" }; AddChild(list);
         var items = selection?.Items ?? [new InformationDetailSelectionItem(publication.GateId, publication.Name, null)];
@@ -47,7 +49,7 @@ internal partial class GateDetailsView : DetailsView
             }, tabCaptions: new[] { Message(GateInformationSources.BasicTabCaptionId) },
             completeColumnProfile: true, normalColumnLayout: true, narrowTable: true,
             initialSortColumn: selection?.InitialNameSortAscending is bool ? "name" : null,
-            initialSortAscending: selection?.InitialNameSortAscending ?? true);
+            initialSortAscending: selection?.InitialNameSortAscending ?? true, resources: resources);
         IReadOnlyList<MapInformationListRow> Rows() => candidateOrder.Select(row =>
             new MapInformationListRow(row.Slot,[row.Item.Caption ?? text.Get("detail_unknown")],select is not null)).ToArray();
         Apply(publication);
@@ -57,12 +59,14 @@ internal partial class GateDetailsView : DetailsView
             Position = footer.Rectangle(21, new(0, 904)).Position + new Vector2(45, -103),
             Size = new(Math.Max(96, caption.Length * 28 + 20), 48),
             InputAdmission = ReadAdmission, Disabled = officers is null };
-        list.SourceCanvas.AddChild(officersButton);
+        list.SourceFooterRoot.AddChild(officersButton);
         officersButton.Configure(repository, list.SourceAssets, list.SourceShader, list.SourceFont,
             caption, () => { if (ReadAdmission()) this.officers?.Invoke(); });
+        ConfigureReturnTransition(resources.Assets.SourceLayout(0xF9C5DB14), list.MotionGroups);
     }
 
-    internal override void RegisterHeader(UiSourceHeaderStack stack) => list.RegisterHeader(stack);
+    internal override void RegisterHeader(UiSourceHeaderStack stack)
+    { list.RegisterHeader(stack); base.RegisterHeader(stack); }
 
     internal void Apply(GateInformationPage page)
     {
@@ -74,17 +78,16 @@ internal partial class GateDetailsView : DetailsView
         if (body is { } previous) { previous.Hide(); previous.QueueFree(); }
         body = new() { Name = "CurrentGateDetails", Position = new(191, 197), Size = new(1540, 688),
             MouseFilter = MouseFilterEnum.Ignore };
-        list.SourceCanvas.AddChild(body);
+        list.SourceBodyCanvas.AddChild(body);
         var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, page.LayoutName));
         var presets = MapTextPresets.Create();
         var palettes = MapSpritePalettes.Create();
 
         if (!Hidden(2) && page.StandingPortrait is { } route)
         {
-            var sprites = new LocalizedUiSpriteSource(repository);
             var portrait = new UiSourceStandingPortrait { Name = "GateGovernorStanding", Position = source.Rectangle(2).Position };
             body.AddChild(portrait);
-            portrait.Configure(repository, list.SourceAssets, list.SourceShader, route.LoadSprites(sprites.LoadTexturePackSprite));
+            portrait.Configure(repository, list.SourceAssets, list.SourceShader, route.LoadSources(list.SourceAssets.Portraits.RequireSource));
             portrait.Scale = source.Rectangle(2).Size / portrait.Size;
         }
         foreach (var node in source.Nodes)
@@ -191,8 +194,8 @@ internal partial class GateDetailsView : DetailsView
 
     private string Message(int id) => repository.LoadMessages(text.SourceLocale, MessageKind.Data)
         .Messages.Sections[1].Records[id].Text ?? throw new InvalidDataException($"Missing gate detail Data1/{id:X}.");
-    private bool ReadAdmission() => !abandoned && IsVisibleInTree();
-    internal void RequestBack() { if (ReadAdmission()) close?.Invoke(); }
+    private bool ReadAdmission() => !abandoned && CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion();
+    internal void RequestBack() { if (ReadAdmission()) base.RequestClose(); }
     internal void Abandon()
     {
         if (abandoned) return;

@@ -206,9 +206,11 @@ public partial class MapSceneView
             _d3d11ResourceContext = resourceContext;
             string resourceContextDirectory = cpu.ResourceContextDirectory;
             _d3d11ResourceContextDirectory = resourceContextDirectory;
-            var captureEffects = new D3D11CaptureEffects(mapRepository, resourceContext, generation);
+            var captureEffects = new D3D11CaptureEffects(mapRepository, resourceContext, generation,
+                cpu.DomesticEffects ?? throw new InvalidDataException(
+                    "The product map opening has no loaded domestic effect source."));
             _captureEffects = captureEffects;
-            G1EffectMapInputs? effectInputs = null;
+            var effectInputsByMode = new G1EffectMapInputs?[5];
             G1EffectStoryViewInputs? storyEffectInputs = null;
             D3D11CurrentSeasonResources? effectInputResources = null;
             _d3d11Ownership!.WriteStaticInputs(Path.Combine(inputs, TerritoryStaticMapEncoding.NativeDirectory));
@@ -285,6 +287,7 @@ public partial class MapSceneView
                 }
                 finally { markerOwner?.EndInformationPresentation(); }
                 if(input.SourceFrame is {} hitFrame)_d3d11Markers?.PrepareInformationHits(hitFrame);
+                PresentAdministrationMap(input);
                 if(input.SceneryWorld is {} scenery)_sceneryMap?.Present(scenery,false);
                 SetMeta("native_map_army_label_unit_count", receipt.ArmyUnitPositions.Count);
             };
@@ -346,7 +349,7 @@ public partial class MapSceneView
             }
             await surface.ConfigureAsync(source, library, CaptureD3D11Input(frame, 0,initialManagerUpdate:true,
                     sceneryCameraStable:openingSceneryCameraStable,
-                    createBaseOnly:cgLiveAccepted is not null), populationMask: 3,
+                    createBaseOnly:true), populationMask: 3,
                 prepareCurrent: input =>
                 {
                     var geometry = input.SourceFrame!;
@@ -467,9 +470,17 @@ public partial class MapSceneView
                         {
                             if (!ReferenceEquals(effectInputResources, season.LoadedResources))
                             {
-                                effectInputs = new(mapRepository, season.LoadedResources, resourceContext);
+                                Array.Clear(effectInputsByMode);
                                 effectInputResources = season.LoadedResources;
                             }
+                            int effectMode = current.Mode.Mode288;
+                            if ((uint)effectMode >= (uint)effectInputsByMode.Length)
+                                throw new InvalidDataException("Effect Main mode has no installed Camera source.");
+                            // Each ordinary mode borrows its own actual package
+                            // from this season's already loaded Camera graph.
+                            var effectInputs = effectInputsByMode[effectMode] ??=
+                                new(mapRepository, season.LoadedResources, resourceContext, effectMode,
+                                    hdr.Resources[HdrShaderResources.MainLightingNode].Shader);
                             //The current native View has no primary-light
                             //publisher. Its normal Common light selector still
                             //selects the actual registered subset in the helper.
@@ -588,6 +599,7 @@ public partial class MapSceneView
             // Session.Create explicitly rejects these live-only fields. They
             // remain owned by their logical publishers and are captured by Next.
             CommandMap = createBaseOnly ? null : CaptureMapDisplay(),
+            HexFocus = createBaseOnly ? null : CapturePrimaryHexFocus(),
             Routes = createBaseOnly ? null : CaptureDeploymentRoutes(frame),
             InformationTerritoryStyle = InformationTerritoryStyle,
             InformationLayers = CaptureInformationLayers(_logicalWorld!),
@@ -646,7 +658,7 @@ public partial class MapSceneView
     }
     private void ScheduleD3D11MapFrame()
     {
-        if (_adoptingStartedCampaign || _d3d11Map is not { IsClosed: false, LastError: null } surface || _sourceMainCameraFrame is not { } frame) return;
+        if (_nativeMapClosing || _adoptingStartedCampaign || _d3d11Map is not { IsClosed: false, LastError: null } surface || _sourceMainCameraFrame is not { } frame) return;
         if(!_periodMapActive&&_d3d11AnimationDue&&_d3d11AnimationPacer is { } motionPacer)
             _d3d11Army?.AdvanceMotion(_logicalWorld!,motionPacer.FpsMode);
         else if(_periodMapActive&&!_periodMapPaused&&_periodMapFrame is {} period&&
@@ -671,6 +683,9 @@ public partial class MapSceneView
         ResetHexFirePublicationCapture();
         RetireFacilityEffectsPresentation();
         RetireFacilityRepairPresentation();
+        // The retiring map retains its tickets until its render owner closes.
+        // Detach UI callbacks; shared particles are disposed below after Native.
+        _administrationEffects = null;
         RetireMapObjectRetirementPresentation();
         tacticArmyPositions = null;
         TacticPresentationViews.Clear();

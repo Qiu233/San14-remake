@@ -3,6 +3,18 @@ using San14.Data;
 
 public partial class Main
 {
+    private NewGamePreparationView? _startupLoadingView;
+
+    private void CloseStartupLoading(NewGamePreparationView? view = null)
+    {
+        view ??= _startupLoadingView;
+        if (ReferenceEquals(_startupLoadingView, view)) _startupLoadingView = null;
+        if (view is null || !GodotObject.IsInstanceValid(view)) return;
+        view.Abandon();
+        if (view.GetParent() is Node parent) parent.RemoveChild(view);
+        if (!view.IsQueuedForDeletion()) view.QueueFree();
+    }
+
     // The source loading surface borrows the completed startup UI generation.
     // It displays real work without a percentage or a campaign/session owner.
     private async Task RunStartupLoadingAsync(Func<Task> prepare)
@@ -20,6 +32,7 @@ public partial class Main
         var repository = _applicationUiResourceRepository ?? _repository
             ?? throw new InvalidOperationException("Startup resources require their repository owner.");
         var view = new NewGamePreparationView();
+        _startupLoadingView = view;
         AddChild(view);
         try
         {
@@ -32,12 +45,7 @@ public partial class Main
         }
         finally
         {
-            if (GodotObject.IsInstanceValid(view))
-            {
-                view.Abandon();
-                if (view.GetParent() is Node parent) parent.RemoveChild(view);
-                view.QueueFree();
-            }
+            CloseStartupLoading(view);
         }
     }
 }

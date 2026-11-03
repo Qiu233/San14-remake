@@ -75,6 +75,15 @@ public sealed partial class MapEffectAdmissionManager
         return true;
     }
 
+    /// <summary>Rebuild only this source owner's instance after a colour
+    /// change. The reservation, admission flags and host clock are retained.</summary>
+    public bool ReleaseInstance(MapEffectAdmissionHandle handle, object source, Action<G1EffectInstance> release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        if (Find(handle) is not { } slot || !ReferenceEquals(slot.Source, source)) return false;
+        Release(slot, release); return true;
+    }
+
     /// <summary>Hard retirement bypasses pin and held flags, after the host
     /// actually releases the instance. It is separate from native acceptance.</summary>
     public bool Retire(MapEffectAdmissionHandle handle, Action<G1EffectInstance> release)

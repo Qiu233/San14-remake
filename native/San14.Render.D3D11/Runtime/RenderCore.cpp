@@ -256,7 +256,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     const auto& sourceHostFlags3E4=host.mainFlags;
     auto& phase=host.mainPhase;
     FogAccelerationPass fogAcceleration;NativeSpecialEffects specialEffects;
-    current_effect::Renderer currentEffects;
+    // The normal embedded map borrows the real Title-prepared device bank.
+    // Standalone legacy sessions have no application device owner and prepare
+    // their own bank here, once before the scene admits any effect instance.
+    auto directPrograms=host.directEffectPrograms;
+    if(!directPrograms)directPrograms=std::make_shared<NativeDirectEffectPrograms>(device.Get());
+    current_effect::Renderer currentEffects(std::move(directPrograms));
     current_effect::MainSceneCapture effectSceneCapture;
     NormalPostProcess postProcessing;
     TerritoryPass territory;
@@ -324,6 +329,7 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         frameState.acceptRequest(host.input,host.currentSeason?&*host.currentSeason:nullptr);
         territory.publishOwnership(host.territoryOwnership);
         territory.publishCommandMap(host.commandMap);
+        territory.publishHexFocus(host.hexFocus);
         publishCurrentModels();
         frameState.acceptCamera(host.input,shadows);
         atmosphere.publishAcceptedCamera(frameState.atmosphereFrame(clouds));

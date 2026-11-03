@@ -64,7 +64,7 @@ public partial class Main
                 _ => session.QueryPresentation()), null, audio,
                 _preferences.MusicSelection, () => IsEditedEventTestCurrent(owner) && CanAdvanceNarration,
                 () => _preferences.AutomaticMessageAdvance, CurrentListScrollSpeed, HandleNarrationKeyboard,
-                null, () => CompleteEditedEventTest(owner), error => FailEditedEventTest(owner, error), inputWaitKeyboard: HandleNarrationKeyboard);
+                null, () => CompleteEditedEventTest(owner), error => FailEditedEventTest(owner, error), inputWaitKeyboard: HandleNarrationKeyboard, preparedUiResources: TryBorrowApplicationPreparedResources(host));
         }
         catch { CloseEditedEventTest(restore: true); throw; }
     }

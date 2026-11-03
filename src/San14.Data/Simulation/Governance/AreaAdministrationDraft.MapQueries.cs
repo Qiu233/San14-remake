@@ -1,4 +1,4 @@
-﻿namespace San14.Data;
+namespace San14.Data;
 
 public sealed partial class AreaAdministrationDraft
 {
@@ -39,10 +39,9 @@ public sealed partial class AreaAdministrationDraft
                 return AreaAdministrationQuery<bool?>.Known(false);
             int cityPhysical = K(city.PhysicalSlot, "map_city_receiver");
             if (cityPhysical is < 1 or > 51) return AreaAdministrationQuery<bool?>.Known(false);
-            foreach (int candidate in RegisteredAreas(_current))
-                if (K(_current.ReadAreaCitySlot(new(candidate)), "map_iterator_city") == cityPhysical && candidate == physical)
-                    return AreaAdministrationQuery<bool?>.Known(true);
-            return AreaAdministrationQuery<bool?>.Known(false);
+            // Construction already validates the complete registered Area35
+            // relation. Draft personnel/focus changes do not rewrite it.
+            return AreaAdministrationQuery<bool?>.Known(_registeredCityAreas.Contains(physical));
         }
         catch (InvalidDataException unknown) { return AreaAdministrationQuery<bool?>.Unknown(unknown.Message); }
     }

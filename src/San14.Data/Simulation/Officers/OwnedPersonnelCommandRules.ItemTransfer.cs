@@ -31,19 +31,22 @@ internal sealed partial class OwnedPersonnelCommandRules
             var guards = input.LoyaltyGuards ?? throw TransferMissing("preview_loyalty_guards");
             bool change = PersonnelLoyaltyMath.ShouldChange(guards) ?? throw TransferMissing("preview_loyalty_gate");
             int? loyalty = person.Loyalty;
+            byte? storedBefore = change ? input.StoredLoyalty ?? throw TransferMissing("preview_person_stored_loyalty") : null;
+            byte? storedAfter = storedBefore;
             if (change && item is not null)
             {
-                if (person.Loyalty is not int before) throw TransferMissing("preview_person_loyalty");
                 int penalty = grant ? 0 : input.ConfiscationPenalty ?? throw TransferMissing("preview_penalty");
-                loyalty = PersonnelLoyaltyMath.TryApply(checked((byte)before), checked((byte)itemValue), grant, penalty, guards);
-                if (loyalty is null or < 0 or > 100) throw TransferMissing("preview_loyalty_domain");
+                int? result = PersonnelLoyaltyMath.TryApply(storedBefore!.Value, checked((byte)itemValue), grant, penalty, guards);
+                if (result is null or < 0 or > 255) throw TransferMissing("preview_loyalty_domain");
+                storedAfter = (byte)result.Value;
             }
+            if (storedAfter is byte rawAfter) loyalty = rawAfter <= 100 ? rawAfter : null;
             var beforeAbility = abilities.Resolve(state, id) ?? throw TransferMissing("preview_before_abilities");
             var afterAbility = abilities.Resolve(after, id) ?? throw TransferMissing("preview_after_abilities");
             if (!ItemAbilityBonuses.TryCalculate(state, id, out var beforeItems) ||
                 !ItemAbilityBonuses.TryCalculate(after, id, out var afterItems)) throw TransferMissing("preview_item_margins");
             return PersonPreview(person, loyalty, beforeAbility, afterAbility,
-                DisplayAbility(beforeAbility, beforeItems!, afterItems!, kind), input, grant, itemValue);
+                DisplayAbility(beforeAbility, beforeItems!, afterItems!, kind), input, grant, itemValue, storedBefore, storedAfter);
         }
     }
 
@@ -101,8 +104,10 @@ internal sealed partial class OwnedPersonnelCommandRules
             if (available < newQuote.CommandBooks)
                 return new(false, newQuote, Reason: "District lacks uncommitted command books.");
 
-            int? oldAfter = LoyaltyAfter(oldHolder, oldQuote.LoyaltyDelta);
-            int? newAfter = LoyaltyAfter(newHolder, newQuote.LoyaltyDelta);
+            int? oldAfter = oldQuote.StoredLoyaltyAfter is byte oldStored
+                ? oldStored <= 100 ? oldStored : null : LoyaltyAfter(oldHolder, oldQuote.LoyaltyDelta);
+            int? newAfter = newQuote.StoredLoyaltyAfter is byte newStored
+                ? newStored <= 100 ? newStored : null : LoyaltyAfter(newHolder, newQuote.LoyaltyDelta);
             var after = state with
             {
                 Items = new(state.Items!) { [itemId] = item with
@@ -138,10 +143,12 @@ internal sealed partial class OwnedPersonnelCommandRules
                 ?? throw TransferMissing("new_display_guards");
             var oldPreview = PersonPreview(oldHolder, oldAfter, oldBeforeAbility, oldAfterAbility,
                 DisplayAbility(oldBeforeAbility, oldItemBefore!, oldItemAfter!, kind), oldInput, false,
-                state.ItemDefinitions[item.DefinitionId].LoyaltyValue ?? throw TransferMissing("item_loyalty_value"));
+                state.ItemDefinitions[item.DefinitionId].LoyaltyValue ?? throw TransferMissing("item_loyalty_value"),
+                oldQuote.StoredLoyaltyBefore, oldQuote.StoredLoyaltyAfter);
             var newPreview = PersonPreview(newHolder, newAfter, newBeforeAbility, newAfterAbility,
                 DisplayAbility(newBeforeAbility, newItemBefore!, newItemAfter!, kind), newInput, true,
-                state.ItemDefinitions[item.DefinitionId].LoyaltyValue ?? throw TransferMissing("item_loyalty_value"));
+                state.ItemDefinitions[item.DefinitionId].LoyaltyValue ?? throw TransferMissing("item_loyalty_value"),
+                newQuote.StoredLoyaltyBefore, newQuote.StoredLoyaltyAfter);
             var preview = new PersonnelItemTransferPreview(itemId, oldPreview, newPreview,
                 districtId, newQuote.CommandBooks, books, reserved, available,
                 Math.Clamp(unchecked(books - newQuote.CommandBooks), 0, 200)) { AbilityKind = kind };
@@ -158,17 +165,20 @@ internal sealed partial class OwnedPersonnelCommandRules
 
     private static PersonnelItemOfficerPreview PersonPreview(OfficerState person, int? after,
         OfficerAbilities beforeAbility, OfficerAbilities afterAbility, OfficerAbilities displayAbility,
-        PersonnelCommandContext input, bool grant, int itemValue)
+        PersonnelCommandContext input, bool grant, int itemValue, byte? storedBefore = null, byte? storedAfter = null)
     {
         var guards = input.LoyaltyGuards ?? throw TransferMissing("display_guards");
         bool isRuler = guards.IsRuler ?? throw TransferMissing("display_ruler");
         bool change = PersonnelLoyaltyMath.ShouldChange(guards) ?? throw TransferMissing("display_loyalty_gate");
-        int? before = isRuler ? null : person.Loyalty is int loyalty ? Math.Min(loyalty, 100) : null;
-        int? displayAfter = change ? after is int value ? Math.Min(value, 100) : null : null;
+        int? before = isRuler ? null : storedBefore is byte rawBefore ? Math.Min((int)rawBefore, 100)
+            : person.Loyalty is int loyalty ? Math.Min(loyalty, 100) : null;
+        int? displayAfter = change ? storedAfter is byte rawAfter ? Math.Min((int)rawAfter, 100)
+            : after is int value ? Math.Min(value, 100) : null : null;
         int? magnitude = change ? grant ? Math.Min(itemValue, 50)
             : before is int a && displayAfter is int b && b < 100 ? Math.Max(a - b, 0) : null : null;
         return new(person.Id, person.Loyalty, after, beforeAbility, afterAbility)
         {
+            StoredLoyaltyBefore = storedBefore, StoredLoyaltyAfter = storedAfter,
             IsRuler = isRuler, LoyaltyChangeVisible = change,
             DisplayLoyaltyBefore = before, DisplayLoyaltyAfter = displayAfter,
             DisplayLoyaltyChangeMagnitude = magnitude, DisplayAbilitiesAfter = displayAbility
@@ -276,6 +286,13 @@ public sealed partial class ArmyCampaignRuleAdapter
     internal GameState CompletePersonnelItemTransferCurrent(GameState state, PersonnelItemTransferPreview transfer)
     {
         var current = CaptureOwnedArmyReturnWorld(state).Context;
+        foreach (var effect in new[] { transfer.PreviousHolder, transfer.NextHolder })
+        {
+            if (effect.StoredLoyaltyAfter is not byte stored) continue;
+            int physical = current.ResolveOfficerSource(effect.OfficerId) ?? throw Missing("loyalty_Person_pointer");
+            current.SetPersonDestructionLoyaltyE8(physical, stored);
+            state = ArmyDestructionLoyalty.PublishCurrentRawE8(state, current, physical, stored);
+        }
         var saved = state.NativeForceUnregisterCurrent ?? throw Missing("district_window_owner");
         byte?[] window = saved.DistrictWindows10.GetValueOrDefault(transfer.DistrictId)?.ToArray()
             ?? throw Missing("district_window");

@@ -17,26 +17,30 @@ internal partial class CollectionOfficerExpansionView : Control
     private Action? returned;
     private int officerId, variant;
     private bool abandoned;
+    private bool ownsResources;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionOfficerCatalog catalog, int officerId, int variant,
-        Func<bool> admitted, Action returned)
+        Func<bool> admitted, Action returned, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.catalog = catalog; this.officerId = officerId; this.variant = variant;
         this.admitted = admitted; this.returned = returned;
         Name = "CollectionOfficerExpansion"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        source = new UiSourceLayout(repository, 0xB7B5EAA0);
+        source = assets.SourceLayout(0xB7B5EAA0);
         portrait = new() { Name = "CollectionOfficerExpandedPortrait", Size = canvas.Size, MouseFilter = MouseFilterEnum.Ignore };
         canvas.AddChild(portrait);
         Rect2 frameBox = source.Rectangle(3);
         var frame = new UiSourceFaceFrame { Name = "CollectionOfficerPortraitFrame",
             Position = frameBox.Position, Size = frameBox.Size };
         canvas.AddChild(frame); frame.Configure(repository, assets, shader);
-        var pagerSource = new UiSourceLayout(repository, 0x6148B858);
+        var pagerSource = assets.SourceLayout(0x6148B858);
         Rect2 pagerBox = source.Rectangle(2);
         pager = new() { Name = "CollectionOfficerPortraitPager", Position = pagerBox.Position,
             Size = pagerBox.Size, MouseFilter = MouseFilterEnum.Ignore };
@@ -48,7 +52,7 @@ internal partial class CollectionOfficerExpansionView : Control
         pageCount = pagerSource.Text(pager, 4, default, "", font);
         AddArrow(5, "CollectionOfficerPortraitPrevious");
         AddArrow(7, "CollectionOfficerPortraitNext");
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CollectionOfficerExpansionReturn",
             Position = footer.Rectangle(1, new(0, 904)).Position, InputAdmission = ReadAdmission };
         canvas.AddChild(back);
@@ -79,8 +83,14 @@ internal partial class CollectionOfficerExpansionView : Control
         var publication = catalog.ReadExpansion(officerId, variant);
         foreach (Node child in portrait.GetChildren()) { portrait.RemoveChild(child); child.QueueFree(); }
         if (publication.Image is { } image)
-            source.Art(portrait, 1, source.Rectangle(1), assets, shader,
-                commonSpriteOverride: image.SpriteName, commonTexturePack: image.TexturePack);
+        {
+            if (ownsResources)
+                source.Art(portrait, 1, source.Rectangle(1), assets, shader,
+                    commonSpriteOverride: image.SpriteName, commonTexturePack: image.TexturePack);
+            else
+                source.EncodedArt(portrait, 1, source.Rectangle(1), assets, shader,
+                    assets.Portraits.RequireSource(image.TexturePack, image.SpriteName));
+        }
         if (publication.UnresolvedOwner is { } missing) SetMeta("unresolved_owner", missing);
         else RemoveMeta("unresolved_owner");
         pager.Visible = publication.HasAlternate;
@@ -103,5 +113,9 @@ internal partial class CollectionOfficerExpansionView : Control
         float scale = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    {
+        Abandon();
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    }
 }

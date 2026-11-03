@@ -114,7 +114,7 @@ public partial class Main
                 IsCommandDetailsWorldCurrent(retainedWorld, retainedSession) && _residentMap == _commandDetailsMap &&
                 (_commandDetailsUnitParent is null || _commandDetailsUnitParent == _unitOrderTarget);
             if (resumeParent && !_failed && !_shuttingDown && stillCurrent)
-            { retained.ProcessMode = ProcessModeEnum.Inherit; retained.Show(); return; }
+            { retained.ProcessMode = ProcessModeEnum.Inherit; retained.Show(); retained.ResumeSourceForeground(); return; }
             view = retained;
         }
         var parent = _commandDetailsParent; var session = _commandDetailsSession;

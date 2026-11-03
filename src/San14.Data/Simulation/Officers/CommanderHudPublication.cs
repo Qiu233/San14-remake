@@ -13,7 +13,20 @@ public enum CommanderHudCardState
 }
 
 public sealed record CommanderHudTacticSlot(int Slot, int? TacticId, string? Name, bool? Enabled,
-    string? UnresolvedInput);
+    string? UnresolvedInput)
+{
+    public CommanderTacticBalloon? Balloon { get; init; }
+    public string? BalloonUnresolvedInput { get; init; }
+}
+
+/// <summary>The compact current effect descriptions, separate from the full
+/// deployment/gallery balloon. ReasonMessageId is zero for the source's known
+/// no-reason result, null for unknown eligibility, or a reached Game-message ID.
+/// The consumer owns hover history; this publication retains no popup state.</summary>
+public sealed record CommanderTacticBalloon(IReadOnlyList<CommanderTacticBalloonEffect> Effects,
+    int? ReasonMessageId);
+
+public sealed record CommanderTacticBalloonEffect(int Slot, int Opcode, string Text, int TextPreset);
 
 /// <summary>One of the five ordered source card positions. A null scalar is
 /// unknown; empty/locked positions and hidden source components are explicit.</summary>

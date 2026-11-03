@@ -110,7 +110,17 @@ internal partial class UiSourceType6Host : Node
         if (!dirty || stopped || !root.IsInsideTree()) return;
         rebuilding = true; dirty = false;
         try { Rebuild(); }
-        catch (Exception error) { Retire(); failed(error); }
+        catch (Exception error)
+        {
+            Exception failure = error;
+            try { Retire(); }
+            catch (Exception retirementError)
+            {
+                failure = new AggregateException("UI composition rebuild and retirement both failed.",
+                    error, retirementError);
+            }
+            failed(failure);
+        }
         finally { rebuilding = false; }
     }
 
@@ -124,7 +134,7 @@ internal partial class UiSourceType6Host : Node
             foreach (var effect in observedEffects)
                 if (GodotObject.IsInstanceValid(effect)) effect.CanvasCutChanged -= Invalidate;
             observedEffects.Clear();
-            var currentNodes = new HashSet<Node>(); treeNodes.Clear(); Observe(root);
+            var currentNodes = new HashSet<Node>(orderedNodes.Count); treeNodes.Clear(); Observe(root);
             Walk(root, -1, null);
             foreach (var node in orderedNodes.Where(node => !currentNodes.Contains(node)).ToArray()) ReleaseOrderObserver(node);
             structureDirty = false;
@@ -153,9 +163,11 @@ internal partial class UiSourceType6Host : Node
                 }
             }
         }
-        var items = new List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)>();
+        // The retained hierarchy bounds these local worklists; capacity does
+        // not change current eligibility, preorder or Canvas ordering.
+        var items = new List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)>(treeNodes.Count);
         var producers = new List<SubViewport>();
-        var effectiveZ = new Dictionary<CanvasItem, int>();
+        var effectiveZ = new Dictionary<CanvasItem, int>(treeNodes.Count);
         var excluded = new bool[treeNodes.Count];
         foreach (var (entry, index) in treeNodes.Select((entry, index) => (entry, index)))
         {
@@ -185,7 +197,7 @@ internal partial class UiSourceType6Host : Node
         var cutStates = cuts.Select(row => row.Item is UiSourceType6 cut
             ? new CutState(cut, cut.Parameters, cut.Geometry(size)) : new CutState(row.Item, null, null)).ToArray();
         var activeCuts = cuts.Select(row => row.Item).ToHashSet();
-        var segments = new Dictionary<CanvasItem, int>();
+        var segments = new Dictionary<CanvasItem, int>(ordered.Length);
         int segment = 0;
         foreach (var row in ordered)
         {
@@ -272,7 +284,12 @@ internal partial class UiSourceType6Host : Node
         return draws;
     }
 
-    private void Retire(bool deferRemoval = false) { graph?.Dispose(deferRemoval); graph = null; graphCuts = []; parameterIndices.Clear(); }
+    private void Retire(bool deferRemoval = false)
+    {
+        var retired = graph;
+        graph = null; graphCuts = []; parameterIndices.Clear();
+        retired?.Dispose(deferRemoval);
+    }
     internal void Stop(bool deferRemoval = false)
     {
         if (stopped) return;

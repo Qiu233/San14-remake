@@ -16,6 +16,7 @@ internal sealed record CaptureEffectAdmission(bool Accepted, string? UnresolvedI
 internal sealed class D3D11CaptureEffects : IDisposable
 {
     private sealed record TransformUpdate(Matrix4x4 Matrix);
+    private sealed record ColourUpdate(uint? Value);
     private sealed class Ticket(int kind, Matrix4x4 transform, uint? colour, object effectSource)
     {
         internal readonly int EffectKind = kind;
@@ -23,7 +24,8 @@ internal sealed class D3D11CaptureEffects : IDisposable
         internal uint Variant;
         internal ulong SourceOwner;
         internal MapEffectAdmissionHandle? Handle;
-        internal readonly uint? Colour = colour;
+        internal ColourUpdate Colour = new(colour);
+        internal uint? AppliedColour;
         internal TransformUpdate Transform = new(transform);
         internal volatile bool Live;
         internal volatile bool Retired;
@@ -41,6 +43,7 @@ internal sealed class D3D11CaptureEffects : IDisposable
     }
     private readonly GameResourceRepository repository;
     private readonly RenderResourceContext resourceContext;
+    private readonly MapDomesticEffectStaticResources.Namespace domesticEffects;
     private readonly G1EffectHostConfiguration limits;
     private readonly G1EffectGpuFramePublisher publisher;
     private readonly MapEffectAdmissionManager admission;
@@ -77,9 +80,11 @@ internal sealed class D3D11CaptureEffects : IDisposable
     internal bool HasWork => !queued.IsEmpty || active.Count != 0 || everPublished ||
         mainBankZeroOwnerAllocated && !mainBankZeroOwnerPublished;
 
-    internal D3D11CaptureEffects(GameResourceRepository repository, RenderResourceContext resources, ulong generation)
+    internal D3D11CaptureEffects(GameResourceRepository repository, RenderResourceContext resources, ulong generation,
+        MapDomesticEffectStaticResources.Namespace domesticEffects)
     {
         this.repository = repository; resourceContext = resources;
+        this.domesticEffects = domesticEffects;
         limits = G1EffectHostConfiguration.Load(repository);
         publisher = new(generation);
         admission = new(repository.LoadEffectInfo());
@@ -203,6 +208,16 @@ internal sealed class D3D11CaptureEffects : IDisposable
                         continue;
                     }
                 }
+                var requestedColour = Volatile.Read(ref ticket.Colour).Value;
+                // Colour changes follow the original instance-rebuild rule.
+                // A stop already accepted by the worker must keep its tail.
+                if (!ticket.StopAccepted.Task.IsCompleted && ticket.Instance is not null &&
+                    requestedColour != ticket.AppliedColour)
+                {
+                    if (!admission.ReleaseInstance(handle, ticket.Source, instance => instance.Dispose()))
+                        throw new InvalidOperationException("capture_effect.colour_source_owner");
+                    ticket.Instance = null;
+                }
                 admission.TryUpdateTransform(handle, ticket.Source, Volatile.Read(ref ticket.Transform).Matrix);
                 var selectedFrame = ticket.Variant == 1
                     ? storyFrame ?? throw new InvalidOperationException("story_effect.view1_current_frame") : frame;
@@ -217,7 +232,9 @@ internal sealed class D3D11CaptureEffects : IDisposable
                     {
                         lock (repository)
                         {
-                            var loaded = MapEffectResources.Load(repository, ticket.EffectKind, resourceContext);
+                            var loaded = ticket.EffectKind is >= 68 and <= 71
+                                ? domesticEffects.Require(ticket.EffectKind)
+                                : MapEffectResources.Load(repository, ticket.EffectKind, resourceContext);
                             resource = (loaded, new(repository, loaded));
                         }
                         resources.Add(ticket.EffectKind, resource);
@@ -227,7 +244,8 @@ internal sealed class D3D11CaptureEffects : IDisposable
                     { instance.Dispose(); throw new InvalidOperationException("capture_effect.instance_slot_owner"); }
                     ticket.Instance = instance;
                     if (ticket.Variant == 0) mainBankZeroOwnerAllocated = true;
-                    if (ticket.Colour is uint colour) instance.SetColourPacked(colour);
+                    if (requestedColour is uint colour) instance.SetColourPacked(colour);
+                    ticket.AppliedColour = requestedColour;
                     instance.EmitterTransformProvider = selectedFrame.EmitterTransformProvider;
                 }
                 if (ticket.Instance is { } actual)
@@ -385,6 +403,20 @@ internal sealed class D3D11CaptureEffects : IDisposable
         if (!tickets.TryGetValue(source, out var ticket) || ticket.Retired) return false;
         Volatile.Write(ref ticket.Transform, new(transform)); return true;
     }
+
+    // UI publishes one immutable value; only the render worker rebuilds
+    // particles. A retired or stopping workspace cannot recolour another owner.
+    internal bool SetColour(object source, object expectedOwner, uint colour)
+    {
+        if (!tickets.TryGetValue(source, out var ticket) || !ReferenceEquals(ticket.Source, expectedOwner) ||
+            ticket.Retired || ticket.StopRequested || ticket.StopAccepted.Task.IsCompleted ||
+            ticket.Retirement.Task.IsCompleted) return false;
+        if (Volatile.Read(ref ticket.Colour).Value != colour) Volatile.Write(ref ticket.Colour, new(colour));
+        return true;
+    }
+
+    internal Task WaitForRetirement(object source) =>
+        tickets.TryGetValue(source, out var ticket) ? ticket.Retirement.Task : Task.CompletedTask;
 
     // Hard retirement is executed by the render worker before its next global
     // publication. Other effect owners and their shared arena remain intact.

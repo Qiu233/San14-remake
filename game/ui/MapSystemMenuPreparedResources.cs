@@ -11,6 +11,9 @@ internal sealed partial class MapSystemMenuPreparedResources : IDisposable
       (18, 0x0064), (19, 0x0038), (23, 0x00D1), (27, 0x0063), (31, 0x0039), (32, 0x0033) ];
     internal UiAssets Assets { get; }
     internal LoadedMessages Messages { get; }
+    internal CollectionCatalog TitleCatalog { get; }
+    internal CollectionItemCatalog CollectionItems { get; }
+    internal PoemEventCatalog PoemEvents { get; }
     internal MapFontSource FontSource { get; }
     internal UiSourceLayout CommonBlurSource => Assets.SourceLayout(0xAEF1609E);
     internal UiSourceLayout MenuSource => Assets.SourceLayout(0x33EF187B);
@@ -23,8 +26,10 @@ internal sealed partial class MapSystemMenuPreparedResources : IDisposable
 
     private MapSystemMenuPreparedResources(UiAssets assets, LoadedMessages messages, MapFontSource font,
         Dictionary<MapFont.PreparedTextKey, MapTextCache> caches, ResourceOverrides overrides,
-        Dictionary<GameResourceId, ResourceReadGeneration> resources)
-    { Assets = assets; Messages = messages; FontSource = font; textCaches = caches; generationOverrides = overrides; generation = resources; }
+        Dictionary<GameResourceId, ResourceReadGeneration> resources,
+        CollectionCatalog collectionCatalog, CollectionItemCatalog collectionItems, PoemEventCatalog poemEvents)
+    { Assets = assets; Messages = messages; FontSource = font; textCaches = caches; generationOverrides = overrides; generation = resources;
+        TitleCatalog = collectionCatalog; CollectionItems = collectionItems; PoemEvents = poemEvents; }
 
     // This method creates no GodotObject. Its repository and mutable caches
     // are never the live Main repository and are not used concurrently.
@@ -108,6 +113,7 @@ internal sealed partial class MapSystemMenuPreparedResources : IDisposable
             PrepareSummarySources(repository, assets, cancellationToken);
             PrepareStandingPortraitLayouts(assets);
             PrepareNarrationSources(assets,cancellationToken);
+            PrepareStorySources(repository, assets, font, messages, locale, caches, cancellationToken);
             PrepareBottomHudSources(repository, assets, cancellationToken);
             PrepareReportSources(assets, font, messages, locale, caches, cancellationToken);
             PreparePopularitySources(repository, assets, font, messages, locale, caches, cancellationToken);
@@ -118,6 +124,12 @@ internal sealed partial class MapSystemMenuPreparedResources : IDisposable
             PrepareDeploymentSources(repository, assets, font, messages, locale, caches, cancellationToken);
             PrepareMapCommandPopupSources(repository, assets, font, messages, locale, caches, cancellationToken);
             PrepareAreaMapSources(repository, assets, font, locale, caches, cancellationToken);
+            PrepareOrdinaryInformationDetails(repository, assets, font, messages, locale, caches, cancellationToken);
+            PrepareSceneryInformationSources(repository, assets, font, messages, locale, caches, cancellationToken);
+            PrepareSpecialInformationSources(assets, font, messages, caches, cancellationToken);
+            var titleCatalogs = PrepareTitleCatalogSources(repository, assets, font, messages, locale, caches, cancellationToken);
+            PrepareSceneryLabelSources(repository, assets, font, titleCatalogs.Catalog, caches, cancellationToken);
+            PrepareTitleOfficerSources(repository, assets, font, messages, locale, caches, cancellationToken);
             // Parse both true capture parameters now; actual Type6 controls
             // and their compositor registrations still belong to the UI tree.
             _ = assets.SourceLayout(0xAEF1609E).Type6(1);
@@ -126,7 +138,8 @@ internal sealed partial class MapSystemMenuPreparedResources : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             assets.Portraits.Prepare(repository,cancellationToken);
             var overrides = new ResourceOverrides(repository.OverrideDirectory);
-            var prepared = new MapSystemMenuPreparedResources(assets, messages, font, caches, overrides, reads)
+            var prepared = new MapSystemMenuPreparedResources(assets, messages, font, caches, overrides, reads,
+                titleCatalogs.Catalog, titleCatalogs.Items, titleCatalogs.PoemEvents)
             { hudSources = hudSources };
             if (prepared.ChangedResource() is { } changed)
                 throw new ResourceReadGenerationChangedException(changed);

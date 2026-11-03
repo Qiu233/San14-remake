@@ -26,8 +26,9 @@ internal partial class DiplomacyNegotiationView
         Func<bool> admitted, Action<bool> submit, Action showForce, Action showMap,
         Action<DiplomacyNegotiationConditionKind> chooseCondition, Action clear,
         Action calculateIntelligence, Action<int> setIntelligence,
-        DiplomacyPeopleVisuals? people = null)
+        DiplomacyPeopleVisuals? people = null, AdministrationPageChrome.Resources? resources = null)
     {
+        BorrowResources(resources);
         if (draft.Kind is DiplomaticMissionKind.ReturnCaptives or DiplomaticMissionKind.DemandSurrender or DiplomaticMissionKind.Exchange)
         {
             ConfigureAdditionalTerms(repository,candidate,draft,playerForceId,appearances,text,admitted,submit,
@@ -38,7 +39,6 @@ internal partial class DiplomacyNegotiationView
         playerSender=playerForceId==draft.Request.ForceId;
         Name="DiplomacyTerms";ZIndex=90;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
         canvas=new(){Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
         bool goodwill=draft.Kind==DiplomaticMissionKind.Goodwill;
         int offset=goodwill?0:14;

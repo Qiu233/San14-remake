@@ -183,18 +183,21 @@ public static partial class PersonReturnCommands
     private static GameState PublishCurrent(GameState state, SourceWorldContext current, bool borrowedCurrent)
     {
         var owner = current.ReadOwnedPersonCommandManager() ?? throw Missing("personnel journey state");
-        var people = new Dictionary<int, OfficerState>(state.Officers);
-        foreach (var person in people.Values.ToArray())
+        Dictionary<int, OfficerState>? people = null;
+        foreach (var person in state.Officers.Values)
         {
             int physical = current.ResolveOfficerSource(person.Id) ?? throw Missing("person source identity");
             var location = person.LocationState ?? throw Missing("person location");
+            var behavior = current.ReadPersonBehavior(physical);
+            if (person.Behavior == behavior) continue;
+            people ??= new(state.Officers);
             people[person.Id] = person with
             {
-                Behavior = current.ReadPersonBehavior(physical)
+                Behavior = behavior
             };
         }
         var pool = current.ReadOwnedCurrentListPool() ?? throw Missing("association registry");
-        return OfficerLocationSourceAdapter.PublishPositions((state with { Officers = people,
+        return OfficerLocationSourceAdapter.PublishPositions((state with { Officers = people ?? state.Officers,
                 PersonnelCommands = owner }).WithArmyLifecycle(state.ReadArmyLifecycle()! with
             { Indexes = borrowedCurrent ? pool.ProjectOwnedRoles() : pool.ExportOwnedState() }), current);
     }

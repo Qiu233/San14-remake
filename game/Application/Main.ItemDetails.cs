@@ -31,8 +31,8 @@ public partial class Main
                     if(!IsInformationBrowserCurrent(browser))return;
                     var poem=rules.ReadItemPoemInformation(world,detail.CurrentItemId);
                     var view=new ItemPoemDetailsView();
-                    browser.ShowDetail(view,back=>view.Configure(_repository,_ui,poem,back,CurrentListScrollSpeed));
-                }));
+                    browser.ShowDetail(view,back=>view.Configure(_repository,_ui,poem,back,CurrentListScrollSpeed,TryBorrowApplicationUiResources(view)));
+                }),TryBorrowApplicationUiResources(detail));
         });
     }
 }

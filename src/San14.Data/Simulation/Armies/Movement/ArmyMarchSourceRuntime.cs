@@ -199,9 +199,11 @@ public sealed class ArmyMarchSourceRuntime : IArmyMovementRules
         diagnosticTarget = target;
         if (target == ArmyMarchSourceAdapter.SourceHexCount) return new(formerCredit, working);
         //2D99C0 consumes a current first waypoint before resolving the goal.
-        //Occupation14 (like Fire16) can then have its main goal here. Keep
-        //its actual301DD0/2695D0/3014C0 no-step path, not a target rejection.
+        //A real City5 entry/fallback2/11 can also have its goal here.
+        //Retain its301DD0/2695D0/3014C0 no-step path, not an arrival call.
+        //Gate3/12 keeps the existing effective Kind6 gate below.
         if (target > ArmyMarchSourceAdapter.SourceHexCount || target == current && action is not (14 or 16) &&
+            !(action is 2 or 11 && OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(working, army) is { Kind: 5 }) &&
             !OrdinaryArmyRouteSource.UsesObjectCommandMovement(working, army) &&
             !OrdinaryArmyRouteSource.HasExplicitMovementOverride(army) &&
             OrdinaryArmyRouteSource.ReadEffectiveSearchTarget(working, army) is not { Kind: 6 }) return Missing("runtime.target_scope");

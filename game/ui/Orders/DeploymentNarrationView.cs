@@ -32,25 +32,29 @@ internal partial class DeploymentNarrationView : Control
 
     internal void ConfigureAnnouncement(GameResourceRepository repository,PreviewText text,
         string expanded,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,
-        Func<bool>? admitted=null)
-        =>ConfigureCommonMessage(repository,text,expanded,null,null,consumed,automaticAdvance,admitted);
+        Func<bool>? admitted=null,AdministrationPageChrome.Resources? resources=null)
+        =>ConfigureCommonMessage(repository,text,expanded,null,null,consumed,automaticAdvance,admitted,resources);
 
     internal void ConfigurePersonMessage(GameResourceRepository repository,PreviewText text,
         string speaker,string expanded,LoadedSprite? portrait,Action consumed,
-        Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null)
-        =>ConfigureCommonMessage(repository,text,expanded,speaker,portrait,consumed,automaticAdvance,admitted);
+        Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null,
+        AdministrationPageChrome.Resources? resources=null)
+        =>ConfigureCommonMessage(repository,text,expanded,speaker,portrait,consumed,automaticAdvance,admitted,resources);
 
     private void ConfigureCommonMessage(GameResourceRepository repository,PreviewText text,
         string expanded,string? speaker,LoadedSprite? portrait,Action consumed,
-        Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted)
+        Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,
+        AdministrationPageChrome.Resources? resources)
     {
         Name="PersonnelAnnouncement";ZIndex=95;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);completed=consumed;
         readAutomaticAdvance=automaticAdvance;readAdmission=admitted;sourceLocale=text.SourceLocale;
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new(){Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
         bool person=speaker is not null;
-        var source=new UiSourceLayout(repository,person?0x3B311A21u:0xF6332D26u);
+        var source=assets.SourceLayout(person?0x3B311A21u:0xF6332D26u);
         Vector2 mount=new((1920-source.Nodes[0].Value44)/2f,980-source.Nodes[0].Value46);
         var mask=source.Art(canvas,1,source.Rectangle(1,mount),assets,shader,blend:UiSourceSprite.Blend.AlphaMask);
         var blur=source.Rectangle(2,mount);
@@ -74,7 +78,7 @@ internal partial class DeploymentNarrationView : Control
         announcement=new(){Name="AnnouncementMessage",Position=box.Position,Size=box.Size};canvas.AddChild(announcement);
         announcement.ConfigureFormattedMessage(font,MapFontProfile.FromNode(source.Nodes[bodyNode],source.Source.Source.ResourceUri));
         announcement.Draw+=()=>{if(!finished)ready=true;};announcement.Apply(expanded);
-        var cursor=new UiSourceLayout(repository,0xC09B0A33);
+        var cursor=assets.SourceLayout(0xC09B0A33);
         cursor.Art(canvas,2,cursor.Rectangle(2,source.Rectangle(person?12:5,mount).Position),assets,shader);
         BeginPageWait();SetMeta("source_layout",source.Source.Source.ResourceUri);
         Resized+=Fit;Fit();
@@ -82,19 +86,20 @@ internal partial class DeploymentNarrationView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<LoadedSprite> standingLayers,Action consumed,
-        Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null)
+        Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null,
+        AdministrationPageChrome.Resources? resources=null)
         =>ConfigureEvent(repository,text,speaker,expanded,[(2,standingLayers)],null,
-            consumed,automaticAdvance,admitted);
+            consumed,automaticAdvance,admitted,resources:resources);
 
     // Story keeps its background and already visible actors in a persistent
     // scene. This child supplies only the same source message/paging owner.
     internal void ConfigureStoryMessage(GameResourceRepository repository, PreviewText text,
         string speaker, string expanded, Action consumed,
         Func<AutomaticMessageAdvanceMode>? automaticAdvance = null, Func<bool>? admitted = null,
-        bool singleWait = false)
+        bool singleWait = false, AdministrationPageChrome.Resources? resources = null)
     {
         retainCompletedStory = true;
-        ConfigureEvent(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted, singleWait);
+        ConfigureEventCore(repository, text, speaker, expanded, [], null, consumed, automaticAdvance, admitted, singleWait, resources);
     }
 
     internal void RetainStoryPage()
@@ -107,11 +112,11 @@ internal partial class DeploymentNarrationView : Control
     internal void ConfigureRecruitConversation(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<LoadedSprite> executorLayers,IReadOnlyList<LoadedSprite> targetLayers,
         bool executorSpeaking,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,
-        Func<bool>? admitted=null)
+        Func<bool>? admitted=null,AdministrationPageChrome.Resources? resources=null)
         //83A290's actual slot table maps Talk's slots3/4 to nodes6/5.
         //The side flag selects source animation names, not a guessed X flip.
         =>ConfigureEvent(repository,text,speaker,expanded,[(6,executorLayers),(5,targetLayers)],
-            executorSpeaking?3:4,consumed,automaticAdvance,admitted);
+            executorSpeaking?3:4,consumed,automaticAdvance,admitted,resources:resources);
 
     // The real route has already selected three parts or thirty frames.
     // Its application owner is required; the page owns only its controls.
@@ -124,11 +129,12 @@ internal partial class DeploymentNarrationView : Control
 
     private void ConfigureEvent(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<(int Node,IReadOnlyList<LoadedSprite> Layers)> participants,
-        int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,bool singleWait = false)
+        int? activeSlot,Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance,Func<bool>? admitted,bool singleWait = false,
+        AdministrationPageChrome.Resources? resources=null)
         =>ConfigureEventCore(repository,text,speaker,expanded,
             participants.Where(participant=>participant.Layers.Count>0).Select(participant=>(participant.Node,
                 (Action<UiSourceStandingPortrait>)(portrait=>portrait.Configure(repository,assets!,shader!,participant.Layers)))).ToArray(),
-            activeSlot,consumed,automaticAdvance,admitted,singleWait);
+            activeSlot,consumed,automaticAdvance,admitted,singleWait,resources);
 
     private void ConfigureEventCore(GameResourceRepository repository,PreviewText text,string speaker,
         string expanded,IReadOnlyList<(int Node,Action<UiSourceStandingPortrait> Configure)> participants,

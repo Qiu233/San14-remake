@@ -78,6 +78,7 @@ struct DeviceScope {
 
 class Renderer {
     DrawScope drawScope;
+    std::shared_ptr<const San14::Render::NativeDirectEffectPrograms> directPrograms;
     LightingQueue lighting;
     Resources resources;Frame frame;ComPtr<ID3D11Buffer> dynamic;UINT dynamicBytes{};
     std::uint64_t sequence{};
@@ -191,8 +192,12 @@ class Renderer {
     }
 public:
     explicit Renderer(DrawScope scope={}):drawScope(scope){}
+    explicit Renderer(std::shared_ptr<const San14::Render::NativeDirectEffectPrograms> programs):directPrograms(std::move(programs)) {
+        if(!directPrograms)throw std::invalid_argument("Direct Effect application programs are absent");
+    }
     std::uint64_t createDirect(ID3D11Device* device,Bytes bytes) {
-        auto allocation=std::make_unique<DirectAllocation>(device,bytes);const auto id=nextDirectId++;
+        if(!directPrograms)throw std::runtime_error("Direct Effect owner has no prepared programs");
+        auto allocation=std::make_unique<DirectAllocation>(device,bytes,*directPrograms);const auto id=nextDirectId++;
         direct.emplace(id,std::move(allocation));return id;
     }
     void submitDirect(ID3D11Device* device,ID3D11DeviceContext* context,std::uint64_t id,Bytes bytes) {direct.at(id)->submit(device,context,bytes);}

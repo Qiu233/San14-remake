@@ -201,23 +201,33 @@ public sealed partial class PersonAssignmentPrecallInputs
         {
             if (Word(state, PersonResetWord1FFKey(person)) is ushort word) current.WritePersonResetWord1FF(person, word);
             if (Byte(state, PersonResetByte1FEKey(person)) is byte flag) current.WritePersonResetByte1FE(person, flag);
-            int? length = Value(state, PersonAreaLengthKey(person), true), count = Value(state, PersonAreaCount1E8Key(person), true);
-            int[]? vector = null;
-            if (length is >= 0 && count.HasValue)
-            {
-                var entries = new int[length.Value]; bool known = true;
-                for (int i = 0; i < entries.Length; i++)
-                    if (Value(state, PersonAreaEntryKey(person, i), true) is int value) entries[i] = value;
-                    else { known = false; break; }
-                if (known) vector = entries;
-            }
-            current.SetAssignmentPersonAreaVector(person, vector is null || !count.HasValue ? null : new(vector, count.Value));
+            current.SetAssignmentPersonAreaVector(person, ReadPersonAreaVector(state, person));
         }
         current.AssignmentAreaOfficerRemoval = (area, oldId) =>
         {
             var result = PersonAssignmentPrecallSource.Apply2E01E0AreaRemoval(current, area, oldId);
             return result.NativeReturn.HasValue ? result.NativeReturn != 0 : throw new InvalidDataException(result.UnresolvedOwner);
         };
+    }
+    // A reached Base transfer can borrow a thin current with only assignment
+    // scalars. Fill absent vector receivers from the saved owner once; existing
+    // receivers, including explicit unknowns and staged writes, remain authoritative.
+    internal void BindMissingPersonAreaVectors(GameState state, SourceWorldContext current)
+    {
+        if (current.HasCompleteAssignmentPersonAreaReceivers) return;
+        for (int person = 0; person < 1851; person++)
+            if (!current.HasAssignmentPersonAreaReceiver(person))
+                current.SetAssignmentPersonAreaVector(person, ReadPersonAreaVector(state, person));
+    }
+    private static PersonAreaAssignmentVector? ReadPersonAreaVector(GameState state, int person)
+    {
+        int? length = Value(state, PersonAreaLengthKey(person), true), count = Value(state, PersonAreaCount1E8Key(person), true);
+        if (length is not >= 0 || !count.HasValue) return null;
+        var entries = new int[length.Value];
+        for (int i = 0; i < entries.Length; i++)
+            if (Value(state, PersonAreaEntryKey(person, i), true) is int value) entries[i] = value;
+            else return null;
+        return new(entries, count.Value);
     }
     public static GameState PublishCurrent(GameState state, SourceWorldContext current)
     {
@@ -301,6 +311,9 @@ public sealed partial class SourceWorldContext
     public byte? ReadAssignmentArea6D(int p) { Check(p, 501, "Area6D"); return _assignmentArea6D.GetValueOrDefault(p); }
     public void SetAssignmentForceAssociation(int p, int i, ushort? person, byte? target)
     { Check(p, 52, "Force association"); Check(i, 3, "Force association ordinal"); _associationPersons[(p, i)] = person; _associationTargets[(p, i)] = target; }
+    internal bool HasCompleteAssignmentPersonAreaReceivers => _assignmentPersonAreas.Count == 1851;
+    internal bool HasAssignmentPersonAreaReceiver(int p)
+    { Check(p, 1851, "Person area vector1D0"); return _assignmentPersonAreas.ContainsKey(p); }
     public void SetAssignmentPersonAreaVector(int p, PersonAreaAssignmentVector? fields)
     { Check(p, 1851, "Person area vector1D0"); _assignmentPersonAreas[p] = fields; }
     public PersonAreaAssignmentVector? ReadAssignmentPersonAreaVector(int p)

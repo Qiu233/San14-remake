@@ -12,7 +12,7 @@ internal partial class GateInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new GateInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "GateInformationList", "gate_information_group", resources: resources);
+            close, inspect, scrollSpeed, "GateInformationList", "gate_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

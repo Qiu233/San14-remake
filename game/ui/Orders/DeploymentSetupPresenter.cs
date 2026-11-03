@@ -259,7 +259,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
             RefreshEditedSummary(officer,value);
             RefreshUnit();RefreshHeader();
         });
-        view.UnitInformation.ApplyLandFormationChoices(rules.QueryDeploymentLandFormationChoices(world,officer),
+        view.UnitInformation.ApplyLandFormationChoices(rules.QueryDeploymentLandFormationChoices(world,officer,prepareBalloons:true),
             working.Request.FormationId,formation=>
             {
                 if(disposed||definitionModal is not null)return;
@@ -271,15 +271,15 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
                     LandFormationAcceptedSequence++;
                     RecordSettingsChange(previous);RefreshAll();
                 }
-            });
+            },()=>UnitConfigurationActive);
         view.UnitInformation.ApplyTacticChoices(rules.QueryDeploymentTacticChoices(world,officer,
-            working.Request.FormationId,working.Request.TacticIds),occurrence=>
+            working.Request.FormationId,working.Request.TacticIds,prepareBalloons:true),occurrence=>
             {
                 if(disposed||definitionModal is not null)return;
                 var previous=Draft.Rows;
                 if(Draft.ToggleTacticOccurrence(occurrence) is { } error)unavailable(error);
                 else {RecordSettingsChange(previous);RefreshAll();}
-            });
+            },()=>UnitConfigurationActive);
         view.UnitInformation.ApplyDefinitionButtons(OpenFormationDefinitions,OpenTacticDefinitions);
         RefreshUnitPresentation(officer,working.Request.FormationId,info.UsesSpecialNavalTacticText);
     }

@@ -80,8 +80,14 @@ public sealed partial class ArmyCampaignRuleAdapter
             void Transfer(int person, int district)
             {
                 var results = new List<PersonAssignmentPrecallResult>();
-                PersonDistrictTransfer.Apply(person, district, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
-                    results, result => operation.Assignment(person, result)));
+                var previousRefresh = current.TransferServiceRefresher;
+                current.TransferServiceRefresher = operation.RefreshPersonnelMilestoneCurrent;
+                try
+                {
+                    PersonDistrictTransfer.Apply(person, district, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(current,
+                        results, result => operation.Assignment(person, result)));
+                }
+                finally { current.TransferServiceRefresher = previousRefresh; }
                 latest = PersonAssignmentPrecallInputs.PublishDeathTouched(latest, current, person, results);
             }
         }

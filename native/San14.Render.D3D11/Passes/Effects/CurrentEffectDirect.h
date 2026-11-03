@@ -2,6 +2,7 @@
 #include "CurrentEffectRendererResources.h"
 #include "../../Interop/CurrentEffectDirectInput.h"
 #include <d3dcompiler.h>
+#include "../../Device/DirectEffectPrograms.h"
 
 namespace current_effect {
 struct ComputeScope {
@@ -39,7 +40,7 @@ class DirectAllocation {
     }
 public:
     San14EffectDirectHeaderV1 declaration{};
-    DirectAllocation(ID3D11Device* device,Bytes bytes) {
+    DirectAllocation(ID3D11Device* device,Bytes bytes,const San14::Render::NativeDirectEffectPrograms& sharedPrograms) {
         if(device->GetCreationFlags()&D3D11_CREATE_DEVICE_SINGLETHREADED)throw std::runtime_error("Direct Effect worker requires a multithread-capable device");
         declaration=value<San14EffectDirectHeaderV1>(bytes,0);const auto& h=declaration;
         if(h.magic!=0x31444543||h.version!=1||!h.requiredKernels||(h.requiredKernels&~0x1FFu))
@@ -75,9 +76,14 @@ public:
             if(row.kernel>8)throw std::runtime_error("Direct Effect kernel code");
             const auto source=string(bytes,row.sourceOffset,row.sourceBytes),entry=string(bytes,row.entryOffset,row.entryBytes),profile=string(bytes,row.profileOffset,row.profileBytes);
             if(profile!="cs_5_0")throw std::runtime_error("Direct Effect compute profile");
-            ComPtr<ID3DBlob> code,error;HRESULT result=D3DCompile(source.data(),source.size(),"project-direct-effect",nullptr,nullptr,entry.c_str(),profile.c_str(),D3DCOMPILE_ENABLE_STRICTNESS,0,&code,&error);
-            if(FAILED(result)){std::string message="Direct Effect HLSL compile failed";if(error)message.append(": ").append(static_cast<const char*>(error->GetBufferPointer()),error->GetBufferSize());throw std::runtime_error(message);}
-            ComPtr<ID3D11ComputeShader> shader;check(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&shader),"Direct Effect actual compute shader");
+            auto shader=sharedPrograms.find(source,entry,profile);
+            // SupplyProgram remains an explicit extension point. Built project
+            // programs take the prepared bank path, including their first use.
+            if(!shader) {
+                ComPtr<ID3DBlob> code,error;HRESULT result=D3DCompile(source.data(),source.size(),"project-direct-effect",nullptr,nullptr,entry.c_str(),profile.c_str(),D3DCOMPILE_ENABLE_STRICTNESS,0,&code,&error);
+                if(FAILED(result)){std::string message="Direct Effect HLSL compile failed";if(error)message.append(": ").append(static_cast<const char*>(error->GetBufferPointer()),error->GetBufferSize());throw std::runtime_error(message);}
+                check(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&shader),"Direct Effect actual compute shader");
+            }
             if(!programs.emplace(row.kernel,std::move(shader)).second)throw std::runtime_error("Direct Effect duplicate kernel");available|=1u<<row.kernel;
         }
         if((available&h.requiredKernels)!=h.requiredKernels)throw std::runtime_error("Direct Effect required actual programs absent");

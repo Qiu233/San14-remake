@@ -112,8 +112,16 @@ public sealed partial class ArmyCampaignRuleAdapter : ICommanderAutomaticTactics
                             if (slot >= equipped.Count) return new CommanderHudTacticSlot(slot, null, null, false, null);
                             int id = equipped[slot];
                             string name = state.Tactics.GetValueOrDefault(id)?.Name ?? throw CommanderHudMissing("tactic_name");
-                            bool? enabled = progress ? tacticRules.ReadManualInterventionEligibility(state, unit!, id, period) : false;
-                            return new CommanderHudTacticSlot(slot, id, name, enabled, enabled is null ? "manual_tactic.command_eligibility" : null);
+                            var eligibility = progress
+                                ? tacticRules.ReadManualInterventionEligibilityResult(state, unit!, id, period)
+                                : new ManualInterventionEligibility(false);
+                            CommanderTacticBalloon? balloon = null;
+                            string? balloonMissing = null;
+                            try { balloon = ReadCommanderTacticBalloonCurrent(current, id, eligibility.ReasonMessageId); }
+                            catch (InvalidDataException error) { balloonMissing = error.Message; }
+                            return new CommanderHudTacticSlot(slot, id, name, eligibility.Enabled,
+                                eligibility.Enabled is null ? "manual_tactic.command_eligibility" : null)
+                            { Balloon = balloon, BalloonUnresolvedInput = balloonMissing };
                         }).ToArray();
                     }) ?? [];
                 return new(ordinal, card.OfficerId, card.Name, status)

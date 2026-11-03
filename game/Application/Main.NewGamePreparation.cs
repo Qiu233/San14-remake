@@ -143,7 +143,10 @@ public partial class Main
     {
         var owner=_newGamePreparation;if(owner is null)return;
         _newGamePreparation=null;owner.Retired=true;owner.Lifetime.Cancel();
-        owner.View.Abandon();owner.View.QueueFree();
+        // The worker still borrows this view's application portrait sources.
+        // Hide/cancel now; retain its real UI lease until that worker exits.
+        owner.View.Abandon();
+        if(owner.WorkerFinished)owner.View.QueueFree();
         if(restoreParent && !_failed && !_shuttingDown)
         {
             if(owner.Setup is not null && ReferenceEquals(_newGameSetup,owner.Setup)) owner.Setup.SetBusy(false);
@@ -153,7 +156,14 @@ public partial class Main
         if(owner.WorkerFinished)owner.Lifetime.Dispose();
     }
     private void FinishNewGamePreparationWorker(NewGamePreparationWorkspace owner)
-    { owner.WorkerFinished=true;if(owner.Retired)owner.Lifetime.Dispose(); }
+    {
+        owner.WorkerFinished=true;
+        if(owner.Retired)
+        {
+            owner.View.QueueFree();
+            owner.Lifetime.Dispose();
+        }
+    }
 
     private void BeginNewGameScenarioPreparation(int index, int? restoreForce=null, bool restoreSettings=false)
     {

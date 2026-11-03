@@ -15,11 +15,12 @@ public partial class Main
         var view = new CollectionOfficersView(); _collectionOfficers = view; AddChild(view); parent.Hide();
         try
         {
+            var prepared = TryBorrowApplicationPreparedResources(view);
             view.Configure(_repository, _ui, catalog,
                 () => !_failed && !_shuttingDown && _collectionMenu == parent &&
                     _collectionOfficers == view && _titleMenu is not null,
                 () => RunUiAction(() => CloseCollectionOfficers(restoreMenu: true)),
-                CurrentListScrollSpeed, RunUiAction, PlayCollectionOfficerVoice);
+                CurrentListScrollSpeed, RunUiAction, PlayCollectionOfficerVoice, prepared.CreateChromeResources());
         }
         catch { CloseCollectionOfficers(restoreMenu: true); throw; }
     }

@@ -25,6 +25,9 @@ internal partial class MapInformationListView : Control
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
+    private Control bodyCanvas = null!;
+    private UiSourceRoundButton returnButton = null!;
+    private readonly Dictionary<int, (Node2D Root, Vector2 ContentMount)> motionGroups = [];
     private Control rows => activeTable.RowsHost;
     private UiSourceScrollbar scrollbar = null!;
     private List<RowDisplay> rowPool => activeTable.RowPool;
@@ -53,6 +56,10 @@ internal partial class MapInformationListView : Control
     private int? selectedIndex;
     internal bool? NameSortAscending => activeTable?.SortedColumn == "name" ? activeTable.Ascending : null;
     internal Control SourceCanvas => canvas;
+    internal Control SourceBodyCanvas => bodyCanvas;
+    internal Node2D SourceFooterRoot => motionGroups[6].Root;
+    internal void HideReturnButton() => returnButton.Hide();
+    internal IReadOnlyDictionary<int, (Node2D Root, Vector2 ContentMount)> MotionGroups => motionGroups;
     internal UiAssets SourceAssets => assets;
     internal MapFont SourceFont => font;
     internal Shader SourceShader => shader;
@@ -80,13 +87,19 @@ internal partial class MapInformationListView : Control
         { assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader; }
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
+        var bodyMotion = new Node2D { Name = "InformationListBodyMotion" }; canvas.AddChild(bodyMotion);
+        bodyCanvas = new() { Name = "InformationListBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+        bodyMotion.AddChild(bodyCanvas);
+        motionGroups.Add(1, (bodyMotion, Vector2.Zero));
         if (includeHeader)
         {
-            header = new(); canvas.AddChild(header); header.Configure(repository, assets, shader, font, title);
+            var headerMotion = new Node2D { Name = "InformationListHeaderMotion" }; canvas.AddChild(headerMotion);
+            header = new(); headerMotion.AddChild(header); header.Configure(repository, assets, shader, font, title);
+            motionGroups.Add(4, (headerMotion, Vector2.Zero));
         }
         var source = new UiSourceLayout(repository, 0xA3B4A82E); tableSource=source;
-        source.Blur(canvas, 2, source.Rectangle(2, new(191, 147)));
-        source.Art(canvas, 3, source.Rectangle(3, new(191, 147)), assets, shader);
+        source.Blur(bodyCanvas, 2, source.Rectangle(2, new(191, 147)));
+        source.Art(bodyCanvas, 3, source.Rectangle(3, new(191, 147)), assets, shader);
         if (tabCaptions is not null)
         {
             Vector2 tabPosition = source.Rectangle(4, new(191, 147)).Position;
@@ -96,7 +109,7 @@ internal partial class MapInformationListView : Control
                 float width = tabCaptions[index].Length * 28 + 36;
                 var tab = new UiSourceTabButton { Name = "InformationSection" + index,
                     Position = tabPosition, Size = new(width, 64), InputAdmission = ReadAdmission };
-                canvas.AddChild(tab); tabs.Add(tab);
+                bodyCanvas.AddChild(tab); tabs.Add(tab);
                 tab.Configure(repository, assets, shader, font, tabCaptions[index],
                     tabCaptions.Count == 1 ? 0x9AFB27B7u : index == 0 ? 0x172EDC24u
                         : index == tabCaptions.Count - 1 ? 0xD45873AAu : 0x9AFB27B7u);
@@ -121,14 +134,19 @@ internal partial class MapInformationListView : Control
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "InformationListReturn",
             Position = footer.Rectangle(returnNode, new(0, 904)).Position, InputAdmission = ReadAdmission };
-        canvas.AddChild(back);
+        var footerMotion = new Node2D { Name = "InformationListFooterMotion" }; canvas.AddChild(footerMotion);
+        footerMotion.AddChild(back); motionGroups.Add(6, (footerMotion, new(0, 904)));
+        returnButton = back;
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestBack, UiAudioCue.Cancel);
         if (notice is not null)
         {
             Vector2 mount = footer.Rectangle(19, new(0, 904)).Position;
+            var narrationMotion = new Node2D { Name = "InformationListNarrationMotion" }; canvas.AddChild(narrationMotion);
+            var helpCanvas = new Control { Name = "InformationListGuide", MouseFilter = MouseFilterEnum.Ignore };
+            narrationMotion.AddChild(helpCanvas); motionGroups.Add(7, (narrationMotion, mount));
             foreach (var node in help.Nodes.Where(node => node.Type is 1 or 3))
-                help.Art(canvas, node.Index, help.Rectangle(node.Index, mount), assets, shader);
-            noticeText=help.Text(canvas, textNode.Index, mount, notice, font);
+                help.Art(helpCanvas, node.Index, help.Rectangle(node.Index, mount), assets, shader);
+            noticeText=help.Text(helpCanvas, textNode.Index, mount, notice, font);
         }
         SetMeta("original_complete_column_profile", completeColumnProfile);
         Resized += Fit; Fit(); PositionRows();
@@ -196,7 +214,7 @@ internal partial class MapInformationListView : Control
             viewport.Size = new(1464, 648);
         }
         if (tableGeometry.NarrowTable) viewport.Size = new(totalWidth, viewport.Size.Y);
-        canvas.AddChild(viewport); state.Viewport=viewport;
+        bodyCanvas.AddChild(viewport); state.Viewport=viewport;
         var table = new Control { Name = "InformationTable", CustomMinimumSize = new(rowWidth, 668),
             MouseFilter = MouseFilterEnum.Pass };
         viewport.AddChild(table);
@@ -242,7 +260,7 @@ internal partial class MapInformationListView : Control
                 scrollbar.Position = box.Position; scrollbar.Size = box.Size;
             }
             if (tableGeometry.NarrowTable) scrollbar.Position = new(191 + totalWidth + 26, scrollbar.Position.Y);
-            canvas.AddChild(scrollbar);
+            bodyCanvas.AddChild(scrollbar);
             scrollbar.Configure(repository, assets, shader, Math.Max(0, publication.Count * 48 - (int)rows.Size.Y),
                 scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
         }
@@ -307,7 +325,7 @@ internal partial class MapInformationListView : Control
         }
         PositionRows();
     }
-    private bool ReadAdmission() => !abandoned && IsVisibleInTree() && (admitted?.Invoke() ?? false);
+    private bool ReadAdmission() => !abandoned && CanProcess() && IsVisibleInTree() && (admitted?.Invoke() ?? false);
     internal void RequestBack() { if (ReadAdmission()) returned?.Invoke(); }
     private void PositionRows()
     {

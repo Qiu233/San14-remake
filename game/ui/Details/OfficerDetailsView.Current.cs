@@ -12,6 +12,7 @@ public partial class OfficerDetailsView
     private MapFont? currentFont;
     private Shader? currentShader;
     private Control currentCanvas = null!;
+    private Control currentBodyCanvas = null!;
     private readonly Control?[] currentPages = new Control?[3];
     private readonly List<UiSourceCommandButton> pageButtons = [];
     private readonly Dictionary<(string Pack, string Name), LoadedSprite> detailSprites = [];
@@ -52,17 +53,22 @@ public partial class OfficerDetailsView
         ConfigureSourcePage("OfficerDetails", header, close);
         currentCanvas = new() { Name = "OfficerSourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(currentCanvas);
+        var bodyMotion = new Node2D { Name = "OfficerDetailsBodyMotion" }; currentCanvas.AddChild(bodyMotion);
+        currentBodyCanvas = new() { Name = "OfficerDetailsBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+        bodyMotion.AddChild(currentBodyCanvas);
+        var headerMotion = new Node2D { Name = "OfficerDetailsHeaderMotion" }; currentCanvas.AddChild(headerMotion);
+        var footerMotion = new Node2D { Name = "OfficerDetailsFooterMotion" }; currentCanvas.AddChild(footerMotion);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
-        shell.Blur(currentCanvas, 2, shell.Rectangle(2, new(191, 147)));
-        shell.Art(currentCanvas, 3, shell.Rectangle(3, new(191, 147)), CurrentAssets, CurrentShader);
+        shell.Blur(currentBodyCanvas, 2, shell.Rectangle(2, new(191, 147)));
+        shell.Art(currentBodyCanvas, 3, shell.Rectangle(3, new(191, 147)), CurrentAssets, CurrentShader);
         if (header is not null)
         {
-            currentCanvas.AddChild(header);
+            headerMotion.AddChild(header);
             header.Configure(repository, CurrentAssets, CurrentShader, CurrentFont, PersonMessage(0x468));
             var footer = new UiSourceLayout(repository, 0xD8913AB2);
             var back = new UiSourceRoundButton { Name = "CloseOfficerDetails", Position = footer.Rectangle(1, new(0, 904)).Position,
                 InputAdmission = DetailInputAdmitted };
-            currentCanvas.AddChild(back);
+            footerMotion.AddChild(back);
             back.ConfigureScenarioReturn(repository, CurrentAssets, CurrentShader, text.SourceLocale, RequestClose);
         }
         if (showNavigation || showPageButtons)
@@ -76,7 +82,7 @@ public partial class OfficerDetailsView
                 float width = Math.Max(96, caption.Length * 28 + 20);
                 var button = new UiSourceCommandButton { Name = "OfficerPage" + page,
                     Position = new(x, 889), Size = new(width, 48), InputAdmission = DetailInputAdmitted };
-                currentCanvas.AddChild(button);
+                footerMotion.AddChild(button);
                 button.Configure(repository, CurrentAssets, CurrentShader, CurrentFont, caption,
                     () => { if (DetailInputAdmitted()) ShowCurrentPage(target); });
                 pageButtons.Add(button); x += width;
@@ -84,10 +90,10 @@ public partial class OfficerDetailsView
         }
         if (showNavigation && selection is not null)
         {
-            currentSelector = new(); currentCanvas.AddChild(currentSelector);
+            currentSelector = new(); currentBodyCanvas.AddChild(currentSelector);
             // The selector's transparent full-canvas host must remain below
             // the footer commands so it cannot consume their pointer input.
-            currentCanvas.MoveChild(currentSelector, 2);
+            currentBodyCanvas.MoveChild(currentSelector, 2);
             currentSelector.Configure(repository, CurrentAssets, CurrentShader, CurrentFont, text,
                 selection, InformationListKind.Officers, view.OfficerId, DetailInputAdmitted, select);
             // Only the selector's actual header, rows and scrollbar accept
@@ -95,9 +101,12 @@ public partial class OfficerDetailsView
             currentSelector.MouseFilter = MouseFilterEnum.Ignore;
         }
         UpdatePageAvailability();
-        detailTooltip = new(); currentCanvas.AddChild(detailTooltip);
+        detailTooltip = new(); currentBodyCanvas.AddChild(detailTooltip);
         detailTooltip.Configure(repository, CurrentAssets, CurrentShader, CurrentFont);
         ShowCurrentPage(0);
+        if (showNavigation)
+            ConfigureReturnTransition(CurrentAssets.SourceLayout(0xF9C5DB14), new Dictionary<int, (Node2D, Vector2)>
+            { [1] = (bodyMotion, Vector2.Zero), [4] = (headerMotion, Vector2.Zero), [6] = (footerMotion, new(0, 904)) });
         Resized += FitCurrentCanvas; FitCurrentCanvas();
         SetMeta("officer_id", view.OfficerId);
         SetMeta("current_unresolved_owners", view.UnresolvedOwners.ToArray());
@@ -163,9 +172,9 @@ public partial class OfficerDetailsView
         {
             var body = new Control { Name = "OfficerBody" + page, Position = new(191, 197), Size = new(1540, 688),
                 MouseFilter = MouseFilterEnum.Ignore };
-            currentCanvas.AddChild(body);
+            currentBodyCanvas.AddChild(body);
             // Navigation and tooltip stay above all lazily created pages.
-            currentCanvas.MoveChild(body, 2);
+            currentBodyCanvas.MoveChild(body, 2);
             currentPages[page] = body;
             BuildCurrentPage(body, page);
         }

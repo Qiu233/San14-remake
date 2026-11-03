@@ -5,7 +5,7 @@ using San14.Data.Formats;
 internal sealed record AreaAdministrationOfficerTraitValue(int Id,string Name,byte Style,
     Func<AreaAdministrationQuery<string?>>? Tooltip=null);
 internal sealed record AreaAdministrationOfficerValues(string? Name,IReadOnlyList<AreaAdministrationAbilityValue>? Abilities,
-    LoadedSprite? Portrait,DetailForceAppearance? Force,IReadOnlyList<AreaAdministrationOfficerTraitValue>? Traits);
+    OfficerPortraitRoute? Portrait,DetailForceAppearance? Force,IReadOnlyList<AreaAdministrationOfficerTraitValue>? Traits);
 
 /// <summary>The actual common officer card mounted by the region page. Every
 /// group is replaced from the same draft publication, including unknowns.</summary>
@@ -22,7 +22,7 @@ internal partial class AreaAdministrationOfficerView : Control
     private UiSourceText unknownTraits=null!,unknownFlag=null!;
     private UiSourcePortrait? portrait;
     private Control portraitHost=null!;
-    private LoadedSprite? portraitSource;
+    private LoadedUiSpriteSource? portraitSource;
     private UiSourceForceFlag? flag;
     private DetailForceAppearance? flagAppearance;
     private string unknown="";
@@ -71,11 +71,12 @@ internal partial class AreaAdministrationOfficerView : Control
         ClearTooltip();currentTraits=value.Traits;
         nameButton.Caption=value.Name??unknown;nameButton.Disabled=!canChoose;
         chart.Apply(value.Abilities);
-        if(!ReferenceEquals(portraitSource,value.Portrait))
+        var faceSource=assets.RequireStockPortraitSource(value.Portrait);
+        if(!ReferenceEquals(portraitSource,faceSource))
         {
             if(portrait is not null){portrait.Hide();portrait.Name="PreviousOfficerPortrait";portrait.QueueFree();portrait=null;}
-            portraitSource=value.Portrait;
-            if(value.Portrait is { } face)
+            portraitSource=faceSource;
+            if(faceSource is { } face)
             {
                 var box=source.Rectangle(9);portrait=new UiSourcePortrait {Name="OfficerPortrait",Position=box.Position,Size=box.Size};portraitHost.AddChild(portrait);
                 portrait.ConfigureOfficerCard(repository,assets,shader,face);

@@ -29,7 +29,7 @@ internal partial class ForeignTradeOrdersView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,Func<bool> admitted,
         Action returned,Action accepted,Action chooseCountry,Action chooseExecutors,
-        Action<bool> chooseAmount,Action<int> chooseTroops,Action chooseItem,Action resetItem)
+        Action<bool> chooseAmount,Action<int> chooseTroops,Action chooseItem,Action resetItem, AdministrationPageChrome.Resources? resources = null)
     {
         this.text=text;this.admitted=admitted;this.returned=returned;
         Name="ForeignTradeOrders";ZIndex=3;MouseFilter=MouseFilterEnum.Stop;
@@ -37,7 +37,7 @@ internal partial class ForeignTradeOrdersView : Control
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome=new();AddChild(chrome);
         chrome.Configure(repository,text,0x0700,RequestBack,()=>
-        {if(ReadAdmission()&&page?.CanConfirm==true)accepted();});
+        {if(ReadAdmission()&&page?.CanConfirm==true)accepted();}, resources: resources);
         var source=new UiSourceLayout(repository,0xF1DA2D4C);Vector2 mount=new(460,147);
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException($"Missing foreign trade caption {id:X4}.");

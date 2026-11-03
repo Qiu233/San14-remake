@@ -63,7 +63,7 @@ internal partial class ActionReportView : Control
         Func<int>? currentScrollSpeed, Func<CampaignHistoryRecord, ActionReportDetailRowContent> resolveDetails,
         Action<byte, int, CampaignHistoryRecord?, int> rowEvent, Func<byte, IReadOnlyList<string>> preparePages,
         Func<bool> inputAdmitted, Action closed, Action<Exception> failed, UiSourceHeaderStack headers,
-        byte initialCategory = 1)
+        byte initialCategory = 1, LoadedStandingPortraitSources? preparedStandingLayers = null)
     {
         ArgumentNullException.ThrowIfNull(preparePages);
         ArgumentNullException.ThrowIfNull(inputAdmitted);
@@ -76,12 +76,12 @@ internal partial class ActionReportView : Control
         MouseFilter = MouseFilterEnum.Stop;
         canvas = new Control { Name = "ActionReportCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Pass };
         AddChild(canvas);
-        var source = new UiSourceLayout(repository, 0xDBB537B1);
+        var source = assets.SourceLayout(0xDBB537B1);
         source.Blur(canvas, 3, source.Rectangle(3));
         source.Art(canvas, 4, source.Rectangle(4), assets, shader);
         strategist = new ActionReportStrategistView { Name = "ReportStrategist", Position = source.Rectangle(85).Position };
         canvas.AddChild(strategist);
-        strategist.Configure(repository, assets, shader, font, standingLayers);
+        strategist.Configure(repository, assets, shader, font, standingLayers, preparedStandingLayers);
         lists = new ActionReportListsView { Name = "ReportLists" };
         canvas.AddChild(lists);
         lists.Configure(repository, assets, shader, font, locale, content, scrollSpeedSetting,

@@ -327,7 +327,14 @@ public sealed class PlayableWaypointOrders(IOrderRules next, PlayableLandRoutes 
         for (int index = 0; index < selected.Count; index++)
         {
             var unit = selected[index];
-            units[unit.Id] = unit with { Behavior = proposed[index] };
+            var updated = unit with { Behavior = proposed[index] };
+            //The native completion consumers retain their independent41
+            //choice. Only an explicit after-action/full behavior write uses
+            //the creator's Retreat1/Stay2 encoding; other radio pairs must
+            //not replace a retained0 or an unknown choice as a side effect.
+            if (unit.NativeArmyOrigin is not null && (setting is null or UnitBehaviorSetting.AfterRetreat))
+                updated = updated with { NativeCommandChoice41 = proposed[index].AfterAction == DeploymentAfterAction.Retreat ? (byte)1 : (byte)2 };
+            units[unit.Id] = updated;
         }
         return CommandResult.Accept(state with { Units = units });
     }

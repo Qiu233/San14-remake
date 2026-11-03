@@ -154,7 +154,7 @@ public partial class Main
             var view = new PersonnelCreditView();
             view.DecisionAdmission = () => PersonnelCreditDecisionAdmission?.Invoke() ?? true;
             view.ReturnAdmission = () => PersonnelCreditReturnAllowed;
-            var content = new AreaAdministrationOfficerContent(_repository);
+            var content = new AreaAdministrationOfficerContent();
             var portraits = new Dictionary<int, LoadedSprite?>();
             var sprites = new LocalizedUiSpriteSource(_repository);
             foreach (var row in draft.Rows)
@@ -177,7 +177,7 @@ public partial class Main
                     {
                         if (IsPersonnelAdministrationCurrent(view) && draft.ApplyAutomatic(mode))
                         { _personnelCreditChoiceAcceptedSequence++; Refresh(); }
-                    }));
+                    }), resources: TryBorrowApplicationUiResources(view));
                 Refresh();
                 BindCurrentTutorialCreditAndDoctrine();
             }, view.Abandon, ClosePersonnelAdministration);

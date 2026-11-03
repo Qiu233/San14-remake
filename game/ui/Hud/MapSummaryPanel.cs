@@ -99,6 +99,7 @@ internal partial class MapSummaryPanel : Control
             existing.View.Visible=Shown(image.Node,page);
             ApplyColors(existing.View,page.Colors.TryGetValue(image.Node,out var color)?color:null);
         }
+        ApplyDevelopmentArrow(page);
         foreach(var(_,view) in portraits.Values)view.Hide();
         foreach(var portrait in page.Portraits)ApplyPortrait(portrait,page);
         foreach(var(_,clip,_) in gauges.Values)clip.Hide();

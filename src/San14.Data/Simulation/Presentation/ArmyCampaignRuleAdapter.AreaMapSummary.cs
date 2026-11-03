@@ -116,6 +116,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (kind is < 1 or > 3) throw AreaSummaryMissing("income_kind");
         var output = new AreaSummaryPublication(receiver, "00_82_05_sum_city_offset_03") { Valid = true };
+        output.Presets[4] = 0;
         output.Read(3, () => { output.Text[3] = ReadHistoryDataText(1, 0x20F); output.Presets[3] = 13; });
         output.Images.Add(new(2, kind == 1 ? "000_cmn_icon_kane_fuchi" : kind == 2
             ? "000_cmn_icon_hyourou_fuchi" : "000_cmn_icon_heishi_fuchi"));
@@ -172,9 +173,11 @@ public sealed partial class ArmyCampaignRuleAdapter
             output.Bars.Add(new(2, value, capacity, 1) { InitialCurrent = 70, InitialMaximum = 100 });
             if (!maximum)
             {
+                string prefix = ReadHistoryDataText(1, 0x250), valueText = AreaSummaryNumber(level);
+                output.DevelopmentMeasure = new(prefix, valueText);
                 bool special = AreaSummarySpecial(current, area);
-                output.Text[9] = special ? string.Empty : ReadHistoryDataText(1, 0x250);
-                output.Text[11] = special ? string.Empty : AreaSummaryNumber(level);
+                output.Text[9] = special ? string.Empty : prefix;
+                output.Text[11] = special ? string.Empty : valueText;
                 int physical = AreaSummaryNeed(area.PhysicalSlot, "development_Area_identity");
                 bool arrow = false;
                 if (AreaSummaryNeed(current.ReadAssignmentArea72(physical), "development_Area72") == kind)
@@ -293,6 +296,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         MapSummaryReceiver receiver, AreaReference area)
     {
         var output = new AreaSummaryPublication(receiver, "00_82_05_sum_city_offset_02") { Valid = true };
+        output.Presets[3] = 0;
         output.Read(2, () => { output.Text[2] = ReadHistoryDataText(1, 0x3D4); output.Presets[2] = 13; });
         output.Read(3, () =>
         {
@@ -366,6 +370,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     private sealed class AreaSummaryPublication(MapSummaryReceiver receiver, string layout)
     {
         internal bool? Valid;
+        internal MapSummaryDevelopmentMeasure? DevelopmentMeasure;
         internal readonly Dictionary<int, string> Text = [], Missing = [];
         internal readonly Dictionary<int, int> Presets = [];
         internal readonly Dictionary<int, bool> Visible = [];
@@ -388,7 +393,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         internal MapSummaryPage Page() => new(receiver.Slot, receiver.ReceiverId, layout, Valid, Text)
         {
             TextPresets = Presets, Visibility = Visible, Colors = Colors, Images = Images, Bars = Bars,
-            Children = Children, UnresolvedFields = Missing,
+            Children = Children, UnresolvedFields = Missing, DevelopmentMeasure = DevelopmentMeasure,
             UnresolvedOwner = Missing.Count == 0 ? null : string.Join("; ", Missing.Values.Distinct(StringComparer.Ordinal))
         };
     }

@@ -8,7 +8,7 @@ internal sealed record StrategicOrdersPageValues(string TargetCaption, string Se
     int? MilitaryIntelligence, int? MilitaryMinimum, int? MilitaryMaximum, int? MilitaryStep, int? RequiredMilitaryIntelligence,
     bool CanChooseTarget, bool CanChooseSecondForce, bool CanChooseExecutor, bool CanEditMilitaryIntelligence,
     int? IndependenceChoice, IReadOnlyList<StrategicOrdersChoice> IndependenceChoices,
-    bool CanConfirm, bool CanContinue, string Notice, LoadedSprite? AdvisorPortrait);
+    bool CanConfirm, bool CanContinue, string Notice, OfficerPortraitRoute? AdvisorPortrait);
 
 /// <summary>The three authored strategic order panes. Candidate selection,
 /// budgets and previews are supplied by one retained command draft.</summary>
@@ -40,7 +40,7 @@ internal partial class StrategicOrdersView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text, int kind,
         Func<bool> admitted, Action returned, Action accepted, Action continued,
         Action chooseTarget, Action chooseSecondForce, Action chooseExecutor, Action calculateMilitary,
-        Action<int> militaryChanged, Action<int> independenceChanged)
+        Action<int> militaryChanged, Action<int> independenceChanged, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.returned = returned; this.militaryChanged = militaryChanged;
         unknown = text.Get("detail_unknown");
@@ -49,7 +49,7 @@ internal partial class StrategicOrdersView : Control
         var backdrop = new UiSourceCommonBlur(); AddChild(backdrop); backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, kind + 0x127, RequestBack,
-            () => { if (ReadAdmission() && publication?.CanConfirm == true) accepted(); }, threeButtonFooter: true, titleSection: 0);
+            () => { if (ReadAdmission() && publication?.CanConfirm == true) accepted(); }, threeButtonFooter: true, titleSection: 0, resources: resources);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         continueOrders = new() { Name = "ContinueStrategicOrders", Position = footer.Rectangle(3, new(0, 904)).Position,
             ActionMode = BaseButton.ActionModeEnum.Release, InputAdmission = ReadAdmission, Disabled = true };
@@ -125,7 +125,11 @@ internal partial class StrategicOrdersView : Control
         var artBox = source.Rectangle(markerNode + 1, mount); artBox.Position -= marker.Position;
         source.Art(requiredMilitary, markerNode + 1, artBox, chrome.Assets, chrome.SpriteShader);
         var labelBox = source.Rectangle(markerNode + 2, mount); labelBox.Position -= marker.Position;
-        requiredText = source.Text(requiredMilitary, markerNode + 2, default, "", chrome.Font, rectangle: labelBox);
+        var labelNode = source.Nodes[markerNode + 2];
+        requiredText = new UiSourceText { Name = labelNode.Name, Position = labelBox.Position, Size = labelBox.Size };
+        requiredMilitary.AddChild(requiredText);
+        requiredText.ConfigureSourceScaledSpacing(chrome.Font,
+            MapFontProfile.FromNode(labelNode, source.Source.Source.ResourceUri));
         requiredMilitary.Pressed += () =>
         {
             if (ReadAdmission() && publication is { CanEditMilitaryIntelligence: true, RequiredMilitaryIntelligence: int required })

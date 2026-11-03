@@ -39,3 +39,9 @@ Windows x64 正式导出使用 Godot 官方 `4.7.2-stable`、commit `ed1daf0bf00
 > THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 原版游戏文件由本机导入，仅用于与本机安装版本对照；提取资源和生成文件不纳入源码目录。
+
+## zlib 1.3.2
+
+Zp1 static resource loading uses the unmodified decompression sources of zlib 1.3.2 through its public `uncompress2_z` buffer API. This preserves zlib format validation and obtains the exact consumed input without byte-at-a-time stream reads. The original Zp1 container checks remain. The native library is compiled from `native/San14.Compression.Zlib/vendor/zlib-1.3.2` and included by the normal Data/.NET publish dependency; no original game resource is distributed with it.
+
+Official source: https://zlib.net/zlib132.zip . The original zlib license is retained in the vendor source and `build/licenses/Zlib-LICENSE.txt`, and exported as `licenses/Zlib-LICENSE.txt`. Copyright (C) 1995-2026 Jean-loup Gailly and Mark Adler.

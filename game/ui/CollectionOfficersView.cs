@@ -23,14 +23,16 @@ internal partial class CollectionOfficersView : Control
     private readonly Dictionary<(int Tab, int Column), bool> nextSortDirections = [];
     private readonly Dictionary<int, (int Column, bool Ascending)> activeSorts = [];
     private bool abandoned;
+    private AdministrationPageChrome.Resources? resources;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionOfficerCatalog catalog, Func<bool> admitted, Action returned,
-        Func<int> scrollSpeed, Action<Action> runUiAction, Func<CollectionOfficerDetail, int, int> playVoice)
+        Func<int> scrollSpeed, Action<Action> runUiAction, Func<CollectionOfficerDetail, int, int> playVoice,
+        AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog;
         this.admitted = admitted; this.returned = returned; this.scrollSpeed = scrollSpeed;
-        this.runUiAction = runUiAction; this.playVoice = playVoice;
+        this.runUiAction = runUiAction; this.playVoice = playVoice; this.resources = resources;
         Name = "CollectionOfficers"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ShowTab(0);
@@ -60,7 +62,7 @@ internal partial class CollectionOfficersView : Control
             selectTab: next => runUiAction(() => { if (next != tabIndex && ReadAdmission() && detail is null) ShowTab(next); }),
             completeColumnProfile: true, normalColumnLayout: true,
             initialSortColumn: hasSort ? active.Column.ToString(System.Globalization.CultureInfo.InvariantCulture) : null,
-            initialSortAscending: hasSort ? active.Ascending : true, retainSortDirections: true);
+            initialSortAscending: hasSort ? active.Ascending : true, retainSortDirections: true, resources: resources);
         SetMeta("catalog_count", orderedRows.Count); SetMeta("catalog_tab", tab.Id);
     }
 
@@ -97,7 +99,7 @@ internal partial class CollectionOfficersView : Control
                     row.Cells[0].Text ?? text.Get("detail_unknown"))).ToArray(),
                 () => ReadAdmission() && detail == view, CloseDetail,
                 next => runUiAction(() => ShowDetail(next)), scrollSpeed,
-                action => runUiAction(() => SelectDetailAction(officerId, action)), pageIndex);
+                action => runUiAction(() => SelectDetailAction(officerId, action)), pageIndex, resources);
         }
         catch { CloseDetail(); throw; }
     }

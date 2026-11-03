@@ -15,7 +15,7 @@ internal partial class DiplomacyOrdersView
     private DiplomaticMissionKind? additionalKind;
     private void ConfigureAdditional(GameResourceRepository repository,PreviewText text,DiplomaticMissionKind kind,
         Func<bool> admitted,Action returned,Action accepted,Action chooseForce,Action chooseExecutor,
-        Action<int> chooseGift,Action resetGift,Action? chooseCaptives,Action<int>? chooseRequested,Action? resetRequested)
+        Action<int> chooseGift,Action resetGift,Action? chooseCaptives,Action<int>? chooseRequested,Action? resetRequested, AdministrationPageChrome.Resources? resources = null)
     {
         this.text=text;this.admitted=admitted;this.returned=returned;this.accepted=accepted;
         additionalRepository=repository;additionalKind=kind;
@@ -30,7 +30,7 @@ internal partial class DiplomacyOrdersView
         Name="Diplomacy"+kind;ZIndex=3;MouseFilter=MouseFilterEnum.Stop;SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var backdrop=new UiSourceCommonBlur();AddChild(backdrop);backdrop.Configure(repository);
         chrome=new();AddChild(chrome);chrome.Configure(repository,text,title,RequestBack,
-            ()=>{if(ReadAdmission()&&page?.CanSubmit==true)this.accepted?.Invoke();});
+            ()=>{if(ReadAdmission()&&page?.CanSubmit==true)this.accepted?.Invoke();}, resources: resources);
         var source=new UiSourceLayout(repository,file);additionalSource=source;
         var messages=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1];
         string Message(int id)=>messages.Records[id].Text??throw new InvalidDataException($"Missing diplomacy text {id:X4}.");

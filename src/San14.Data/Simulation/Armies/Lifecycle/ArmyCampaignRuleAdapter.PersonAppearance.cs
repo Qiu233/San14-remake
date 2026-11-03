@@ -25,6 +25,10 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         uint? saved = null;
         int next = 0;
+        //Keep the absence of an observer across the action boundary. Monthly
+        //and annual managers snapshot their state only for a real subscriber.
+        Action<string, GameState>? childObserver = observe is null ? null :
+            (point, reached) => observe(point, GameStateCopy.Copy(reached));
         try
         {
             var season = state.NativeMapSeason ?? throw AppearanceTurnMissing("calendar");
@@ -110,7 +114,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             var early = ApplyNormalTurnEarlyActionsCurrent(state, current, pool, annual, monthStart,
                 saved ?? throw AppearanceTurnMissing("saved_App32"), grouping, normalGroups,
                 reached: action => next = action,
-                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)));
+                observe: childObserver);
             state = early.State;
             if (early.Stop)
                 return new(RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32")), null, next, saved);
@@ -118,7 +122,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             state = ApplyNormalTurnRemainingActionsCurrent(state, current, pool, monthStart, seasonal,
                 saved ?? throw AppearanceTurnMissing("saved_App32"), grouping,
                 reached: action => next = action,
-                observe: (point, reached) => observe?.Invoke(point, GameStateCopy.Copy(reached)), groups: normalGroups);
+                observe: childObserver, groups: normalGroups);
             if (state.NativeNormalTurnContinuation is not null) return new(state, null, next, saved);
             next = state.CampaignTurnStop is null ? 79 : next;
             state = RestoreNormalTurnAppAfterExit(state, saved ?? throw AppearanceTurnMissing("saved_App32"));

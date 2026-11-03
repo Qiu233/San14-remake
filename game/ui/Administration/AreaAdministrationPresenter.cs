@@ -63,7 +63,7 @@ internal sealed class AreaAdministrationPresenter : IDisposable
         this.commitRequested=commitRequested;this.mapInputChanged=mapInputChanged;this.unavailable=unavailable;
         this.presentationRandom=presentationRandom;
         this.scrollSpeed=scrollSpeed??(()=>0);
-        messages=new(repository,text.SourceLocale);officers=new(repository);
+        messages=new(repository,text.SourceLocale);officers=new();
         parent.Configure(repository,text,Entries(),scrollSpeed?.Invoke()??0,
             area=>Run(()=>OpenArea(area)),()=>Run(RequestBack),()=>Run(RequestCommit),
             _=>UpdateMapInput(),Order,unavailable,autoRequested:()=>Run(RequestAutomatic),

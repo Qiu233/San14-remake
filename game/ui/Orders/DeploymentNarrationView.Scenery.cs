@@ -5,13 +5,14 @@ internal partial class DeploymentNarrationView
 {
     internal void ConfigureSceneryDiscovery(GameResourceRepository repository,PreviewText text,
         TalentSceneryDiscoveryPanel panel,string expanded,IReadOnlyList<LoadedSprite> standingLayers,
-        Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null)
+        Action consumed,Func<AutomaticMessageAdvanceMode>? automaticAdvance=null,Func<bool>? admitted=null,
+        AdministrationPageChrome.Resources? resources=null)
     {
         //The discovery state places its executor in slot3, beside the right
         //detail pane. It shares the original EventView message and input wait.
         ConfigureEvent(repository,text,panel.Executor.Name,expanded,[(6,standingLayers)],3,
-            consumed,automaticAdvance,admitted);
-        var source=new UiSourceLayout(repository,0x04C84E57);
+            consumed,automaticAdvance,admitted,resources:resources);
+        var source=assets!.SourceLayout(0x04C84E57);
         Vector2 mount=new(0,source.Nodes[0].Value46/3);
         source.Art(canvas,1,source.Rectangle(1,mount),assets!,shader!);
         source.Art(canvas,3,source.Rectangle(3,mount),assets!,shader!,

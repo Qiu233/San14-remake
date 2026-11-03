@@ -25,6 +25,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         private readonly SourceWorldContext current;
         private readonly WorldIndexContext pool;
         private readonly ActionReportPreparedList list;
+        private readonly PersonReturnGovernorQueries commandQueries;
         private readonly List<ActionReportStrategistPage> pages = [];
         private bool entered, completed;
         private ActionReportStrategistPerson? speaker;
@@ -42,6 +43,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 throw Missing("same_current_pool");
             this.package = package; State = state; this.current = current; this.pool = pool;
             this.list = list ?? throw new ArgumentNullException(nameof(list));
+            commandQueries = new(state, package._governorInputs, current);
         }
 
         public ActionReportStrategistSnapshot Produce()
@@ -274,11 +276,9 @@ public sealed partial class ArmyCampaignRuleAdapter
 
         private int CommandKind(PersonLinkedEntityReference linked)
         {
-            var owner = current.ReadOwnedPersonCommandManager() ?? throw Missing("personnel_manager");
-            int id = K(linked.Identity, "associated_pointer");
-            if (owner.Returns.ContainsKey(id)) return 15;
-            if (owner.Disappearances?.ContainsKey(id) == true) return 16;
-            throw Missing("associated_virtual98");
+            _ = current.ReadOwnedPersonCommandManager() ?? throw Missing("personnel_manager");
+            _ = K(linked.Identity, "associated_pointer");
+            return K(commandQueries.ReadCurrentAssociatedVirtual98(linked), "associated_virtual98");
         }
 
         private void Add(int message, ForceReference actor, int[]? integers = null)

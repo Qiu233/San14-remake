@@ -56,8 +56,11 @@ public sealed class G1EffectInstance : IG1EffectClockConsumer, IDisposable
                     if(module.Enabled)
                         foreach(var generic in module.Generics)yield return generic;
     }
-    public bool HasPendingDirectStorage => initialized && Generics.Any(generic =>
-        generic.Declaration.UsesDirectBirth && !generic.HasDirectStorage);
+    // A completed stop disables its module and releases its generic storage.
+    // That released allocation is no longer an outstanding preparation request.
+    public bool HasPendingDirectStorage => initialized && systems.SelectMany(system => system.Modules)
+        .Where(module => module.Enabled).SelectMany(module => module.Generics).Any(generic =>
+            generic.Declaration.UsesDirectBirth && !generic.HasDirectStorage);
     public bool IsFinished => initialized && missing.Count == 0 && !HasPendingDirectStorage && systems.All(system =>
         system.Timeline.IsFinished(system.Modules.Select(module => module.IsAlive).ToArray()));
     /// <summary>Actual mutable generics, for attaching an implemented direct

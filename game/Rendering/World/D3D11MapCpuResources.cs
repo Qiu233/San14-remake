@@ -27,6 +27,7 @@ internal sealed class D3D11MapCpuResources : IDisposable
     internal D3D11PrimaryGpuMediaSource? PrimaryGpuMedia { get; private init; }
     internal MapEnvironmentStaticResources? EnvironmentStatic { get; private init; }
     internal MapRouteStaticResources? RouteMedia { get; private init; }
+    internal MapDomesticEffectStaticResources.Namespace? DomesticEffects { get; private init; }
     internal SkyCloudProgramResources CloudPrograms { get; private init; } = null!;
     internal GroundDetailResources GroundDetails { get; private init; } = null!;
     internal HeightFogProgramResources FogPrograms { get; private init; } = null!;
@@ -126,6 +127,8 @@ internal sealed class D3D11MapCpuResources : IDisposable
 
             resourceContext = RenderResourceContext.LoadCurrentMap(repository, scene,
                 seasonResources.Source.CameraSource.Season.Resources.Action, out resourceSeasonBatch);
+            var domesticEffects = staticSources?.DomesticEffects.Require(
+                seasonResources.Source.CameraSource.Season.Resources.Action);
             if (staticSources is not null)
             {
                 // Verify the actual opening namespace against the declaration
@@ -136,7 +139,7 @@ internal sealed class D3D11MapCpuResources : IDisposable
             var rainProvider = RainDropProviderSource.Load(repository, resourceContext);
             var specialEffectInputs = D3D11SpecialEffectEncoding.Create(repository, seasonResources.InitialCommonSettings);
             resourceContext.WriteNativeInputs(Path.Combine(inputs, "resource-context-input"));
-            var hdrResources = HdrShaderResources.Load(repository);
+            var hdrResources = staticSources?.Hdr ?? HdrShaderResources.Load(repository);
             var hdr = D3D11CurrentHdrCatalog.Create(repository, frame, hdrResources);
             token.ThrowIfCancellationRequested();
 
@@ -196,6 +199,7 @@ internal sealed class D3D11MapCpuResources : IDisposable
                 PrimaryGpuMedia = staticSources?.PrimaryGpuMedia,
                 EnvironmentStatic = staticSources?.EnvironmentStatic,
                 RouteMedia = staticSources?.RouteMedia,
+                DomesticEffects = domesticEffects,
                 SceneMedia = sceneMedia, CloudPrograms = cloudPrograms, GroundDetails = groundDetails,
                 FogPrograms = fogPrograms, FogAcceleration = fogAcceleration, SkyPrograms = skyPrograms,
                 SeasonResources = seasonResources, SeasonLibrary = seasonLibrary,

@@ -31,6 +31,9 @@ internal partial class MapCommanderCards : Control
     private readonly MapCommanderCardView[] cards=new MapCommanderCardView[5];
     private Func<bool> admission=null!;
     private PreviewText text=null!;
+    private CommanderTacticBalloonView tacticBalloon=null!;
+    private MapCommanderCardView? tacticHoverCard;
+    private int tacticHoverSlot=-1;
     internal Action<int?>? HoveredOfficer {get;set;}
 
     internal void Configure(GameResourceRepository repository,PreviewText text,AdministrationPageChrome.Resources shared,
@@ -101,7 +104,11 @@ internal partial class MapCommanderCards : Control
             var card=new MapCommanderCardView {Name="CommanderCard"+i,Position=source.Rectangle(slots[i],mount).Position};
             commanderPage.AddChild(card);card.Configure(repository,assets,shader,font,bar,admission,focus,tactic,automatic,remove);
             card.HoveredOfficer=officer=>HoveredOfficer?.Invoke(officer);cards[i]=card;
+            card.TacticHovered=(slot,row,enter)=>ApplyTacticHover(card,slot,row,enter);
         }
+        tacticBalloon=new();canvas.AddChild(tacticBalloon);
+        tacticBalloon.Configure(repository,assets,shader,font,text.SourceLocale);
+        VisibilityChanged+=()=>{if(!IsVisibleInTree())ClearTacticHover();};
         ApplyPages();Resized+=Fit;Fit();
         SetMeta("source_layout",source.Source.Source.ResourceUri);
         SetMeta("source_mount_layout",jump.Source.Source.ResourceUri);SetMeta("source_mount_node",9);
@@ -141,6 +148,7 @@ internal partial class MapCommanderCards : Control
     }
     private void ApplyPages()
     {
+        ClearTacticHover();
         shell.Position=new(state.Collapsed?320:0,0);
         commanderPage.Visible=state.Tab==1;dispatchPage.Visible=state.Tab==0;
         // A settled collapsed rail lies wholly beyond the viewport. Its fold
@@ -175,8 +183,32 @@ internal partial class MapCommanderCards : Control
         float scale=Math.Min(Size.X/1920,Size.Y/1080);
         canvas.Scale=Vector2.One*scale;canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
+    private void ApplyTacticHover(MapCommanderCardView card,int slot,CommanderHudTacticSlot? row,bool enter)
+    {
+        if(row is null)
+        {
+            if(ReferenceEquals(tacticHoverCard,card)&&tacticHoverSlot==slot)ClearTacticHover();
+            return;
+        }
+        if(!admission()||state.Tab!=1||state.Collapsed||!IsVisibleInTree()){ClearTacticHover();return;}
+        if(!enter&&(!ReferenceEquals(tacticHoverCard,card)||tacticHoverSlot!=slot))return;
+        bool fresh=enter||!ReferenceEquals(tacticHoverCard,card)||tacticHoverSlot!=slot;
+        tacticHoverCard=card;tacticHoverSlot=slot;
+        tacticBalloon.Display(row,fresh,canvas.GetLocalMousePosition());
+    }
+    private void ClearTacticHover()
+    {
+        tacticHoverCard=null;tacticHoverSlot=-1;
+        if(tacticBalloon is not null)tacticBalloon.Clear();
+    }
+    public override void _Process(double delta)
+    {
+        if(tacticHoverCard is null)return;
+        if(!admission()||!IsVisibleInTree()||state.Tab!=1||state.Collapsed){ClearTacticHover();return;}
+        tacticBalloon.UpdatePointer(canvas.GetLocalMousePosition());
+    }
     internal void ApplySelection(int? unit,int? slot)
     {foreach(var card in cards)card.ApplySelection(unit,slot);}
     public override void _ExitTree()
-    {HoveredOfficer?.Invoke(null);HoveredOfficer=null;}
+    {tacticHoverCard=null;tacticHoverSlot=-1;HoveredOfficer?.Invoke(null);HoveredOfficer=null;}
 }

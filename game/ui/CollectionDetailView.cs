@@ -18,7 +18,8 @@ internal partial class CollectionDetailView : Control
     internal void Configure(GameResourceRepository repository, PreviewText text, CollectionCatalog? catalog,
         CollectionPoemDetail? poem, CollectionSceneryDetail? scenery,
         IReadOnlyList<CollectionDetailEntry> entries, Func<bool> admitted, Action returned,
-        Action<int> select, Func<int> scrollSpeed, Action? appreciate = null, SceneryCatalogInformation? currentScenery = null)
+        Action<int> select, Func<int> scrollSpeed, Action? appreciate = null, SceneryCatalogInformation? currentScenery = null,
+        AdministrationPageChrome.Resources? resources = null)
     {
         if ((poem is null) == (scenery is null)) throw new ArgumentException("A Collection detail needs one object.");
         this.admitted = admitted; this.returned = returned;
@@ -36,7 +37,7 @@ internal partial class CollectionDetailView : Control
             entries.Select(row => new MapInformationListRow(row.Id, [row.Name], true)).ToArray(),
             ReadAdmission, RequestBack, select, scrollSpeed, tabCaptions: [basic],
             completeColumnProfile: true, normalColumnLayout: true, narrowTable: true,
-            returnNode: poem is not null ? 4 : 1);
+            returnNode: poem is not null ? 4 : 1, resources: resources);
         selector.SelectSourceIndex(selected);
         var canvas = selector.SourceCanvas;
         var assets = selector.SourceAssets;
@@ -55,8 +56,8 @@ internal partial class CollectionDetailView : Control
             var body = new Control { Name = "CollectionDetailBody", Position = new(191, 197), Size = new(1540, 688),
                 MouseFilter = MouseFilterEnum.Ignore };
             detailBody=body; canvas.AddChild(body);
-            var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, currentPoem is not null
-                ? "02_07_06_info_collection_sibun_cn" : "02_07_07_info_collection_meishou_cn"));
+            var source = assets.SourceLayout(currentPoem is not null
+                ? "02_07_06_info_collection_sibun_cn" : "02_07_07_info_collection_meishou_cn");
             int imageNode = currentPoem is not null ? 2 : 5;
             var image = currentPoem?.Image ?? selectedScenery!.Image;
             foreach (var node in source.Nodes.Where(node => node.Type is 1 or 3))
@@ -72,7 +73,7 @@ internal partial class CollectionDetailView : Control
             {
                 Text(9, currentPoem.Name); Text(11, currentPoem.Author); Text(12, currentPoem.Era);
                 Text(16, (currentScenery?.DescriptionCaption ?? catalog!.DescriptionCaption), 13); Paragraph(17, currentPoem.Description);
-                var footer = new UiSourceLayout(repository, 0xD8913AB2);
+                var footer = assets.SourceLayout(0xD8913AB2);
                 var appreciation = new UiSourceRoundButton { Name = "CollectionPoemAppreciation",
                     Position = footer.Rectangle(5, new(0, 904)).Position, Disabled = appreciate is null, InputAdmission = ReadAdmission };
                 canvas.AddChild(appreciation);

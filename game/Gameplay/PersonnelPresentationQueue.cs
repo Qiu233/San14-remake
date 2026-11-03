@@ -33,6 +33,7 @@ internal static class PersonnelPresentationQueue
                     request.PersonDeathReport is not null || request.MapMusicIntent is not null ||
                     batch.Source == CampaignEffectSource.ArmyBattleDefeat && request.DuelCaptureAnnouncement is not null ||
                     request.ApplicationExit is not null || request.ForceCoalitionVisual is not null ||
+                    batch.Source == CampaignEffectSource.MonthlyMaintenance && request.ForceEmergenceScene is not null ||
                     traitSource && request.ArmyTraitViewRefresh is not null ||
                     batch.Source == CampaignEffectSource.ArmyFirePresentation && request.ArmyFireCast is not null ||
                     batch.Source is CampaignEffectSource.ArmyFirePresentation or CampaignEffectSource.NormalCombatApplication or

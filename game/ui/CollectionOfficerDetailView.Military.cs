@@ -11,7 +11,7 @@ internal partial class CollectionOfficerDetailView
             var marker = new Control { Name = "CollectionOfficerTactic" + tactic.Slot,
                 Position = rectangle.Position, Size = rectangle.Size, MouseFilter = MouseFilterEnum.Stop };
             body.AddChild(marker);
-            var source = new UiSourceLayout(repository, 0xD493EA98).ResizedSubtree(0, rectangle.Size, true);
+            var source = selector.SourceAssets.SourceLayout(0xD493EA98).ResizedSubtree(0, rectangle.Size, true);
             source.Art(marker, 2, source.Rectangle(2), selector.SourceAssets, selector.SourceShader,
                 commonSpriteOverride: "000_cmn_mrk_base_yellow");
             source.Text(marker, 3, default, tactic.Name, selector.SourceFont, MapTextPresets.Create()[0]);
@@ -34,7 +34,7 @@ internal partial class CollectionOfficerDetailView
             var marker = new Control { Name = "CollectionOfficerFormation" + formation.FormationId,
                 Position = rectangle.Position, Size = rectangle.Size, MouseFilter = MouseFilterEnum.Ignore };
             body.AddChild(marker);
-            var source = new UiSourceLayout(repository, 0x270E3D1B);
+            var source = selector.SourceAssets.SourceLayout(0x270E3D1B);
             source.Art(marker, 2, source.Rectangle(2), selector.SourceAssets, selector.SourceShader,
                 commonSpriteOverride: formation.Available ? "000_cmn_mrk_base_yellow" : "000_cmn_mrk_base_disable");
             int preset = formation.Available ? 0 : 6;

@@ -47,6 +47,17 @@ internal partial class UiSourceModalTransition : Node
         _ => throw new InvalidDataException("Unregistered foreground group.")
     };
 
+    // Rebinding a retained page's table/guide adopts its already-entered
+    // source geometry. This does not start a clock or complete a navigation.
+    internal void ApplyShownState()
+    {
+        foreach (int node in groups!.Keys)
+        {
+            var clip = clips[ClipName(node) + "_in"];
+            ApplyRegisteredFrame(node, clip, clip.EndFrame);
+        }
+    }
+
     internal async Task<bool> Play(bool opening, bool includeBackground = true)
     {
         completion?.TrySetResult(false);

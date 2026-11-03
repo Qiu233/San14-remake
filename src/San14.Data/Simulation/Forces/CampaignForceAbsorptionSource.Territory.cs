@@ -37,6 +37,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         if (!GateCaptureTerritorySource.Eligible(state, current, hex, force, false)) return state;
         if (AbsorptionK(current.ReadHexForceSlot(hex), "occupation_previous_Force") == force) return state;
+        EnsureOccupationSceneryDefinitionsCurrent(current);
         int surface = AbsorptionK(current.ReadHexSurfaceCode(hex), "occupation_surface");
         bool ordinaryWithCity = (force is >= 1 and <= 45 or 51) && cityId is >= 1 and <= 51;
         if (surface is >= 15 and <= 18)

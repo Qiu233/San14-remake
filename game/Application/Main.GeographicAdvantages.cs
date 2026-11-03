@@ -18,6 +18,7 @@ public partial class Main
         hud.ConfigureMerchant(()=>RunUiAction(OpenGlobalMerchant),()=>GeographicAdvantagesInputAdmitted(map));
         hud.ConfigureInformationLayers(action=>RunUiAction(()=>map.ToggleInformationLayer(action)),
             ()=>GeographicAdvantagesInputAdmitted(map),map.InformationLayerSelectionMask);
+        hud.ConfigureTopButtonHints(_ui.SourceLocale);
         map.InformationLayersChanged+=hud.SetInformationLayersSelected;
         hud.TreeExiting+=()=>map.InformationLayersChanged-=hud.SetInformationLayersSelected;
     }

@@ -176,6 +176,24 @@ public partial class Main
             return;
         }
         if (!ReferenceEquals(session.World, replacement)) return;
+        // This synchronous speech-only commit can finish while a passive
+        // camera or ordinary narration owns input. Retain only its actual
+        // predecessor and unchanged outbox/continuation, never a new request.
+        if (ReferenceEquals(previous.CampaignEffectRequests, replacement.CampaignEffectRequests) &&
+            ReferenceEquals(previous.NativePeriodContinuation, replacement.NativePeriodContinuation) &&
+            ReferenceEquals(previous.NativeNormalTurnContinuation, replacement.NativeNormalTurnContinuation) &&
+            ReferenceEquals(previous.PersonnelCommands, replacement.PersonnelCommands))
+        {
+            if (_coalitionCameraCommand is { } camera && camera.Session == session && camera.Map == map &&
+                ReferenceEquals(camera.World, previous) &&
+                ReferenceEquals(previous.CoalitionCameraPresentation, replacement.CoalitionCameraPresentation))
+                camera.World = replacement;
+            if (_personnelPresentation is not null && _personnelPresentationSession == session &&
+                _personnelPresentationMap == map && ReferenceEquals(_personnelPresentationWorld, previous) &&
+                !_personnelPresentationIntelligenceWait && !_personnelPresentationBaseCaptureWait &&
+                !_personnelPresentationHiredCaptureWait)
+                _personnelPresentationWorld = replacement;
+        }
         map.AdoptSpeechWorld(previous, replacement);
         AdoptUnitOrderSpeechWorld(session, previous, replacement);
         AdoptMapSystemSpeechWorld(session, previous, replacement);

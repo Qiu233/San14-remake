@@ -3,7 +3,10 @@ using San14.Core;
 namespace San14.Data;
 
 public sealed record DeploymentTacticChoice(int Occurrence, int TacticId, string Name,
-    bool Compatible, bool Selected, bool Enabled);
+    bool Compatible, bool Selected, bool Enabled)
+{
+    public AreaAdministrationQuery<DeploymentTacticBalloon>? Balloon { get; init; }
+}
 public sealed record DeploymentTacticChoices(IReadOnlyList<DeploymentTacticChoice>? Choices,
     string? UnresolvedInput);
 
@@ -13,7 +16,7 @@ public sealed partial class ArmyCampaignRuleAdapter
     /// including incompatible entries. This differs from automatic composition's
     /// compatible, ability-ranked candidates.</summary>
     public DeploymentTacticChoices QueryDeploymentTacticChoices(GameState state, int officerId,
-        int landFormationId, IReadOnlyList<int> selectedTactics)
+        int landFormationId, IReadOnlyList<int> selectedTactics, bool prepareBalloons = false)
     {
         ArgumentNullException.ThrowIfNull(state); ArgumentNullException.ThrowIfNull(selectedTactics);
         try
@@ -56,9 +59,18 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (index >= 0) selected[index] = true;
             }
             int count = selected.Count(value => value);
-            return new(Array.AsReadOnly(ordered.Select((item, index) => new DeploymentTacticChoice(index,
+            var rows = ordered.Select((item, index) => new DeploymentTacticChoice(index,
                 item.Id, state.Tactics.GetValueOrDefault(item.Id)?.Name ?? throw TacticChoiceMissing("tactic_name"),
-                item.Compatible, selected[index], item.Compatible && (selected[index] || count < 3))).ToArray()), null);
+                item.Compatible, selected[index], item.Compatible && (selected[index] || count < 3))).ToArray();
+            if (prepareBalloons)
+            {
+                // The UI's ten actual occurrences share this same current.
+                // Edit/AI callers do not read balloon fields or messages.
+                var balloons = new DeploymentTacticBalloonCurrent(this, state, current, landFormationId, count);
+                for (int index = 0; index < rows.Length; index++)
+                    rows[index] = rows[index] with { Balloon = balloons.Read(rows[index]) };
+            }
+            return new(Array.AsReadOnly(rows), null);
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }

@@ -8,6 +8,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
 {
     private static readonly MapTextPresets InlinePresets = MapTextPresets.Create();
     private MapFont _font = null!;
+    private uint? _drawingVisibilityLayer;
     private MapFontProfile _profile = null!;
     private HorizontalAlignment _alignment;
     private string _text = "";
@@ -15,8 +16,15 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
     private bool _officePreviewColours;
     private uint? _firstGlyphColour;
     private uint?[]? _glyphColours;
+    private string? _preparedInlineColourSource;
     internal MapFontProfile LayoutProfile => _font.Source.FitToWidth(_text, _profile, Size.X);
-    public void SetDrawingVisibilityLayer(uint layer) => _font.SetDrawingVisibilityLayer(this, layer);
+    // Compositor assignment/restoration may precede this borrowed font.
+    // Keep the requested layer for the first actual configured draw.
+    public void SetDrawingVisibilityLayer(uint layer)
+    {
+        _drawingVisibilityLayer = layer;
+        if (_font is not null) _font.SetDrawingVisibilityLayer(this, layer);
+    }
     internal uint? FirstGlyphColour
     {
         get => _firstGlyphColour;
@@ -29,6 +37,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         set
         {
             _personnelPreviewLine = null;
+            _preparedInlineColourSource = null;
             if (_text == value && _glyphColours is null) return;
             _font.Prepare([value], _profile);
             _text = value;_glyphColours=null;
@@ -38,12 +47,21 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
 
     internal void SetRuns(params UiSourceTextRun[] runs)
     {
+        _preparedInlineColourSource = null;
         _personnelPreviewLine = null;
         string text=string.Concat(runs.Select(run=>run.Text));
         _font.Prepare([text],_profile);
         _text=text;_glyphColours=runs.SelectMany(run=>Enumerable.Repeat(run.Colour,run.Text.Length)).ToArray();
         _firstGlyphColour=null;
         QueueRedraw();
+    }
+
+    // Static source-colour captions borrow their startup pixels by the
+    // explicit expanded resource string, never by hashing glyph arrays.
+    internal void SetPreparedColourRuns(string source, params UiSourceTextRun[] runs)
+    {
+        SetRuns(runs);
+        _preparedInlineColourSource = source;
     }
 
     // The personnel preview writer emits only these two controls. App's
@@ -134,6 +152,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         };
         MouseFilter = MouseFilterEnum.Ignore;
         SetNotifyTransform(true);
+        if (_drawingVisibilityLayer is uint layer) _font.SetDrawingVisibilityLayer(this, layer);
         // A caption keeps its text across hover and disabled-state changes.
         // Invalidate its retained draw commands when the style changes too.
         if (changed) QueueRedraw();
@@ -151,7 +170,7 @@ internal partial class UiSourceText : Control, IUiSourceDrawing
         MapFont.DrawOwner owner = _font.BeginDraw(this);
         float baseline = _font.CellBaselineY(profile, Size.Y);
         if (_glyphColours is { } colours)
-            _font.Draw(this,_text,new(0,baseline),profile,_alignment,Size.X,glyphColours:colours);
+            _font.Draw(this,_text,new(0,baseline),profile,_alignment,Size.X,glyphColours:colours,inlineColourSource:_preparedInlineColourSource);
         else if (_firstGlyphColour is uint colour && _text.Length != 0)
         {
             // The detail-force string paints its leading source ■, then

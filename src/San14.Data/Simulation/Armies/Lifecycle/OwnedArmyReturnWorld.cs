@@ -85,6 +85,14 @@ public sealed partial class SourceWorldContext
             SetArmyUnitTablePointer(physical,physical); SetArmyUnitCommanderId(physical,slot.Commander12); SetArmyUnitStatusFlag10(physical,slot.Status10);
             var army=slot.ActiveUnitId is int id ? state.Units[id] : slot.PendingImage;
             if (army is null) continue;
+            //The same saved image owns all three current abnormal counters.
+            //Override kind3C/identity3E already come from BindArmyOverrides;
+            //bind these bytes in this existing restore prefix, not at a later
+            //damage query or by substituting a guessed zero.
+            var abnormal = new RegistryObjectReference(RegistryKind.Army, physical);
+            SetTacticAbnormalRawByte(abnormal, 0x23, army.NativeTacticRuntime?.Abnormal23);
+            SetTacticAbnormalRawByte(abnormal, 0x24, army.NativeTacticRuntime?.Abnormal24);
+            SetTacticAbnormalRawByte(abnormal, 0x25, army.NativeTacticRuntime?.Abnormal25);
             SetArmyUnitRawHex2A(physical,ArmyMarchSourceAdapter.ReadCurrentHex(state, army)); //No HexId fallback.
             BindArmyReturnResourceFields(physical,new(army.Troops is >=0 and <=65535 ? (ushort)army.Troops : null,
                 army.WoundedTroops is >=0 and <=65535 ? (ushort)army.WoundedTroops.Value : null,

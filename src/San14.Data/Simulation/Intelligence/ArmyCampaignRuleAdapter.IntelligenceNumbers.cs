@@ -10,6 +10,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         "intelligence."+name,name switch
         {
             "home-book" or "away-book" or "inspect-book" => 1,
+            //Cached TC source491C0/491B8/49204. The same named rule bank
+            //as the existing intelligence costs accepts saved overrides.
+            "minimum-targets" or "inspect-minimum-executors" or "inspect-minimum-cities" => 1,
             "away-gold-5"=>600,"away-gold-10"=>800,"away-gold-15"=>1000,
             "away-gain-5"=>6,"away-gain-10"=>10,"away-gain-15"=>20,
             "away-gain-cap"=>15000,"away-activity"=>2,

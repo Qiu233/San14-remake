@@ -11,15 +11,16 @@ internal partial class ActionReportStrategistView : Control
     private Control portraitHost = null!;
     private UiSourceStandingPortrait? portrait;
     private IReadOnlyList<LoadedSprite>? currentLayers;
+    private LoadedStandingPortraitSources? currentPreparedLayers;
     private UiSourceParagraph body = null!;
     private Rect2 advanceRectangle;
 
     internal void Configure(GameResourceRepository repository, UiAssets assets, Shader shader, MapFont font,
-        IReadOnlyList<LoadedSprite>? standingLayers)
+        IReadOnlyList<LoadedSprite>? standingLayers, LoadedStandingPortraitSources? preparedStandingLayers = null)
     {
         this.repository = repository; this.assets = assets; this.shader = shader;
         MouseFilter = MouseFilterEnum.Ignore;
-        var source = new UiSourceLayout(repository, 0x47835420);
+        var source = assets.SourceLayout(0x47835420);
         Size = source.Rectangle(0).Size;
         var box = source.Rectangle(1);
         portraitHost = new Control
@@ -28,7 +29,8 @@ internal partial class ActionReportStrategistView : Control
             MouseFilter = MouseFilterEnum.Ignore
         };
         AddChild(portraitHost);
-        ApplyPortrait(standingLayers);
+        if (preparedStandingLayers is not null) ApplyPreparedPortrait(preparedStandingLayers);
+        else ApplyPortrait(standingLayers);
         source.Art(this, 3, source.Rectangle(3), assets, shader);
         advanceRectangle = source.Rectangle(3);
         var cell = source.Rectangle(4);
@@ -45,13 +47,27 @@ internal partial class ActionReportStrategistView : Control
     internal void ApplyPortrait(IReadOnlyList<LoadedSprite>? standingLayers)
     {
         if (standingLayers is null) { portraitHost.Hide(); return; }
-        if (!ReferenceEquals(currentLayers, standingLayers))
+        if (currentPreparedLayers is not null || !ReferenceEquals(currentLayers, standingLayers))
         {
             if (portrait is not null) { portrait.Hide(); portrait.QueueFree(); }
             portrait = new UiSourceStandingPortrait { Name = "StandingPortrait" };
             portraitHost.AddChild(portrait);
             portrait.Configure(repository, assets, shader, standingLayers);
-            currentLayers = standingLayers;
+            currentLayers = standingLayers; currentPreparedLayers = null;
+        }
+        portraitHost.Show();
+    }
+
+    internal void ApplyPreparedPortrait(LoadedStandingPortraitSources? standingLayers)
+    {
+        if (standingLayers is null) { portraitHost.Hide(); return; }
+        if (!ReferenceEquals(currentPreparedLayers, standingLayers))
+        {
+            if (portrait is not null) { portrait.Hide(); portrait.QueueFree(); }
+            portrait = new UiSourceStandingPortrait { Name = "StandingPortrait" };
+            portraitHost.AddChild(portrait);
+            portrait.Configure(repository, assets, shader, standingLayers);
+            currentPreparedLayers = standingLayers; currentLayers = null;
         }
         portraitHost.Show();
     }
@@ -62,5 +78,5 @@ internal partial class ActionReportStrategistView : Control
         point.X >= advanceRectangle.Position.X && point.Y >= advanceRectangle.Position.Y &&
         point.X <= advanceRectangle.End.X && point.Y <= advanceRectangle.End.Y;
 
-    public override void _ExitTree() => currentLayers = null;
+    public override void _ExitTree() { currentLayers = null; currentPreparedLayers = null; }
 }

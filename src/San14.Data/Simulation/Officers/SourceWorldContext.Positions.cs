@@ -6,6 +6,10 @@ public sealed record PersonRoleAndPositionResult(bool LostForceWritten,
 public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPersonLinkedEntityLookupState
 {
     private readonly Dictionary<int, int?> _armyPointers = [];
+    //Table aliases are resolved on each lookup. These handles contain only
+    //immutable physical identity, never current Army validity or mutable fields.
+    private ArmyUnitReference?[]? _armyTableReferences;
+    private ArmyUnitReference? _unknownArmyTableReference;
     private readonly Dictionary<int, ushort?> _armyCommanderIds = [];
     private readonly Dictionary<int, byte?> _armyStatusFlags = [];
     private IReadOnlyList<PersonLinkedEntityReference?>? _personLinkedEntities;
@@ -23,7 +27,16 @@ public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPe
     public void WritePersonFirstLocation(int physicalSlot, ushort location) => SetPersonFirstLocation(physicalSlot, location);
     public void SetArmyUnitTablePointer(int slot, int? physicalSlot) => SetPointer(_armyPointers, slot, 501, physicalSlot, 501);
     public ArmyUnitReference? ReadArmyUnitTableReference(int slot)
-    { Check(slot, 501, "army unit lookup slot"); return _armyPointers.TryGetValue(slot, out int? physical) ? new(physical) : null; }
+    {
+        Check(slot, 501, "army unit lookup slot");
+        if(!_armyPointers.TryGetValue(slot,out int? physical))return null;
+        if(physical is not int identity)return _unknownArmyTableReference??=new(null);
+        //Keep the former unresolved/out-of-range receiver behavior at this
+        //lookup boundary; its consuming native-field reader owns range admission.
+        if((uint)identity>=501)return new(physical);
+        var references=_armyTableReferences??=new ArmyUnitReference?[501];
+        return references[identity]??=new(identity);
+    }
     public void SetArmyUnitCommanderId(int physicalSlot, ushort? value)
     { Check(physicalSlot, 501, "army unit physical slot"); _armyCommanderIds[physicalSlot] = value; }
     public void SetArmyUnitStatusFlag10(int physicalSlot, byte? value)

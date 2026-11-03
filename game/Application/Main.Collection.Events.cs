@@ -199,7 +199,7 @@ public partial class Main
                     () => IsCollectionEventPlaybackCurrent(owner) && CanAdvanceNarration,
                     () => _preferences.AutomaticMessageAdvance, CurrentListScrollSpeed, HandleNarrationKeyboard,
                     AdoptStoryRandom, () => CompleteCollectionEventStory(owner),
-                    error => RunUiAction(() => { CloseCollectionEventPlayback(true); throw error; }), inputWaitKeyboard: HandleNarrationKeyboard);
+                    error => RunUiAction(() => { CloseCollectionEventPlayback(true); throw error; }), inputWaitKeyboard: HandleNarrationKeyboard, preparedUiResources: TryBorrowApplicationPreparedResources(host));
             }
             catch (OperationCanceledException) when (owner.Lifetime.IsCancellationRequested) { }
             catch (Exception error)

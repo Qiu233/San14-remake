@@ -121,7 +121,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 state = ArmyDestructionLoyalty.PublishCurrentRawE8(state,current,person,loyalty);
             }
             if (E(current.ReadDistrictNativeValidity(playerPrimary),"tail_player_primary_validity"))
-                effects.Add(new(null,null) { ForceEmergenceScene = new(newForce,leaderId,homeCode,Day()) });
+                state = WriteForceEmergenceChronicleCurrent(state, current, new(newForce, leaderId, homeCode, Day()));
             effects.Add(new(null,null) { ForceCoalitionVisual = new(ForceCoalitionVisualOperation.CameraRestore,null) });
             state = OwnedArmyReturnCurrentFields.PublishCurrent(state,current);
             state = state.WithArmyLifecycle((state.ReadArmyLifecycle() ?? throw ForceEmergenceMissing("lifecycle")) with { Indexes = pool.ProjectOwnedRoles() });

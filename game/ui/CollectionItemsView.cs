@@ -17,13 +17,17 @@ internal partial class CollectionItemsView : Control
     private Action<Action> runUiAction = null!;
     private int tabIndex;
     private bool abandoned;
+    private AdministrationPageChrome.Resources? resources;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionItemCatalog catalog, Func<bool> admitted, Action returned,
         Func<int> scrollSpeed, Action<Action> runUiAction,
-        Action poemEntered, Action<bool> poemLeft, Func<Task> poemAppearanceSound)
+        Action poemEntered, Action<bool> poemLeft, Func<Task> poemAppearanceSound,
+        AdministrationPageChrome.Resources? resources = null, CollectionCatalog? preparedPoems = null,
+        PoemEventCatalog? preparedPoemEvents = null)
     {
         this.repository = repository; this.text = text; this.catalog = catalog;
+        this.resources = resources; poemCatalog = preparedPoems; poemEventCatalog = preparedPoemEvents;
         this.admitted = admitted; this.returned = returned;
         this.scrollSpeed = scrollSpeed; this.runUiAction = runUiAction;
         this.poemEntered = poemEntered; this.poemLeft = poemLeft; this.poemAppearanceSound = poemAppearanceSound;
@@ -47,7 +51,7 @@ internal partial class CollectionItemsView : Control
             id => runUiAction(() => ShowDetail(id)), scrollSpeed, Sort,
             tabCaptions: catalog.Tabs.Select(value => value.Caption).ToArray(), selectedTab: index,
             selectTab: next => runUiAction(() => { if (next != tabIndex && ReadAdmission() && detail is null) ShowTab(next); }),
-            completeColumnProfile: true, normalColumnLayout: true);
+            completeColumnProfile: true, normalColumnLayout: true, resources: resources);
         SetMeta("catalog_count", sourceRows.Count); SetMeta("catalog_tab", tab.Id);
     }
 
@@ -87,7 +91,7 @@ internal partial class CollectionItemsView : Control
                 orderedRows.Select(row => new CollectionDetailEntry(row.ItemId, catalog.ReadItem(row.ItemId).Name)).ToArray(),
                 () => ReadAdmission() && detail == page, CloseDetail,
                 next => runUiAction(() => ShowDetail(next)), scrollSpeed,
-                () => runUiAction(() => ShowPoemDetail(itemId)));
+                () => runUiAction(() => ShowPoemDetail(itemId)), resources);
         }
         catch { CloseDetail(); throw; }
     }

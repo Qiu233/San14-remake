@@ -37,10 +37,12 @@ public partial class Main
             SetMeta("ui_audio_select_frames", source.SelectFrames);
             SetMeta("ui_audio_cancel_frames", source.CancelFrames);
             SetMeta("ui_audio_tab_frames", source.TabFrames);
+            SetMeta("ui_audio_invalid_frames", source.InvalidFrames);
         }
         if (status.SelectCount is int selectCount) SetMeta("ui_audio_select_count", selectCount);
         if (status.CancelCount is int cancelCount) SetMeta("ui_audio_cancel_count", cancelCount);
         if (status.TabCount is int tabCount) SetMeta("ui_audio_tab_count", tabCount);
+        if (status.InvalidCount is int invalidCount) SetMeta("ui_audio_invalid_count", invalidCount);
         UpdateUiAudioStatus();
     }
 

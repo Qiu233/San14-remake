@@ -27,13 +27,13 @@ internal partial class PersonnelLearningView : Control
     private string chooseCaption = "";
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Func<bool> admitted,
-        Action returned, Action<bool> accepted, Action chooseOfficer, Action<int> chooseTactic, Action<int?> inspectTactic)
+        Action returned, Action<bool> accepted, Action chooseOfficer, Action<int> chooseTactic, Action<int?> inspectTactic, AdministrationPageChrome.Resources? resources = null)
     {
         this.admitted = admitted; this.returned = returned; this.accepted = accepted;
         Name = "PersonnelLearning"; ZIndex = 3; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         chrome = new(); AddChild(chrome);
-        chrome.Configure(repository, text, 0x237, RequestBack, () => RequestApply(false), threeButtonFooter: true);
+        chrome.Configure(repository, text, 0x237, RequestBack, () => RequestApply(false), threeButtonFooter: true, resources: resources);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         again = new() { Position = footer.Rectangle(3, new(0, 904)).Position, InputAdmission = ReadAdmission };
         chrome.Canvas.AddChild(again);

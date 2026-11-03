@@ -118,7 +118,9 @@ public partial class Main
         var view=new GateDetailsView();owner.OwnedPage=view;AddChild(view);
         try
         {
+            view.TransitionFailure = ReportPlayFailure;
             view.Configure(_repository!,_ui,publication,()=>RunUiAction(()=>ReturnEnemyFootholdChild(owner)),
+                TryBorrowApplicationUiResources(view),
                 ()=>RunUiAction(()=>OpenEnemyGateResidents(owner)));
             view.RegisterHeader(_sourceHeaders);
             owner.Map.SetDetailsOpen(true,keepMapVisible:true);HideDeploymentHud();return true;
@@ -176,6 +178,7 @@ public partial class Main
         if(!EnemyFootholdCurrent(owner)){CloseEnemyFootholdCommands();return;}
         if(owner.ResidentDetail is {} detail)detail.RequestClose();
         else if(owner.ResidentList is not null)CloseEnemyGateResidents(owner);
+        else if(owner.OwnedPage is GateDetailsView gate)gate.RequestClose();
         else if(owner.OwnedPage is not null)ReturnEnemyFootholdChild(owner);
         else if(!owner.ChildActive)CloseEnemyFootholdCommands();
     }

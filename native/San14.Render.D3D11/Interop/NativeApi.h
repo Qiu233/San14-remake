@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "CommandMapInput.h"
+#include "HexFocusInput.h"
 #include "RouteOverlayInput.h"
 #include "CurrentEffectInput.h"
 #include "CurrentEffectDirectInput.h"
@@ -85,6 +86,15 @@ SAN14_RENDER_API int __cdecl san14_render_prepare_scene_v1(void* owner,
     const San14RenderInput* input,const San14CommandMapInputV2* command,
     const San14RouteOverlayInputV1* route,const San14CurrentEffectInputV1* effects,
     San14RenderReceipt* receipt);
+// First focus coexists with every optional second-focus/route/effect owner.
+SAN14_RENDER_API int __cdecl san14_render_prepare_scene_focus_v1(void* owner,
+    const San14RenderInput* input,const San14CommandMapInputV2* command,
+    const San14RouteOverlayInputV1* route,const San14CurrentEffectInputV1* effects,
+    const San14HexFocusInputV1* focus,San14RenderReceipt* receipt);
+SAN14_RENDER_API int __cdecl san14_render_next_map_focus_v1(void* owner,void* output,
+    const San14RenderInput* input,const San14CommandMapInputV2* command,
+    const San14RouteOverlayInputV1* route,const San14CurrentEffectInputV1* effects,
+    const San14HexFocusInputV1* focus,uint32_t outputUse,San14RenderReceipt* receipt);
 SAN14_RENDER_API int __cdecl san14_render_copy_scene_v1(void* owner,void* output,
     uint64_t request,uint32_t outputUse);
 // Synchronous calls on the same render thread as next; all package bytes are

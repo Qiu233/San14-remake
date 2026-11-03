@@ -6,6 +6,9 @@ internal partial class DeploymentUnitInformationView
     private Control? tacticChoices;
     private readonly List<(DeploymentTacticButton Button,bool Allowed)> tacticButtons=[];
     private Action<int>? chooseTactic;
+    private CollectionTacticBalloonView tacticBalloon=null!;
+    private Func<bool>? tacticBalloonAdmission;
+    private readonly Dictionary<Control,AreaAdministrationQuery<DeploymentTacticBalloon>?> tacticBalloonOwners=[];
     private bool tutorialTacticButtonsEnabled=true;
     internal bool TacticSelectionPresent=>!abandoned&&tacticChoices is { } choices&&
         !choices.IsQueuedForDeletion()&&choices.IsInsideTree()&&choices.IsVisibleInTree();
@@ -17,9 +20,26 @@ internal partial class DeploymentUnitInformationView
     internal int? TutorialTacticMarkerId {get;private set;}
     internal bool TutorialTacticMarkerAnimationDeferred=>TutorialTacticMarkerId.HasValue;
 
-    internal void ApplyTacticChoices(DeploymentTacticChoices? query,Action<int>? choose)
+    private void ConfigureTacticBalloon()
+    {
+        tacticBalloon=new CollectionTacticBalloonView {Name="DeploymentTacticBalloon"};
+        GetParent<Control>().AddChild(tacticBalloon);
+        tacticBalloon.Configure(repository,assets,shader,font);
+        tacticBalloon.Name="DeploymentTacticBalloon";
+        VisibilityChanged+=()=>{if(!IsVisibleInTree())tacticBalloon.Hide();};
+        TreeExiting+=()=>
+        {
+            tacticBalloonOwners.Clear();tacticBalloonAdmission=null;
+            if(GodotObject.IsInstanceValid(tacticBalloon))
+            {tacticBalloon.Hide();tacticBalloon.QueueFree();}
+        };
+    }
+
+    internal void ApplyTacticChoices(DeploymentTacticChoices? query,Action<int>? choose,
+        Func<bool>? canShowBalloon=null)
     {
         if(abandoned)return;
+        tacticBalloon.Hide();tacticBalloonOwners.Clear();tacticBalloonAdmission=canShowBalloon;
         chooseTactic=choose;tacticButtons.Clear();DisplayedTacticIds=[];SelectedTacticIds=[];
         if(tacticChoices is { } previous)
         {previous.Hide();previous.Name="PreviousTacticChoices";previous.QueueFree();tacticChoices=null;}
@@ -36,6 +56,7 @@ internal partial class DeploymentUnitInformationView
             button.Configure(repository,assets,shader,font,choice,index=>
             {if(!abandoned&&tutorialTacticButtonsEnabled)chooseTactic?.Invoke(index);});
             tacticButtons.Add((button,choice.Enabled));
+            tacticBalloonOwners.Add(button,choice.Balloon);
         }
         RefreshTacticButtons();
     }
@@ -58,5 +79,20 @@ internal partial class DeploymentUnitInformationView
     }
 
     private void AbandonTacticInteraction()
-    {chooseTactic=null;RefreshTacticButtons();}
+    {
+        chooseTactic=null;tacticBalloonAdmission=null;tacticBalloonOwners.Clear();
+        tacticBalloon.Hide();RefreshTacticButtons();
+    }
+
+    private void RefreshTacticBalloon(Control? hovered)
+    {
+        // Disabled candidates still own the original explanatory balloon.
+        // Use actual GUI picking; a retained button behind a child cannot win.
+        if(abandoned||!IsVisibleInTree()||!CanProcess()||HasCalculator||
+            tacticBalloonAdmission?.Invoke()!=true||hovered is null||
+            hovered.IsQueuedForDeletion()||!hovered.IsVisibleInTree()||
+            !tacticBalloonOwners.TryGetValue(hovered,out var query)||query?.Value is not { } value)
+        {tacticBalloon.Hide();return;}
+        tacticBalloon.Display(value.Body,value.DisabledReason);
+    }
 }

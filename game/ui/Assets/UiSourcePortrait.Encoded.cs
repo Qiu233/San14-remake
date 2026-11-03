@@ -17,6 +17,9 @@ internal partial class UiSourcePortrait
         => ConfigureLayoutPane(repository, assets, shader, portrait, assets.SourceLayout(0xB20B608C), 3, 2);
     internal void ConfigureFace5(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedUiSpriteSource portrait)
         => ConfigureLayoutPane(repository, assets, shader, portrait, assets.SourceLayout(0xAED4739D), 1, 3);
+    internal void ConfigureMediation(GameResourceRepository repository, UiAssets assets, Shader shader,
+        LoadedUiSpriteSource portrait, int slot)
+        => ConfigureLayoutPane(repository, assets, shader, portrait, assets.SourceLayout(0x1DE0C63E), 14 + slot * 11, 2);
     internal void ConfigureOfficerCard(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedUiSpriteSource portrait)
         => ConfigureLayoutPane(repository, assets, shader, portrait, assets.SourceLayout(0xCB7DEBFC), 9, 3);
     internal void ConfigureMapHeader(GameResourceRepository repository, UiAssets assets, Shader shader, LoadedUiSpriteSource portrait)

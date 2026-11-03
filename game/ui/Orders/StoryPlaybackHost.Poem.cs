@@ -8,7 +8,7 @@ internal partial class StoryPlaybackHost
     private void OpenPoem(StoryPoemEvent request,long sequence,int step)
     {
         if(abandoned||poem is not null)return;
-        var publication=PoemEventCatalog.Load(repository,text.SourceLocale).ReadEvent(request.RawId);
+        var publication=preparedUiResources.PoemEvents.ReadEvent(request.RawId);
         var view=new PoemEventView();poem=view;AddChild(view);scene.Hide();
         try
         {
@@ -18,7 +18,7 @@ internal partial class StoryPlaybackHost
                 {
                     if(abandoned||!ReferenceEquals(poem,view))return;
                     ClosePoem(restore:true);CompleteStep(sequence,step);
-                },Fail,()=>audio.PlayPoemAppearanceSoundAsync());
+                },Fail,()=>audio.PlayPoemAppearanceSoundAsync(),preparedUiResources.CreateChromeResources());
             audio.BeginPoemEvent(text.SourceLocale,musicPreferences);
         }
         catch{ClosePoem(restore:false);throw;}

@@ -27,13 +27,13 @@ public partial class Main
         var graph = source.HasDistrictResourceHistory ? rules.ReadIncomeReportGraph(source) : null;
         _incomeReportSession = session; _incomeReportApplication = application;
         _incomeReportMap = _residentMap; _incomeReportCompleted = completed;
-        var sprites = new LocalizedUiSpriteSource(_repository);
+        AdministrationPageChrome.Resources resources = null!;
         var view = new IncomeReportNumericView { Name = "CampaignIncomeReport" };
         _incomeReportView = view;
         try
         {
             AddChild(view);
-            var resources = TryBorrowApplicationUiResources(view);
+            resources = TryBorrowApplicationUiResources(view);
             RetirePeriodReportView();
             EnsureReportBackground(session, application, _incomeReportMap, view);
             view.Configure(_repository, resources.Assets, resources.SpriteShader, resources.Font,
@@ -65,10 +65,10 @@ public partial class Main
             //Only a real tab change reaches this formatter. It draws from the
             //same authoritative application stream used by other report text.
             var advice = rules.PrepareIncomeReportAdvice(source, district, _presentationRandom.Next);
-            IReadOnlyList<LoadedSprite>? layers = advice.Portrait is { } portrait
-                ? portrait.LoadSprites(sprites.LoadTexturePackSprite)
+            LoadedStandingPortraitSources? layers = advice.Portrait is { } portrait
+                ? portrait.LoadSources(resources.Assets.Portraits.RequireSource)
                 : null;
-            view.ApplyStrategistPortrait(layers);
+            view.ApplyPreparedStrategistPortrait(layers);
             return advice.Text;
         }
     }

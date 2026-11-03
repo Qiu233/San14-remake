@@ -247,7 +247,7 @@ public partial class Main
             if (publication.UnresolvedOwner is { } missing) GD.PushWarning(missing);
             var detail = new MapInformationHistoryView();
             browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, publication,
-                Current, close, CurrentListScrollSpeed));
+                Current, close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
         }
         void OpenList(int tab, int node)
         {
@@ -277,7 +277,7 @@ public partial class Main
             {
                 var detail = new MapInformationRecordView();
                 browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, publication.Title,
-                    [new(publication.Title, body)], close, CurrentListScrollSpeed));
+                    [new(publication.Title, body)], close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
                 return;
             }
             if (publication.Columns.IsEmpty) { browser.ApplyNotice(_ui.Get("information_partial")); return; }
@@ -307,7 +307,7 @@ public partial class Main
                     if(!Current()||!browser.IsCurrentDetail(detail))return;
                     OpenInformationItem(browser,rules,world,publication.Items.CurrentDefinitionIds,item,
                         detail.ApplyItemDetailReturn,publication.Items.NameSortAscending);
-                }),CurrentListScrollSpeed));
+                }),CurrentListScrollSpeed,TryBorrowApplicationUiResources(detail)));
         }
     }
 }

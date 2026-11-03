@@ -24,7 +24,7 @@ internal partial class CityOfficerMovementView : Control
     internal AdministrationPageChrome.Resources SharedResources => new(chrome.Assets, chrome.Font, chrome.SpriteShader);
 
     internal void Configure(GameResourceRepository repository, PreviewText text, OfficerMoveMode mode,
-        Func<bool> admitted, Action returned, Action accepted, Action choosePersons, Action chooseDestination)
+        Func<bool> admitted, Action returned, Action accepted, Action choosePersons, Action chooseDestination, AdministrationPageChrome.Resources? resources = null)
     {
         this.repository = repository; this.text = text; this.admitted = admitted;
         this.returned = returned; this.accepted = accepted; this.choosePersons = choosePersons;
@@ -35,7 +35,7 @@ internal partial class CityOfficerMovementView : Control
         var backdrop=new UiSourceCommonBlur();AddChild(backdrop);backdrop.Configure(repository);
         chrome = new(); AddChild(chrome);
         chrome.Configure(repository, text, summon ? 0x0271 : 0x0270, RequestBack,
-            () => { if (ReadAdmission() && page?.CanConfirm == true) this.accepted?.Invoke(); });
+            () => { if (ReadAdmission() && page?.CanConfirm == true) this.accepted?.Invoke(); }, resources: resources);
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing movement caption {id:X4}.");
         unknown = text.Get("detail_unknown"); countFormat = Message(0x0323);

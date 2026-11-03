@@ -16,19 +16,24 @@ internal partial class CollectionOfficerFilterView : Control
     private readonly bool[] groups = new bool[3];
     private readonly List<UiSourceCommandButton> choices = [];
     private bool abandoned;
+    private bool ownsResources;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, IReadOnlyList<bool> initial,
-        Func<bool> admitted, Action returned, Action<IReadOnlyList<bool>> confirmed)
+        Func<bool> admitted, Action returned, Action<IReadOnlyList<bool>> confirmed,
+        AdministrationPageChrome.Resources? resources = null)
     {
         if (initial.Count != 3) throw new ArgumentException("Collection filter requires three groups.", nameof(initial));
         this.admitted = admitted; this.returned = returned; this.confirmed = confirmed;
         for (int index = 0; index < groups.Length; index++) groups[index] = initial[index];
         Name = "CollectionOfficerFilter"; MouseFilter = MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        ownsResources = resources is null;
+        assets = resources?.Assets ?? new(repository);
+        font = resources?.Font ?? new(repository, text.SourceLocale);
+        shader = resources?.SpriteShader ?? UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
-        var source = new UiSourceLayout(repository, 0x2714E51B);
+        var source = assets.SourceLayout(0x2714E51B);
         Vector2 mount = (canvas.Size - source.Rectangle(0).Size) / 2;
         foreach (var node in source.Nodes.Where(node => node.Index < 7))
         {
@@ -48,7 +53,7 @@ internal partial class CollectionOfficerFilterView : Control
             button.Configure(repository, assets, shader, font, Caption(captions[index]),
                 () => { if (ReadAdmission()) { groups[group] = !groups[group]; button.Selected = groups[group]; } });
         }
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         AddFooter(4, "CollectionOfficerFilterCancel", "000_cmn_txt_decision_modoru", RequestBack, UiAudioCue.Cancel);
         AddFooter(5, "CollectionOfficerFilterConfirm", "000_cmn_txt_decision_kettei",
             () => { if (ReadAdmission()) this.confirmed?.Invoke(groups.ToArray()); }, UiAudioCue.ButtonSelect);
@@ -77,5 +82,9 @@ internal partial class CollectionOfficerFilterView : Control
         float scale = Math.Min(Size.X / 1920, Size.Y / 1080);
         canvas.Scale = Vector2.One * scale; canvas.Position = (Size - new Vector2(1920, 1080) * scale) / 2;
     }
-    public override void _ExitTree() { Abandon(); font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree()
+    {
+        Abandon();
+        if (ownsResources) { font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    }
 }

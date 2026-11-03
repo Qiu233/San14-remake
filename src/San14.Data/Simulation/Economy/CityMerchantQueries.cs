@@ -22,6 +22,8 @@ public sealed record CityMerchantPage(int CityId, string CityName,
     public int CommandCost => CityMerchantSource.CommandCost;
     public bool? CanBuy { get; init; }
     public bool? CanSell { get; init; }
+    // Buy is the source quote/reset default, not a confirmed player choice.
+    public CityMerchantMode? SelectedMode => Amount > 0 ? Mode : null;
 }
 
 /// <summary>One page owns its captured current. Editing only changes page
@@ -87,13 +89,18 @@ public sealed class CityMerchantDraft : IDisposable
         return new(true);
     }
 
-    public AreaAdministrationDraftResult SetAmount(int value)
+    public AreaAdministrationDraftResult SetAmount(int value) => SetTradeAmount(mode, value);
+
+    // Accept a quantity dialog as one local edit. A rejected quantity must not
+    // reset the previous mode/amount before its own validation has finished.
+    public AreaAdministrationDraftResult SetTradeAmount(CityMerchantMode requested, int value)
     {
         if (closed) return new(false, "city-merchant.closed");
-        var page = source.Page(selected, mode, value);
+        if (!Enum.IsDefined(requested)) return new(false, "city-merchant.mode");
+        var page = source.Page(selected, requested, value);
         if (value < 0 || page.MaxAmount is not int maximum || value > maximum)
             return new(false, page.UnresolvedInput ?? "city-merchant.amount");
-        amount = value;
+        mode = requested; amount = value;
         return new(true);
     }
 

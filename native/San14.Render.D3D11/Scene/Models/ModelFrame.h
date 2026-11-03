@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <utility>
+#include <iterator>
 #include <emmintrin.h>
 
 struct NativeModelContinuousInstance {
@@ -162,8 +164,9 @@ struct NativeModelCamera {
 };
 // Models use the accepted camera transform and frustum, shared with terrain.
 // Matrix packing below belongs to the model shader constant-buffer boundary.
+template<class OrdinaryAdmission>
 inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelContinuous& catalog,
-    const NativeModelCamera& camera,const std::array<std::array<float,4>,6>& planes) {
+    const NativeModelCamera& camera,const std::array<std::array<float,4>,6>& planes,OrdinaryAdmission admits) {
     NativeModelContinuousPlan plan;plan.alphaSortFields=catalog.alphaSortFields;float nearValue=camera.nearPlane,farValue=camera.farPlane;
     float span=modelContinuousAdd(modelContinuousSub(farValue,nearValue),1.f);
     float doubled=modelContinuousAdd(span,span);
@@ -172,7 +175,10 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
     std::array<char,48> worldToView{};
     for(unsigned i=0;i<12;++i)std::memcpy(worldToView.data()+i*4,camera.view.data()+viewIndices[i],4);
     for(const auto& instance:catalog.instances) {
-        if(!modelContinuousVisible(instance,planes))continue;
+        // Field display owns the current first-mask. Exclude its hidden rows
+        // before culling, payload construction and stable sorting; filtering a
+        // stable permutation preserves the same admitted relative order.
+        if(!admits(instance.index)||!modelContinuousVisible(instance,planes))continue;
         plan.visibleInstances.push_back(instance.index);
         if(instance.hasUnsupported)plan.visibleUnsupportedInstances.push_back(instance.index);
         const auto key=modelContinuousDistanceKey(instance,planes[4].data(),span,scale);
@@ -183,7 +189,7 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
             draw.extendedVertex=primitive.extendedVertex;draw.queue=primitive.queue;draw.groupFlags=primitive.groupFlags;
             std::memcpy(draw.vertex.data(),camera.worldToClip.data(),64);
             if(!draw.extendedVertex.empty())std::memcpy(draw.extendedVertex.data(),camera.worldToClip.data(),64);
-            std::memcpy(draw.pixel.data()+16,worldToView.data(),48);plan.draws.push_back(draw);
+            std::memcpy(draw.pixel.data()+16,worldToView.data(),48);plan.draws.push_back(std::move(draw));
         }
     }
     // Original D4B7E0: each enabled field is an ascending stable 8-byte radix;
@@ -208,25 +214,36 @@ inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelCo
     std::vector<NativeModelContinuousDraw> alpha;
     auto out=plan.draws.begin();
     for(auto current=plan.draws.begin();current!=plan.draws.end();++current) {
-        if(current->queue==55)alpha.push_back(*current);
-        else {if(out!=current)*out=*current;++out;}
+        if(current->queue==55)alpha.push_back(std::move(*current));
+        else {if(out!=current)*out=std::move(*current);++out;}
     }
     plan.draws.erase(out,plan.draws.end());sorted(plan.draws,catalog.sortFields);
     if(!alpha.empty()) {
         if(catalog.alphaSortFields.empty())throw std::runtime_error("Normal55 actual Alpha descriptor absent");
-        sorted(alpha,catalog.alphaSortFields);plan.draws.insert(plan.draws.end(),alpha.begin(),alpha.end());
+        sorted(alpha,catalog.alphaSortFields);plan.draws.insert(plan.draws.end(),std::make_move_iterator(alpha.begin()),std::make_move_iterator(alpha.end()));
     }
     return plan;
 }
 
+inline NativeModelContinuousPlan selectNativeModelContinuous(const NativeModelContinuous& catalog,
+    const NativeModelCamera& camera,const std::array<std::array<float,4>,6>& planes) {
+    return selectNativeModelContinuous(catalog,camera,planes,[](unsigned){return true;});
+}
+
 // Thin projection of the accepted camera's typed matrices and planes.
-template<class AcceptedSourceCameraFrame>
+template<class AcceptedSourceCameraFrame,class OrdinaryAdmission>
 inline NativeModelContinuousPlan selectNativeModelContinuousFromCameraFrame(const NativeModelContinuous& catalog,
-    const AcceptedSourceCameraFrame& frame) {
+    const AcceptedSourceCameraFrame& frame,OrdinaryAdmission admits) {
     const NativeModelCamera camera{frame.optics.nearPlane,frame.optics.farPlane,frame.view,frame.worldToClip};
     std::array<std::array<float,4>,6> planes{};
     for(unsigned i=0;i<6;++i){const auto& p=frame.planes[i].equation;planes[i]={p.X,p.Y,p.Z,p.W};}
-    return selectNativeModelContinuous(catalog,camera,planes);
+    return selectNativeModelContinuous(catalog,camera,planes,admits);
+}
+
+template<class AcceptedSourceCameraFrame>
+inline NativeModelContinuousPlan selectNativeModelContinuousFromCameraFrame(const NativeModelContinuous& catalog,
+    const AcceptedSourceCameraFrame& frame) {
+    return selectNativeModelContinuousFromCameraFrame(catalog,frame,[](unsigned){return true;});
 }
 
 inline ComPtr<ID3D11Buffer> modelContinuousConstantBuffer(ID3D11Device* device,const char* bytes,UINT size) {

@@ -12,7 +12,7 @@ internal partial class ArmyInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new ArmyInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "ArmyInformationList", "army_information_group", resources: resources);
+            close, inspect, scrollSpeed, "ArmyInformationList", "army_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void AdoptPages(ArmyInformationPageSet replacement)
     {

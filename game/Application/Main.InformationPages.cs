@@ -70,7 +70,7 @@ public partial class Main
             if (publication.UnresolvedOwner is { } missing) GD.PushWarning(missing);
             var detail = new MapInformationHistoryView();
             browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, publication,
-                Current, close, CurrentListScrollSpeed));
+                Current, close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
         }
 
         void OpenList(int tab, int node)
@@ -107,7 +107,7 @@ public partial class Main
             {
                 var record = new MapInformationRecordView();
                 browser.ShowDetail(record, close => record.Configure(_repository, _ui, publication.Title,
-                    [new(publication.Title, body)], close, CurrentListScrollSpeed));
+                    [new(publication.Title, body)], close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(record)));
                 return;
             }
             if (publication.Columns.IsEmpty)
@@ -150,7 +150,7 @@ public partial class Main
                     if(!Current()||!browser.IsCurrentDetail(detail))return;
                     OpenInformationItem(browser,rules,world,publication.Items.CurrentDefinitionIds,item,
                         detail.ApplyItemDetailReturn,publication.Items.NameSortAscending);
-                }),CurrentListScrollSpeed));
+                }),CurrentListScrollSpeed,TryBorrowApplicationUiResources(detail)));
         }
     }
 
@@ -228,7 +228,7 @@ public partial class Main
             var detail = new MapInformationRecordView();
             var fields = publication.Columns.Select(column => new MapInformationRecordField(InformationColumnCaption(column),
                 InformationCellText(row.Cells.GetValueOrDefault(column.Key)))).ToArray();
-            browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, row.Name, fields, close, CurrentListScrollSpeed));
+            browser.ShowDetail(detail, close => detail.Configure(_repository, _ui, row.Name, fields, close, CurrentListScrollSpeed, TryBorrowApplicationUiResources(detail)));
         }
     }
 }

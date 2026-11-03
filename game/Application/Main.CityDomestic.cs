@@ -71,7 +71,7 @@ public partial class Main
             _cityDomesticPresenter = new(view, _repository, _ui, draft,
                 () => IsCityDomesticCurrent(session, map) && _cityDomesticView == view, RunUiAction,
                 terminal => RunPlayAction(() => CompleteCityDomestic(session, map, view, city, force, terminal)),
-                CityDomesticUnavailable, _ => true, _cityDomesticSelectors.Open);
+                CityDomesticUnavailable, _ => true, _cityDomesticSelectors.Open, resources: TryBorrowApplicationUiResources(view));
         }
         catch { draft.Dispose(); CloseCityDomestic(); throw; }
     }

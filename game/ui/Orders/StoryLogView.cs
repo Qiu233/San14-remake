@@ -1,7 +1,7 @@
 using Godot;
 using San14.Data;
 
-internal sealed record StoryLogVisual(string Name, string Text, LoadedSprite? Portrait);
+internal sealed record StoryLogVisual(string Name, string Text, LoadedUiSpriteSource? Portrait);
 
 /// <summary>The current script's retained message log. Scrolling rebinds five
 /// source rows from captured text and portraits, without formatting or world queries.</summary>
@@ -22,20 +22,20 @@ internal partial class StoryLogView : Control
     private Action? closed;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, IReadOnlyList<StoryLogVisual> entries,
-        Func<bool> admitted, Action closed, Func<int> scrollSpeed)
+        Func<bool> admitted, Action closed, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.repository = repository; this.entries = entries; this.admitted = admitted; this.closed = closed;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Stop; ZIndex = 30;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         canvas = new() { Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop }; AddChild(canvas);
-        var source = new UiSourceLayout(repository, 0x909CAB01);
+        var source = assets.SourceLayout(0x909CAB01);
         Vector2 mount = (new Vector2(1920, 1080) - source.Rectangle(0).Size) / 2;
         source.Art(canvas, 1, source.Rectangle(1, mount), assets, shader);
         var first = source.Rectangle(6, mount); var last = source.Rectangle(3, mount);
         int pitch = (int)(source.Rectangle(5).Position.Y - source.Rectangle(6).Position.Y);
         var rows = new Control { Name = "StoryLogRows", Position = first.Position,
             Size = new(first.Size.X, last.End.Y - first.Position.Y), ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
-        canvas.AddChild(rows); rowSource = new(repository, 0x0834A553);
+        canvas.AddChild(rows); rowSource = assets.SourceLayout(0x0834A553);
         for (int slot = 0; slot < Math.Min(entries.Count, (int)rows.Size.Y / pitch + 2); slot++)
         {
             var root = new Control { Name = "StoryLogRow" + slot, Size = rowSource.Rectangle(0).Size, MouseFilter = MouseFilterEnum.Pass };
@@ -51,7 +51,7 @@ internal partial class StoryLogView : Control
         scrollbar.Configure(repository, assets, shader, Math.Max(entries.Count * pitch - (int)rows.Size.Y, 0), scrollSpeed(),
             _ => PositionRows(), currentScrollSpeed: scrollSpeed);
         rows.GuiInput += input => { if (Admitted()) scrollbar.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "StoryLogReturn", Position = footer.Rectangle(1, new(0, 904)).Position,
             InputAdmission = Admitted };
         canvas.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
@@ -89,5 +89,5 @@ internal partial class StoryLogView : Control
     private void Fit()
     { float factor = Math.Min(Size.X / 1920, Size.Y / 1080); canvas.Scale = Vector2.One * factor; canvas.Position = (Size - new Vector2(1920, 1080) * factor) / 2; }
     internal void Abandon() { admitted = null; closed = null; Hide(); }
-    public override void _ExitTree() { admitted = null; closed = null; font?.Dispose(); assets?.Dispose(); shader?.Dispose(); }
+    public override void _ExitTree() { admitted = null; closed = null; font = null; assets = null; shader = null; }
 }

@@ -7,12 +7,19 @@ using San14.Data;
 internal partial class UiSourceMultilineText : Control, IUiSourceDrawing
 {
     private MapFont font = null!;
+    private uint? drawingVisibilityLayer;
     private MapFontProfile source = null!, fitted = null!;
     private IReadOnlyList<NarrationParagraphLine> lines = [];
     private float[] baselines = [];
     private IReadOnlyList<uint?>[] colours = [];
     private string? current;
-    public void SetDrawingVisibilityLayer(uint layer) => font.SetDrawingVisibilityLayer(this, layer);
+    // Compositor assignment/restoration may precede this borrowed font.
+    // Keep the requested layer for the first actual configured draw.
+    public void SetDrawingVisibilityLayer(uint layer)
+    {
+        drawingVisibilityLayer = layer;
+        if (font is not null) font.SetDrawingVisibilityLayer(this, layer);
+    }
 
     internal void Configure(MapFont font, MapFontProfile profile)
     {
@@ -20,6 +27,7 @@ internal partial class UiSourceMultilineText : Control, IUiSourceDrawing
             profile.WidthFitMode != 3 || profile.RawCharacterMode != 2)
             throw new InvalidDataException("Movie caption requires its authored centered multiline profile.");
         this.font = font; source = fitted = profile;
+        if (drawingVisibilityLayer is uint layer) font.SetDrawingVisibilityLayer(this, layer);
         MouseFilter = MouseFilterEnum.Ignore; SetNotifyTransform(true);
     }
 
@@ -30,6 +38,7 @@ internal partial class UiSourceMultilineText : Control, IUiSourceDrawing
         if(profile.RawAlign!=0x11||profile.RawLineArrange!=2||!warning&&!unlock)
             throw new InvalidDataException("Commander status requires its original centered source profile.");
         this.font=font;source=fitted=profile;
+        if (drawingVisibilityLayer is uint layer) font.SetDrawingVisibilityLayer(this, layer);
         MouseFilter=MouseFilterEnum.Ignore;SetNotifyTransform(true);
     }
 
@@ -41,6 +50,7 @@ internal partial class UiSourceMultilineText : Control, IUiSourceDrawing
             profile.WidthFitMode != 2 || profile.RawCharacterMode != 2)
             throw new InvalidDataException("Common guide requires its original centered source profile.");
         this.font = font; source = fitted = profile;
+        if (drawingVisibilityLayer is uint layer) font.SetDrawingVisibilityLayer(this, layer);
         MouseFilter = MouseFilterEnum.Ignore; SetNotifyTransform(true);
     }
 

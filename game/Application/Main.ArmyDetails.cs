@@ -57,18 +57,19 @@ public partial class Main
         var captives = rules.PrepareArmyCaptiveOfficerPages(world, player, unitId);
         var flag = initial.Identity is { ForceLookupId: int force }
             ? composition.DetailForces(world, [force]).GetValueOrDefault(force) : null;
-        IReadOnlyList<LoadedSprite>? layers = null;
+        var resources = TryBorrowApplicationUiResources(view);
+        view.TransitionFailure = ReportPlayFailure;
+        LoadedStandingPortraitSources? layers = null;
         if (initial.PortraitRoute is { } route)
         {
-            var sprites = new LocalizedUiSpriteSource(repository);
-            layers = route.LoadSprites(sprites.LoadTexturePackSprite);
+            layers = route.LoadSources(resources.Assets.Portraits.RequireSource);
         }
         static int PreviewKey(bool? land) => land is null ? -1 : land.Value ? 1 : 0;
         var detailsCache = new Dictionary<int, UnitSourceDetails>
             { [PreviewKey(initial.Formation?.LandSelected)] = initial };
         var parametersCache = new Dictionary<int, UnitSourceParameters>();
         var axesCache = new Dictionary<int, UnitSourceAxes>();
-        view.Configure(repository, _ui, Read, close, ReadParameters,
+        view.Configure(repository, _ui, Read, close, resources, ReadParameters,
             officer => RunInspectionUiAction(world, () => OpenOfficer(view, officer, [officer])),
             () => RunInspectionUiAction(world, OpenCaptives));
 
@@ -91,7 +92,7 @@ public partial class Main
             captives = rules.PrepareArmyCaptiveOfficerPages(world, player, unitId);
             flag = initial.Identity is { ForceLookupId: int forceId }
                 ? composition.DetailForces(world, [forceId]).GetValueOrDefault(forceId) : null;
-            layers = initial.PortraitRoute?.LoadSprites(new LocalizedUiSpriteSource(repository).LoadTexturePackSprite);
+            layers = initial.PortraitRoute?.LoadSources(resources.Assets.Portraits.RequireSource);
             detailsCache.Clear(); parametersCache.Clear(); axesCache.Clear();
             detailsCache[PreviewKey(initial.Formation?.LandSelected)] = initial;
             if (browser is null && _commandDetailsUnitParent is not null) _unitOrderAdoptDetailWorld?.Invoke(next);

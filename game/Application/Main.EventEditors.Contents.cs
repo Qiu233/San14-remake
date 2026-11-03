@@ -15,7 +15,7 @@ public partial class Main
     private IReadOnlyList<EventEditorContentListRow> _editedEventContentsRows = [];
     private EditedEventContentCatalog? _editedEventContentCatalog;
     private EditedEventLibrary? _editedEventContentLibrary;
-    private readonly Dictionary<int, IReadOnlyList<LoadedSprite>> _editedEventContentPortraits = [];
+    private readonly Dictionary<int, LoadedStandingPortraitSources> _editedEventContentPortraits = [];
     private readonly Dictionary<int, LoadedSprite> _editedEventContentFaces = [];
     private bool HasEditedEventContents => _editedEventContentsPage is not null;
     private bool IsEditedEventContentsCurrent => IsEventEditorsCurrent && _editedEventContentsPage is not null &&
@@ -185,6 +185,9 @@ public partial class Main
         try { initial = EditedEventContentEditing.Read(original); }
         catch (InvalidDataException error) { ReportEditedEventFailure(error); return; }
         var catalog = ReadEditedEventContentCatalog();
+        // This row borrows the current application generation. Its cached
+        // source arrays must not outlive the previous row's resource lease.
+        _editedEventContentPortraits.Clear();
         var view = new EventEditorContentView(); _editedEventContentPage = view; AddChild(view);
         _editedEventContentsPage!.Hide(); _editedEventContentsPage.SetBusy(true);
         try
@@ -222,7 +225,7 @@ public partial class Main
                         if (!IsEditedEventContentsCurrent || _editedEventContentPage != view) return;
                         view.Show(); view.SetBusy(false); completed(chosen);
                     });
-                }), ReadEditedEventContentPreview);
+                }), TryBorrowApplicationUiResources(view), ReadEditedEventContentPreview);
         }
         catch { _editedEventContentPage = null; view.Abandon(); view.QueueFree(); RefreshEditedEventContents(); throw; }
     }
@@ -271,15 +274,16 @@ public partial class Main
         _editedEventContentFaces.Add(appearance, face); return face;
     }
 
-    private IReadOnlyList<LoadedSprite> ReadEditedEventStandingPortrait(int portraitId)
+    private LoadedStandingPortraitSources ReadEditedEventStandingPortrait(int portraitId)
     {
         if (_editedEventContentPortraits.TryGetValue(portraitId, out var layers)) return layers;
         var catalog = _editedEventTitlePeopleCatalog?.PortraitCatalog ??
             throw new InvalidDataException("event_editor.content.portrait_catalog_owner");
         var resolved = catalog.ResolveStanding(portraitId);
         var route = resolved.Value ?? throw new InvalidDataException(resolved.UnresolvedInput);
-        var sprites = new LocalizedUiSpriteSource(_repository!);
-        layers = route.LoadSprites(sprites.LoadTexturePackSprite);
+        var assets = (_editedEventContentPage ?? throw new InvalidOperationException("Event content preview owner is absent."))
+            .SourceAssets;
+        layers = route.LoadSources(assets.Portraits.RequireSource);
         _editedEventContentPortraits.Add(portraitId, layers); return layers;
     }
 }

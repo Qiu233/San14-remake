@@ -20,6 +20,7 @@ internal sealed class UiSourceType6Composition : IDisposable
     private readonly Dictionary<UiSourceType6, UiSourceType6Pass> animatedCuts = [];
     private readonly Dictionary<CanvasItem, (uint Previous, int Segment)> assigned = [];
     private readonly Dictionary<SubViewport, Rid> dependencies = [];
+    private readonly Dictionary<SubViewport, Rid> renderParents = [];
     private UiSourceType6Quad? output;
     private readonly UiSourceType6Shaders shaders;
     private ShaderMaterial? outputMaterial;
@@ -27,6 +28,10 @@ internal sealed class UiSourceType6Composition : IDisposable
     private readonly bool incrementalPrefixes;
     private sealed record PrefixCopy(CanvasLayer Canvas, UiSourceType6Quad Quad, ShaderMaterial Material);
     private readonly List<PrefixCopy> prefixCopies = [];
+    private sealed record IdleCut(SubViewport Prefix, UiSourceType6Pass Pass, PrefixCopy? Copy);
+    // Local high-water storage only; size/effect/failure/Stop retire this graph.
+    // The public graph lists continue to describe active prefixes and cuts.
+    private readonly List<IdleCut> idleCuts = [];
     internal IReadOnlyList<SubViewport> Prefixes => prefixes;
     internal IReadOnlyList<UiSourceType6Pass> Cuts => cuts;
     internal int CutCount => attachedCuts;
@@ -84,8 +89,13 @@ internal sealed class UiSourceType6Composition : IDisposable
     private void RetirePrefixCopy(int index)
     {
         var copy = prefixCopies[index];
+        RetirePrefixCopy(copy); prefixCopies.RemoveAt(index);
+    }
+
+    private static void RetirePrefixCopy(PrefixCopy copy)
+    {
         if (GodotObject.IsInstanceValid(copy.Quad)) { copy.Quad.Hide(); copy.Quad.Material = null; }
-        copy.Material.Dispose(); prefixCopies.RemoveAt(index);
+        copy.Material.Dispose();
         // The CanvasLayer remains an owned child of the retiring prefix.
     }
 
@@ -135,6 +145,24 @@ internal sealed class UiSourceType6Composition : IDisposable
         if (item.IsInsideTree() && item is IUiSourceDrawing drawing) drawing.SetDrawingVisibilityLayer(previous);
     }
 
+    // Rendering dependencies do not transfer Node ownership. Reparenting a
+    // retained prefix during PreDraw exits/reenters all its Canvas children,
+    // whose normal deferred draw ordering has already run for this frame.
+    private void SetRenderParent(SubViewport producer, Rid consumer)
+    {
+        Rid previous = renderParents.TryGetValue(producer, out var retained)
+            ? retained : producer.GetParent().GetViewport().GetViewportRid();
+        if (previous == consumer) return;
+        // This engine's viewport_set_parent_viewport does not dirty its
+        // topological sort. Refresh active membership without leaving the tree
+        // or detaching any Canvas, preserving same-frame producer-before-user.
+        Rid viewport = producer.GetViewportRid();
+        RenderingServer.ViewportSetActive(viewport, false);
+        RenderingServer.ViewportSetParentViewport(viewport, consumer);
+        RenderingServer.ViewportSetActive(viewport, true);
+        renderParents[producer] = consumer;
+    }
+
     internal void DependOn(SubViewport producer)
     {
         var parent = producer.GetParent().GetViewport();
@@ -142,7 +170,10 @@ internal sealed class UiSourceType6Composition : IDisposable
         if (!dependencies.TryGetValue(producer, out var previousParent) || previousParent != originalParent)
         {
             dependencies[producer] = originalParent;
-            RenderingServer.ViewportSetParentViewport(producer.GetViewportRid(), prefixes[0].GetViewportRid());
+            // An external producer can reenter under a different scene owner;
+            // its EnterTree setter restored the native scene parent already.
+            renderParents.Remove(producer);
+            SetRenderParent(producer, prefixes[0].GetViewportRid());
         }
     }
 
@@ -152,8 +183,9 @@ internal sealed class UiSourceType6Composition : IDisposable
         foreach (var producer in dependencies.Keys.Where(view => !current.Contains(view)).ToArray())
         {
             if (GodotObject.IsInstanceValid(producer) && producer.IsInsideTree())
-                RenderingServer.ViewportSetParentViewport(producer.GetViewportRid(), producer.GetParent().GetViewport().GetViewportRid());
+                SetRenderParent(producer, producer.GetParent().GetViewport().GetViewportRid());
             dependencies.Remove(producer);
+            renderParents.Remove(producer);
         }
         foreach (var producer in producers) DependOn(producer);
     }
@@ -166,7 +198,7 @@ internal sealed class UiSourceType6Composition : IDisposable
             throw new InvalidOperationException("Type6 graph is sealed or has no remaining cut.");
         int index = attachedCuts++;
         var pass = new UiSourceType6Pass(prefixes[index + 1], prefixes[index], drawingParent ?? canvas, parameters, screenQuad,
-            sourceUvs, region, prefixes[index].Size, 1u << (index + 1), alpha, captureColor, prefillColor, shaders);
+            sourceUvs, region, prefixes[index].Size, 1u << (index + 1), alpha, captureColor, prefillColor, shaders, SetRenderParent);
         cuts.Add(pass); structuralNodes.Add(pass.Vertical);
         if (drawingParent is UiSourceType6 owner) animatedCuts.Add(owner, pass);
     }
@@ -204,8 +236,9 @@ internal sealed class UiSourceType6Composition : IDisposable
         input.CanvasCullMask = OutputLayer;
     }
 
-    // This graph keeps exactly the current active targets. No hidden page or
-    // historical graph is retained. Size/effect changes use the full rebuild.
+    // Ordinary cuts reuse this graph's same-size high-water targets. Idle
+    // branches hold only compositor resources, never source Controls or geometry.
+    // Size/effect changes retain the host's full-rebuild boundary.
     internal void Reconfigure(IReadOnlyList<UiSourceType6Draw> draws)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -215,30 +248,58 @@ internal sealed class UiSourceType6Composition : IDisposable
         int oldCount = attachedCuts;
         if (draws.Count < oldCount)
         {
-            // Detach the retained producer chain before retiring its former
-            // consumers. Otherwise freeing the tail would also free it.
-            prefixes[draws.Count].Reparent(canvas);
-            for (int index = oldCount - 1; index >= draws.Count; index--) cuts[index].Dispose(deferRemoval: true);
-            cuts.RemoveRange(draws.Count, oldCount - draws.Count);
-            for (int index = prefixes.Count - 1; index > draws.Count; index--)
+            // Detach native dependencies before disabling their consumers.
+            // Prefixes retain their Node/Canvas trees throughout hover changes.
+            for (int index = draws.Count; index < prefixes.Count; index++)
+                SetRenderParent(prefixes[index], input.GetViewportRid());
+            for (int index = oldCount - 1; index >= draws.Count; index--)
             {
-                var prefix = prefixes[index];
+                var prefix = prefixes[index + 1];
+                var pass = cuts[index];
+                PrefixCopy? copy = incrementalPrefixes ? prefixCopies[index] : null;
+                idleCuts.Add(new(prefix, pass, copy));
+                prefixes.RemoveAt(index + 1); cuts.RemoveAt(index);
+                if (incrementalPrefixes) prefixCopies.RemoveAt(index);
                 prefix.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
-                if (incrementalPrefixes) RetirePrefixCopy(index - 1);
-                prefix.QueueFree(); prefixes.RemoveAt(index);
+                prefix.CanvasCullMask = 0;
+                if (copy is not null)
+                {
+                    copy.Quad.Hide();
+                    copy.Material.SetShaderParameter("image", default(Variant));
+                }
+                pass.Suspend();
             }
         }
         Vector2I size = prefixes[0].Size;
         while (prefixes.Count < draws.Count + 1)
         {
             int index = prefixes.Count;
-            var prefix = new SubViewport { Name = "UiPrefix" + index, Size = size,
-                Disable3D = true, GuiDisableInput = true, TransparentBg = true, UseHdr2D = false,
-                World2D = input.FindWorld2D(), CanvasCullMask = incrementalPrefixes ? 1u << index : (1u << (index + 1)) - 1,
-                RenderTargetClearMode = SubViewport.ClearMode.Always,
-                RenderTargetUpdateMode = SubViewport.UpdateMode.Always };
-            prefixes.Add(prefix); canvas.AddChild(prefix);
-            if (incrementalPrefixes) AddPrefixCopy(index);
+            if (idleCuts.Count != 0)
+            {
+                var idle = idleCuts[^1];
+                // Transfer all owned resources before any engine rebinding can
+                // fail, so the normal graph failure path still retires them.
+                prefixes.Add(idle.Prefix); cuts.Add(idle.Pass);
+                if (idle.Copy is { } retainedCopy) prefixCopies.Add(retainedCopy);
+                idleCuts.RemoveAt(idleCuts.Count - 1);
+                idle.Prefix.CanvasCullMask = incrementalPrefixes ? 1u << index : (1u << (index + 1)) - 1;
+                idle.Prefix.RenderTargetUpdateMode = SubViewport.UpdateMode.Always;
+                if (idle.Copy is { } copy)
+                {
+                    copy.Material.SetShaderParameter("image", prefixes[index - 1].GetTexture());
+                    copy.Quad.Show();
+                }
+            }
+            else
+            {
+                var prefix = new SubViewport { Name = "UiPrefix" + index, Size = size,
+                    Disable3D = true, GuiDisableInput = true, TransparentBg = true, UseHdr2D = false,
+                    World2D = input.FindWorld2D(), CanvasCullMask = incrementalPrefixes ? 1u << index : (1u << (index + 1)) - 1,
+                    RenderTargetClearMode = SubViewport.ClearMode.Always,
+                    RenderTargetUpdateMode = SubViewport.UpdateMode.Always };
+                prefixes.Add(prefix); canvas.AddChild(prefix);
+                if (incrementalPrefixes) AddPrefixCopy(index);
+            }
         }
         animatedCuts.Clear();
         for (int index = 0; index < draws.Count; index++)
@@ -251,7 +312,7 @@ internal sealed class UiSourceType6Composition : IDisposable
             else
                 cuts.Add(new(prefixes[index + 1], prefixes[index], draw.Owner, draw.Parameters,
                     geometry.Corners, geometry.Uvs, geometry.Region, size, 1u << (index + 1),
-                    1, Vector4.One, Vector4.One, shaders));
+                    1, Vector4.One, Vector4.One, shaders, SetRenderParent));
             animatedCuts.Add(draw.Owner, cuts[index]);
         }
         attachedCuts = draws.Count;
@@ -260,6 +321,7 @@ internal sealed class UiSourceType6Composition : IDisposable
         structuralNodes.Clear(); structuralNodes.UnionWith(prefixes);
         foreach (var copy in prefixCopies) { structuralNodes.Add(copy.Canvas); structuralNodes.Add(copy.Quad); }
         foreach (var cut in cuts) structuralNodes.Add(cut.Vertical);
+        foreach (var idle in idleCuts) structuralNodes.Add(idle.Prefix);
         structuralNodes.Add(output);
     }
 
@@ -278,18 +340,23 @@ internal sealed class UiSourceType6Composition : IDisposable
             if (GodotObject.IsInstanceValid(effect)) effect.DetachCanvasPrefix();
         effectCuts.Clear(); animatedCuts.Clear();
         foreach (var cut in cuts.AsEnumerable().Reverse()) cut.Dispose(deferRemoval);
+        foreach (var idle in idleCuts.AsEnumerable().Reverse()) idle.Pass.Dispose(deferRemoval);
         foreach (var (view, parent) in dependencies)
-            if (GodotObject.IsInstanceValid(view)) RenderingServer.ViewportSetParentViewport(view.GetViewportRid(), parent);
+            if (GodotObject.IsInstanceValid(view) && view.IsInsideTree()) SetRenderParent(view, parent);
         dependencies.Clear();
         for (int index = prefixCopies.Count - 1; index >= 0; index--) RetirePrefixCopy(index);
+        foreach (var idle in idleCuts)
+            if (idle.Copy is { } copy) RetirePrefixCopy(copy);
         // The final viewport owns the whole acyclic producer chain.
         // Unpublished constructor prefixes can still be independent children.
-        foreach (var prefix in prefixes.AsEnumerable().Reverse())
+        foreach (var prefix in prefixes.Concat(idleCuts.Select(idle => idle.Prefix)).Reverse())
             if (GodotObject.IsInstanceValid(prefix))
             {
                 prefix.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
                 if (deferRemoval) prefix.QueueFree(); else prefix.Free();
             }
+        idleCuts.Clear();
+        renderParents.Clear();
         foreach (var (item, state) in assigned) RestoreItem(item, state.Previous);
         assigned.Clear();
         if (GodotObject.IsInstanceValid(input)) input.CanvasCullMask = previousCull;

@@ -54,6 +54,10 @@ public static partial class PersonReturnArrivalSource
         HexListHandle? caller = null, affected = null;
         var order = new List<string>(); var governors = new List<ArmyReturnGovernorPacket>();
         var working = state;
+        var previousRefresh = current.TransferServiceRefresher;
+        if (package is { } serviceOwner)
+            current.TransferServiceRefresher = (first, second, third) =>
+                working = serviceOwner.RefreshPersonnelMilestoneCurrent(working, current, first, second, third);
         try
         {
             if (!ReferenceEquals(pool.ArmyReturnOwner, current) || !pool.OwnsArmyReturnProfile())
@@ -228,6 +232,7 @@ public static partial class PersonReturnArrivalSource
         catch (InvalidDataException error) { return new(null, null, error.Message); }
         finally
         {
+            current.TransferServiceRefresher = previousRefresh;
             if (affected is not null) ClearRelease(current, affected);
             if (caller is not null) ClearRelease(current, caller);
         }

@@ -41,7 +41,7 @@ internal sealed class TransportSetupPresenter : IDisposable
         this.scenario = scenario; this.rules = rules; this.source = source; this.headers = headers;
         this.current = current; this.scrollSpeed = scrollSpeed; this.accepted = accepted; this.unavailable = unavailable;
         this.prepareFoodWarning = prepareFoodWarning;
-        officerContent = new(repository); Draft = new(world, rules, source);
+        officerContent = new(); Draft = new(world, rules, source);
         view.Configure(repository, text, Presentation(), OpenOfficerSelection, (quantity, value) =>
         {
             if (!Admitted()) return;

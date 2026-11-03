@@ -53,14 +53,16 @@ internal partial class IntelligenceSelectionView : Control
     private int activeGroup = -1;
     private int? sortedGroup, sortedColumn, selectedId;
     private bool sortedAscending, abandoned, returnAllowed = true;
+    private bool configured;
     internal Func<IReadOnlyList<int>, bool>? SelectionConfirmationAdmission { get; set; }
     internal IReadOnlyList<int> SelectedIds => selectedId is int id ? [id] : [];
-    internal bool IsMapMode => mapMode is not null && !listMode && !abandoned && closed is not null;
+    internal bool IsMapMode => configured && mapMode is not null && !listMode && !abandoned && closed is not null;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         IntelligenceSelectionTable table, Func<bool> admitted, Action<int?> closed, Func<int> scrollSpeed,
         MapMode? mapMode = null)
     {
+        configured = false; SetProcessInput(false);
         this.repository = repository; this.table = table;
         this.admitted = admitted; this.closed = closed; this.mapMode = mapMode;
         Name = "IntelligenceSelection"; ZIndex = 5; MouseFilter = MouseFilterEnum.Stop;
@@ -157,6 +159,7 @@ internal partial class IntelligenceSelectionView : Control
         SetMeta("source_selection_mode",1);
         SetMeta("source_initial_selection_empty",true);
         SetMeta("intelligence_group_count",table.Groups.Count);
+        configured = true; SetProcessInput(mapMode is not null);
     }
 
     private void ShowGroup(int index)
@@ -261,7 +264,8 @@ internal partial class IntelligenceSelectionView : Control
     }
     private bool RowAllowed(IntelligenceSelectionRow row) => row.Enabled &&
         (rowAdmission?.Invoke(row.Id) ?? true) && (SelectionConfirmationAdmission?.Invoke([row.Id]) ?? true);
-    private bool ReadAdmission() => !abandoned && closed is not null && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
+    private bool ReadAdmission() => configured && !abandoned && closed is not null &&
+        IsInsideTree() && !IsQueuedForDeletion() && IsVisibleInTree() && CanProcess() && (admitted?.Invoke() ?? false);
     internal void ApplySelectionAdmission(Func<int,bool>? allowed, bool canReturn)
     {
         if (abandoned) return;
@@ -279,9 +283,18 @@ internal partial class IntelligenceSelectionView : Control
     internal void PickMapTarget(int id) { if (IsMapMode && CanChooseTarget(id)) Finish(id); }
     public override void _Input(InputEvent input)
     {
-        if (!IsMapMode || !ReadAdmission() || input is not InputEventMouseButton { ButtonIndex:MouseButton.Right } button) return;
-        if (mapMode!.CancelReleased(button)) RequestCancel();
-        GetViewport().SetInputAsHandled();
+        if (!IsMapMode || input is not InputEventMouseButton { ButtonIndex:MouseButton.Right } button ||
+            !ReadAdmission() || mapMode is not { } mode) return;
+        var viewport = GetViewport();
+        if (button.Pressed)
+        {
+            _ = mode.CancelReleased(button);
+            return; // The admitted map surface still owns orbit input.
+        }
+        // Cancellation may synchronously remove this view from its viewport.
+        // Consume the release while attached, before either owner callback.
+        viewport.SetInputAsHandled();
+        if (mode.CancelReleased(button)) RequestCancel();
     }
     internal void RequestCancel() { if (returnAllowed) Finish(null); }
     private void Finish(int? id)
@@ -289,16 +302,18 @@ internal partial class IntelligenceSelectionView : Control
         if (!ReadAdmission()) return;
         if (id is int chosen && !rows.Any(row => row.Id == chosen && RowAllowed(row))) return;
         selectedId = id;
-        var callback = closed; closed = null; admitted = null; Hide(); callback?.Invoke(id);
+        var callback = closed; configured = false; closed = null; admitted = null;
+        SetProcessInput(false); Hide(); callback?.Invoke(id);
     }
     internal void Abandon()
     {
         if (abandoned) return;
-        abandoned = true; closed = null; admitted = null; rowAdmission = null; SelectionConfirmationAdmission = null;
+        abandoned = true; configured = false; SetProcessInput(false);
+        closed = null; admitted = null; rowAdmission = null; SelectionConfirmationAdmission = null;
         foreach (var row in pool) { row.Button.InputAdmission = null; row.Button.Disabled = true; row.Entry = null; }
         foreach (var header in headers.Values) header.InputAdmission = null;
         foreach (var tab in tabs) tab.InputAdmission = null;
-        mapMode = null; chrome?.Abandon(); mapChrome?.Abandon(); SetProcessInput(false); Hide();
+        mapMode = null; chrome?.Abandon(); mapChrome?.Abandon(); Hide();
     }
     public override void _ExitTree() => Abandon();
 }

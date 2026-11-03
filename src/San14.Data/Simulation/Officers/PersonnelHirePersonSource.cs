@@ -68,34 +68,41 @@ public sealed partial class ArmyCampaignRuleAdapter
         //29E080, kept separate from2EE160's extra ruler/status entrance gates.
         internal GameState ApplyHireJoinCurrent(int person, BaseReference home, ForceReference force)
         {
-            SetStatus(person, 4);
-            var district = current.ReadBaseDistrictReference(home) ?? throw Missing("hire_destination_District");
-            byte districtId = checked((byte)Known(district.PhysicalSlot, "hire_District_pointer"));
-            District(person, districtId);
-            ushort location = Known(current.ReadBaseObjectLink(home), "hire_destination4E");
-            current.WritePersonFirstLocation(person, location);
-            current.WritePersonSecondLocation(person, location);
-            var owner = Owner(person);
-            Change(person, p => p with { ForceId = Known(current.ReadForcePhysicalSlot(force), "hire_Force_pointer"),
-                DistrictId = districtId, LocationId = location, Presence = OfficerPresence.Present,
-                LocationState = current.ReadOfficerLocation(owner.Id) ?? throw Missing("hire_current_position") });
-            int year = Math.Clamp((int)(latest.NativeMapSeason?.ThirdDate.Year ?? throw Missing("hire_year")), 0, 350);
-            SetParameter(OwnedArmyGovernorComparatorInputs.PersonWord166Key(person), year);
-            byte loyalty = CalculateLoyalty(person, force);
-            if (Known(OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(person)), "hire_maximum_loyalty")) loyalty = 255;
-            current.SetMoraleWavePersonPostE7(person, 73);
-            SetLoyalty(person, loyalty);
-            Change(person, p => p with { Appointment = OfficerAppointment.Synchronize(73) });
-            ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "hire_flags15E");
-            current.WriteArmyReturnPersonFlags196(person, (ushort)(flags | 0x80));
-            Change(person, p => p with { Behavior = current.ReadPersonBehavior(person) });
-            int lowerOption = Known(BattleRemakeCurrentSettings.ReadSelectorE58(latest), "hire_credit_selector");
-            lowerOption = Known(BattleRemakeCurrentSettings.ReadInt32(latest, lowerOption == 0 ? 0x4C4 : 0x128), "hire_credit_lower_option");
-            int initial = Credit(2), lower = Credit(lowerOption == 1 ? 2 : 1), upper = Credit(6);
-            int merit = initial < lower ? lower : Math.Min(initial, upper);
-            Change(person, p => p with { MeritState = new(unchecked((short)merit), 0, 2,
-                p.MeritState?.FirstSelectionCount, p.MeritState?.SecondSelectionCount, 0) });
-            return latest;
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = (first, second, third) =>
+                latest = package.RefreshPersonnelMilestoneCurrent(latest, current, first, second, third);
+            try
+            {
+                SetStatus(person, 4);
+                var district = current.ReadBaseDistrictReference(home) ?? throw Missing("hire_destination_District");
+                byte districtId = checked((byte)Known(district.PhysicalSlot, "hire_District_pointer"));
+                District(person, districtId);
+                ushort location = Known(current.ReadBaseObjectLink(home), "hire_destination4E");
+                current.WritePersonFirstLocation(person, location);
+                current.WritePersonSecondLocation(person, location);
+                var owner = Owner(person);
+                Change(person, p => p with { ForceId = Known(current.ReadForcePhysicalSlot(force), "hire_Force_pointer"),
+                    DistrictId = districtId, LocationId = location, Presence = OfficerPresence.Present,
+                    LocationState = current.ReadOfficerLocation(owner.Id) ?? throw Missing("hire_current_position") });
+                int year = Math.Clamp((int)(latest.NativeMapSeason?.ThirdDate.Year ?? throw Missing("hire_year")), 0, 350);
+                SetParameter(OwnedArmyGovernorComparatorInputs.PersonWord166Key(person), year);
+                byte loyalty = CalculateLoyalty(person, force);
+                if (Known(OfficerBehaviorRules.PreservesMaximumLoyalty(current.ReadPersonBehavior(person)), "hire_maximum_loyalty")) loyalty = 255;
+                current.SetMoraleWavePersonPostE7(person, 73);
+                SetLoyalty(person, loyalty);
+                Change(person, p => p with { Appointment = OfficerAppointment.Synchronize(73) });
+                ushort flags = Known(current.ReadArmyReturnPersonFlags196(person), "hire_flags15E");
+                current.WriteArmyReturnPersonFlags196(person, (ushort)(flags | 0x80));
+                Change(person, p => p with { Behavior = current.ReadPersonBehavior(person) });
+                int lowerOption = Known(BattleRemakeCurrentSettings.ReadSelectorE58(latest), "hire_credit_selector");
+                lowerOption = Known(BattleRemakeCurrentSettings.ReadInt32(latest, lowerOption == 0 ? 0x4C4 : 0x128), "hire_credit_lower_option");
+                int initial = Credit(2), lower = Credit(lowerOption == 1 ? 2 : 1), upper = Credit(6);
+                int merit = initial < lower ? lower : Math.Min(initial, upper);
+                Change(person, p => p with { MeritState = new(unchecked((short)merit), 0, 2,
+                    p.MeritState?.FirstSelectionCount, p.MeritState?.SecondSelectionCount, 0) });
+                return latest;
+            }
+            finally { current.TransferServiceRefresher = previousRefresh; }
         }
     }
 }

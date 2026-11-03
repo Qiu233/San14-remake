@@ -28,7 +28,7 @@ public partial class Main
             detail.Configure(_repository, _ui, page, () =>
             {
                 returnSelection?.Invoke(detail.ReadSelectionReturn()); close();
-            }, () => RunInspectionUiAction(world, () => OpenInformationGateResidents(browser,rules,world,detail.CurrentGateId,Adopt)),
+            }, TryBorrowApplicationUiResources(detail), () => RunInspectionUiAction(world, () => OpenInformationGateResidents(browser,rules,world,detail.CurrentGateId,Adopt)),
                 selection, id => RunInspectionUiAction(world, () =>
                 {
                     if (IsInformationBrowserCurrent(browser) && browser.IsCurrentDetail(detail))

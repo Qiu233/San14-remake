@@ -5,6 +5,19 @@ public partial class MapSceneView
 {
     private readonly MapHoverSelection _mapHover=new();
     private bool _mapPointerBlocked;
+    private uint? _primaryHexFocus;
+
+    private uint? CapturePrimaryHexFocus()
+    {
+        // This restores ordinary selector0 only. Specialized command/representative
+        // overrides retain their own source contract; no target is invented here.
+        if (_detailsOpen || _periodMapActive || !IsVisibleInTree() || _mapPointerBlocked ||
+            !MapPointerOverSurface() || !ReferenceEquals(_summaryInputWorld, _logicalWorld) ||
+            _summaryMode != MapSummarySelectionMode.Normal || _summaryGeographySelected ||
+            _commandTargetPicked is not null || _summaryCanQuery?.Invoke() != true)
+            return D3D11CommandMapData.CellCount;
+        return _primaryHexFocus; // Unknown retains the native channel; 48400 clears it.
+    }
 
     // The GUI's actual hit owner decides whether this point belongs to map
     // input. Map labels remain map targets; HUD and command panels do not.
@@ -19,9 +32,10 @@ public partial class MapSceneView
             (ReferenceEquals(hovered, owner) || owner.IsAncestorOf(hovered));
     }
 
-    private SceneryMapHexSelection ReadMapHover(SourceWorldContext current)
+    private SceneryMapHexSelection ReadMapHover(San14.Core.GameState actualWorld,SourceWorldContext current)
     {
-        if(_detailsOpen||!IsVisibleInTree())return new(false,null);
+        // An in-flight presentation carries its own World, not the latest logical tag.
+        if(!ReferenceEquals(actualWorld,_logicalWorld)||_detailsOpen||!IsVisibleInTree())return new(false,null);
         bool? frozen=_sourceMainCamera is null?null:_sourceCameraActiveButton==-1?false:
             _sourceCameraCurrentCursorKnown?SourceDragThreshold(_sourceCameraCurrentCursor):null;
         bool blocked = !MapPointerOverSurface();
@@ -30,6 +44,8 @@ public partial class MapSceneView
         var selection = blocked ? _mapHover.Clear() :
             _mapHover.Update(current,frozen,_sceneryMap?.Controller.AuxiliaryHexLookup,
                 ReadSourceHoverRay,AllowsMapHover);
+        _primaryHexFocus = selection.Known
+            ? (uint)(selection.Hex?.PhysicalSlot ?? D3D11CommandMapData.CellCount) : null;
         UpdateSceneryMapSummary(current,selection);
         if (selection.Known)
         {

@@ -169,6 +169,20 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
         new(_officers.Values, _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
             ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values, MapObjectSource, rows, _areaFlags.Values, _armySavedTargets.Values);
     public OfficerLocationSourceResidue? Find(int officerId) => _officers.GetValueOrDefault(officerId);
+    // A location publication owns only this channel. Other compatibility
+    // channels are already immutable and need no second dictionary snapshot.
+    private CampaignSourceKnowledge(CampaignSourceKnowledge source,
+        IReadOnlyDictionary<int, OfficerLocationSourceResidue> officers)
+    {
+        _officers = officers;
+        _areaFlags = source._areaFlags; _aftermath = source._aftermath;
+        _armyTargets = source._armyTargets; _armyOverrides = source._armyOverrides;
+        _armySavedTargets = source._armySavedTargets;
+        _armyPositions = source._armyPositions; _cityDistricts = source._cityDistricts;
+        _transportRoutes = source._transportRoutes; _armyTraits = source._armyTraits;
+        _armyConfigurations = source._armyConfigurations;
+        ArmyLifecycleSource = source.ArmyLifecycleSource; MapObjectSource = source.MapObjectSource;
+    }
     public OfficerAftermathSourceResidue? FindAftermath(int officerId) => _aftermath.GetValueOrDefault(officerId);
     public ArmyTargetSourceResidue? FindArmyTarget(ArmyReceiverId receiverId) => _armyTargets.GetValueOrDefault(receiverId);
     public IReadOnlyCollection<ArmyTargetSourceResidue> ArmyTargets => _armyTargets.Values.ToArray();
@@ -250,13 +264,12 @@ public sealed class CampaignSourceKnowledge : ICampaignResourceState, IArmyIdent
         var incoming = updates.ToArray();
         var last = new Dictionary<int, int>();
         for (int index = 0; index < incoming.Length; index++) last[incoming[index].OfficerId] = index;
-        return new(_officers.Values.Where(row => !last.ContainsKey(row.OfficerId) &&
+        return new(this, new ReadOnlyDictionary<int, OfficerLocationSourceResidue>(
+            _officers.Values.Where(row => !last.ContainsKey(row.OfficerId) &&
                 (row.LocationCode is not null || row.DistrictCode is not null))
             .Concat(incoming.Where((row, index) => last[row.OfficerId] == index &&
-                (row.LocationCode is not null || row.DistrictCode is not null))),
-            _aftermath.Values, _armyTargets.Values, _armyOverrides.Values, _armyPositions.Values,
-            ArmyLifecycleSource, _transportRoutes.Values, _armyTraits.Values, _armyConfigurations.Values,
-            MapObjectSource, _cityDistricts.Values, _areaFlags.Values, _armySavedTargets.Values);
+                (row.LocationCode is not null || row.DistrictCode is not null)))
+            .ToDictionary(row => row.OfficerId)));
     }
     public CampaignSourceKnowledge WithAftermath(OfficerAftermathSourceResidue residue) => new(
         _officers.Values, _aftermath.Values.Where(item => item.OfficerId != residue.OfficerId).Append(residue)

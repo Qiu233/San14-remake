@@ -11,28 +11,32 @@ public partial class ItemPoemDetailsView : DetailsView
     private Shader shader=null!;
     private Control canvas=null!;
     internal void Configure(GameResourceRepository repository,PreviewText text,CollectionPoemDetail page,
-        Action close,Func<int> scrollSpeed)
+        Action close,Func<int> scrollSpeed,AdministrationPageChrome.Resources resources)
     {
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        assets=resources.Assets;font=resources.Font;shader=resources.SpriteShader;
         ConfigureCommonBackdrop(repository);
         var header=new UiSourceHeader {Name="ItemPoemTitle"};
         ConfigureSourcePage("ItemPoemDetails",header,close);
         canvas=new() {Name="ItemPoemSourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};AddChild(canvas);
+        var bodyMotion=new Node2D {Name="ItemPoemBodyMotion"};canvas.AddChild(bodyMotion);
+        var bodyCanvas=new Control {Name="ItemPoemBody",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};bodyMotion.AddChild(bodyCanvas);
+        var headerMotion=new Node2D {Name="ItemPoemHeaderMotion"};canvas.AddChild(headerMotion);
+        var footerMotion=new Node2D {Name="ItemPoemFooterMotion"};canvas.AddChild(footerMotion);
         var shell=new UiSourceLayout(repository,0xA3B4A82E);
-        shell.Blur(canvas,2,shell.Rectangle(2,new(191,147)));
-        shell.Art(canvas,3,shell.Rectangle(3,new(191,147)),assets,shader);
-        canvas.AddChild(header);header.Configure(repository,assets,shader,font,Message(0x841));
+        shell.Blur(bodyCanvas,2,shell.Rectangle(2,new(191,147)));
+        shell.Art(bodyCanvas,3,shell.Rectangle(3,new(191,147)),assets,shader);
+        headerMotion.AddChild(header);header.Configure(repository,assets,shader,font,Message(0x841));
         string basic=Message(ItemInformationSources.BasicTabCaptionId);
         var tab=new UiSourceTabButton {Name="BasicTab",Position=shell.Rectangle(4,new(191,147)).Position,
             Size=new(basic.Length*28+36,64),Selected=true};
-        canvas.AddChild(tab);tab.Configure(repository,assets,shader,font,basic);
-        var selection=new UiSourceDetailSelector();canvas.AddChild(selection);
+        bodyCanvas.AddChild(tab);tab.Configure(repository,assets,shader,font,basic);
+        var selection=new UiSourceDetailSelector();bodyCanvas.AddChild(selection);
         selection.Configure(repository,assets,shader,font,text,
             new([new(page.ItemId,page.Name,null){SortUnresolvedOwner="information.Item.poem_header_comparator"}],scrollSpeed),
             InformationListKind.Items,page.ItemId,Admitted,_=>{},sourceColumnWidth:160,sourceCaptionId:0xAE);
         var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"02_07_06_info_collection_sibun_cn"));
         var body=new Control {Name="ItemPoemBody",Position=new(191,197),Size=source.Rectangle(0).Size,MouseFilter=MouseFilterEnum.Ignore};
-        canvas.AddChild(body);
+        bodyCanvas.AddChild(body);
         foreach(var node in source.Nodes)
         {
             if(node.Index==2)continue;
@@ -52,13 +56,15 @@ public partial class ItemPoemDetailsView : DetailsView
             .WithPreset(presets[0]) with {RawAlign=0,RawLineArrange=1});paragraph.Apply(page.Description);
         var footer=new UiSourceLayout(repository,0xD8913AB2);
         var back=new UiSourceRoundButton {Name="CloseItemPoemDetails",Position=footer.Rectangle(1,new(0,904)).Position,InputAdmission=Admitted};
-        canvas.AddChild(back);back.ConfigureScenarioReturn(repository,assets,shader,text.SourceLocale,RequestClose);
+        footerMotion.AddChild(back);back.ConfigureScenarioReturn(repository,assets,shader,text.SourceLocale,RequestClose);
         SetMeta("item_id",page.ItemId);SetMeta("source_layout",source.Source.Source.ResourceUri);
+        ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14),new Dictionary<int,(Node2D,Vector2)>
+        {[1]=(bodyMotion,Vector2.Zero),[4]=(headerMotion,Vector2.Zero),[6]=(footerMotion,new(0,904))});
         Resized+=Fit;Fit();
         string Message(int id)=>repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records[id].Text
             ??throw new InvalidDataException($"Missing Item poem Data1/{id:X}.");
     }
     private bool Admitted()=>IsVisibleInTree()&&CanProcess()&&!IsQueuedForDeletion();
     private void Fit(){float scale=Math.Min(Size.X/1920,Size.Y/1080);canvas.Scale=Vector2.One*scale;canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;}
-    public override void _ExitTree(){font?.Dispose();shader?.Dispose();assets?.Dispose();base._ExitTree();}
+    public override void _ExitTree(){base._ExitTree();}
 }

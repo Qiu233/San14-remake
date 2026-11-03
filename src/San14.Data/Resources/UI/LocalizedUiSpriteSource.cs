@@ -17,6 +17,10 @@ public sealed class LocalizedUiSpriteSource
     private readonly Dictionary<uint, uint> _names;
     private readonly Dictionary<uint, (LoadedRdbAsset Source, IReadOnlyList<SpriteDefinition> Sprites)> _atlases = [];
     private readonly Dictionary<uint,uint> _layoutTextureObjects = [];
+    // This resolver owns one current parsed ScreenLayout container per ID.
+    // Pack names may alias it, but a different resident source/override must
+    // replace this entry even when the logical ID or decoded bytes agree.
+    private readonly Dictionary<uint,LoadedTextureContainer> _sourceContainers = [];
 
     public LocalizedUiSpriteSource(GameResourceRepository repository)
     {
@@ -101,6 +105,48 @@ public sealed class LocalizedUiSpriteSource
         if(GameResourceRepository.TryUserPortraitResource(resourceName,out _,out _,out _)||
             GameResourceRepository.IsDlcPortraitResource(resourceName))
             return _repository.LoadExternalPortraitSource(resourceName,spriteName);
+        var (textureId,atlasId)=TexturePackIds(resourceName);
+        if(!_atlases.TryGetValue(atlasId,out var atlas))
+        {
+            var source=_repository.LoadRdbAsset("ScreenLayout",atlasId);
+            atlas=(source,SpriteAtlasReader.Read(source.Bytes));_atlases.Add(atlasId,atlas);
+        }
+        var definition=atlas.Sprites.SingleOrDefault(s=>s.Name==spriteName)
+            ??throw new InvalidDataException("Declared UI atlas does not contain "+spriteName);
+        var textureSource=_repository.LoadRdbAsset("ScreenLayout",textureId);
+        if(!_sourceContainers.TryGetValue(textureId,out var container)||!ReferenceEquals(container.Source,textureSource))
+        {
+            container=GameResourceRepository.ParseTextureContainer(textureSource);
+            _sourceContainers[textureId]=container;
+        }
+        if(definition.Value64>=container.Container.Textures.Count)throw new InvalidDataException("Declared image index is outside texture.");
+        var image=container.Container.Textures[(int)definition.Value64];_=definition.GetRectangle(image.Width,image.Height);
+        return new(definition,container,atlas.Source);
+    }
+
+    /// <summary>Prepare declared Common texture payloads through the existing
+    /// resident owner. Each worker has its own repository ledger; this resolver
+    /// and its parsed dictionaries remain confined to the calling thread.
+    /// Ordinary sprite loading below still records every consumed generation.
+    /// No texture, atlas, sampler or portrait instance is published here.</summary>
+    public void PrepareTexturePackPayloads(IEnumerable<string> resourceNames,CancellationToken cancellationToken)
+    {
+        var textureIds=new HashSet<uint>();
+        foreach(string name in resourceNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            textureIds.Add(TexturePackIds(name).TextureId);
+        }
+        var options=new ParallelOptions{CancellationToken=cancellationToken,
+            MaxDegreeOfParallelism=Math.Min(4,System.Environment.ProcessorCount)};
+        Parallel.ForEach<uint,GameResourceRepository>(textureIds,options,
+            ()=>_repository.CreateReadScope(),
+            (id,loop,reader)=>{_=reader.LoadRdbAsset("ScreenLayout",id);return reader;},
+            reader=>{});
+    }
+
+    private (uint TextureId,uint AtlasId) TexturePackIds(string resourceName)
+    {
         var declaration=_declarations[_names[ResourceNameHash.Compute(resourceName)]];
         var visited=new HashSet<uint>();
         while(true)
@@ -113,17 +159,7 @@ public sealed class LocalizedUiSpriteSource
         }
         uint textureId=Word(declaration,0xC8BB66DA),atlasId=Word(declaration,0x2276FC56);
         if(textureId==0||atlasId==0)throw new InvalidDataException("Incomplete UI texture declaration: "+resourceName);
-        if(!_atlases.TryGetValue(atlasId,out var atlas))
-        {
-            var source=_repository.LoadRdbAsset("ScreenLayout",atlasId);
-            atlas=(source,SpriteAtlasReader.Read(source.Bytes));_atlases.Add(atlasId,atlas);
-        }
-        var definition=atlas.Sprites.SingleOrDefault(s=>s.Name==spriteName)
-            ??throw new InvalidDataException("Declared UI atlas does not contain "+spriteName);
-        var container=_repository.LoadTextureContainer("ScreenLayout",textureId);
-        if(definition.Value64>=container.Container.Textures.Count)throw new InvalidDataException("Declared image index is outside texture.");
-        var image=container.Container.Textures[(int)definition.Value64];_=definition.GetRectangle(image.Width,image.Height);
-        return new(definition,container,atlas.Source);
+        return(textureId,atlasId);
     }
 
     public LoadedSprite LoadTexturePackSprite(string resourceName,string spriteName)

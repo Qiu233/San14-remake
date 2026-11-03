@@ -12,6 +12,7 @@
 #include "../Device/TerrainPrograms.h"
 #include "../Device/PrimaryModelGpuMedia.h"
 #include "../Device/RouteGpuReferences.h"
+#include "../Device/DirectEffectPrograms.h"
 
 namespace San14::Render {
 class NativeRouteGpuResidency;
@@ -45,6 +46,7 @@ public:
         check(dxgi->GetAdapter(&actual));DXGI_ADAPTER_DESC description{};check(actual->GetDesc(&description));
         if(description.AdapterLuid.LowPart!=luid.LowPart||description.AdapterLuid.HighPart!=luid.HighPart)
             throw E_INVALIDARG;
+        directEffectPrograms_=std::make_shared<NativeDirectEffectPrograms>(device_.Get());
         // Shared scenes require real pipeline-state isolation, not only a lock.
         if(sharedScenes_) {auto role=acquire();auto state=createSceneState();}
     }
@@ -64,6 +66,11 @@ public:
     ID3D11DeviceContext4* context4()const noexcept{return context4_.Get();}
     std::uint64_t adapterLuid()const noexcept{return adapterLuid_;}
     bool sharedScenes()const noexcept{return sharedScenes_;}
+    std::shared_ptr<const NativeDirectEffectPrograms> borrowDirectEffectPrograms() {
+        auto role=acquire();
+        {std::lock_guard lock(lifetime_);if(closing_)throw std::runtime_error("Native11 device owner is closing");}
+        return directEffectPrograms_;
+    }
     void loadTerrainPrograms(const std::vector<NativeTerrainProgramDeclaration>& sources) {
         auto role=acquire();
         {std::lock_guard lock(lifetime_);if(closing_)throw std::runtime_error("Native11 device owner is closing");}
@@ -140,5 +147,6 @@ private:
     NativeTerrainProgramResidency terrainPrograms_;
     NativePrimaryModelGpuResidency primaryModels_;
     std::shared_ptr<NativeRouteGpuResidency> routeMedia_;
+    std::shared_ptr<const NativeDirectEffectPrograms> directEffectPrograms_;
 };
 } // namespace San14::Render

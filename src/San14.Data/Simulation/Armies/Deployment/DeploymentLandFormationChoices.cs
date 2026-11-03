@@ -7,7 +7,16 @@ public sealed record DeploymentLandFormationChoices(IReadOnlyList<DeploymentLand
     string? UnresolvedInput)
 {
     public bool Available => Choices is not null && UnresolvedInput is null;
+    // Only the five registered radio consumers request these current fields.
+    // An unknown balloon never removes an otherwise eligible choice.
+    public System.Collections.Immutable.ImmutableDictionary<int, AreaAdministrationQuery<DeploymentFormationBalloon>> Balloons
+        { get; init; } = System.Collections.Immutable.ImmutableDictionary<int, AreaAdministrationQuery<DeploymentFormationBalloon>>.Empty;
 }
+
+/// <summary>The ordinary formation popup's current fields, independent of
+/// title-gallery unlocks, selected-state styling and draft admission.</summary>
+public sealed record DeploymentFormationBalloon(int FormationId, string Name, string Description,
+    byte RawKind, string CategoryCaption, string RangeCaption, string RangeValue, bool HighlightRange);
 
 internal static class DeploymentFormationEligibility
 {

@@ -2,6 +2,7 @@
 #include "TerritoryRenderer.h"
 #include "TerritoryOwnership.h"
 #include "CommandMap.h"
+#include "HexFocus.h"
 #include <optional>
 #include <vector>
 
@@ -30,6 +31,10 @@ public:
     }
     void publishCommandMap(const source_command_map::Publication& publication) {
         command_.accept(publication,overlay_.profile,overlay_.cpu,zoneOwner_,zoneCurrent_,controls_);
+    }
+
+    void publishHexFocus(const source_hex_focus::Publication& publication) {
+        hexFocus_.accept(publication,zoneOwner_,zoneCurrent_);
     }
 
     void publishOwnership(const San14::Render::TerritoryOwnershipPublication& publication) {
@@ -65,6 +70,7 @@ public:
                 D3D11_BOX box{begin,0,0,begin+source_zone::cells,1,1};
                 context->UpdateSubresource(overlay_.zones.Get(),0,&box,zoneOwner_.zones.data()+begin,0,0);
             }
+            hexFocus_.updatePalette(overlay_.profile,overlay_.cpu,zoneOwner_,zoneCurrent_,fpsMode);
             command_.updatePalette(overlay_.profile,overlay_.cpu,zoneOwner_);
         }
         pendingMapUpdates_.clear();
@@ -80,6 +86,7 @@ private:
     source_zone::Owner zoneOwner_;
     source_zone::Current zoneCurrent_;
     source_command_map::Owner command_;
+    source_hex_focus::Owner hexFocus_;
     std::vector<unsigned> pendingMapUpdates_;
     std::optional<San14::Render::TerritoryOwnershipPalette> palette_;
     std::uint64_t appliedRevision_=0;

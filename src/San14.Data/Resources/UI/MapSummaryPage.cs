@@ -46,7 +46,11 @@ public sealed record MapSummaryPage(int Slot, int ReceiverId, string LayoutName,
     public IReadOnlyList<MapSummaryChild> Children { get; init; } = Array.Empty<MapSummaryChild>();
     public IReadOnlyDictionary<int, string> UnresolvedFields { get; init; } = new Dictionary<int, string>();
     public string? UnresolvedOwner { get; init; }
+    public MapSummaryDevelopmentMeasure? DevelopmentMeasure { get; init; }
 }
+
+/// <summary>Logical level text retained before special-force display suppression.</summary>
+public sealed record MapSummaryDevelopmentMeasure(string LevelPrefixText, string LevelValueText);
 
 public sealed record MapSummaryImage(int Node, string SpriteName, string? TexturePack = null);
 public sealed record MapSummaryGauge(int Node, int ReferenceNode, int Current, int Maximum)

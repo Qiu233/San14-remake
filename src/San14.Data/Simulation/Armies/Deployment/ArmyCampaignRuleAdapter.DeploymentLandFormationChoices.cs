@@ -6,7 +6,7 @@ public sealed partial class ArmyCampaignRuleAdapter
 {
     /// <summary>7F7F90's ordered, at-most-six land source candidates. Reads
     /// current saved knowledge once; never edits or normalizes the draft.</summary>
-    public DeploymentLandFormationChoices QueryDeploymentLandFormationChoices(GameState state, int officerId)
+    public DeploymentLandFormationChoices QueryDeploymentLandFormationChoices(GameState state, int officerId, bool prepareBalloons = false)
     {
         ArgumentNullException.ThrowIfNull(state);
         try
@@ -40,7 +40,9 @@ public sealed partial class ArmyCampaignRuleAdapter
                 result.Add(new(formation, definition.Name, kind, new(LandChoiceIcon(formation), 25), true));
                 if (result.Count == 6) break;
             }
-            return new(result.AsReadOnly(), null);
+            var publication = new DeploymentLandFormationChoices(result.AsReadOnly(), null);
+            return prepareBalloons && result.Count != 0 ? publication with { Balloons = new FormationInformationCurrent(this, state)
+                .DeploymentBalloons(current, result.Take(5)) } : publication;
         }
         catch (InvalidDataException error) { return new(null, error.Message); }
     }

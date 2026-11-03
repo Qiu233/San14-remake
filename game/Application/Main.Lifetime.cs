@@ -59,6 +59,10 @@ public partial class Main
 
     private void RetireFailedInterface()
     {
+        // Return borrowed command controls while their original parents live,
+        // then release the browser model/subscriptions before child disposal.
+        CloseCommandWorkspace();
+        RetireMilitaryDeploymentComposition();
         foreach (Node child in GetChildren())
         {
             if (child is CanvasItem canvas) canvas.Hide();
@@ -119,21 +123,40 @@ public partial class Main
     private async Task ShutdownAsync()
     {
         _shuttingDown = true;
-        _periodAdvanceCancellation?.Cancel();
-        CloseCommandWorkspace();
-        CloseScenarioSettings(resumeParent:false);
-        CloseEnvironmentSettings(resumeParent:false);
-        CloseTitleMenu();
-        CloseNewGameSetup();
-        CloseScenarioSelection();
-        _type6Host?.Stop();
+        _residentMap?.BeginMapRetirement();
+        _sceneView?.BeginMapRetirement();
         var tree = GetTree();
         try
         {
+            _periodAdvanceCancellation?.Cancel();
+            CancelNewGamePreparation(restoreParent: false);
+            CloseStartupLoading();
+            CloseCommandWorkspace();
+            CloseScenarioSettings(resumeParent:false);
+            CloseEnvironmentSettings(resumeParent:false);
+            CloseTitleMenu();
+            CloseNewGameSetup();
+            CloseScenarioSelection();
+            _type6Host?.Stop();
             if (_periodAdvanceTask is { } advance)
             {
                 try { await advance; }
                 catch (Exception error) { GD.PushWarning($"Period advancement ended with an error during shutdown: {error}"); }
+            }
+            // Follow the existing return-to-title owner order. Report pages
+            // and standalone browser details also hold application UI leases.
+            RetireTutorialLessonForReturn();
+            ResetMilitaryDeploymentComposition();
+            RetireMilitaryDeploymentComposition();
+            LeaveSceneAudioContext();
+            ClosePlayablePeriodReport();
+            var details = _detailsView;
+            _detailsView = null;
+            if (details is not null && GodotObject.IsInstanceValid(details))
+            {
+                details.Hide();
+                if (details.GetParent() is Node parent) parent.RemoveChild(details);
+                details.QueueFree();
             }
             RetryMapRetirements();
             CloseResidentMap();

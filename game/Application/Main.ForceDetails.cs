@@ -7,6 +7,7 @@ public partial class Main
         Action close, ArmyCampaignRuleAdapter? preparedRules = null, IReadOnlyList<int>? selectionIds = null,
         Action<InformationDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null)
     {
+        view.TransitionFailure = ReportPlayFailure;
         var rules = preparedRules ?? _campaignComposition?.PrepareArmyQueries(world)
             ?? throw new InvalidDataException("force-information.current_campaign_rules");
         RetainCommandDetailSpeechWorld(view, next =>
@@ -15,7 +16,7 @@ public partial class Main
             rules = _campaignComposition!.PrepareArmyQueries(next);
         });
         view.Configure(_repository ?? throw new InvalidDataException("force-information.resource_owner"),
-            rules.QueryForceInformation(world, forceId), _ui, Return,
+            rules.QueryForceInformation(world, forceId), _ui, Return, TryBorrowApplicationUiResources(view),
             PrepareDetailSelection(rules, world, InformationListKind.Forces, forceId, selectionIds) with { InitialNameSortAscending = initialNameSortAscending },
             id => RunInspectionUiAction(world, () => view.Apply(rules.QueryForceInformation(world, id))));
         void Return()

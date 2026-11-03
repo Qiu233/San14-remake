@@ -12,7 +12,7 @@ internal partial class UiSourceAdviceView : Control
     private Control faceHost=null!;
     private Rect2 imageRectangle;
     private UiSourcePortrait? portrait;
-    private LoadedSprite? portraitSource;
+    private LoadedUiSpriteSource? portraitSource;
 
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font,
         UiSourceLayout source,int faceNode,Vector2 mount)
@@ -33,8 +33,9 @@ internal partial class UiSourceAdviceView : Control
             with { WidthFitMode=3,RawCharacterMode=2 });
     }
 
-    internal void Apply(LoadedSprite? face,string text)
+    internal void Apply(OfficerPortraitRoute? route,string text)
     {
+        var face=assets.RequireStockPortraitSource(route);
         message.Apply(text);faceHost.Visible=face is not null;
         if(ReferenceEquals(portraitSource,face))return;
         if(portrait is not null){portrait.Hide();portrait.QueueFree();portrait=null;}

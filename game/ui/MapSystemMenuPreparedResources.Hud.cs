@@ -107,6 +107,9 @@ internal sealed partial class MapSystemMenuPreparedResources
             assets.PrepareSprite(icon, srgb: true);
 
         PrepareHeaderSources(repository, assets, cancellationToken);
+        PrepareTopButtonHintTexts(repository, assets, font, locale, caches, cancellationToken);
+        PrepareCommandRailHintTexts(repository, assets, font, locale, caches, cancellationToken);
+        PrepareCommanderTacticBalloonSources(repository, assets, font, locale, caches, cancellationToken);
         var focus = LcskAnimationReader.Read(rail.SubmenuButton.Layout,
             new HashSet<string> { "1_focus", "4_disable_forcus" });
         Color Tint(string name, int node)

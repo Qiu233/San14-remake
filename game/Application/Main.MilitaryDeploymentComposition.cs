@@ -4,6 +4,7 @@ using San14.Core;
 public partial class Main
 {
     private MilitaryDeploymentBatchPanel? _deploymentComposition;
+    private Action? _releaseDeploymentCompositionBindings;
 
     private void AdoptMilitaryPagesSpeechWorld(San14.Client.Gameplay.GameplaySession session,
         GameState previous,GameState replacement)
@@ -34,14 +35,38 @@ public partial class Main
 
     private void BuildMilitaryDeploymentComposition(VBoxContainer military)
     {
-        _deploymentComposition = new MilitaryDeploymentBatchPanel();
-        military.AddChild(_deploymentComposition);
-        _playOfficer.ItemSelected += _ => RefreshMilitaryDeploymentComposition();
-        _playFormation.ItemSelected += _ => RefreshMilitaryDeploymentComposition();
-        _playStructureKind.ItemSelected += _ => RefreshMilitaryDeploymentComposition();
-        _playTroops.ValueChanged += _ => RefreshMilitaryDeploymentComposition();
-        foreach (OptionButton tactic in _playTactics)
-            tactic.ItemSelected += _ => RefreshMilitaryDeploymentComposition();
+        RetireMilitaryDeploymentComposition();
+        var panel = new MilitaryDeploymentBatchPanel();
+        _deploymentComposition = panel;
+        military.AddChild(panel);
+        // The browser owns this binding across ordinary deck reparenting.
+        // Capture the actual signal sources so retirement cannot detach a
+        // replacement interface's controls through Main's newer fields.
+        var officer = _playOfficer;
+        var formation = _playFormation;
+        var structure = _playStructureKind;
+        var troops = _playTroops;
+        var tactics = _playTactics.ToArray();
+        void RefreshBoundPanel()
+        {
+            if (ReferenceEquals(_deploymentComposition, panel)) RefreshMilitaryDeploymentComposition();
+        }
+        void SelectionChanged(long _) => RefreshBoundPanel();
+        void TroopsChanged(double _) => RefreshBoundPanel();
+        officer.ItemSelected += SelectionChanged;
+        formation.ItemSelected += SelectionChanged;
+        structure.ItemSelected += SelectionChanged;
+        troops.ValueChanged += TroopsChanged;
+        foreach (var tactic in tactics) tactic.ItemSelected += SelectionChanged;
+        _releaseDeploymentCompositionBindings = () =>
+        {
+            if (GodotObject.IsInstanceValid(officer)) officer.ItemSelected -= SelectionChanged;
+            if (GodotObject.IsInstanceValid(formation)) formation.ItemSelected -= SelectionChanged;
+            if (GodotObject.IsInstanceValid(structure)) structure.ItemSelected -= SelectionChanged;
+            if (GodotObject.IsInstanceValid(troops)) troops.ValueChanged -= TroopsChanged;
+            foreach (var tactic in tactics)
+                if (GodotObject.IsInstanceValid(tactic)) tactic.ItemSelected -= SelectionChanged;
+        };
     }
 
     private void ConfigureMilitaryDeploymentComposition()
@@ -75,6 +100,16 @@ public partial class Main
         _playCity.Selected >= 0 ? _playCity.GetSelectedId() : null, _selectedCell?.Id);
 
     private void ResetMilitaryDeploymentComposition() => _deploymentComposition?.ResetDraft();
+
+    private void RetireMilitaryDeploymentComposition()
+    {
+        var panel = _deploymentComposition;
+        _deploymentComposition = null;
+        var release = _releaseDeploymentCompositionBindings;
+        _releaseDeploymentCompositionBindings = null;
+        try { release?.Invoke(); }
+        finally { panel?.Retire(); }
+    }
 
     private int? ResolveDeploymentNavalFormation(GameState world,int officerId)
     {

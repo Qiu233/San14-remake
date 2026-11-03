@@ -307,6 +307,9 @@ public partial class MapSceneView
 
     private void ReleaseMapSummaries()
     {
+        // The ordinary bottom view is parented by the force HUD, but borrows
+        // this map's summary resources. Retire it before releasing that lease.
+        ReleaseOrdinaryBottomHud();
         ReleaseMapTerrainStatus();
         summaryFocusActive=false;summaryFocusWorld=null;summaryCityFocus=summaryAreaFocus=summaryFocusData=null;
         if(_summaryTicker is{} ticker&&GodotObject.IsInstanceValid(ticker))ticker.Tick=null;

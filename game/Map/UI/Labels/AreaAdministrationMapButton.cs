@@ -140,6 +140,11 @@ internal partial class AreaAdministrationMapCompact : UiSourceAnimationView
         var changed = new Dictionary<int, UiSourceNodeGeometry>();
         foreach (int index in new[] { 0, 3, 5, 6, 8, 9, 11 })
             changed[index] = new(Size: new(original.Nodes[index].Value44 + extra, original.Nodes[index].Value46));
+        //932380 preserves the old pane top-left while changing its width.
+        // Node11 is centre-anchored; a size-only override moves it left by extra/2.
+        int nameParent = original.Nodes[11].ParentIndex ?? throw new InvalidDataException("area-map.name_parent");
+        var nameOrigin = (original.NodeTransform(nameParent).AffineInverse() * original.NodeTransform(11)).Origin;
+        changed[11] = new(Size: new(original.Nodes[11].Value44 + extra, original.Nodes[11].Value46), Origin: nameOrigin);
         var source = new UiSourceLayout(original.Source, changed);
         AutomaticAnimationClock = false;
         curves = resources.Assets.SourceAnimationClips(original, Names.ToHashSet(StringComparer.Ordinal));

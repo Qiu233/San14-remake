@@ -136,6 +136,36 @@ internal sealed partial class MapSystemMenuPreparedResources
             for(int style=3;style<=6;style++)MapFont.PrepareText(font,Caption(column.CaptionMessage),
                 profile.WithPreset(presets[style]),column.Width-14,caches);
         }
+        // The return control writes the existing footer narration profile.
+        var narration=assets.SourceLayout(0xAB6ADAA7);
+        var narrationNode=narration.Nodes.Single(node=>node.Type==2);
+        MapFont.PrepareText(font,new AdministrationMessages(repository,locale).Format(0x2733),
+            MapFontProfile.FromNode(narrationNode,narration.Source.Source.ResourceUri),
+            narration.Rectangle(narrationNode.Index).Size.X,caches);
+        // Dedicated ordinary Formation balloon; mounts4/7 replace their
+        // authored children. Both category backgrounds are statically shared.
+        Art(0x291C8AEE,[2,8,9]); Blur(0x291C8AEE,[1]);
+        Art(0xF725023A,[1,2]);
+        var formationMarker=assets.SourceLayout("cmn_mrker_s");
+        foreach(string sprite in new[]{"000_cmn_mrk_base_yellow","000_cmn_mrk_base_cyan"})
+            assets.PrepareCommonSprite(sprite);
+        DefaultFixed(formationMarker,[(2,0x368),(2,0x369)]);
+        Fixed(0xF725023A,[(3,0x36A)],13);
+        var formationRange=assets.SourceLayout(0xF725023A);
+        foreach(bool highlighted in new[]{false,true})
+            foreach(int message in new[]{0x338,0x339})
+                MapFont.PrepareText(font,Caption(message),
+                    DeploymentFormationBalloonView.RangeProfile(formationRange,highlighted),
+                    formationRange.Rectangle(4).Size.X,caches);
+        // The common full tactic body is already prepared by the shared
+        //gallery consumer. Deployment adds only the separator and its seven
+        //literal disabled reasons, using the same startup resource owner.
+        Art(0x19ED924D,[19]);
+        var tacticBalloon=assets.SourceLayout(0x19ED924D);
+        var deploymentMessages=new AdministrationMessages(repository,locale);
+        for(int message=0x5688;message<=0x568E;message++)
+            CollectionTacticBalloonView.PrepareWarningText(tacticBalloon,font,
+                deploymentMessages.Format(message),caches);
         cancellationToken.ThrowIfCancellationRequested();
 
         string Caption(int id)=>records[id].Text??throw new InvalidDataException("Missing deployment static caption.");

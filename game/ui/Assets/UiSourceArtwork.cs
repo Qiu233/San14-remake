@@ -54,6 +54,11 @@ internal sealed class UiSourceArtwork
         }
     }
 
+    internal void SetEncodedPortraitSampling(LoadedUiSpriteSource source)
+    {
+        foreach (var part in parts) part.SetEncodedPortraitSampling(source.Image);
+    }
+
     internal void Apply(int state)
     {
         if ((uint)state >= (uint)plans.Length) throw new ArgumentOutOfRangeException(nameof(state));

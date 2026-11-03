@@ -35,6 +35,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <FloatingPointModel>Strict</FloatingPointModel>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <DebugInformationFormat>None</DebugInformationFormat>
@@ -52,4 +53,13 @@
     <ClInclude Include="Interop\**\*.h;Runtime\**\*.h;Device\**\*.h;Camera\**\*.h;Scene\**\*.h;Scene\**\*.hpp;Passes\**\*.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup>
+    <DirectProgramInput Include="$(MSBuildProjectDirectory)\..\..\src\San14.Data\Rendering\Shaders\G1EffectDirect.*.hlsl" />
+  </ItemGroup>
+  <Target Name="BuildDirectEffectPrograms" BeforeTargets="ClCompile"
+          Inputs="@(DirectProgramInput);$(MSBuildProjectDirectory)\build-direct-programs.ps1"
+          Outputs="$(IntDir)DirectEffectPrograms.generated.h">
+    <MakeDir Directories="$(IntDir)" />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\build-direct-programs.ps1&quot; -SourceDirectory &quot;$(MSBuildProjectDirectory)\..\..\src\San14.Data\Rendering\Shaders&quot; -OutputFile &quot;$(IntDir)DirectEffectPrograms.generated.h&quot;" />
+  </Target>
 </Project>

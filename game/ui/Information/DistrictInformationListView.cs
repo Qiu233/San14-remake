@@ -12,7 +12,7 @@ internal partial class DistrictInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new DistrictInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "DistrictInformationList", "district_information_group", resources: resources);
+            close, inspect, scrollSpeed, "DistrictInformationList", "district_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

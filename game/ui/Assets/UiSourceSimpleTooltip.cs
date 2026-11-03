@@ -26,10 +26,9 @@ internal partial class UiSourceSimpleTooltip : Control
         this.followPointer=followPointer;
         source=new(repository,0xBE0DC488);
         blur=source.Blur(this,1,source.Rectangle(1));
-        profile=MapFontProfile.FromNode(source.Nodes[3],source.Source.Source.ResourceUri);
+        profile=ReadSourceProfile(source);
         // 89D8E0 explicitly clears compact+5D and +2C. It does not apply
         // text preset0 to this authored face0/palette0 profile.
-        profile=profile with{RawCharacterMode=0,RawFlags=profile.RawFlags&~4u};
         if(lineSpacing is short spacing) profile=profile with{VerticalSpace=spacing};
         nominalHeight=font.Source.Record('\u3042',0).Height*profile.ScaleY;
         SetMeta("source_layout",source.Source.Source.ResourceUri);Hide();
@@ -63,11 +62,7 @@ internal partial class UiSourceSimpleTooltip : Control
             artwork=source.Art(this,2,new(Vector2.Zero,Size),assets,shader,
                 new MapCornerColors(backgroundColour,backgroundColour,backgroundColour,backgroundColour));
             artwork.Name="TooltipBackground";MoveChild(artwork,1);
-            int widest=visible.Max(line=>font.Measure(line,profile).Width);
-            int available=size.X-(int)profile.WidthReserve;
-            float factor=widest>available?available/(float)widest*.98f:1;
-            var fitted=profile with{ScaleX=profile.ScaleX*factor,
-                HorizontalSpace=unchecked((short)(int)(profile.HorizontalSpace*factor)),WidthFitMode=0};
+            var fitted=FitSourceLines(font.Source,profile,visible,size.X);
             while(lines.Count<paragraphs.Length)
             {
                 var line=new UiSourceText{Name="TooltipLine"+lines.Count};AddChild(line);lines.Add(line);
@@ -82,7 +77,7 @@ internal partial class UiSourceSimpleTooltip : Control
                 if (colourLines is not null)
                 {
                     var presets = MapTextPresets.Create();
-                    line.SetRuns(colourLines[index].Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
+                    line.SetPreparedColourRuns($"{index}:{text}",colourLines[index].Runs.Select(run => new UiSourceTextRun(run.Text, run.Colour switch
                     {
                         NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
                         NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
@@ -100,6 +95,65 @@ internal partial class UiSourceSimpleTooltip : Control
         }
         Show();
         if(followPointer)UpdatePointer(GetParent<Control>().GetLocalMousePosition());
+    }
+
+    private static MapFontProfile ReadSourceProfile(UiSourceLayout source)
+    {
+        var profile=MapFontProfile.FromNode(source.Nodes[3],source.Source.Source.ResourceUri);
+        return profile with{RawCharacterMode=0,RawFlags=profile.RawFlags&~4u};
+    }
+
+    private static MapFontProfile FitSourceLines(MapFontSource font,MapFontProfile profile,
+        IReadOnlyList<string> visible,int width)
+    {
+        int widest=visible.Max(line=>font.Measure(line,profile).Width);
+        int available=width-(int)profile.WidthReserve;
+        float factor=widest>available?available/(float)widest*.98f:1;
+        return profile with{ScaleX=profile.ScaleX*factor,
+            HorizontalSpace=unchecked((short)(int)(profile.HorizontalSpace*factor)),WidthFitMode=0};
+    }
+
+    // The fixed top-group messages are prepared by the existing startup
+    // resource owner using the same nominal measure and fit as live display.
+    internal static void PreparePlainText(UiSourceLayout source,MapFontSource font,string value,
+        IDictionary<MapFont.PreparedTextKey,MapTextCache> caches)
+    {
+        string text=value.Length==0?" ":value;
+        if(text.Any(code=>code=='^'||char.IsControl(code)&&code!='\n'))
+            throw new InvalidDataException("Prepared simple tooltip requires expanded plain LF text.");
+        var profile=ReadSourceProfile(source);
+        float nominal=font.Record('\u3042',0).Height*profile.ScaleY;
+        string[] lines=text.Split('\n');
+        var size=MeasureSource(text,nominal,profile.VerticalSpace);
+        var fitted=FitSourceLines(font,profile,lines,size.X);
+        foreach(string line in lines)MapFont.PrepareText(font,line,fitted,size.X,caches);
+    }
+
+    // The same expanded colour source used by live display identifies
+    // startup pixels and process-resident textures in the shared font owner.
+    internal static void PrepareKnownColourText(UiSourceLayout source,MapFontSource font,string value,
+        IDictionary<MapFont.PreparedTextKey,MapTextCache> caches)
+    {
+        string text=value.Length==0?" ":value;
+        DeploymentNarrationPlainParagraph.RequireKnownColours(text);
+        var plan=DeploymentNarrationParagraphPlan.Runs(text);
+        string[] visible=plan.Select(line=>line.VisibleText).ToArray();
+        var profile=ReadSourceProfile(source);
+        float nominal=font.Record('\u3042',0).Height*profile.ScaleY;
+        var size=MeasureSource(string.Join('\n',visible),nominal,profile.VerticalSpace);
+        var fitted=FitSourceLines(font,profile,visible,size.X);
+        var presets=MapTextPresets.Create();
+        for(int index=0;index<plan.Count;index++)
+        {
+            var colours=plan[index].Runs.SelectMany(run=>Enumerable.Repeat<uint?>(run.Colour switch
+            {
+                NarrationBodyColour.TextPreset38Body => presets[38].LT.CpuPacked,
+                NarrationBodyColour.TextPreset39Body => presets[39].LT.CpuPacked,
+                NarrationBodyColour.TextPreset40Body => presets[40].LT.CpuPacked,
+                _ => null
+            },run.Text.Length)).ToArray();
+            MapFont.PrepareText(font,visible[index],fitted,size.X,caches,colours,$"{index}:{text}");
+        }
     }
 
     // 3098C0 truncates each line maximum and accumulated nominal height,

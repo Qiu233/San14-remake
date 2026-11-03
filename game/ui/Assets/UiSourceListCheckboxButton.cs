@@ -14,7 +14,7 @@ internal partial class UiSourceListCheckboxButton : UiSourceButton
         MapFont font, Vector2 requestedSize, string caption, Action released, Rect2? captionRectangle = null)
     {
         this.released = released;
-        var source = new UiSourceLayout(repository, 0x7BC42A66).ResizedSubtree(0, requestedSize, true);
+        var source = assets.SourceLayout(0x7BC42A66).ResizedSubtree(0, requestedSize, true);
         Size = source.Rectangle(0).Size;
         var rectangle = source.Rectangle(1);
         var centre = rectangle.GetCenter();

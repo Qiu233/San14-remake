@@ -113,6 +113,7 @@ internal partial class MapCommandRail : Control
     {
         long generation = ++_generation;
         _buttons.Clear(); _cursors.Clear(); _attention.Clear(); _badges.Clear(); _fold = null;
+        _categoryHintButtons.Clear();
         Clear(_mainRoot);
         if (_style is not int style)
         { _main = null; SetMeta("source_category_count", 0); SetMeta("source_main_clip", ""); return; }
@@ -154,6 +155,7 @@ internal partial class MapCommandRail : Control
                 else cursor.Hide();
             };
             _buttons.Add(category, button); _mainRoot.AddChild(button);
+            _categoryHintButtons.Add(button,category);
             _attention.Add(category, Notification("Attention_" + category, mount.AttentionNode,
                 _layouts.Attention, new("static", 0, [])));
             _badges.Add(category, Notification("Badge_" + category, mount.BadgeNode,
@@ -349,6 +351,7 @@ internal partial class MapCommandRail : Control
         _retired = true; ++_generation;
         VisibilityChanged -= VisibilityChangedHandler;
         CloseMenu(); _buttons.Clear(); _cursors.Clear(); _attention.Clear(); _badges.Clear();
+        _categoryHintButtons.Clear(); _fixedHintTexts.Clear();
         PresentationChanged = null;
         // These immutable resources belong to Main's startup generation.
         _font = null; _cursorShader = null; _focusShader = null;

@@ -8,6 +8,7 @@ public partial class Main
         CampaignIncomeReportPublication? report = null, IReadOnlyList<int>? selectionIds = null,
         Action<InformationDetailSelectionReturn>? returnSelection = null, bool? initialNameSortAscending = null)
     {
+        view.TransitionFailure = ReportPlayFailure;
         var rules = preparedRules ?? _campaignComposition?.PrepareArmyQueries(world)
             ?? throw new InvalidDataException("city-information.current_campaign_rules");
         var page = report is null ? rules.QueryCityInformation(world, cityId) : rules.QueryCityInformation(report, cityId);
@@ -19,7 +20,8 @@ public partial class Main
         view.Configure(_repository ?? throw new InvalidDataException("city-information.resource_owner"),
             page, _ui, Return, mapBackdrop,
             PrepareDetailSelection(rules, world, InformationListKind.Cities, cityId, selectionIds) with { InitialNameSortAscending = initialNameSortAscending },
-            id => RunInspectionUiAction(world, () => view.Apply(report is null ? rules.QueryCityInformation(world, id) : rules.QueryCityInformation(report, id))));
+            id => RunInspectionUiAction(world, () => view.Apply(report is null ? rules.QueryCityInformation(world, id) : rules.QueryCityInformation(report, id))),
+            resources: TryBorrowApplicationUiResources(view));
         void Return()
         {
             returnSelection?.Invoke(view.ReadSelectionReturn());

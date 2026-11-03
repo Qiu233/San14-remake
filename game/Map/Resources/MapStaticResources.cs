@@ -7,7 +7,8 @@ internal sealed record MapStaticSceneResources(GameResourceRepository Root, long
     MapTerrainSourcePreparation Terrain, D3D11SceneMediaSources Media,
     D3D11TerrainPreparedPrograms TerrainPrograms, D3D11CityGateStaticResources PrimaryModels,
     MapEnvironmentStaticResources EnvironmentStatic, D3D11PrimaryGpuMediaSource PrimaryGpuMedia,
-    MapRouteStaticResources RouteMedia)
+    MapRouteStaticResources RouteMedia, MapDomesticEffectStaticResources DomesticEffects,
+    HdrShaderResources Hdr)
 {
     internal void RequireCurrentRevision()
     {
@@ -77,6 +78,7 @@ internal sealed class MapStaticResources
         }
         // Resolve the original normal Stage once in this read generation.
         // Openings borrow this identity; a fitted projection never chooses it.
+        var hdr = HdrShaderResources.Load(repository);
         uint mainStageFileId = RenderResourceContext.LoadMainStageDatabaseId(repository);
         _ = configuration.InitialSceneIndex(playable: true, mainStageFileId);
         var projected = configuration.Scenes.Where(scene => configuration.TryGetProjection(scene.FileId, out _)).ToArray();
@@ -107,6 +109,7 @@ internal sealed class MapStaticResources
             var routeMedia = MapRouteStaticResources.Load(repository, terrain.Scene,
                 Path.Combine(sceneDirectory, "route-media"), token);
             routeGpuMedia.AddRange(routeMedia.Media);
+            var domesticEffects = MapDomesticEffectStaticResources.Load(repository, terrain.Scene, token);
             foreach (string locale in new[] { "TC", "SC" })
             {
                 token.ThrowIfCancellationRequested();
@@ -123,7 +126,7 @@ internal sealed class MapStaticResources
                     programs.Add(programKey, preparedPrograms);
                 }
                 scenes.Add((configuration.Archive, scene.FileId, locale),
-                    new(root, revision, terrain, media, preparedPrograms, primaryModels, environmentStatic, gpuMedia, routeMedia));
+                    new(root, revision, terrain, media, preparedPrograms, primaryModels, environmentStatic, gpuMedia, routeMedia, domesticEffects, hdr));
             }
         }
         var loaded = new MapStaticResources(root, revision, configuration, mainStageFileId, scenes, reads.Values.ToArray(),

@@ -57,7 +57,7 @@ public static class RdbArchiveReader
         uint fileId = BinaryPrimitives.ReadUInt32LittleEndian(span[36..40]);
         if (fileId != record.FileId || entrySize < EntryHeaderSize || entrySize > span.Length ||
             contentSize < 0 || contentSize > entrySize - EntryHeaderSize ||
-            decodedSize != record.DecodedSize || decodedSize > MaximumAssetSize)
+            decodedSize != record.DecodedSize || decodedSize < 0 || decodedSize > MaximumAssetSize)
             throw new InvalidDataException($"RDB asset {record.FileId:X8} disagrees with its index.");
         ReadOnlySpan<byte> content = span.Slice((int)(entrySize - contentSize), (int)contentSize);
 
@@ -65,7 +65,7 @@ public static class RdbArchiveReader
         return compression switch
         {
             0 => ReadPlain(content, decodedSize),
-            0x0010_0000 => InflateChunks(content, decodedSize),
+            0x0010_0000 => InflateChunks(blob, (int)(entrySize - contentSize), (int)contentSize, decodedSize),
             _ => throw new InvalidDataException($"Unsupported RDB compression flags {record.Flags:X8}.")
         };
     }
@@ -77,12 +77,16 @@ public static class RdbArchiveReader
         return bytes.ToArray();
     }
 
-    private static byte[] InflateChunks(ReadOnlySpan<byte> compressed, long expected)
+    private static byte[] InflateChunks(byte[] source, int contentOffset, int contentLength, long expected)
     {
-        using var output = new MemoryStream((int)expected);
-        int position = 0;
+        ReadOnlySpan<byte> compressed = source.AsSpan(contentOffset, contentLength);
+        // The indexed size is validated by ReadPayload. The final resident
+        // payload is also the decompression destination; no second full-sized
+        // stream buffer or final ToArray publication is necessary.
+        byte[] output = new byte[checked((int)expected)];
+        int position = 0, written = 0;
         bool terminated = false;
-        byte[] buffer = new byte[16 * 1024];
+        Span<byte> overflow = stackalloc byte[1];
         while (position + 4 <= compressed.Length)
         {
             int chunkSize = BinaryPrimitives.ReadInt32LittleEndian(compressed.Slice(position, 4));
@@ -94,19 +98,25 @@ public static class RdbArchiveReader
             }
             if (chunkSize < 2 || chunkSize > compressed.Length - position)
                 throw new InvalidDataException("RDB zlib chunk extends beyond the payload.");
-            using var input = new MemoryStream(compressed.Slice(position, chunkSize).ToArray());
+            // This read-only stream borrows exactly the validated chunk from
+            // the original entry blob. It neither owns nor changes the bytes.
+            using var input = new MemoryStream(source, contentOffset + position, chunkSize, writable: false);
             using var inflater = new ZLibStream(input, CompressionMode.Decompress);
-            int read;
-            while ((read = inflater.Read(buffer)) != 0)
+            while (written < output.Length)
             {
-                if (read > expected - output.Length)
-                    throw new InvalidDataException("RDB decompressed data exceeds the indexed size.");
-                output.Write(buffer, 0, read);
+                int read = inflater.Read(output.AsSpan(written));
+                if (read == 0) break;
+                written += read;
             }
+            // An empty destination would otherwise report0 without consuming
+            // the zlib tail. Still read to its end, validating its checksum and
+            // rejecting even one decoded byte past the indexed payload size.
+            if (written == output.Length && inflater.Read(overflow) != 0)
+                throw new InvalidDataException("RDB decompressed data exceeds the indexed size.");
             position += chunkSize;
         }
-        if (!terminated || position != compressed.Length || output.Length != expected)
+        if (!terminated || position != compressed.Length || written != output.Length)
             throw new InvalidDataException("RDB zlib stream length differs from the index.");
-        return output.ToArray();
+        return output;
     }
 }

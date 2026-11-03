@@ -23,7 +23,7 @@ internal partial class CityDomesticView : Control
     private bool abandoned;
 
     internal void Configure(GameResourceRepository repository, PreviewText text, Action returned, Action accepted,
-        Action<CityDomesticOfficerRole> choose, Action<CityDomesticOfficerRole> dismiss, Action<int> policyChosen)
+        Action<CityDomesticOfficerRole> choose, Action<CityDomesticOfficerRole> dismiss, Action<int> policyChosen, AdministrationPageChrome.Resources? resources = null)
     {
         this.returned = returned; this.accepted = accepted; this.choose = choose;
         this.dismiss = dismiss; this.policyChosen = policyChosen;
@@ -32,7 +32,7 @@ internal partial class CityDomesticView : Control
         CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository);
         chrome = new AdministrationPageChrome { Name = "CityDomesticChrome" }; AddChild(chrome);
         chrome.Configure(repository, text, 0x0476, RequestBack,
-            () => { if (!abandoned) this.accepted?.Invoke(); });
+            () => { if (!abandoned) this.accepted?.Invoke(); }, resources: resources);
         chrome.ApplyReturnHint(new AdministrationMessages(repository, text.SourceLocale).Format(0x2733));
         var source = new UiSourceLayout(repository, 0xCF0252EE);
         var panel = new Control { Name = "CityDomesticPanel", Position = new(460, 173),

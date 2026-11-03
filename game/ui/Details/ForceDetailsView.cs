@@ -12,38 +12,47 @@ public partial class ForceDetailsView : DetailsView
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
+    private Control bodyCanvas = null!;
+    private Node2D footerMotion = null!;
     private Control? currentBody;
     private UiSourceDetailSelector selector = null!;
     private int currentIdentity;
     internal InformationDetailSelectionReturn ReadSelectionReturn() => selector.ReadReturn(currentIdentity);
 
     internal void Configure(GameResourceRepository repository, ForceInformationPage page,
-        PreviewText text, Action close, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
+        PreviewText text, Action close, AdministrationPageChrome.Resources resources, InformationDetailSelectionContext? selection = null, Action<int>? select = null)
     {
         this.repository = repository; this.text = text;
-        assets = new(repository); font = new(repository, text.SourceLocale); shader = UiSourceSprite.CreateShader();
+        assets = resources.Assets; font = resources.Font; shader = resources.SpriteShader;
         ConfigureCommonBackdrop(repository);
         var header = new UiSourceHeader { Name = "ForceDetailsTitle" };
         ConfigureSourcePage("ForceDetails", header, close);
         canvas = new() { Name = "ForceSourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
+        var bodyMotion = new Node2D { Name = "ForceDetailsBodyMotion" }; canvas.AddChild(bodyMotion);
+        bodyCanvas = new() { Name = "ForceDetailsBody", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
+        bodyMotion.AddChild(bodyCanvas);
+        var headerMotion = new Node2D { Name = "ForceDetailsHeaderMotion" }; canvas.AddChild(headerMotion);
+        footerMotion = new() { Name = "ForceDetailsFooterMotion" }; canvas.AddChild(footerMotion);
         var shell = new UiSourceLayout(repository, 0xA3B4A82E);
-        shell.Blur(canvas, 2, shell.Rectangle(2, new(191, 147)));
-        shell.Art(canvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
-        canvas.AddChild(header); header.Configure(repository, assets, shader, font, Message(0x45C));
+        shell.Blur(bodyCanvas, 2, shell.Rectangle(2, new(191, 147)));
+        shell.Art(bodyCanvas, 3, shell.Rectangle(3, new(191, 147)), assets, shader);
+        headerMotion.AddChild(header); header.Configure(repository, assets, shader, font, Message(0x45C));
         string basic = Message(ForceInformationSources.BasicTabCaptionId);
         var tab = new UiSourceTabButton { Name = "BasicTab", Position = shell.Rectangle(4, new(191, 147)).Position,
             Size = new(basic.Length * 28 + 36, 64), Selected = true };
-        canvas.AddChild(tab); tab.Configure(repository, assets, shader, font, basic);
-        selector = new(); canvas.AddChild(selector);
+        bodyCanvas.AddChild(tab); tab.Configure(repository, assets, shader, font, basic);
+        selector = new(); bodyCanvas.AddChild(selector);
         selector.Configure(repository, assets, shader, font, text,
             selection ?? new([new(page.ForceId, page.Name, null)], () => 0),
-            InformationListKind.Forces, page.ForceId, () => IsVisibleInTree() && !IsQueuedForDeletion(), select);
+            InformationListKind.Forces, page.ForceId, () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion(), select);
         var footer = new UiSourceLayout(repository, 0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "CloseForceDetails", Position = footer.Rectangle(1, new(0, 904)).Position,
-            InputAdmission = () => IsVisibleInTree() && !IsQueuedForDeletion() };
-        canvas.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
+            InputAdmission = () => CanProcess() && IsVisibleInTree() && !IsQueuedForDeletion() };
+        footerMotion.AddChild(back); back.ConfigureScenarioReturn(repository, assets, shader, text.SourceLocale, RequestClose);
         Apply(page);
+        ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14), new Dictionary<int, (Node2D, Vector2)>
+        { [1] = (bodyMotion, Vector2.Zero), [4] = (headerMotion, Vector2.Zero), [6] = (footerMotion, new(0, 904)) });
         Resized += Fit; Fit();
     }
 
@@ -51,9 +60,9 @@ public partial class ForceDetailsView : DetailsView
     {
         currentIdentity = page.ForceId;
         int bodyIndex = currentBody?.GetIndex() ?? -1;
-        if (currentBody is { } previous) { canvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
+        if (currentBody is { } previous) { bodyCanvas.RemoveChild(previous); previous.QueueFree(); currentBody = null; }
         BuildBody(page);
-        if (bodyIndex >= 0) canvas.MoveChild(currentBody!, bodyIndex);
+        if (bodyIndex >= 0) bodyCanvas.MoveChild(currentBody!, bodyIndex);
         selector.Select(page.ForceId);
         SetMeta("force_id", page.ForceId); SetMeta("source_unknown", page.UnresolvedOwner ?? "");
     }
@@ -63,13 +72,12 @@ public partial class ForceDetailsView : DetailsView
         var source = new UiSourceLayout(MapMarkerLayout.LoadNamed(repository, page.LayoutName));
         var body = new Control { Name = "CurrentForceDetails", Position = new(191, 197), Size = source.Rectangle(0).Size,
             MouseFilter = MouseFilterEnum.Ignore };
-        canvas.AddChild(body); currentBody = body;
+        bodyCanvas.AddChild(body); currentBody = body;
         var presets = MapTextPresets.Create();
         if (!Hidden(2) && page.StandingPortrait is { } standing)
         {
-            var sprites = new LocalizedUiSpriteSource(repository);
             var portrait = new UiSourceStandingPortrait { Name = "ForceRulerStanding", Position = source.Rectangle(2).Position };
-            body.AddChild(portrait); portrait.Configure(repository, assets, shader, standing.LoadSprites(sprites.LoadTexturePackSprite));
+            body.AddChild(portrait); portrait.Configure(repository, assets, shader, standing.LoadSources(assets.Portraits.RequireSource));
             portrait.Scale = source.Rectangle(2).Size / portrait.Size;
         }
         foreach (var node in source.Nodes)
@@ -159,6 +167,6 @@ public partial class ForceDetailsView : DetailsView
     }
     public override void _ExitTree()
     {
-        font?.Dispose(); shader?.Dispose(); assets?.Dispose(); base._ExitTree();
+        base._ExitTree();
     }
 }

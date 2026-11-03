@@ -79,7 +79,7 @@ public partial class Main
         catch (InvalidDataException error)
         { _playMessage.Text = _ui.Get("talent_rule_unavailable"); GD.PushWarning(error.ToString()); return; }
         _talentUiDraft = draft; _talentUiSession = session; _talentUiWorld = world; _talentUiMap = map; _talentUiKind = kind;
-        _talentCardContent = new(_repository);
+        _talentCardContent = new();
         var view = new TalentOrdersView(); _talentOrdersView = view; AddChild(view);
         try
         {

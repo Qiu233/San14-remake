@@ -76,7 +76,13 @@ public sealed partial class ArmyCampaignRuleAdapter
         // District ID/physical mapping as WorldIndexContext.ToSource. Preserve
         // duplicates and null payloads; do not rebuild this from valid districts.
         if(state.ReadArmyLifecycle()?.Indexes.Registries.TryGetValue(WorldEntityKind.District,out var districtOrder)!=true||districtOrder is null)
-            return new([],[],["map-information.District-registry-owner"]);
+        {
+            // Base ink keeps an independently known saved player when the
+            // optional District-backed overlay is unavailable. An explicit
+            // null Force table pointer remains unknown here.
+            var player=OwnedCurrentPlayerForce.ReadCurrentReference(state,current);
+            return new([],[],["map-information.District-registry-owner"]) {CurrentPlayerPhysical=player?.PhysicalSlot};
+        }
         current.SetArmyReturnRegisteredDistricts(districtOrder.Select(row=>row.Kind==WorldEntityKind.District
             ?new DistrictReference(row.Id):throw new InvalidDataException("map-information.District-registry-kind")).ToArray());
         ForceUnregisterInputs.BindCurrent(state,current);

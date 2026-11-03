@@ -4,6 +4,15 @@ namespace San14.Data;
 
 public sealed partial class ArmyCampaignRuleAdapter
 {
+    // Territory transfer can borrow the thin Turn current before ordinary
+    // Army occupation. Fixed definitions and their sparse Hex aliases are
+    // prepared once; flags already belong to this actual current capture.
+    private void EnsureOccupationSceneryDefinitionsCurrent(SourceWorldContext current)
+    {
+        if (current.SceneryDefinitions is null) current.MaterializeFixedScenery(_landmarkDefinitions);
+        current.BindMissingFixedConstructionSceneryLinks();
+    }
+
     private void BindOccupationSceneryCurrent(GameState state, SourceWorldContext current)
     {
         if (current.SceneryDefinitions is null)

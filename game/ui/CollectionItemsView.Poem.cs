@@ -22,7 +22,7 @@ internal partial class CollectionItemsView
             page.Configure(repository, text, publication, poem, null, [new(itemId, poem.Name)],
                 () => ReadAdmission() && poemDetail == page,
                 () => runUiAction(ClosePoemDetail), _ => { }, scrollSpeed,
-                () => runUiAction(() => ShowPoemEvent(itemId)));
+                () => runUiAction(() => ShowPoemEvent(itemId)), resources: resources);
         }
         catch { ClosePoemDetail(); throw; }
     }
@@ -46,7 +46,7 @@ internal partial class CollectionItemsView
                 () => ReadAdmission() && poemEvent == view,
                 () => runUiAction(() => ClosePoemEvent(restore: true)),
                 error => runUiAction(() => throw error),
-                () => poemAppearanceSound?.Invoke() ?? Task.CompletedTask);
+                () => poemAppearanceSound?.Invoke() ?? Task.CompletedTask, resources);
             poemEntered?.Invoke();
         }
         catch { ClosePoemEvent(restore: true); throw; }

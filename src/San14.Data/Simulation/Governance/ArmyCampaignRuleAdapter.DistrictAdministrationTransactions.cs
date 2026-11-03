@@ -121,8 +121,14 @@ public sealed partial class ArmyCampaignRuleAdapter : IDistrictCommandRules
                         var home = BaseLookup.Find(DistrictNeed(current.ReadPersonFirstLocation(person), "edit_Person_E2"), current);
                         if (!DistrictNeed(current.ReadBaseNativeValidity(home), "edit_Home_validity")) continue;
                         int destination = DistrictNeed(current.ReadBaseDistrictSlot(home), "edit_Home_District");
-                        PersonDistrictTransfer.Apply(person, destination, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(
-                            current, [], result => Assignment(person, result)));
+                        var previousService = current.TransferServiceRefresher;
+                        current.TransferServiceRefresher = operation.RefreshPersonnelMilestoneCurrent;
+                        try
+                        {
+                            PersonDistrictTransfer.Apply(person, destination, ArmyOrdinaryReturnRuntime.CreateCurrentPersonDistrictTransfer(
+                                current, [], result => Assignment(person, result)));
+                        }
+                        finally { current.TransferServiceRefresher = previousService; }
                     }
                     if (!primary && leader != originalLeader)
                     {

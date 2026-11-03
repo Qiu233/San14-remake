@@ -92,46 +92,64 @@ public partial class Main
 
         async Task PresentAsync()
         {
+            bool presentationFailed = false;
             try
             {
                 // Wait only for the real controller; rendering frames do not
                 // manufacture a camera-completion receipt.
-                while (IsCoalitionCameraCurrent && !map.IsStoryCameraIdle(command))
+                while (_coalitionCameraCommand == command && IsCoalitionCameraCurrent && !map.IsStoryCameraIdle(command))
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-                if (!IsCoalitionCameraCurrent) return;
+                if (_coalitionCameraCommand != command || !IsCoalitionCameraCurrent) return;
+                var receiptOwner = command.World;
                 CampaignCameraSnapshot? captured = null;
                 bool accepted;
                 if (request.Operation == ForceCoalitionVisualOperation.CameraFocus)
                 {
                     captured = map.CaptureStoryCamera() ?? throw new InvalidOperationException("coalition.camera.current_backup");
-                    var query = CoalitionPresentationQueries(world, map).QueryForceCoalitionCameraTarget(world,
+                    var query = CoalitionPresentationQueries(receiptOwner, map).QueryForceCoalitionCameraTarget(receiptOwner,
                         request.TargetHexId ?? throw new InvalidDataException("coalition.camera.target_hex"));
                     var target = query.Value ?? throw new InvalidDataException(query.UnresolvedInput);
                     accepted = map.MoveStoryCamera(command, target, 1000);
                 }
                 else
                 {
-                    var saved = world.CoalitionCameraPresentation ?? throw new InvalidOperationException("coalition.camera.saved_backup");
+                    var saved = receiptOwner.CoalitionCameraPresentation ?? throw new InvalidOperationException("coalition.camera.saved_backup");
                     accepted = map.RestoreStoryCamera(command, saved.SavedCamera);
                 }
                 if (!accepted) throw new InvalidOperationException("coalition.camera.request_owner");
                 // The real controller accepted its source command. Persist
                 // its backup now, then retain the modal until motion ends.
-                if (!session.TryCompleteForceCoalitionVisual(world, entry.Source, entry.BatchSequence,
+                if (!session.TryCompleteForceCoalitionVisual(receiptOwner, entry.Source, entry.BatchSequence,
                         entry.RequestIndex, request.Operation, captured))
-                    throw new InvalidOperationException("coalition.camera.source_head");
+                    throw new InvalidOperationException($"coalition.camera.source_head source={entry.Source} operation={request.Operation} batch={entry.BatchSequence} index={entry.RequestIndex} sameOwner={ReferenceEquals(receiptOwner, PersonnelPresentationOwner(session))} savedCamera={receiptOwner.CoalitionCameraPresentation is not null}");
                 command.World = PersonnelPresentationOwner(session);
                 _restoredCoalitionMap = map; _restoredCoalitionCamera = command.World.CoalitionCameraPresentation;
-                while (IsCoalitionCameraCurrent && !map.IsStoryCameraIdle(command))
+                while (_coalitionCameraCommand == command && IsCoalitionCameraCurrent && !map.IsStoryCameraIdle(command))
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-                if (!IsCoalitionCameraCurrent) return;
-                CloseCoalitionCameraCommand();
-                if (!TryOpenPersonnelPresentation()) { RefreshPlayControls(); RefreshDiplomaticNegotiation(); }
+                if (_coalitionCameraCommand != command || !IsCoalitionCameraCurrent) return;
             }
             catch (Exception error)
             {
                 if (_coalitionCameraCommand == command && IsCoalitionCameraCurrent)
-                { CloseCoalitionCameraCommand(); ReportPlayFailure(error); }
+                { presentationFailed = true; ReportPlayFailure(error); }
+            }
+            finally
+            {
+                // Even an obsolete World ends this workspace's ownership.
+                // Receipts can replace the immutable World while camera motion
+                // is pending. Keep its queued request and actual controller;
+                // the ordinary presenter selects the current owner next.
+                if (_coalitionCameraCommand == command)
+                {
+                    CloseCoalitionCameraCommand();
+                    if (!presentationFailed && !_failed && !_shuttingDown && IsInsideTree() &&
+                        ReferenceEquals(_session, session) && ReferenceEquals(_residentMap, map))
+                        RunUiAction(() =>
+                        {
+                            if (!TryOpenPersonnelPresentation())
+                            { RefreshPlayControls(); RefreshDiplomaticNegotiation(); }
+                        });
+                }
             }
         }
     }

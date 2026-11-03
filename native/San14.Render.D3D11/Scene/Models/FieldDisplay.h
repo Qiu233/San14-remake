@@ -66,14 +66,10 @@ public:
             current[i]=eligibility[i]&&source_mode2_octree::admitsEntry(rootTypes[i],frame.sceneTypeMask)
                 ?owned[i]:source_far_main::CurrentModelMasks{};
     }
-    template<class Plan,class Catalog>
-    void selectOrdinary(Plan& plan,const Catalog& field)const {
-        auto hidden=[&](unsigned index){return current[sourceIndexToOrdinal[index]].first==0;};
-        auto remove=[&](auto& ids){ids.erase(std::remove_if(ids.begin(),ids.end(),hidden),ids.end());};
-        remove(plan.visibleInstances);remove(plan.visibleUnsupportedInstances);
-        plan.draws.erase(std::remove_if(plan.draws.begin(),plan.draws.end(),[&](const auto& draw){
-            return hidden(field.primitives[draw.primitiveIndex].instanceIndex);
-        }),plan.draws.end());
+    // Current masks are refreshed by capture for every accepted camera; this
+    // query borrows that exact publication without retaining a second cache.
+    bool admitsOrdinary(unsigned sourceIndex)const {
+        return current[sourceIndexToOrdinal[sourceIndex]].first!=0;
     }
     template<class Profile>
     void publishShadow(Profile& profile,const NativeModelCollectionCaller& caller,

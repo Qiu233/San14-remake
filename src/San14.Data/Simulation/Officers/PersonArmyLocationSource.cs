@@ -12,7 +12,15 @@ public static class PersonArmyLocationSource
     /// pointer/header wins, including aliases. An unbound current view can read
     /// the same campaign's canonical saved source slot and receiver join.</summary>
     public static bool? ReadCommanderArmyValidity(GameState state, SourceWorldContext current, int personPhysical)
+        => ReadCommanderArmyValidity(state, current, personPhysical, out _);
+
+    /// <summary>The same lookup and validity result, with its actual resolved
+    /// receiver for consumers of a valid Army's further fields. No second
+    /// lookup or inference from a deployment flag is required.</summary>
+    public static bool? ReadCommanderArmyValidity(GameState state, SourceWorldContext current, int personPhysical,
+        out ArmyUnitReference? commanderArmy)
     {
+        commanderArmy = null;
         if (current.ReadPersonSecondLocation(personPhysical) is not ushort second ||
             current.ReadPersonIdentity(personPhysical) is not ushort identity) return null;
         int requested = second is >= 62 and <= 561 ? second - 61 : 0;
@@ -26,6 +34,7 @@ public static class PersonArmyLocationSource
             if (pointer?.PhysicalSlot is not int fallback) return null;
             physical = fallback;
         }
+        commanderArmy = pointer;
         bool? valid = current.ReadArmyUnitNativeValidity(pointer);
         if (valid.HasValue) return valid;
         var saved = Saved(physical);

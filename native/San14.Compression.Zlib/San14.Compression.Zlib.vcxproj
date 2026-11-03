@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+ <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+ <PropertyGroup Label="Globals"><ProjectGuid>{CB6BF739-8467-4C2F-B735-716D55BF72E6}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+ <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+ <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset></PropertyGroup>
+ <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+ <PropertyGroup><OutDir>$(MSBuildThisFileDirectory)bin\$(Platform)\$(Configuration)\</OutDir><IntDir>$(OutDir)obj\</IntDir><TargetName>San14.Compression.Zlib</TargetName></PropertyGroup>
+ <ItemDefinitionGroup><ClCompile><Optimization>MaxSpeed</Optimization><RuntimeLibrary>MultiThreaded</RuntimeLibrary><PreprocessorDefinitions>ZLIB_DLL;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>vendor/zlib-1.3.2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><WarningLevel>Level3</WarningLevel><DebugInformationFormat>None</DebugInformationFormat></ClCompile><Link><GenerateDebugInformation>false</GenerateDebugInformation></Link></ItemDefinitionGroup>
+ <ItemGroup><ClCompile Include="vendor/zlib-1.3.2/adler32.c" /><ClCompile Include="vendor/zlib-1.3.2/crc32.c" /><ClCompile Include="vendor/zlib-1.3.2/inffast.c" /><ClCompile Include="vendor/zlib-1.3.2/inflate.c" /><ClCompile Include="vendor/zlib-1.3.2/inftrees.c" /><ClCompile Include="vendor/zlib-1.3.2/uncompr.c" /><ClCompile Include="vendor/zlib-1.3.2/zutil.c" /></ItemGroup><Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/></Project>

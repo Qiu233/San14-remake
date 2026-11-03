@@ -17,6 +17,7 @@ public partial class MapSceneView
 
     private void ReleasePeriodArmyViewSources()
     {
+        _d3d11Map?.ClearDisplayedProjection();
         _departurePresentationOwner = null; _departurePresentationRequest = null; _departurePresentationSource = null;
         _traitRefreshWorld = null; _traitRefreshArmy = null; _traitPersonalities = null; _traitPersonalityRefreshed.Clear();
         _d3d11Markers?.ReleaseBorrowedArmyLabelWorld();

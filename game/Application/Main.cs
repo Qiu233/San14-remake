@@ -163,6 +163,9 @@ public partial class Main : Control
 
     public override void _Input(InputEvent input)
     {
+        if (input is InputEventKey { Pressed: true } or
+            InputEventMouseButton { Pressed: true, ButtonIndex: not MouseButton.Right })
+            _mapRightBackPress = null;
         if (_newGamePreparation is not null)
         {
             if (input is InputEventKey { Keycode: Key.Escape, Pressed: true, Echo: false } or
@@ -182,6 +185,13 @@ public partial class Main : Control
         }
         if (HandleTutorialLessonInput(input)) { GetViewport().SetInputAsHandled(); return; }
         if (HandleUniqueDirectionInput(input)) { GetViewport().SetInputAsHandled(); return; }
+        if (input is InputEventMouseButton { ButtonIndex: MouseButton.Right } manualRight &&
+            _manualTacticCommand is { Map.SourcePointerInputActive: true } manualMapPage)
+        {
+            HandleMapRightBack(manualRight, manualMapPage.Map, manualMapPage, MapRightBackKind.Page,
+                RequestManualTacticBack, allowDuringPeriod: true);
+            return;
+        }
         if ((HasManualTacticCommands||commanderCardRequests.Any(request=>!request.Automatic)) && (input is InputEventKey { Keycode: Key.Escape } ||
             input is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }))
         {
@@ -531,6 +541,13 @@ public partial class Main : Control
             RunUiAction(()=>TryCloseGeographicAdvantages());GetViewport().SetInputAsHandled();return;
         }
         if (HandleGameplayKeyboard(input)) { GetViewport().SetInputAsHandled(); return; }
+        // These map selectors own their click/release callback. Their down
+        // event must reach Surface.GuiInput so the same pointer can orbit.
+        if (input is InputEventMouseButton { ButtonIndex: MouseButton.Right } &&
+            _residentMap is { SourcePointerInputActive: true } &&
+            (_diplomacyTargets?.IsMapMode == true || HasCityOfficerMovementMapSelection ||
+                _intelligenceSelector?.IsMapMode == true || _strategicOrders?.Selection?.IsMapMode == true))
+            return;
         if (HandleCityOfficerMovementMapBackInput(input)) return;
         if (HandlePersonnelHireCityMapBackInput(input)) return;
         if (input is not InputEventMouseButton { ButtonIndex: MouseButton.Right } button) return;
@@ -548,21 +565,18 @@ public partial class Main : Control
             {CancelUnitTarget();GetViewport().SetInputAsHandled();}
             return;
         }
-        if (!button.Pressed)
-        {
-            if (_consumeBackRelease) GetViewport().SetInputAsHandled();
-            _consumeBackRelease = false;
-            return;
-        }
-        if (_failed || _shuttingDown) return;
+        if (_failed || _shuttingDown) { _mapRightBackPress = null; return; }
         if(_transportNarration is { } transportNarration&&transportNarration.IsVisibleInTree()&&!transportNarration.IsQueuedForDeletion()||
             _generalUnitTarget?.Narration is { } generalNarration&&generalNarration.IsVisibleInTree()&&!generalNarration.IsQueuedForDeletion()||
             _deploymentNarration is { } narration&&narration.IsVisibleInTree()&&!narration.IsQueuedForDeletion()||
             _administrationNarration is { } administrationSpeech&&administrationSpeech.IsVisibleInTree()&&!administrationSpeech.IsQueuedForDeletion()||
             _cityDomesticNarration is { } citySpeech&&citySpeech.IsVisibleInTree()&&!citySpeech.IsQueuedForDeletion()||
             _governanceNarration is { } governanceSpeech&&governanceSpeech.IsVisibleInTree()&&!governanceSpeech.IsQueuedForDeletion())
-        {GetViewport().SetInputAsHandled();_consumeBackRelease=true;return;}
+        {GetViewport().SetInputAsHandled();_consumeBackRelease=button.Pressed;_mapRightBackPress=null;return;}
         Action? back = null;
+        MapSceneView? backMap = null;
+        object? backOwner = null;
+        MapRightBackKind backKind = MapRightBackKind.Page;
         if (HasTutorialSelection && !HasTutorialLesson) back = RequestTutorialBack;
         else if (HasCollectionMenu) back = RequestCollectionBack;
         else if (HasTitleEditMenu) back = RequestTitleEditBack;
@@ -591,9 +605,9 @@ public partial class Main : Control
         else if (HasStrategicOrdersPage) back = RequestStrategicOrdersBack;
         else if (HasOfficerOfficePage) back = RequestOfficerOfficesBack;
         else if (HasCampaignCommandPage) back = RequestCampaignCommandBack;
-        else if(HasGeneralUnitTargetPage)back=RequestGeneralUnitTargetBack;
+        else if(HasGeneralUnitTargetPage){back=RequestGeneralUnitTargetBack;backMap=_generalUnitTarget!.Map;backOwner=_generalUnitTarget;}
         else if(HasManualTacticCommands)back=RequestManualTacticBack;
-        else if(HasEnemyFootholdCommands)back=RequestEnemyFootholdCommandsBack;
+        else if(HasEnemyFootholdCommands){back=RequestEnemyFootholdCommandsBack;backMap=_enemyFootholdCommands!.Map;backOwner=_enemyFootholdCommands;}
         else if (HasCommanderSelectionPage) back = CloseCommanderSelectionPage;
         else if (HasPersonnelItemPage) back = RequestPersonnelItemBack;
         else if (HasProposalsPage) back = RequestProposalsBack;
@@ -604,21 +618,21 @@ public partial class Main : Control
         else if (HasForeignTradePage) back = RequestForeignTradeOrdersBack;
         else if (HasIntelligencePage) back = RequestIntelligenceBack;
         else if (HasSceneryInvestmentPage) back = RequestSceneryInvestmentBack;
-        else if (HasCommandWorkspace) back = CloseCommandWorkspace;
+        else if (HasCommandWorkspace){back=CloseCommandWorkspace;backMap=_commandWorkspaceMap;backOwner=_commandWorkspace;}
         else if (HasCityOfficerMovementPage) back = RequestCityOfficerMovementBack;
         else if (HasPersonnelGroupsPage) back = RequestPersonnelGroupsBack;
         else if (HasCityMerchantPage) back = RequestCityMerchantBack;
         else if(_cityDomesticPresenter is { } cityDomestic)
-            back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};
+        {back=()=>{if(_cityDomesticSelectors?.TryCancel()!=true)cityDomestic.RequestBack();};backMap=_cityDomesticMap;backOwner=cityDomestic;}
         else if(_administrationPresenter is { } administration)
-            back=administration.RequestBack;
+        {back=administration.RequestBack;backMap=_administrationMap;backOwner=administration;}
         else if (_transportTarget is { Visible: true }) back = CancelTransportTarget;
         else if (_transportSetup is { Visible: true } transport)
             back = () => { if (_transportSetupPresenter?.TryCancelModal() != true) transport.RequestBack(); };
         else if (_deploymentSetup is { } deployment && deployment.IsVisibleInTree() && !deployment.IsQueuedForDeletion())
             back = ()=>{if(_deploymentSetupPresenter?.TryCancelModal()!=true)deployment.RequestClose();};
         else if(_deploymentTarget is { } target&&target.IsVisibleInTree()&&!target.IsQueuedForDeletion())
-            back=()=>{if(_deploymentTargetPresenter?.TryCancelOverlay()!=true)target.RequestBack();};
+        {back=()=>{if(_deploymentTargetPresenter?.TryCancelOverlay()!=true)target.RequestBack();};backMap=_residentMap;backOwner=target;}
         else if (_detailsView is { } details && details.IsVisibleInTree() && !details.IsQueuedForDeletion())
             back = details.RequestClose;
         else if (_newGameSetup is { } setup) back = setup.RequestBack;
@@ -627,16 +641,22 @@ public partial class Main : Control
         else if (_periodReportView is { } report && report.IsVisibleInTree() && !report.IsQueuedForDeletion())
             back = report.RequestAcknowledge;
         else if (_residentMap is {IsAreaHexCommandMenuOpen:true} areaMenuBackMap)
-            back=areaMenuBackMap.CloseAreaHexCommandMenu;
+        {back=areaMenuBackMap.CloseAreaHexCommandMenu;backMap=areaMenuBackMap;backOwner=areaMenuBackMap;backKind=MapRightBackKind.AreaMenu;}
         else if (_residentMap is { IsCityCommandMenuOpen: true } cityMenuMap)
-            back = ()=>{ClearDeploymentCityDraft();cityMenuMap.CloseCityCommandMenu();};
-        else if (_residentMap?.UserDisplayMode==1) back=()=>TryCloseGeographicAdvantages();
+        {back=()=>{ClearDeploymentCityDraft();cityMenuMap.CloseCityCommandMenu();};backMap=cityMenuMap;backOwner=cityMenuMap;backKind=MapRightBackKind.CityMenu;}
+        else if (_residentMap?.UserDisplayMode==1){back=()=>TryCloseGeographicAdvantages();backMap=_residentMap;backOwner=_residentMap;backKind=MapRightBackKind.GeographicView;}
         else if (_sceneView is null && _residentMap is not null &&
                  _world is { Phase: TurnPhase.Reporting })
-            back = () => RunPlayAction(FinishPlayableReport);
+        {back=()=>RunPlayAction(FinishPlayableReport);backMap=_residentMap;backOwner=_residentMap;backKind=MapRightBackKind.Reporting;}
         else if (_sceneView is null && _residentMap is not null && !_mapFocused)
-            back = () => SetMapFocus(true);
-        if (back is null) return;
+        {back=()=>SetMapFocus(true);backMap=_residentMap;backOwner=_residentMap;backKind=MapRightBackKind.Focus;}
+        if (backMap is { SourcePointerInputActive: true } && backOwner is not null && back is not null)
+        {
+            HandleMapRightBack(button, backMap, backOwner, backKind, back);
+            return;
+        }
+        _mapRightBackPress = null;
+        if (!button.Pressed || back is null) return;
         // Back is routed before GUI dispatch. Neither half of this click should
         // reach a map or command panel exposed by closing the current layer.
         GetViewport().SetInputAsHandled();
@@ -650,6 +670,7 @@ public partial class Main : Control
         ConnectWindowLifetime();
         try
         {
+            GD.Print($"CLIENT_RUNTIME time={DateTimeOffset.Now:O} executable={OS.GetExecutablePath()} userData={OS.GetUserDataDir()}");
             // The application has one physical frame limiter. Preserve
             // explicitly lower diagnostic caps; unlimited or higher CLI caps
             // must still use the normal fixed-step application's target.
@@ -697,11 +718,17 @@ public partial class Main : Control
     {
         if (_failed || _shuttingDown || (_advancingPeriod && !allowDuringPeriod) || IsReturningToTitle || _newGamePreparation is not null) return;
         try { action(); }
-        catch (Exception error) { ShowFailure(error, startup: false); }
+        catch (Exception error)
+        {
+            GD.PrintErr($"CLIENT_UI_ACTION time={DateTimeOffset.Now:O} callback={action.Method.DeclaringType?.FullName}.{action.Method.Name}");
+            ShowFailure(error, startup: false);
+        }
     }
 
     private void ShowFailure(Exception error, bool startup)
     {
+        // Preserve the original exception before any teardown callback can fail.
+        GD.PushError(error.ToString());
         CancelNewGamePreparation(restoreParent: false);
         _failed = true;
         _loadError = error.Message;
@@ -714,7 +741,6 @@ public partial class Main : Control
         CloseTitleMenu();
         CloseNewGameSetup();
         CloseScenarioSelection();
-        GD.PushError(error.ToString());
         CloseResidentMap();
         if (_sceneView is { } scene)
         {
@@ -1121,12 +1147,10 @@ public partial class Main : Control
         _loadedMap = loadedMap;
         _mapOverview = campaign.Composition.Overview;
         _session = campaign.Session;
-        SynchronizeApplicationCrtRandom(_session.World);
-        var loadedRandomOwner = _session.PendingNormalPeriod is { } normal &&
-            (normal.Candidate.NativePeriodContinuation?.Cursor?.AwaitingIntelligenceTaskId is not null ||
-                BaseCapturePersonPrefixProgress.IsPresentationPending(normal.Candidate) ||
-                HiredArmyCaptureProgress.IsPresentationPending(normal.Candidate))
-            ? normal.Candidate : _session.World;
+        // Restored presentation resumes from the same candidate owner as its
+        // normal execution path, including caravan returns and other continuations.
+        var loadedRandomOwner = PersonnelPresentationOwner(_session);
+        SynchronizeApplicationCrtRandom(loadedRandomOwner);
         if (loadedRandomOwner.CampaignAppRandom32 is { } appRandom)
             _presentationRandom.InstallCommittedState(appRandom.State);
         AttachCampaignApplication(restoredPlayerForceId.HasValue);
@@ -1341,6 +1365,7 @@ public partial class Main : Control
 
     private void CloseResidentMap()
     {
+        _residentMap?.BeginMapRetirement();
         _campaignComposition?.ConfigureFacilityPeriodicArmyViews(null);
         _campaignComposition?.ConfigureArmyFireViews(null);
         CloseManualTacticCommands();
@@ -1410,6 +1435,7 @@ public partial class Main : Control
         CloseAreaAdministration();
         CloseDeploymentSetup();
         CloseCityDeploymentCancellation();
+        _residentMap?.SetOrdinaryBottomHudHost(null);
         if (_forceHud is not null)
         {
             if (_forceHud.GetParent() is Node parent) parent.RemoveChild(_forceHud);
@@ -1770,6 +1796,7 @@ public partial class Main : Control
                     }, allowDuringPeriod: true));
                 hud.FitToMap(_mapHost.Size);
                 _forceHud = hud;
+                view.SetOrdinaryBottomHudHost(hud);
                 view.MainCommandZoomChanged += zoom =>
                 {
                     if (_residentMap == view && _forceHud == hud)
@@ -1785,6 +1812,7 @@ public partial class Main : Control
             }
             catch (Exception error)
             {
+                view.SetOrdinaryBottomHudHost(null);
                 if (ReferenceEquals(_forceHud,hud)) _forceHud=null;
                 _mapHost.RemoveChild(hud);
                 hud.Free();

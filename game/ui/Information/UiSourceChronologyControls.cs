@@ -13,7 +13,7 @@ internal partial class UiSourceChronologyPlaybackButton : UiSourceButton
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,string sprite,Action action)
     {
         this.assets=assets;this.shader=shader;
-        source=new(MapMarkerLayout.LoadNamed(repository,"11_05_00_history_offset_01"));
+        source=assets.SourceLayout("11_05_00_history_offset_01");
         Size=source.Rectangle(0).Size;hit=source.Rectangle(1);ActionMode=ActionModeEnum.Release;
         int[][] art=[[3],[5,6],[8,9],[11],[13,14]];
         var states=new Control[5];
@@ -46,7 +46,7 @@ internal partial class UiSourceChronologyRow : UiSourceButton
     internal int BoundIndex {get;private set;}=-1;
     internal void Configure(GameResourceRepository repository,UiAssets assets,Shader shader,MapFont font)
     {
-        var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,"11_05_00_history_offset_00"));
+        var source=assets.SourceLayout("11_05_00_history_offset_00");
         Size=source.Rectangle(0).Size;palettes=MapSpritePalettes.Create();
         int[][] art=[[4],[6,7],[9,10],[12],[14,15]];
         var states=new Control[5];

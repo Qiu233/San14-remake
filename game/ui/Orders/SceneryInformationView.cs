@@ -8,6 +8,7 @@ internal partial class SceneryInformationView : Control
 {
     private GameResourceRepository repository=null!;
     private PreviewText text=null!;
+    private LoadedMessages messages=null!;
     private MapInformationListView list=null!;
     private Control? body;
     private Func<bool>? admitted;
@@ -16,21 +17,25 @@ internal partial class SceneryInformationView : Control
     internal bool MainVisible=>!abandoned&&IsVisibleInTree()&&list is not null&&list.IsVisibleInTree();
     internal bool ControlsReady=>MainVisible&&list.CanProcess()&&body is not null&&body.IsVisibleInTree();
     internal int? SelectedSceneryId {get;private set;}
+    internal IReadOnlyDictionary<int, (Node2D Root, Vector2 ContentMount)> MotionGroups => list.MotionGroups;
+    internal void RegisterHeader(UiSourceHeaderStack owner) => list.RegisterHeader(owner);
 
     internal void Configure(GameResourceRepository repository,PreviewText text,SceneryInformationPage page,
-        Func<bool> admitted,Action close)
+        Func<bool> admitted,Action close,AdministrationPageChrome.Resources? resources=null,
+        IReadOnlyList<MapInformationListRow>? selectionRows=null,Action<int>? select=null,Func<int>? scrollSpeed=null)
     {
         this.repository=repository;this.text=text;this.admitted=admitted;this.close=close;
         Name="SceneryInformation340";ZIndex=4;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var data=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records;
+        messages=resources?.Messages??repository.LoadMessages(text.SourceLocale,MessageKind.Data);
+        var data=messages.Messages.Sections[1].Records;
         string Msg(int id)=>data[id].Text??throw new InvalidDataException($"Missing Scenery information Data1/{id:X}.");
         list=new(){Name="SceneryInformationList"};AddChild(list);
         list.Configure(repository,text,Msg(SceneryInformationSources.TitleId),
             [new("name",Msg(0xAD),188,false)],
-            [new(page.SceneryId,new[]{page.Name},true)],ReadAdmission,RequestBack,_=>{},()=>0,
-            tabCaptions:new[]{Msg(0x3CD)},completeColumnProfile:true,normalColumnLayout:true,narrowTable:true);
-        list.SelectSourceIndex(page.SceneryId);SetMeta("source_registry",0x68);
+            selectionRows??[new(page.SceneryId,new[]{page.Name},true)],ReadAdmission,RequestBack,select??(_=>{}),scrollSpeed??(()=>0),
+            tabCaptions:new[]{Msg(0x3CD)},completeColumnProfile:true,normalColumnLayout:true,narrowTable:true,resources:resources);
+        SetMeta("source_registry",0x68);
         Apply(page);
     }
 
@@ -38,10 +43,11 @@ internal partial class SceneryInformationView : Control
     {
         if(abandoned)return;
         SelectedSceneryId=page.SceneryId;
+        list.SelectSourceIndex(page.SceneryId);
         if(body is { } previous){previous.Hide();previous.QueueFree();}
         body=new(){Name="CurrentSceneryInformation",Position=new(191,197),Size=new(1540,688),MouseFilter=MouseFilterEnum.Ignore};
-        list.SourceCanvas.AddChild(body);
-        var source=new UiSourceLayout(MapMarkerLayout.LoadNamed(repository,SceneryInformationSources.LayoutName));
+        list.SourceBodyCanvas.AddChild(body);
+        var source=list.SourceAssets.SourceLayout(SceneryInformationSources.LayoutName);
         var presets=MapTextPresets.Create();
         foreach(var node in source.Nodes)
         {
@@ -49,7 +55,7 @@ internal partial class SceneryInformationView : Control
             if(node.Type is 1 or 3)source.Art(body,node.Index,source.Rectangle(node.Index),list.SourceAssets,list.SourceShader);
             else if(node.Type==6)source.Blur(body,node.Index,source.Rectangle(node.Index));
         }
-        var data=repository.LoadMessages(text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records;
+        var data=messages.Messages.Sections[1].Records;
         foreach(var (node,message) in SceneryInformationSources.Captions)
         {
             if(Hidden(node))continue;
@@ -102,7 +108,7 @@ internal partial class SceneryInformationView : Control
         }
         void ProgressGauge(Rect2 box)
         {
-            var bar=new UiSourceLayout(repository,0xAFC125D8);
+            var bar=list.SourceAssets.SourceLayout(0xAFC125D8);
             var gauge=new Control {Name="SceneryDevelopmentProgress",Position=box.Position,Size=bar.Rectangle(0).Size,
                 Scale=box.Size/bar.Rectangle(0).Size,MouseFilter=MouseFilterEnum.Ignore};body.AddChild(gauge);
             bar.Art(gauge,1,bar.Rectangle(1),list.SourceAssets,list.SourceShader);

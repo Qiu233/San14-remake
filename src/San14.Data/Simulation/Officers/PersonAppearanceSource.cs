@@ -40,6 +40,9 @@ public sealed partial class ArmyCampaignRuleAdapter
             package._personRelationInputs.BindCurrent(latest, current);
             package._personAssignmentPrecallInputs.BindCurrent(latest, current);
             HexListHandle? excluded = null, notifications = null;
+            var previousRefresh = current.TransferServiceRefresher;
+            current.TransferServiceRefresher = (first, second, third) =>
+                latest = package.RefreshPersonnelMilestoneCurrent(latest, current, first, second, third);
             try
             {
                 excluded = Temporary();
@@ -114,6 +117,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             }
             finally
             {
+                current.TransferServiceRefresher = previousRefresh;
                 if (notifications is not null) ClearRelease(notifications);
                 if (excluded is not null) ClearRelease(excluded);
             }

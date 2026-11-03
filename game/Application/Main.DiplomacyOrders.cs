@@ -63,7 +63,7 @@ public partial class Main
         catch(InvalidDataException error){_playMessage.Text=_ui.Get("play_diplomacy_rule_unavailable");GD.PushWarning(error.ToString());return;}
         _diplomacyDraft=draft;_diplomacySession=session;_diplomacyWorld=world;_diplomacyMap=map;
         if(draft.AppRandomState is {} openedRandom)_presentationRandom.InstallCommittedState(openedRandom.State);
-        _diplomacyCardContent=new(_repository);
+        _diplomacyCardContent=new();
         var view=new DiplomacyOrdersView();_diplomacyOrdersView=view;AddChild(view);
         try
         {
@@ -74,7 +74,7 @@ public partial class Main
                 ()=>RunUiAction(OpenDiplomacyExecutorSelection),()=>RunUiAction(OpenDiplomacyMonthSelection),
                 kind=>RunUiAction(()=>OpenDiplomacyGiftSelection(kind)),()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetGift)),
                 ()=>RunUiAction(OpenDiplomacyCaptiveSelection),kind=>RunUiAction(()=>OpenDiplomacyTradeSelection(kind,true)),
-                ()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetRequested)));
+                ()=>RunUiAction(()=>ChangeDiplomacyDraft(draft.ResetRequested)), resources: TryBorrowApplicationUiResources(view));
             RefreshDiplomacyOrders();
             if(kind==DiplomaticMissionKind.Goodwill)ObserveTutorialInformation(39);
             if(kind==DiplomaticMissionKind.Alliance)ObserveTutorialInformation(40);
@@ -96,7 +96,7 @@ public partial class Main
             var query=draft.QueryOfficerCard(officer);
             card=query.Available?_diplomacyCardContent!.Create(query.Value!):new(world.Officers[officer].Name,null,null,null,null);
         }
-        LoadedSprite? advisorPortrait=null;
+        OfficerPortraitRoute? advisorPortrait=null;
         if(draft.AdvisorOfficerId is int advisor)
         {
             var query=draft.QueryOfficerCard(advisor);

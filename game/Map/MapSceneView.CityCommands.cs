@@ -91,7 +91,11 @@ public partial class MapSceneView
         {
             _cityCommandMenu = new() { ZIndex = 2 };
             AddChild(_cityCommandMenu);
-            _cityCommandMenu.Configure(_repository, _text);
+            // Like the area popup, borrow the completed application closure.
+            // The retained menu releases its lease only after its actual exit.
+            var shared = _borrowSummaryResources?.Invoke(_cityCommandMenu);
+            if (shared is { } borrowed) _cityCommandMenu.TreeExited += borrowed.Release;
+            _cityCommandMenu.Configure(_repository, _text, shared?.Resources);
             _cityCommandMenu.Command += (id, command) => Run(() =>
             {
                 bool staleCity = !ReferenceEquals(_cityDomesticMenuWorld,_logicalWorld);

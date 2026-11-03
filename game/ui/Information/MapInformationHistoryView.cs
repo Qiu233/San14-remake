@@ -23,17 +23,17 @@ internal partial class MapInformationHistoryView : DetailsView
     private string unknown = "";
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
-        InformationHistoryPage publication, Func<bool> admitted, Action close, Func<int> scrollSpeed)
+        InformationHistoryPage publication, Func<bool> admitted, Action close, Func<int> scrollSpeed, AdministrationPageChrome.Resources resources)
     {
         this.publication = publication; this.admitted = admitted; unknown = text.Get("detail_unknown");
-        assets = new(repository); font = new(repository, text.SourceLocale);
-        shader = UiSourceSprite.CreateShader(); palettes = MapSpritePalettes.Create();
+        assets = resources.Assets; font = resources.Font;
+        shader = resources.SpriteShader; palettes = MapSpritePalettes.Create();
         canvas = new() { Name = "SourceCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Stop };
         AddChild(canvas);
         var header = new UiSourceHeader(); canvas.AddChild(header);
         header.Configure(repository, assets, shader, font, publication.Title);
         ConfigureSourcePage("InformationHistory", header, close);
-        var source = new UiSourceLayout(repository, 0xBC4131C3);
+        var source = assets.SourceLayout(0xBC4131C3);
         Vector2 mount = new(341, 135);
         source.Blur(canvas, 3, source.Rectangle(3, mount));
         source.Art(canvas, 5, source.Rectangle(5, mount), assets, shader);
@@ -41,7 +41,7 @@ internal partial class MapInformationHistoryView : DetailsView
         rows = new() { Name = "HistoryRows", Position = area.Position, Size = area.Size,
             ClipContents = true, MouseFilter = MouseFilterEnum.Pass };
         canvas.AddChild(rows);
-        var rowSource = new UiSourceLayout(repository, 0xE1B83276);
+        var rowSource = assets.SourceLayout(0xE1B83276);
         var bodyPreset = MapTextPresets.Create()[0];
         for (int index = 0; index < Math.Min(15, publication.Rows.Length); index++)
         {
@@ -63,14 +63,14 @@ internal partial class MapInformationHistoryView : DetailsView
         scrollbar.Configure(repository, assets, shader, Math.Max(0, publication.Rows.Length * 50 - (int)rows.Size.Y),
             scrollSpeed(), _ => PositionRows(), currentScrollSpeed: scrollSpeed);
         rows.GuiInput += input => { if (ReadAdmission()) scrollbar.HandleWheel(input); };
-        var footer = new UiSourceLayout(repository, 0xD8913AB2);
+        var footer = assets.SourceLayout(0xD8913AB2);
         var back = new UiSourceRoundButton { Name = "HistoryReturn",
             Position = footer.Rectangle(1, new(0, 904)).Position, InputAdmission = ReadAdmission };
         canvas.AddChild(back);
         back.Configure(repository, assets, shader, text.SourceLocale, "000_cmn_txt_decision_modoru", RequestClose, UiAudioCue.Cancel);
         if (publication.UnresolvedOwner is not null)
         {
-            var help = new UiSourceLayout(repository, 0xAB6ADAA7);
+            var help = assets.SourceLayout(0xAB6ADAA7);
             Vector2 helpMount = footer.Rectangle(19, new(0, 904)).Position;
             foreach (var node in help.Nodes.Where(node => node.Type is 1 or 3))
                 help.Art(canvas, node.Index, help.Rectangle(node.Index, helpMount), assets, shader);
@@ -113,6 +113,6 @@ internal partial class MapInformationHistoryView : DetailsView
     public override void _ExitTree()
     {
         abandoned = true; admitted = null; pool.Clear();
-        base._ExitTree(); font?.Dispose(); assets?.Dispose(); shader?.Dispose();
+        base._ExitTree();
     }
 }

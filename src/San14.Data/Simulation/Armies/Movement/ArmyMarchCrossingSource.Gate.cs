@@ -160,15 +160,32 @@ public sealed partial class ArmyMarchCrossingSource
         var actor = GateArmyImage(state, physical);
         ushort remaining = GateNeed(ArmyMarchSourceAdapter.EncodeCredit(actor.March), "after_commit_credit");
         var returned = package.CompleteMovementBaseArrival(state, current, actor, moment);
-        var reached = GateArmyImage(returned, physical);
-        var complete = package.ApplyOrdinaryMarchDevelopment(returned, current, reached)
+        if (returned.ArmyReturnCaptiveContinuation is { } pending)
+        {
+            if (pending.Caller != ArmyReturnCaptiveCaller.MovementArrival || pending.ArmyPhysicalSlot != physical)
+                throw GateMissing("after_commit_return_owner");
+            //29F220 has not returned yet. Its player batch owns the live
+            //candidate; do not execute the caller's later29DB90/effect102.
+            return new(remaining, returned);
+        }
+        return new(remaining, CompleteMovementCallerAfterArrivalCurrent(returned, current, physical, moment));
+    }
+
+    //Only the actual2D99C0 caller reaches this after its Base-return/speech
+    //suffix has completed. Initial execution and a saved player-return resume
+    //borrow the same operation current and retain the same source moment.
+    internal GameState CompleteMovementCallerAfterArrivalCurrent(GameState state, SourceWorldContext current,
+        int physical, NativeArmyProgressStageMoment? moment)
+    {
+        var reached = GateArmyImage(state, physical);
+        var complete = package.ApplyOrdinaryMarchDevelopment(state, current, reached)
             ?? throw GateMissing("after_commit_development");
         reached = GateArmyImage(complete, physical);
         complete = package.ApplyObjectMarchExtinguishCurrent(complete, current, reached, moment);
         reached = GateArmyImage(complete, physical);
         if (ArmyConfigurationSourceAdapter.ReadAction(complete, reached) is 8 or 9)
             complete = package.AppendFacilityConstructionMarchTail(complete, current, reached, moment);
-        return new(remaining, complete);
+        return complete;
     }
 
     private static UnitState GateArmyImage(GameState state, int physical)

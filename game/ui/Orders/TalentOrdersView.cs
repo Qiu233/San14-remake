@@ -6,7 +6,7 @@ using San14.Data.Formats;
 internal sealed record TalentOrdersPage(string TargetName, AreaAdministrationOfficerValues? TargetCard,
     AreaAdministrationOfficerValues ExecutorCard, int ExecutorCount, int? AvailableBooks,
     int? RequiredBooks, int? TravelDays, bool CanSubmit, bool CanChooseExecutors,
-    int RecruitMode, bool CanChooseRecruitMode, string? Notice = null, LoadedSprite? AdvisorPortrait = null);
+    int RecruitMode, bool CanChooseRecruitMode, string? Notice = null, OfficerPortraitRoute? AdvisorPortrait = null);
 
 /// <summary>The original search/employment panes. Candidate and assignment
 /// semantics belong to the current talent draft; no game rules run in this view.</summary>

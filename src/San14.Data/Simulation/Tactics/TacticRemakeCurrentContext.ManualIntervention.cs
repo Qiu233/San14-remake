@@ -6,6 +6,8 @@ namespace San14.Data;
 internal sealed record ManualTacticCapturedUse(S14TacticEffectProgram Program,
     TacticInstructionTargetsSource[] Instructions);
 
+internal readonly record struct ManualInterventionEligibility(bool? Enabled, int? ReasonMessageId = 0);
+
 public sealed partial class TacticRemakeCurrentContext
 {
     private sealed record ManualEmptyChainCapture(int ActorUnitId, int TacticId, ushort WaitingContribution);
@@ -35,42 +37,50 @@ public sealed partial class TacticRemakeCurrentContext
     /// The caller supplies the reached World period count, never a tick ordinal.</summary>
     internal bool? ReadManualInterventionEligibility(GameState state, UnitState caster,
         int tacticId, int pastPeriods)
+        => ReadManualInterventionEligibilityResult(state, caster, tacticId, pastPeriods).Enabled;
+
+    internal ManualInterventionEligibility ReadManualInterventionEligibilityResult(GameState state, UnitState caster,
+        int tacticId, int pastPeriods)
     {
         if (!Bound(state) || caster.NativeArmyOrigin?.NativeSlotIndex is not int physical ||
             state.ReadArmyLifecycle()?.ReceiverSlots() is not { } slots || physical < 0 || physical >= slots.Length ||
-            slots[physical].PhysicalSlot != physical || slots[physical].ActiveUnitId != caster.Id) return null;
+            slots[physical].PhysicalSlot != physical || slots[physical].ActiveUnitId != caster.Id) return new(null, null);
         //The operation's generic definition capture does not eagerly bind all
         //Army headers. Import this actual saved header only if still unbound;
         //an explicitly bound unknown is not repaired from another owner.
         _definitions.BindUnspecifiedOwnedArmyQueryHeader(slots[physical]);
         if (_definitions.ReadArmyUnitCommanderId(new(physical)) is not ushort commander ||
-            state.CommanderSelection?.ActiveCount is not int count) return null;
+            state.CommanderSelection?.ActiveCount is not int count) return new(null, null);
         int previous = 0;
         for (int ordinal = 0; ordinal < count; ordinal++)
         {
             if (state.CommanderSelection.Candidates is not { } candidates || ordinal >= candidates.Length ||
-                candidates[ordinal].OfficerId is not int selected || selected is < 0 or > ushort.MaxValue) return null;
+                candidates[ordinal].OfficerId is not int selected || selected is < 0 or > ushort.MaxValue) return new(null, null);
             if (selected != commander) continue;
-            if (candidates[ordinal].UninterpretedValue is not int value) return null;
+            if (candidates[ordinal].UninterpretedValue is not int value) return new(null, null);
             previous = value;
             break;
         }
         if (Parameter(state, SimulationParameterKeys.Tactics.ManualInterventionMinimumPeriods) is not int minimum)
-            return null;
-        if (unchecked(pastPeriods - previous) < minimum) return false;
+            return new(null, null);
+        if (unchecked(pastPeriods - previous) < minimum) return new(false);
         var person = _definitions.ReadPersonLookupReference(commander < 6001 ? commander : 0);
         if (person?.PhysicalSlot is not int personPhysical ||
             _definitions.ReadArmyReturnPersonFlags196(personPhysical) is not ushort flags ||
-            caster.NativeTacticRuntime is not { } native) return null;
-        if ((flags & 0x20) != 0 || native.Abnormal23 != 0) return false;
-        bool? available = ReadManualInterventionTargetAvailability(state, caster, tacticId);
-        return available is not true ? available : native.Waiting20 == 0;
+            caster.NativeTacticRuntime is not { } native) return new(null, null);
+        if ((flags & 0x20) != 0) return new(false, 0xC964);
+        if (native.Abnormal23 != 0) return new(false, 0xC95F);
+        bool? available = ReadManualInterventionTargetAvailability(state, caster, tacticId, out bool exhausted);
+        if (available is not true) return new(available, available is null ? null : exhausted ? 0xC962 : 0);
+        return native.Waiting20 == 0 ? new(true) : new(false, 0xC963);
     }
 
     /// <summary>16F360's generic Hex scanner. The explicit execution target
     /// remains separate from its final no-primary availability fallback.</summary>
-    private bool? ReadManualInterventionTargetAvailability(GameState state, UnitState caster, int tacticId)
+    private bool? ReadManualInterventionTargetAvailability(GameState state, UnitState caster, int tacticId,
+        out bool exhausted)
     {
+        exhausted = false;
         if (EffectiveFormation(state, caster) is not int formation ||
             ReadArmyNativePrimaryRange(state, caster) is not int range ||
             caster.NativeTacticRuntime is not { } native ||
@@ -112,7 +122,12 @@ public sealed partial class TacticRemakeCurrentContext
         //The no-primary fallback tests exact caster Hex membership. It
         //does not authorize an empty Hex as174020's execution target.
         var fallback = CaptureManualInstructionHexVectorsCurrent(state, caster, tacticId, program, sourceHex, null);
-        return fallback is null ? null : fallback.Any(vector => vector.OrderedTargets.Any(node => node.HexId == sourceHex));
+        if (fallback is null) return null;
+        bool available = fallback.Any(vector => vector.OrderedTargets.Any(node => node.HexId == sourceHex));
+        //Only the completed scanner and its caster-Hex fallback write this denial.
+        //An invalid formation or an unknown input returned before reaching here.
+        exhausted = !available;
+        return available;
     }
 
     internal ManualTacticCapturedUse? CaptureManualInterventionUse(GameState state,

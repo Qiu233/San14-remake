@@ -12,7 +12,7 @@ internal partial class OfficerInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new OfficerInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "OfficerInformationList", "officer_information_group", resources: resources);
+            close, inspect, scrollSpeed, "OfficerInformationList", "officer_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(OfficerDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

@@ -91,7 +91,7 @@ internal partial class UnitFacilitySelectionView : Control
         // The actual existing selection chrome owns Return/Decide. Keep the
         // shared list's transparent surface from blocking those live buttons.
         next.MouseFilter=MouseFilterEnum.Ignore;next.SourceCanvas.MouseFilter=MouseFilterEnum.Ignore;
-        next.SourceCanvas.GetNode<Control>("InformationListReturn").Hide();
+        next.HideReturnButton();
         if(focusedKey is not null)
         {
             var focused=page.Rows.FirstOrDefault(row=>row.DefinitionKey==focusedKey);

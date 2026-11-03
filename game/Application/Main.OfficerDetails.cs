@@ -72,6 +72,7 @@ public partial class Main
             }
             if (!duringPeriod) RefreshCurrentPlayWorld();
         }) : null;
+        view.TransitionFailure = ReportPlayFailure;
         view.Configure(_repository!, publication, _ui, () =>
         {
             if (!Admitted()) return;

@@ -180,15 +180,18 @@ struct Owner {
     }
     void prepareScene(const San14RenderInput& input,const San14CommandMapInputV2* command,
             const San14RouteOverlayInputV1* route,const San14CurrentEffectInputV1* effects,
-            San14RenderReceipt& receipt) {
+            San14RenderReceipt& receipt,const San14HexFocusInputV1* focus=nullptr) {
         requireSceneIdle();
         try {
             std::optional<decltype(host.commandMap)> commandCandidate;
             if(command){commandCandidate.emplace(host.commandMap);commandCandidate->accept(*command);}
+            auto focusCandidate=host.hexFocus;
+            if(focus)focusCandidate.accept(*focus);
             if(route){if(!host.replaceRoutes)throw std::runtime_error("Route owner is absent");host.replaceRoutes(*route);}
             if(effects){if(!host.replaceCurrentEffects)throw std::runtime_error("Current Effect owner is absent");host.replaceCurrentEffects(*effects);}
             replaceSeasonResources(input);
             if(commandCandidate)host.commandMap=std::move(*commandCandidate);
+            host.hexFocus=focusCandidate;
             accept(input);
             // Reserve the one scene slot before resuming. A rendering failure
             // cannot permit another Main to overwrite partially recorded work.
@@ -458,6 +461,7 @@ static void* createMapWorker(void* bridgeValue,void* output,
         host.requirePrimaryGpuMedia=requirePrimaryGpuMedia;
         host.routeGpuMedia=std::move(routeMedia);
         host.requireRouteGpuMedia=device&&device->sharedScenes();
+        if(device)host.directEffectPrograms=device->borrowDirectEffectPrograms();
 
         owner->armyResourcesEnabled=configuration.world.armies;
         owner->session=createRenderSession(host,std::move(configuration));
@@ -551,6 +555,35 @@ int __cdecl san14_render_prepare_scene_v1(void* value,const San14RenderInput* in
         if(!value||!input||!receipt)throw E_POINTER;
         auto& owner=*static_cast<Owner*>(value);auto guard=owner.execution();
         owner.prepareScene(*input,command,route,effects,*receipt);
+        lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_render_prepare_scene_focus_v1(void* value,const San14RenderInput* input,
+        const San14CommandMapInputV2* command,const San14RouteOverlayInputV1* route,
+        const San14CurrentEffectInputV1* effects,const San14HexFocusInputV1* focus,San14RenderReceipt* receipt) {
+    try {
+        if(!value||!input||!focus||!receipt)throw E_POINTER;
+        auto& owner=*static_cast<Owner*>(value);auto guard=owner.execution();
+        owner.prepareScene(*input,command,route,effects,*receipt,focus);
+        lastError.clear();return 0;
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_render_next_map_focus_v1(void* value,void* output,const San14RenderInput* input,
+        const San14CommandMapInputV2* command,const San14RouteOverlayInputV1* route,
+        const San14CurrentEffectInputV1* effects,const San14HexFocusInputV1* focus,
+        uint32_t outputUse,San14RenderReceipt* receipt) {
+    try {
+        if(!value||!input||!focus||!receipt)throw E_POINTER;
+        auto& owner=*static_cast<Owner*>(value);auto guard=owner.execution();
+        owner.requireSceneIdle();
+        std::optional<decltype(owner.host.commandMap)> commandCandidate;
+        if(command){commandCandidate.emplace(owner.host.commandMap);commandCandidate->accept(*command);}
+        auto focusCandidate=owner.host.hexFocus;focusCandidate.accept(*focus);
+        if(route){if(!owner.host.replaceRoutes)throw std::runtime_error("Route owner is absent");owner.host.replaceRoutes(*route);}
+        if(effects){if(!owner.host.replaceCurrentEffects)throw std::runtime_error("Current Effect owner is absent");owner.host.replaceCurrentEffects(*effects);}
+        if(commandCandidate)owner.host.commandMap=std::move(*commandCandidate);
+        owner.host.hexFocus=focusCandidate;
+        owner.publish(static_cast<ID3D12Resource*>(output),*input,static_cast<OutputUse>(outputUse),*receipt);
         lastError.clear();return 0;
     }catch(...){recordException();return -1;}
 }

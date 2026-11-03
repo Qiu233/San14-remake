@@ -12,7 +12,7 @@ internal partial class AreaInformationListView : PagedInformationListView
     {
         this.pages = pages;
         ConfigureList(repository, text, new AreaInformationListContent(pages), admitted,
-            close, inspect, scrollSpeed, "AreaInformationList", "area_information_group", resources: resources);
+            close, inspect, scrollSpeed, "AreaInformationList", "area_information_group", resources: resources, sourceReturnMotion: true);
     }
     internal void ApplyDetailReturn(InformationDetailSelectionReturn returned) =>
         ApplySelectionReturn(returned.OrderedIds, returned.SelectedId, returned.NameSortAscending);

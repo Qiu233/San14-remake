@@ -151,7 +151,10 @@ public sealed partial class SourceWorldContext : ICurrentGateMapState
     private static int MapPhysical(int? physicalSlot, int count, string name)
     {
         int physical = physicalSlot ?? throw new InvalidDataException($"Current {name} pointer is explicitly null; native field read would be unsafe.");
-        Check(physical, count, $"{name} physical slot");
+        //A successful field read needs no formatted diagnostic label.
+        //Keep the shared range failure and its exact message on the error path.
+        if (physical < 0 || physical >= count)
+            Check(physical, count, $"{name} physical slot");
         return physical;
     }
 }

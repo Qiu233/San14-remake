@@ -18,6 +18,7 @@ internal partial class PagedInformationListView : DetailsView
     private MapFont font = null!;
     private Shader shader = null!;
     private Control canvas = null!;
+    private Node2D headerMotion = null!;
     private Func<bool>? admitted;
     private Func<int>? scrollSpeed;
     private Action<int>? inspect;
@@ -26,6 +27,7 @@ internal partial class PagedInformationListView : DetailsView
     private int group;
     private bool abandoned;
     private bool sourcePersonCells;
+    private bool sourceReturnMotion;
     private float? rowExtentWidth;
     internal int CurrentGroup => group;
     internal bool? NameSortAscending => list?.NameSortAscending;
@@ -34,19 +36,21 @@ internal partial class PagedInformationListView : DetailsView
         IPagedInformationListContent pages, Func<bool> admitted, Action close,
         Action<int> inspect, Func<int> scrollSpeed, string viewName, string groupMetadata,
         AdministrationPageChrome.Resources? resources = null,
-        bool sourcePersonCellBounds = false, float? rowExtentWidth = null)
+        bool sourcePersonCellBounds = false, float? rowExtentWidth = null, bool sourceReturnMotion = false)
     {
         this.repository = repository; this.text = text; this.pages = pages;
         this.admitted = admitted; this.inspect = inspect; this.scrollSpeed = scrollSpeed;
         this.groupMetadata = groupMetadata;
         sourcePersonCells = sourcePersonCellBounds; this.rowExtentWidth = rowExtentWidth;
+        this.sourceReturnMotion = sourceReturnMotion;
         borrowedResources=resources;ownsResources=resources is null;
         assets=resources?.Assets??new(repository);
         font=resources?.Font??new(repository,text.SourceLocale);
         shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas = new() { Name = "SourceHeaderCanvas", Size = new(1920, 1080), MouseFilter = MouseFilterEnum.Ignore };
         AddChild(canvas);
-        var header = new UiSourceHeader(); canvas.AddChild(header);
+        headerMotion = new() { Name = "PagedInformationHeaderMotion" }; canvas.AddChild(headerMotion);
+        var header = new UiSourceHeader(); headerMotion.AddChild(header);
         header.Configure(repository, assets, shader, font, pages.Title);
         ConfigureSourcePage(viewName, header, close);
         if (pages.NameSortAscending is bool ascending) groupStates[0] = new(0, "name", ascending);
@@ -54,7 +58,7 @@ internal partial class PagedInformationListView : DetailsView
         Resized += Fit; Fit();
     }
 
-    private bool ReadAdmission() => !abandoned && IsVisibleInTree() && (admitted?.Invoke() ?? false);
+    private bool ReadAdmission() => !abandoned && CanProcess() && IsVisibleInTree() && (admitted?.Invoke() ?? false);
     private static string Key(int id) => id == 0 ? "name" : id.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private void ShowGroup(int index)
@@ -105,6 +109,12 @@ internal partial class PagedInformationListView : DetailsView
         }
         next.RestoreScroll(restored.Scroll);
         ConfigureListExtras(next);
+        if (sourceReturnMotion)
+        {
+            var groups = next.MotionGroups.ToDictionary(entry => entry.Key, entry => entry.Value);
+            groups.Add(4, (headerMotion, Vector2.Zero));
+            ConfigureReturnTransition(assets.SourceLayout(0xF9C5DB14), groups);
+        }
         SetMeta(groupMetadata, index);
         refreshCurrent = () =>
         {

@@ -91,6 +91,17 @@ public partial class MilitaryDeploymentBatchPanel : VBoxContainer
     /// when that world has the same force, source and period as the current one.</summary>
     public void ResetDraft() { _draft.Clear(); RenderDraft(); }
 
+    // Final browser retirement is distinct from a live draft reset. Release
+    // its model and Main callbacks before the owning tree frees child controls.
+    // Ordinary CommandWorkspace deck reparenting does not retire this owner.
+    internal void Retire()
+    {
+        _draft.BindSource(null, null);
+        _targets.Clear();
+        _view = DeploymentBatchView.Empty;
+        _text = null; _capture = null; _constructionKind = null; _issue = null;
+    }
+
     private string ActionKey => ActionKeys[_action.GetSelectedId()];
     private DeploymentAction? ResolveAction()
     {

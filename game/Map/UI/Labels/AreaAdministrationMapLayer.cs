@@ -22,7 +22,7 @@ internal partial class AreaAdministrationMapLayer : Control
         this.map = map; this.repository = repository; this.resources = resources; this.draft = draft; this.unavailable = unavailable;
         MouseFilter = MouseFilterEnum.Ignore; ClipContents = true;
         AddChild(canvas); Resized += ResizeCanvas; ResizeCanvas();
-        RefreshDraft(); RefreshInput();
+        RefreshDraft(); RefreshInput(); Present(map.DisplayedAdministrationCamera);
     }
     private void ResizeCanvas()
     { canvas.Scale = Size / new Vector2(1920, 1080); lastCamera = null; }
@@ -32,7 +32,14 @@ internal partial class AreaAdministrationMapLayer : Control
         if (retired || draft is null) return;
         if (draft.Revision != revision) RefreshDraft();
         if (!available) return;
-        if (map.DisplayedAdministrationCamera is not { } frame) { lastCamera = null; HideButtons(); return; }
+        // Native projection is published with the image switch, before Canvas.
+        // Only the ordinary Godot backend uses the process-frame fallback.
+        if (map.AdministrationFallbackCamera is { } frame) Present(frame);
+    }
+    internal void Present(MainMapCameraFrame? frame)
+    {
+        if (retired || draft is null || !available) return;
+        if (frame is null) { lastCamera = null; HideButtons(); return; }
         if (ReferenceEquals(frame, lastCamera)) return;
         lastCamera = frame;
         int band = MapLabelPresentation.PrimaryCameraLevel(frame.ZoomSelection);
@@ -70,6 +77,13 @@ internal partial class AreaAdministrationMapLayer : Control
                     try
                     {
                         button.Configure(repository, resources, row, Allowed, Picked);
+                        button.GuiInput += input =>
+                        {
+                            if (input is not InputEventMouseMotion || !button.IsVisibleInTree() || !Allowed(button.HexId)) return;
+                            var hovered = GetViewport().GuiGetHoveredControl();
+                            if (ReferenceEquals(hovered, button) || hovered is not null && button.IsAncestorOf(hovered))
+                                map.HoverAdministrationMapTarget(button.HexId);
+                        };
                         buttons.Add(row.AreaId, button);
                     }
                     catch
