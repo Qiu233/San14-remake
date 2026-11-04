@@ -164,7 +164,25 @@ public sealed class D3D11MapInput
 public readonly record struct D3D11MapReceipt(ulong Request, ReadOnlyMemory<byte> Camera)
 {
     public D3D11AnimationState Animation {get;init;}
+    public IReadOnlyList<D3D11ArmyTargetReactionReceipt> TargetReactions {get;init;} = [];
+    public IReadOnlyList<D3D11ArmyViewRetirementReceipt> ViewRetirements {get;init;} = [];
     public IReadOnlyList<D3D11ArmyLabelUnitPosition> ArmyUnitPositions {get;init;} = [];
+}
+public enum D3D11ArmyViewRetirementStatus:uint { None=0,Accepted=1,MissingOwner=2,KnownNoView=3 }
+[StructLayout(LayoutKind.Sequential)]
+public struct D3D11ArmyViewRetirementReceipt
+{
+    public ulong RequestId;
+    public int ArmyId;
+    public D3D11ArmyViewRetirementStatus Status;
+}
+public enum D3D11ArmyTargetReactionStatus:uint { None=0,Accepted=1,MissingOwner=2,KnownNoView=3 }
+[StructLayout(LayoutKind.Sequential)]
+public struct D3D11ArmyTargetReactionReceipt
+{
+    public ulong RequestId;
+    public int ArmyId,Variant;
+    public D3D11ArmyTargetReactionStatus Status;
 }
 [StructLayout(LayoutKind.Sequential)]
 public struct D3D11AnimationState
@@ -261,6 +279,12 @@ public sealed partial class D3D11RenderSession : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void AnimationStateCall(IntPtr owner,out D3D11AnimationState state);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int TargetReactionReceiptCall(IntPtr owner,
+        [Out, MarshalAs(UnmanagedType.LPArray,SizeParamIndex=2)] D3D11ArmyTargetReactionReceipt[] receipts,uint capacity);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int ViewRetirementReceiptCall(IntPtr owner,
+        [Out, MarshalAs(UnmanagedType.LPArray,SizeParamIndex=2)] D3D11ArmyViewRetirementReceipt[] receipts,uint capacity);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int ArmyUnitPositionsCall(IntPtr owner,
         [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex=2)] D3D11ArmyLabelUnitPosition[] positions,
         uint capacity);
@@ -274,6 +298,8 @@ public sealed partial class D3D11RenderSession : IDisposable
     private MapOverlaysNextCall? _mapOverlaysNext;
     private readonly AnimationCall _animation;
     private readonly AnimationStateCall _animationState;
+    private readonly TargetReactionReceiptCall _targetReactionReceipt;
+    private readonly ViewRetirementReceiptCall _viewRetirementReceipt;
     private readonly ArmyUnitPositionsCall _armyUnitPositions;
     private readonly DestroyCall _destroy;
     private readonly ErrorCall _error;
@@ -322,6 +348,8 @@ public sealed partial class D3D11RenderSession : IDisposable
             _next = Export<NextCall>("san14_render_next");
             _animation=Export<AnimationCall>("san14_render_animation_event");
             _animationState=Export<AnimationStateCall>("san14_render_animation_state");
+            _targetReactionReceipt=Export<TargetReactionReceiptCall>("san14_render_target_reaction_receipt_v1");
+            _viewRetirementReceipt=Export<ViewRetirementReceiptCall>("san14_render_army_view_retirement_receipt_v1");
             _armyUnitPositions=Export<ArmyUnitPositionsCall>("san14_render_army_unit_positions");
             _destroy = Export<DestroyCall>("san14_render_destroy");
             _error = Export<ErrorCall>("san14_render_error");
@@ -377,7 +405,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         _sentCityGate = input.CityGateWorld ?? _sentCityGate;
         _sentAreaCapital = input.AreaCapitalWorld ?? _sentAreaCapital;
         _animationState(_owner,out var animation);
-        return new(receipt.Request, receipt.Camera){Animation=animation,ArmyUnitPositions=ReadArmyUnitPositions()};
+        return new(receipt.Request, receipt.Camera){Animation=animation,ArmyUnitPositions=ReadArmyUnitPositions(),TargetReactions=ReadTargetReactionReceipts(),ViewRetirements=ReadViewRetirementReceipts()};
     }
 
     /// <summary>The output's last submitted Godot use must be Canvas sampling.
@@ -492,7 +520,7 @@ public sealed partial class D3D11RenderSession : IDisposable
         _sentCityGate = input.CityGateWorld ?? _sentCityGate;
         _sentAreaCapital = input.AreaCapitalWorld ?? _sentAreaCapital;
         _animationState(_owner,out var animation);
-        return new(receipt.Request, receipt.Camera){Animation=animation,ArmyUnitPositions=ReadArmyUnitPositions()};
+        return new(receipt.Request, receipt.Camera){Animation=animation,ArmyUnitPositions=ReadArmyUnitPositions(),TargetReactions=ReadTargetReactionReceipts(),ViewRetirements=ReadViewRetirementReceipts()};
     }
 
     public void UpdateAnimations(D3D11MapInput input,uint fpsMode)
@@ -525,6 +553,22 @@ public sealed partial class D3D11RenderSession : IDisposable
         if (_owner != IntPtr.Zero) { _destroy(_owner); _owner = IntPtr.Zero; }
         NativeLibrary.Free(_module); _module = IntPtr.Zero;
         }
+    }
+    private D3D11ArmyViewRetirementReceipt[] ReadViewRetirementReceipts()
+    {
+        var receipts=new D3D11ArmyViewRetirementReceipt[_sentArmy?.ViewRetirements.Count??0];
+        int count=_viewRetirementReceipt(_owner,receipts,(uint)receipts.Length);
+        if(count<0)throw NativeFailure();
+        if(count!=receipts.Length)Array.Resize(ref receipts,count);
+        return receipts;
+    }
+    private D3D11ArmyTargetReactionReceipt[] ReadTargetReactionReceipts()
+    {
+        var receipts=new D3D11ArmyTargetReactionReceipt[_sentArmy?.TargetReactions.Count??0];
+        int count=_targetReactionReceipt(_owner,receipts,(uint)receipts.Length);
+        if(count<0)throw NativeFailure();
+        if(count!=receipts.Length)Array.Resize(ref receipts,count);
+        return receipts;
     }
     private D3D11ArmyLabelUnitPosition[] ReadArmyUnitPositions()
     {

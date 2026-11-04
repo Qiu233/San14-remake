@@ -87,6 +87,18 @@ public:
         return true;
     }
 
+    // Detach a real manager view from the logical Army pointer without returning
+    // any physical node. Retiring views use private render-owner keys; a new
+    // logical Army view can then borrow its own independent physical nodes.
+    void detachUnit(int32_t unit,int32_t viewOwner){
+        auto it=bindings.lower_bound({GraphicsModelFamily::Army,{unit,0,0,0}});
+        while(it!=bindings.end()&&it->first.family==GraphicsModelFamily::Army&&it->first.actor.unit==unit){
+            auto node=bindings.extract(it++);node.key().actor.unit=viewOwner;
+            if(!bindings.insert(std::move(node)).inserted)throw std::runtime_error("Army detached view binding collision");
+            changed(GraphicsModelFamily::Army);
+        }
+    }
+
     void releaseUnit(int32_t unit){releaseUnit(GraphicsModelFamily::Army,unit);}
     void releaseUnit(const GraphicsModelBindingKey& key){releaseUnit(key.family,key.actor.unit);}
 

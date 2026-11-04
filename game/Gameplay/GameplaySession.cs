@@ -106,6 +106,9 @@ public sealed partial class GameplaySession
         _simulation.TryCompleteNormalTurnStoryResult(expectedOwner, sequence, expectedSummary);
     public bool TryCompletePersonnelPresentation(GameState expectedOwner,long batchSequence,int requestIndex) =>
         _simulation.TryCompletePersonnelPresentation(expectedOwner,batchSequence,requestIndex);
+    public bool TryCompleteForceIndependenceChronicle(GameState expectedOwner, CampaignEffectSource expectedSource,
+        long batchSequence, int requestIndex, IForceIndependenceChronicleRules rules) =>
+        _simulation.TryCompleteForceIndependenceChronicle(expectedOwner, expectedSource, batchSequence, requestIndex, rules);
     public bool TryCompleteForceEmergenceChronicle(GameState expectedOwner, long batchSequence,
         int requestIndex, IForceEmergenceChronicleRules rules) =>
         _simulation.TryCompleteForceEmergenceChronicle(expectedOwner, batchSequence, requestIndex, rules);
@@ -145,6 +148,14 @@ public sealed partial class GameplaySession
         out BaseAbnormalFeedbackPreparationResult? result, CampaignAppRandomState? appRandomSnapshot = null) =>
         _simulation.TryPrepareBaseAbnormalFeedback(expectedOwner, expectedSource, batchSequence, requestIndex,
             rules, out result, appRandomSnapshot);
+    public bool TryCompleteArmyViewRetirement(GameState expectedOwner, long batchSequence, int requestIndex,
+        ArmyViewRetirementRequest expectedRequest) =>
+        _simulation.TryCompleteArmyViewRetirement(expectedOwner, batchSequence, requestIndex, expectedRequest);
+    public bool TryCompleteNormalCombatTargetReactions(GameState expectedOwner, IReadOnlyList<ArmyViewPresentationHead> expectedPrefix) =>
+        _simulation.TryCompleteNormalCombatTargetReactions(expectedOwner, expectedPrefix);
+    public bool TryCompleteBaseDamageTierCutscene(GameState expectedOwner, long batchSequence, int requestIndex,
+        BaseDamageTierCutsceneRequest expectedRequest) =>
+        _simulation.TryCompleteBaseDamageTierCutscene(expectedOwner, batchSequence, requestIndex, expectedRequest);
     public bool TryCompleteArmyTraitViewRefresh(GameState expectedOwner, CampaignEffectSource expectedSource,
         long batchSequence, int requestIndex) =>
         _simulation.TryCompleteArmyTraitViewRefresh(expectedOwner, expectedSource, batchSequence, requestIndex);

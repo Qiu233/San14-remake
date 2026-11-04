@@ -151,14 +151,23 @@ public partial class Main
         if (!_registeredOfficerExchangeNotices.TryDequeue(out var item))
         { var next = _registeredOfficerExchangeAfterNotices; _registeredOfficerExchangeAfterNotices = null; next?.Invoke(); return; }
         var view = new DeploymentNarrationView(); _registeredOfficerExchangeNotice = view; AddChild(view);
-        view.ConfigureAnnouncement(_repository, _ui,
-            RegisteredOfficerExchangeMessages.Format(_repository, _ui.SourceLocale, item.Id, item.Count, item.File),
-            () => RunUiAction(() =>
-            {
-                if (!IsRegisteredOfficerExchangeCurrent || _registeredOfficerExchangeNotice != view) return;
-                _registeredOfficerExchangeNotice = null; view.Abandon(); view.QueueFree(); PresentNextRegisteredOfficerExchangeNotice();
-            }), admitted: () => IsRegisteredOfficerExchangeCurrent && _registeredOfficerExchangeNotice == view);
-        view.Name = "RegisteredOfficerExchangeNotice"; view.SetMeta("message_record", item.Id);
+        try
+        {
+            view.ConfigureAnnouncement(_repository, _ui,
+                RegisteredOfficerExchangeMessages.Format(_repository, _ui.SourceLocale, item.Id, item.Count, item.File),
+                () => RunUiAction(() =>
+                {
+                    if (!IsRegisteredOfficerExchangeCurrent || _registeredOfficerExchangeNotice != view) return;
+                    _registeredOfficerExchangeNotice = null; view.Abandon(); view.QueueFree(); PresentNextRegisteredOfficerExchangeNotice();
+                }), admitted: () => IsRegisteredOfficerExchangeCurrent && _registeredOfficerExchangeNotice == view,
+                    resources: TryBorrowApplicationUiResources(view));
+            view.Name = "RegisteredOfficerExchangeNotice"; view.SetMeta("message_record", item.Id);
+        }
+        catch
+        {
+            if (_registeredOfficerExchangeNotice == view) _registeredOfficerExchangeNotice = null;
+            view.Abandon(); view.QueueFree(); throw;
+        }
     }
 
     private void RetireRegisteredOfficerExchangeSelection()

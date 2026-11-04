@@ -54,6 +54,7 @@ public partial class Main
                     _sceneAudioBinding?.PlayPersonnelPresentationAudio(new(TalentCommandPresentationOperation.SoundCue,5,null,null,null,null),
                         null,_preferences.Voice.Language);
             };
+            var resources=TryBorrowApplicationUiResources(view);
             view.Configure(_repository,_ui,publication,()=>IsForeignTradeReportCurrent&&_foreignTradeReport==view&&!TutorialOverlayOwnsInput,
                 ()=>_preferences.AutomaticMessageAdvance,step=>
                 {
@@ -61,8 +62,14 @@ public partial class Main
                     var query=composition.PrepareArmyQueries(current).QueryForeignTradeRewardPanel(current,step);
                     if(!query.Available||query.Value is not { } panel)
                         throw new InvalidDataException(query.UnresolvedInput??"foreign-trade.report.reward_panel");
-                    var reward=new ForeignTradeRewardView();reward.Configure(_repository,_ui,panel);return reward;
-                },()=>RunPlayAction(()=>CompleteForeignTradeReport(view)));
+                    // The report owns the application lease. Its reward is
+                    // configured before adoption as a child, so it borrows that
+                    // same bundle instead of registering an off-tree lease.
+                    var reward=new ForeignTradeRewardView();
+                    try {reward.Configure(_repository,_ui,panel,resources);return reward;}
+                    catch {reward.Free();throw;}
+                },()=>RunPlayAction(()=>CompleteForeignTradeReport(view)),
+                resources:resources);
             ForeignTradeReportOpenedSequence++;return true;
         }
         catch{CloseForeignTradeReport();throw;}

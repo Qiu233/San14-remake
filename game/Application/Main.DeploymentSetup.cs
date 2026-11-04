@@ -43,7 +43,7 @@ public partial class Main
         _deploymentDraftSession=session;_deploymentDraftMap=map;
         _deploymentDraftCityId=cityId;_deploymentSetupMap=map;
         SetMapFocus(true);map.CloseCityCommandMenu();map.SetDetailsOpen(true,keepMapVisible:true);HideDeploymentHud();
-        var view=new DeploymentSetupView();_deploymentSetup=view;AddChild(view);
+        var view=new DeploymentSetupView { TransitionFailure=ReportPlayFailure };_deploymentSetup=view;AddChild(view);
         try
         {
             view.Configure(_repository,_ui,city,

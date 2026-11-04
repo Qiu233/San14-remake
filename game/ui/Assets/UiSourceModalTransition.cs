@@ -30,7 +30,7 @@ internal partial class UiSourceModalTransition : Node
         IReadOnlyDictionary<int, (Node2D Root, Vector2 ContentMount)> registered)
     {
         source = layout; backdrop = common!; groups = registered;
-        if (registered.Count == 0 || registered.Keys.Any(id => id is not (1 or 4 or 6 or 7)))
+        if (registered.Count == 0 || registered.Keys.Any(id => id is not (1 or 4 or 5 or 6 or 7)))
             throw new InvalidDataException("Unsupported source foreground registration.");
         var names = registered.Keys.SelectMany(id => new[] { ClipName(id) + "_in", ClipName(id) + "_out" }).ToHashSet();
         clips = LcskAnimationReader.Read(layout.Source.Layout, names).ToDictionary(clip => clip.Name);
@@ -43,7 +43,8 @@ internal partial class UiSourceModalTransition : Node
 
     private static string ClipName(int group) => group switch
     {
-        1 => "ani_dlg_slide_fade", 4 => "ani_header", 6 => "ani_footer", 7 => "ani_narration",
+        1 => "ani_dlg_slide_fade", 4 => "ani_header", 5 => "ani_header_info",
+        6 => "ani_footer", 7 => "ani_narration",
         _ => throw new InvalidDataException("Unregistered foreground group.")
     };
 
@@ -56,6 +57,15 @@ internal partial class UiSourceModalTransition : Node
             var clip = clips[ClipName(node) + "_in"];
             ApplyRegisteredFrame(node, clip, clip.EndFrame);
         }
+    }
+
+    // A rejected application callback retains the current page. Restore its
+    // known drawn endpoint without completing another application operation.
+    internal void RestoreShownState()
+    {
+        playing = null; completion?.TrySetResult(false); completion = null;
+        ApplyShownState();
+        backdrop?.RestoreShownState();
     }
 
     internal async Task<bool> Play(bool opening, bool includeBackground = true)
@@ -111,6 +121,9 @@ internal partial class UiSourceModalTransition : Node
             foreach (var track in clip.Tracks)
             {
                 if (track.NodeId != node) throw new InvalidDataException("Unexpected Config foreground animation owner.");
+                // AC7DA0 does not invoke the property writer for an empty
+                // curve. Its independent sampler's default is not a write.
+                if (track.Curve.Keys.Count == 0) continue;
                 double sampled = track.Curve.Sample(frame);
                 float value = (float)sampled;
                 switch (track.Channel)
@@ -144,6 +157,7 @@ internal partial class UiSourceModalTransition : Node
         bool followsTransform = false;
         foreach (var track in clip.Tracks)
         {
+            if (track.Curve.Keys.Count == 0) continue;
             double sampled = track.Curve.Sample(frame);
             switch (track.Channel)
             {

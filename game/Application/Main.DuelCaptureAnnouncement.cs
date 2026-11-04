@@ -86,11 +86,12 @@ public partial class Main
                 if (!CurrentDuelCapture(owner)) { CloseDuelCaptureAnnouncement(); return; }
                 var view = new DeploymentNarrationView { KeyboardInput = HandleDuelCaptureNarrationKeyboard };
                 owner.View = view; AddChild(view);
+                var resources = TryBorrowApplicationUiResources(view);
                 if (request.MessageRoot == 0x34AA)
                     view.ConfigureAnnouncement(_repository!, _ui, request.TextAtSource, Completed,
-                        () => _preferences.AutomaticMessageAdvance, Admitted);
+                        () => _preferences.AutomaticMessageAdvance, Admitted, resources: resources);
                 else view.Configure(_repository!, _ui, request.Speaker!.NameAtSource, request.TextAtSource,
-                    layers, Completed, () => _preferences.AutomaticMessageAdvance, Admitted);
+                    layers, Completed, () => _preferences.AutomaticMessageAdvance, Admitted, resources: resources);
                 view.Name = "DuelCaptureAnnouncement"; view.ZIndex = 95;
             }
             catch (OperationCanceledException) when (owner.Lifetime.IsCancellationRequested)

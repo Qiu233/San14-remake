@@ -100,6 +100,19 @@ internal sealed partial class MapSystemMenuPreparedResources
             cancellationToken.ThrowIfCancellationRequested();
             assets.PrepareCommonSprite(route.SpriteName,route.TexturePack);
         }
+        // Caravan gems and foreign weapons use independent definition
+        // tables. Prepare their installed images through the same cache.
+        string fixedPath=$"0010_{locale}/fixdataexce.s14";
+        var gems=repository.LoadSkillDefinitions(fixedPath).Gems.Gems;
+        var weapons=repository.LoadForeignTechnologies(fixedPath).Definitions;
+        foreach(int image in Enumerable.Range(1,30).Select(slot=>
+            gems[slot].RawField53>=201?999:(int)gems[slot].RawField53)
+            .Concat(Enumerable.Range(1,8).Select(slot=>(int)weapons[slot].Value)).Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var route=CollectionImageRoute.ForItem(image);
+            assets.PrepareCommonSprite(route.SpriteName,route.TexturePack);
+        }
         var collection=CollectionCatalog.Load(repository,locale);
         foreach (var route in collection.Poems.Select(row=>collection.ReadPoem(row.ItemId).Image).Distinct())
         { cancellationToken.ThrowIfCancellationRequested(); assets.PrepareCommonSprite(route.SpriteName,route.TexturePack); }

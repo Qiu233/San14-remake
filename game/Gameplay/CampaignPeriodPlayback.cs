@@ -65,7 +65,9 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
         owned = BorrowMenuIfRequested(owned, moment);
         // Stage1's accepted domain result must reach the real audio host
         // before another stage runs, rather than waiting until period commit.
-        if (owned.PendingMapMusicIntent is not null || ArmyViewPresentationPlaybackRules.Next(owned) is not null)
+        if (owned.PendingMapMusicIntent is not null || ArmyViewPresentationPlaybackRules.Next(owned) is not null ||
+            owned.CampaignEffectRequests?.PendingBatches.Any(b => b.Source == CampaignEffectSource.NormalCombatApplication &&
+                b.Requests.Any(r => r.BaseDamageTierCutscene is not null)) == true)
             owned = Checkpoint(owned, moment);
         if (_borrowedAdmission == moment)
         {
@@ -116,6 +118,28 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
     internal bool DuelPresentationOpen { get; set; }
     internal bool DuelCaptureAnnouncementOpen { get; set; }
     internal bool MapMusicPresentationOpen { get; set; }
+    internal bool TargetReactionPresentationOpen { get; set; }
+    internal bool ArmyViewRetirementPresentationOpen { get; set; }
+    internal bool TryCompleteArmyViewRetirement(GameState expectedOwner, ArmyViewPresentationHead head)
+    {
+        if (!ReferenceEquals(Candidate, expectedOwner) || head.Request.ArmyViewRetirement is not { } request ||
+            !ArmyViewPresentationPlaybackRules.TryCompleteRetirement(expectedOwner, head.BatchSequence, head.RequestIndex,
+                request, out var next)) return false;
+        Candidate = next; return true;
+    }
+    internal bool BaseTierPresentationOpen { get; set; }
+    internal bool TryCompleteTargetReactions(GameState expectedOwner, IReadOnlyList<ArmyViewPresentationHead> prefix)
+    {
+        if (!ReferenceEquals(Candidate, expectedOwner) ||
+            !ArmyViewPresentationPlaybackRules.TryCompleteTargetReactions(expectedOwner, prefix, out var next)) return false;
+        Candidate = next; return true;
+    }
+    internal bool TryCompleteBaseTier(GameState expectedOwner, long batch, int index, BaseDamageTierCutsceneRequest request)
+    {
+        if (!ReferenceEquals(Candidate, expectedOwner) ||
+            !BaseDamageTierCutscenePlaybackRules.TryComplete(expectedOwner, batch, index, request, out var next)) return false;
+        Candidate = next; return true;
+    }
     internal bool TryCompletePendingMapMusicIntent(GameState expectedOwner, MapMusicIntent expectedIntent)
     {
         if (Candidate is not { } owner ||
@@ -242,12 +266,12 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
                         var frame = await NextSourceFrame();
                         RequireActive();
                         bool tutorialHold = false;
-                        if (updateTutorial is not null && !MenuPresentationOpen && !ManualCommandSelectionOpen && !DuelPresentationOpen && !DuelCaptureAnnouncementOpen && !MapMusicPresentationOpen)
+                        if (updateTutorial is not null && !MenuPresentationOpen && !ManualCommandSelectionOpen && !DuelPresentationOpen && !DuelCaptureAnnouncementOpen && !MapMusicPresentationOpen && !TargetReactionPresentationOpen && !ArmyViewRetirementPresentationOpen && !BaseTierPresentationOpen)
                         {
                             var update = updateTutorial(Candidate!);
                             Candidate = update.State; tutorialHold = update.Hold;
                         }
-                        bool inputHold = MenuPresentationOpen || ManualCommandSelectionOpen || OccupationPresentationOpen || DuelPresentationOpen || DuelCaptureAnnouncementOpen || MapMusicPresentationOpen;
+                        bool inputHold = MenuPresentationOpen || ManualCommandSelectionOpen || OccupationPresentationOpen || DuelPresentationOpen || DuelCaptureAnnouncementOpen || MapMusicPresentationOpen || TargetReactionPresentationOpen || ArmyViewRetirementPresentationOpen || BaseTierPresentationOpen;
                         if (IsPaused || tutorialHold || inputHold ||
                             Candidate?.ManualTacticIntervention?.Directions.Length is > 0) continue;
                         if (nextStage is null) break;
@@ -260,7 +284,7 @@ internal sealed class CampaignPeriodPlayback(SynchronizationContext context,
                 finally
                 {
                     try { presented = endTutorial?.Invoke(Candidate!) ?? Candidate!; }
-                    finally { Candidate = null; MenuPresentationOpen = false; ManualCommandSelectionOpen = false; OccupationPresentationOpen=false; DuelPresentationOpen=false; DuelCaptureAnnouncementOpen=false; MapMusicPresentationOpen=false; release(); }
+                    finally { Candidate = null; MenuPresentationOpen = false; ManualCommandSelectionOpen = false; OccupationPresentationOpen=false; DuelPresentationOpen=false; DuelCaptureAnnouncementOpen=false; MapMusicPresentationOpen=false; TargetReactionPresentationOpen=false; ArmyViewRetirementPresentationOpen=false; BaseTierPresentationOpen=false; release(); }
                 }
                 completed.TrySetResult(presented);
             }

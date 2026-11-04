@@ -112,7 +112,8 @@ public sealed partial class ArmyCampaignRuleAdapter
         int originalId = StrategyNeed(current.ReadForcePhysicalSlot(original), "independence_scene_original_Force");
         int rebelId = StrategyNeed(current.ReadPersonIdentity(rebel), "independence_scene_Person");
         int day = (ReadArmyDestructionSampler(state, current) ?? throw StrategyMissing("independence_scene_Day450")).Day450;
-        effects.Add(new(null, null) { ForceIndependenceScene = new(originalId, rebelId, homeCode, day) });
+        var chronicle = BeginForceIndependenceChronicleCurrent(state, current, new(originalId, rebelId, homeCode, day));
+        state = chronicle.State;
         var created = CreateStrategicIndependenceForceCurrent(state, current, pool, rebel, home, date, effects);
         var working = created.State;
         if (!StrategyNeed(current.ReadForceNativeValidity(created.Force), "independence_created_Force_validity"))
@@ -134,6 +135,7 @@ public sealed partial class ArmyCampaignRuleAdapter
             working = reportAtSource(working, 0x5E4A, rebel);
         working = ApplyStrategicIndependenceFollowersCurrent(working, current, pool, original, rebel,
             excludedPerson, home, created.Force, date, effects, reportAtSource);
+        working = FinishForceIndependenceChronicleCurrent(working, current, chronicle.Entry);
         effects.Add(new(null, null) { ForceCoalitionVisual = new(ForceCoalitionVisualOperation.CameraRestore, null) });
         return new(working, true);
     }

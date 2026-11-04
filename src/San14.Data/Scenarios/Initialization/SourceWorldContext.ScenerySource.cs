@@ -51,7 +51,10 @@ public sealed partial class SourceWorldContext : ISceneryModelQueries
         // Fixed loading does not write scenario47, registration or map overlays.
     }
 
-    private void MaterializeStaticSceneryState(LoadedScenario loaded)
+    // The guarded fresh Landmark producer also borrows these resident scenario
+    // flags explicitly. Normal current capture subsequently overlays only saved
+    // knowledge; it does not use this source as a missing-current fallback.
+    internal void MaterializeStaticSceneryState(LoadedScenario loaded)
     {
         S14ScenarioWorldDocument world = loaded.Snapshot.WorldParameters!;
         if (world.SourceBoundary is null)

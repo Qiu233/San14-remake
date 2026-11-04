@@ -33,6 +33,7 @@ public partial class MapSceneView
     {
         internal MapSummaryReceiver? Receiver;
         internal MapSummaryPage? Page;
+        internal bool PageReusable;
         internal MapSummaryPanel? Panel;
     }
     private partial class MapSummaryTicker : Node
@@ -155,10 +156,22 @@ public partial class MapSceneView
         bool refresh=_summaryDirty||!ReferenceEquals(_summaryCachedWorld,world)||!ReferenceEquals(_summaryCachedCurrent,current)||
             _summaryCachedKnown!=known||_summaryCachedHex!=hex||_summaryCachedBand!=band||
             _summaryCachedGeography!=_summaryGeographySelected||_summaryCachedProvince!=province||modelChanged;
+        // A different pointed Hex can select the same Area, City or player
+        // Force. Those pages depend on their receiver and current World, not
+        // the pointer position. Keep their existing text, resources and curves.
+        // Explicit invalidation and new current/model owners still query anew.
+        bool reusePages = !_summaryDirty &&
+            ReferenceEquals(_summaryCachedWorld, world) && ReferenceEquals(_summaryCachedCurrent, current) &&
+            !modelChanged && _summaryCachedGeography == _summaryGeographySelected &&
+            _summaryCachedProvince == province;
         if(refresh)
         {
             try
             {
+                // Old presentation is retained through unknown inputs, but
+                // may not acquire the new owner's cache eligibility.
+                if (!reusePages)
+                    foreach (var retained in _summaryViews.Values) retained.PageReusable = false;
                 if(modelChanged)
                 {
                     _summaryModels=_acceptedFacilityModels;_summaryFacilityModels.Clear();_summaryFacilityAbsent.Clear();
@@ -191,20 +204,35 @@ public partial class MapSceneView
                 {
                     if(!known&&slot is not (12 or 13))continue;
                     if(selection.UnresolvedSlots.TryGetValue(slot,out var issue))
-                    {SetMeta("source_summary_slot_issue_"+slot,issue);continue;}
+                    {
+                        if (_summaryViews.TryGetValue(slot, out var unresolved)) unresolved.PageReusable = false;
+                        SetMeta("source_summary_slot_issue_"+slot,issue);continue;
+                    }
                     RemoveMeta("source_summary_slot_issue_"+slot);
                     if(!resolved.TryGetValue(slot,out var receiver))
                     {
-                        if(_summaryViews.TryGetValue(slot,out var empty)){empty.Receiver=null;empty.Page=null;HideSummaryPanel(empty);}
+                        if(_summaryViews.TryGetValue(slot,out var empty)){empty.Receiver=null;empty.Page=null;empty.PageReusable=false;HideSummaryPanel(empty);}
                         continue;
                     }
                     if(!_summaryViews.TryGetValue(slot,out var view))_summaryViews.Add(slot,view=new());
+                    if (reusePages && view.PageReusable && view.Receiver == receiver && view.Page is { } retainedPage)
+                    {
+                        // A detached geography mount or retired panel still
+                        // needs its actual view recreated from this same page.
+                        if (retainedPage.ReceiverValid == true &&
+                            (view.Panel is null || !GodotObject.IsInstanceValid(view.Panel)))
+                            ApplySummaryPage(view, retainedPage);
+                        continue;
+                    }
+                    view.PageReusable = false;
                     var page=_querySummaryPage!(world,current,receiver);
                     if(page.ReceiverValid is null)
                     {SetMeta("source_summary_slot_issue_"+slot,page.UnresolvedOwner??"map.summary.receiver_unknown");continue;}
                     view.Receiver=receiver;view.Page=page;
-                    if(page.ReceiverValid==false){HideSummaryPanel(view);continue;}
+                    if(page.ReceiverValid==false)
+                    {view.PageReusable=true;HideSummaryPanel(view);continue;}
                     ApplySummaryPage(view,page);
+                    view.PageReusable = SummaryPageResolved(page);
                 }
                 _summaryCachedWorld=world;_summaryCachedCurrent=current;_summaryCachedKnown=known;_summaryCachedHex=hex;
                 _summaryCachedBand=band;_summaryCachedGeography=_summaryGeographySelected;_summaryCachedProvince=province;
@@ -221,6 +249,12 @@ public partial class MapSceneView
         if(_detailsOpen&&_summaryHoverValid!=true){SuspendMapSummaries();return;}
         UpdateMapSummaryVisibility(band,geographic);
     }
+
+    // Unknown fields keep their normal retry path on a new hovered Hex.
+    // Inspect only the new local publication's availability, never a World.
+    private static bool SummaryPageResolved(MapSummaryPage page) => page.ReceiverValid is bool &&
+        page.UnresolvedOwner is null && page.UnresolvedFields.Count == 0 &&
+        page.Children.All(child => SummaryPageResolved(child.Page));
 
     private void AcceptSummaryTargetIdentity(MapSummaryTargetIdentity? target)
     {

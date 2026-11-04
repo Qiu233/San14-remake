@@ -219,6 +219,15 @@ public sealed partial class PersonAssignmentPrecallInputs
             if (!current.HasAssignmentPersonAreaReceiver(person))
                 current.SetAssignmentPersonAreaVector(person, ReadPersonAreaVector(state, person));
     }
+    //Income summaries consume only the reached officer's task count. Reuse
+    //the full saved-vector decoder so missing length/count/entries keep the
+    //same unknown result, without binding every Person into a query context.
+    internal static int? ReadSavedPersonAreaActiveCount(GameState state, int person)
+    {
+        if (person is < 0 or >= 1851)
+            throw new InvalidDataException("Person area vector1D0 slot is outside supported CE profile.");
+        return ReadPersonAreaVector(state, person)?.ActiveCount1E8;
+    }
     private static PersonAreaAssignmentVector? ReadPersonAreaVector(GameState state, int person)
     {
         int? length = Value(state, PersonAreaLengthKey(person), true), count = Value(state, PersonAreaCount1E8Key(person), true);

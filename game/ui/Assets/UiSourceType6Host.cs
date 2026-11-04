@@ -19,8 +19,22 @@ internal partial class UiSourceType6Host : Node
     private readonly HashSet<Node> orderedNodes = [];
     private readonly Dictionary<Node, Action> orderCallbacks = [];
     private readonly Dictionary<Node, Node[]> childOrder = [];
-    private readonly List<(Node Node, int Parent, CanvasItem? CanvasParent)> treeNodes = [];
-    private bool structureDirty = true;
+    private readonly HashSet<Node> pendingChildOrders = [];
+    private readonly List<Node> treeNodes = [];
+    // Rebuilds keep their current eligibility/order checks. Only their
+    // bounded work storage belongs to the host, instead of to each draw.
+    private readonly HashSet<Node> currentNodes = [];
+    private readonly List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)> items = [];
+    private readonly List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)> ordered = [];
+    private readonly List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)> cuts = [];
+    private readonly List<SubViewport> producers = [];
+    private readonly Dictionary<CanvasItem, int> effectiveZ = [];
+    private const int MinimumCanvasZ = -4096, MaximumCanvasZ = 4096;
+    private readonly int[] zPositions = new int[MaximumCanvasZ - MinimumCanvasZ + 1];
+    private readonly HashSet<CanvasItem> activeCuts = [];
+    private readonly Dictionary<CanvasItem, int> segments = [];
+    private readonly Dictionary<CanvasItem, uint> masks = [];
+    private bool structureDirty = true, hierarchyMembershipDirty = true;
     private bool dirty = true, rebuilding, stopped;
     private int revision;
     private Vector2I graphSize;
@@ -49,7 +63,7 @@ internal partial class UiSourceType6Host : Node
     private void InvalidateStructure()
     {
         if (rebuilding || stopped) return;
-        structureDirty = true; dirty = true;
+        hierarchyMembershipDirty = true; structureDirty = true; dirty = true;
     }
     private void NodeAdded(Node node)
     {
@@ -64,6 +78,12 @@ internal partial class UiSourceType6Host : Node
     private void ObserveOrder(Node node)
     {
         if (!orderedNodes.Add(node)) return;
+        AttachOrderObserver(node);
+    }
+    private void AttachOrderObserver(Node node)
+    {
+        // A captured callback is created only for a new observer. Keeping
+        // its scope here avoids a closure on every existing-node visit.
         Action changed = () => NodeOrderChanged(node);
         orderCallbacks.Add(node, changed); childOrder.Add(node, Children(node));
         node.ChildOrderChanged += changed;
@@ -80,17 +100,63 @@ internal partial class UiSourceType6Host : Node
     private void NodeOrderChanged(Node node)
     {
         if (stopped || node is SubViewport or UniqueTacticEffectSurface) return;
-        var children = Children(node);
-        if (childOrder.TryGetValue(node, out var previous) && previous.SequenceEqual(children)) return;
-        // Godot may reorder internal children that the source walk never
-        // included. Only this parent's actual exposed child order is relevant.
-        childOrder[node] = children;
-        if (!rebuilding) InvalidateStructure();
+        if (rebuilding)
+        {
+            // Preserve immediate bookkeeping for helper mutations during
+            // composition publication; these never invalidate that rebuild.
+            var children = Children(node);
+            if (childOrder.TryGetValue(node, out var previous) && previous.SequenceEqual(children)) return;
+            childOrder[node] = children;
+            return;
+        }
+        if (pendingChildOrders.Contains(node)) return;
+        if (childOrder.TryGetValue(node, out var retained) && HasSameChildren(node, retained)) return;
+        // MoveChild updates the real input tree immediately. The compositor
+        // reads it only at PreDraw, after an owner's whole reorder is done.
+        pendingChildOrders.Add(node);
+        structureDirty = true; dirty = true;
+    }
+    private static bool HasSameChildren(Node node, Node[] retained)
+    {
+        if (node.GetChildCount() != retained.Length) return false;
+        for (int i = 0; i < retained.Length; i++)
+            if (!EqualityComparer<Node>.Default.Equals(retained[i], node.GetChild(i))) return false;
+        return true;
+    }
+    private void CapturePendingChildOrders()
+    {
+        foreach (var node in pendingChildOrders)
+        {
+            if (!orderedNodes.Contains(node) || !GodotObject.IsInstanceValid(node))
+            { hierarchyMembershipDirty = true; continue; }
+            var children = Children(node);
+            if (!hierarchyMembershipDirty &&
+                (!childOrder.TryGetValue(node, out var previous) || !HasSameMembership(previous, children)))
+                hierarchyMembershipDirty = true;
+            childOrder[node] = children;
+        }
+        pendingChildOrders.Clear();
+    }
+    private bool HasSameMembership(Node[] previous, Node[] children)
+    {
+        if (previous.Length != children.Length) return false;
+        // This rebuild has not begun its membership walk. Reuse its bounded
+        // scratch set only for the actual parents whose order changed.
+        try
+        {
+            currentNodes.EnsureCapacity(previous.Length);
+            currentNodes.UnionWith(previous);
+            foreach (var child in children)
+                if (!currentNodes.Remove(child)) return false;
+            return currentNodes.Count == 0;
+        }
+        finally { currentNodes.Clear(); }
     }
     private void ReleaseOrderObserver(Node node)
     {
         if (GodotObject.IsInstanceValid(node))
         { node.ChildOrderChanged -= orderCallbacks[node]; node.Renamed -= Invalidate; }
+        pendingChildOrders.Remove(node);
         orderedNodes.Remove(node); orderCallbacks.Remove(node); childOrder.Remove(node);
     }
     private void ReleaseOrderObservers()
@@ -121,90 +187,127 @@ internal partial class UiSourceType6Host : Node
             }
             failed(failure);
         }
-        finally { rebuilding = false; }
+        finally { ClearWorklists(); rebuilding = false; }
     }
 
     private void Rebuild()
     {
+        CapturePendingChildOrders();
         if (structureDirty)
         {
-            foreach (var cut in observed)
-                if (GodotObject.IsInstanceValid(cut)) { cut.Changed -= Invalidate; cut.WeightChanged -= WeightChanged; }
-            observed.Clear();
-            foreach (var effect in observedEffects)
-                if (GodotObject.IsInstanceValid(effect)) effect.CanvasCutChanged -= Invalidate;
-            observedEffects.Clear();
-            var currentNodes = new HashSet<Node>(orderedNodes.Count); treeNodes.Clear(); Observe(root);
-            Walk(root, -1, null);
-            foreach (var node in orderedNodes.Where(node => !currentNodes.Contains(node)).ToArray()) ReleaseOrderObserver(node);
-            structureDirty = false;
-            void Observe(Node node) { currentNodes.Add(node); ObserveOrder(node); }
-            void Walk(Node parent, int parentIndex, CanvasItem? canvasParent)
+            if (hierarchyMembershipDirty)
             {
-                // ObserveOrder captured new parents; ChildOrderChanged keeps
-                // existing parents current before this draw boundary.
-                var children = childOrder[parent];
-                for (int index = 0; index < children.Length; index++)
+                foreach (var cut in observed)
+                    if (GodotObject.IsInstanceValid(cut)) { cut.Changed -= Invalidate; cut.WeightChanged -= WeightChanged; }
+                observed.Clear();
+                foreach (var effect in observedEffects)
+                    if (GodotObject.IsInstanceValid(effect)) effect.CanvasCutChanged -= Invalidate;
+                observedEffects.Clear();
+                currentNodes.EnsureCapacity(orderedNodes.Count); treeNodes.Clear(); Observe(root);
+                Walk(root);
+                foreach (var node in orderedNodes.Where(node => !currentNodes.Contains(node)).ToArray()) ReleaseOrderObserver(node);
+                void Observe(Node node) { currentNodes.Add(node); ObserveOrder(node); }
+                void Walk(Node parent)
                 {
-                    Node node = children[index];
-                    if (node == this || node.IsQueuedForDeletion() || graph?.OwnsStructuralNode(node) == true) continue;
-                    if (node is CanvasLayer) throw new NotSupportedException("Type6 requires an explicitly integrated CanvasLayer boundary.");
-                    int entry = treeNodes.Count; treeNodes.Add((node, parentIndex, canvasParent));
-                    Observe(node);
-                    if (node is SubViewport) continue;
-                    if (node is UiSourceType6 cut) { observed.Add(cut); cut.Changed += Invalidate; cut.WeightChanged += WeightChanged; }
-                    if (node is UniqueTacticEffectSurface effect)
+                    // ObserveOrder captured new parents; ChildOrderChanged keeps
+                    // existing parents current before this draw boundary.
+                    var children = childOrder[parent];
+                    for (int index = 0; index < children.Length; index++)
                     {
-                        observedEffects.Add(effect); effect.CanvasCutChanged += Invalidate;
-                        // Its internal image belongs to this one ordered cut.
-                        continue;
+                        Node node = children[index];
+                        if (node == this || node.IsQueuedForDeletion() || graph?.OwnsStructuralNode(node) == true) continue;
+                        if (node is CanvasLayer) throw new NotSupportedException("Type6 requires an explicitly integrated CanvasLayer boundary.");
+                        treeNodes.Add(node);
+                        Observe(node);
+                        if (node is SubViewport) continue;
+                        if (node is UiSourceType6 cut) { observed.Add(cut); cut.Changed += Invalidate; cut.WeightChanged += WeightChanged; }
+                        if (node is UniqueTacticEffectSurface effect)
+                        {
+                            observedEffects.Add(effect); effect.CanvasCutChanged += Invalidate;
+                            // Its internal image belongs to this one ordered cut.
+                            continue;
+                        }
+                        Walk(node);
                     }
-                    Walk(node, entry, node as CanvasItem ?? canvasParent);
                 }
             }
+            // Pure child reordering keeps this membership and its observers.
+            // The live walk below consumes the final child snapshots directly,
+            // instead of flattening every unchanged subtree before scanning it.
+            structureDirty = false; hierarchyMembershipDirty = false;
         }
         // The retained hierarchy bounds these local worklists; capacity does
         // not change current eligibility, preorder or Canvas ordering.
-        var items = new List<(CanvasItem Item, CanvasItem? Parent, int Z, int Order)>(treeNodes.Count);
-        var producers = new List<SubViewport>();
-        var effectiveZ = new Dictionary<CanvasItem, int>(treeNodes.Count);
-        var excluded = new bool[treeNodes.Count];
-        foreach (var (entry, index) in treeNodes.Select((entry, index) => (entry, index)))
+        items.EnsureCapacity(treeNodes.Count); ordered.EnsureCapacity(treeNodes.Count);
+        effectiveZ.EnsureCapacity(treeNodes.Count);
+        segments.EnsureCapacity(treeNodes.Count); masks.EnsureCapacity(treeNodes.Count);
+        Collect(root, null);
+        void Collect(Node parent, CanvasItem? canvasParent)
         {
-            // A queued parent may not have left the tree yet. Match the old
-            // walk's whole-subtree exclusion, including non-Canvas parents.
-            if ((entry.Parent >= 0 && excluded[entry.Parent]) || entry.Node.IsQueuedForDeletion())
-            { excluded[index] = true; continue; }
-            if (entry.Node is SubViewport viewport) { producers.Add(viewport); continue; }
-            if (entry.Node is not CanvasItem item) continue;
-            if (item.TopLevel || item.ShowBehindParent || item is Node2D { YSortEnabled: true })
-                throw new NotSupportedException("Type6 requires a supported ordinary Canvas drawing order.");
-            int parentZ = entry.CanvasParent is { } parent ? effectiveZ[parent] : 0;
-            int z = Math.Clamp(item.ZIndex + (item.ZAsRelative ? parentZ : 0), -4096, 4096);
-            effectiveZ.Add(item, z); items.Add((item, entry.CanvasParent, z, items.Count));
+            foreach (var node in childOrder[parent])
+            {
+                // Helpers are outside the admitted source tree. A queued
+                // parent excludes its whole subtree, including non-Canvas nodes.
+                if (!orderedNodes.Contains(node) || node.IsQueuedForDeletion()) continue;
+                if (node is SubViewport viewport) { producers.Add(viewport); continue; }
+                CanvasItem? nextCanvasParent = canvasParent;
+                if (node is CanvasItem item)
+                {
+                    // Read the same current properties on every admitted build;
+                    // an order signal does not make unsignalled Z changes static.
+                    if (item.TopLevel || item.ShowBehindParent || item is Node2D { YSortEnabled: true })
+                        throw new NotSupportedException("Type6 requires a supported ordinary Canvas drawing order.");
+                    int parentZ = canvasParent is { } ancestor ? effectiveZ[ancestor] : 0;
+                    int z = Math.Clamp(item.ZIndex + (item.ZAsRelative ? parentZ : 0), MinimumCanvasZ, MaximumCanvasZ);
+                    effectiveZ.Add(item, z); items.Add((item, canvasParent, z, items.Count));
+                    nextCanvasParent = item;
+                }
+                if (node is not UniqueTacticEffectSurface) Collect(node, nextCanvasParent);
+            }
         }
-        var ordered = items.OrderBy(i => i.Z).ThenBy(i => i.Order).ToArray();
+        ordered.AddRange(items);
+        if (items.Count < zPositions.Length)
+        {
+            // Small canvases retain the comparison sort without a range sweep.
+            ordered.Sort(static (left, right) =>
+            {
+                int z = left.Z.CompareTo(right.Z);
+                return z != 0 ? z : left.Order.CompareTo(right.Order);
+            });
+        }
+        else
+        {
+            // Canvas Z is already clamped to this finite engine range. A stable
+            // range sort retains the same Z/preorder total order for large trees.
+            Array.Clear(zPositions);
+            foreach (var row in items) zPositions[row.Z - MinimumCanvasZ]++;
+            int position = 0;
+            for (int z = 0; z < zPositions.Length; z++)
+            {
+                int count = zPositions[z]; zPositions[z] = position; position += count;
+            }
+            foreach (var row in items) ordered[zPositions[row.Z - MinimumCanvasZ]++] = row;
+        }
         // Most items are text/artwork. Their current visibility does not
         // alter a cut boundary; ask native visibility only for actual cuts.
-        var cuts = ordered.Where(i =>
-            (i.Item is UiSourceType6 || i.Item is UniqueTacticEffectSurface { CanvasCutEnabled: true }) &&
-            i.Item.IsVisibleInTree()).ToArray();
+        foreach (var row in ordered)
+            if ((row.Item is UiSourceType6 || row.Item is UniqueTacticEffectSurface { CanvasCutEnabled: true }) &&
+                row.Item.IsVisibleInTree()) cuts.Add(row);
         OrderedCuts = cuts.Select(i => i.Item.GetPath().ToString()).ToArray();
-        if (cuts.Length == 0) { Retire(deferRemoval: true); revision++; return; }
+        if (cuts.Count == 0) { Retire(deferRemoval: true); revision++; return; }
 
         Vector2 visible = root.GetViewport().GetVisibleRect().Size;
         Vector2I size = new((int)visible.X, (int)visible.Y);
         var cutStates = cuts.Select(row => row.Item is UiSourceType6 cut
             ? new CutState(cut, cut.Parameters, cut.Geometry(size)) : new CutState(row.Item, null, null)).ToArray();
-        var activeCuts = cuts.Select(row => row.Item).ToHashSet();
-        var segments = new Dictionary<CanvasItem, int>(ordered.Length);
+        foreach (var row in cuts) activeCuts.Add(row.Item);
         int segment = 0;
         foreach (var row in ordered)
         {
             if (activeCuts.Contains(row.Item)) segment++;
             segments.Add(row.Item, segment);
         }
-        var masks = segments.ToDictionary(p => p.Key, p => 1u << p.Value);
+        foreach (var (item, assignedSegment) in segments) masks.Add(item, 1u << assignedSegment);
         // Preorder visits a Canvas ancestor before its descendants. Propagate
         // each live subtree mask once instead of querying every parent chain.
         for (int index = items.Count - 1; index >= 0; index--)
@@ -246,7 +349,7 @@ internal partial class UiSourceType6Host : Node
         // Ordinary cuts can extend a current-frame encoded prefix instead
         // of redrawing every earlier source segment in each later target.
         // Effect-owned cuts retain their established cumulative producer path.
-        graph = new(root, size, cuts.Length, shaders!,
+        graph = new(root, size, cuts.Count, shaders!,
             incrementalPrefixes: cuts.All(row => row.Item is UiSourceType6));
         graph.RebindItems(segments, masks);
         foreach (var state in cutStates)
@@ -265,6 +368,14 @@ internal partial class UiSourceType6Host : Node
         parameterIndices.Clear();
         for (int i = 0; i < cutStates.Length; i++)
             if (cutStates[i].Item is UiSourceType6 owner) parameterIndices.Add(owner, i);
+    }
+
+    private void ClearWorklists()
+    {
+        // Composition rebinds copy memberships; they retain none of these
+        // collections. Release temporary node references even on failure.
+        currentNodes.Clear(); items.Clear(); ordered.Clear(); cuts.Clear();
+        producers.Clear(); effectiveZ.Clear(); activeCuts.Clear(); segments.Clear(); masks.Clear();
     }
 
     private bool HasOwnDrawing(CanvasItem item)
@@ -297,7 +408,7 @@ internal partial class UiSourceType6Host : Node
         RenderingServer.FramePreDraw -= BeforeDraw;
         if (IsInsideTree())
         { GetTree().NodeAdded -= NodeAdded; GetTree().NodeRemoved -= NodeRemoved; }
-        ReleaseOrderObservers(); treeNodes.Clear();
+        ReleaseOrderObservers(); pendingChildOrders.Clear(); treeNodes.Clear();
         if (GodotObject.IsInstanceValid(root)) root.Resized -= Invalidate;
         foreach (var cut in observed)
             if (GodotObject.IsInstanceValid(cut)) { cut.Changed -= Invalidate; cut.WeightChanged -= WeightChanged; }
@@ -305,6 +416,7 @@ internal partial class UiSourceType6Host : Node
         foreach (var effect in observedEffects)
             if (GodotObject.IsInstanceValid(effect)) effect.CanvasCutChanged -= Invalidate;
         observedEffects.Clear(); Retire(deferRemoval);
+        ClearWorklists();
         shaders?.Dispose(); shaders = null;
     }
     public override void _ExitTree() => Stop(deferRemoval: true);

@@ -5,16 +5,20 @@ using San14.Data;
 /// report's original message wait owns confirmation; this pane cannot acknowledge it.</summary>
 internal partial class ForeignTradeRewardView : Control
 {
+    private bool ownsResources=true;
     private UiAssets? assets;
     private MapFont? font;
     private Shader? shader;
     private Control canvas=null!;
-    internal void Configure(GameResourceRepository repository,PreviewText text,ForeignTradeRewardPanel value)
+    internal void Configure(GameResourceRepository repository,PreviewText text,ForeignTradeRewardPanel value,
+        AdministrationPageChrome.Resources? resources=null)
     {
         Name="ForeignTradeReward";MouseFilter=MouseFilterEnum.Ignore;SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        assets=new(repository);font=new(repository,text.SourceLocale);shader=UiSourceSprite.CreateShader();
+        ownsResources=resources is null;
+        assets=resources?.Assets??new(repository);font=resources?.Font??new(repository,text.SourceLocale);
+        shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         canvas=new() {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Ignore};AddChild(canvas);
-        var source=new UiSourceLayout(repository,value.LayoutId);Vector2 mount=new(-300,164);
+        var source=assets.SourceLayout(value.LayoutId);Vector2 mount=new(-300,164);
         foreach(var node in source.Nodes.Where(node=>node.Type is 1 or 3))
         {
             if(node.Index==2)continue;
@@ -70,5 +74,9 @@ internal partial class ForeignTradeRewardView : Control
         if(canvas is null)return;float scale=Math.Min(Size.X/1920f,Size.Y/1080f);
         canvas.Scale=new(scale,scale);canvas.Position=(Size-new Vector2(1920,1080)*scale)/2;
     }
-    public override void _ExitTree(){assets?.Dispose();assets=null;font?.Dispose();font=null;shader?.Dispose();shader=null;}
+    public override void _ExitTree()
+    {
+        if(ownsResources){assets?.Dispose();font?.Dispose();shader?.Dispose();}
+        assets=null;font=null;shader=null;
+    }
 }

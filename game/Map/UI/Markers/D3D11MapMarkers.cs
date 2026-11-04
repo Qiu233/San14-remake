@@ -81,7 +81,7 @@ internal partial class D3D11MapMarkers : Control
         {
             bool becameVisible=visible&&!drawingVisible;
             drawingVisible=visible;
-            var current=owner.CaptureOrdinaryMarkerPaint(marker,placement,out var anchor);
+            var current=owner.CaptureOrdinaryMarkerPaint(marker,placement,ordinaryPaint,out var anchor);
             if(current is null)
             {
                 SetPaintAnchor(Vector2.Zero);

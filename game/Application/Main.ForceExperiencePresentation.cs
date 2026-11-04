@@ -100,7 +100,8 @@ public partial class Main
                 view.ConfigureAnnouncement(_repository, _ui, scene.AnnouncementTextAtSource,
                     () => RunUiAction(() => AdvancePolicy(ForcePolicyLevelUpInputKind.AnnouncementCompleted)),
                     () => _preferences.AutomaticMessageAdvance,
-                    () => _forcePolicyAnnouncement == view && IsForcePresentationCurrent && CanAdvanceNarration);
+                    () => _forcePolicyAnnouncement == view && IsForcePresentationCurrent && CanAdvanceNarration,
+                    resources: TryBorrowApplicationUiResources(view));
                 view.Name = "ForcePolicyLevelUpAnnouncement";
                 SetMapFocus(true); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
                 return true;
@@ -225,7 +226,8 @@ public partial class Main
                         _forcePolicyAnnouncement = null; view.Abandon(); view.GetParent()?.RemoveChild(view); view.QueueFree();
                         page++; Next();
                     }), () => _preferences.AutomaticMessageAdvance,
-                    () => _forcePolicyAnnouncement == view && IsForcePresentationCurrent && CanAdvanceNarration);
+                    () => _forcePolicyAnnouncement == view && IsForcePresentationCurrent && CanAdvanceNarration,
+                    resources: TryBorrowApplicationUiResources(view));
                 view.Name = "PolicyEditorGovernanceNarration";
                 SetMapFocus(true); map.SetDetailsOpen(true, keepMapVisible: true); HideDeploymentHud();
             }

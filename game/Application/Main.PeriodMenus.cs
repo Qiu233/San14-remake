@@ -76,7 +76,7 @@ public partial class Main
         if (request.Attached) return true;
         // Keep the actual request pending until the audio host has accepted
         // this checkpoint's music; a settings page may replace its candidate.
-        if (owner.MapMusicPresentationOpen) return true;
+        if (owner.MapMusicPresentationOpen || owner.TargetReactionPresentationOpen || owner.ArmyViewRetirementPresentationOpen || owner.BaseTierPresentationOpen) return true;
         if (!ReferenceEquals(owner.Candidate, borrowed))
             throw new InvalidOperationException("The menu checkpoint is not owned by Main.");
         owner.CancelMenuBorrow();

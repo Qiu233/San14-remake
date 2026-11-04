@@ -660,6 +660,24 @@ int __cdecl san14_render_army_unit_positions(void* value,San14ArmyUnitPosition* 
         lastError.clear();return int(positions.size());
     }catch(...){recordException();return -1;}
 }
+int __cdecl san14_render_target_reaction_receipt_v1(void* value,San14ArmyTargetReactionReceiptV1* result,uint32_t capacity) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);auto guard=owner.execution();
+        const auto receipts=owner.host.armyTargetReactionReceipts?owner.host.armyTargetReactionReceipts():std::vector<ArmyTargetReactionReceipt>{};
+        if(receipts.size()>capacity||(!receipts.empty()&&!result))throw std::runtime_error("Army reaction receipt output capacity");
+        for(size_t i=0;i<receipts.size();++i){const auto& r=receipts[i];result[i]={r.requestId,r.army,r.variant,r.status};}
+        lastError.clear();return int(receipts.size());
+    }catch(...){recordException();return -1;}
+}
+int __cdecl san14_render_army_view_retirement_receipt_v1(void* value,San14ArmyViewRetirementReceiptV1* result,uint32_t capacity) {
+    try {
+        auto& owner=*static_cast<Owner*>(value);auto guard=owner.execution();
+        const auto receipts=owner.host.armyViewRetirementReceipts?owner.host.armyViewRetirementReceipts():std::vector<ArmyViewRetirementReceipt>{};
+        if(receipts.size()>capacity||(!receipts.empty()&&!result))throw std::runtime_error("Army view retirement receipt output capacity");
+        for(size_t i=0;i<receipts.size();++i){const auto& r=receipts[i];result[i]={r.requestId,r.army,r.status};}
+        lastError.clear();return int(receipts.size());
+    }catch(...){recordException();return -1;}
+}
 void __cdecl san14_render_destroy(void* value) {
     auto* owner=static_cast<Owner*>(value);if(!owner)return;
     // This outer role covers every member destructor, not merely ~Owner's body.

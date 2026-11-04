@@ -289,7 +289,7 @@ public partial class AudioPlaybackService : Node
         ChannelStopped = null;
         _mapMusic.Clear();
         AudioServer.Lock();
-        try { _musicClock?.Dispose(); _musicClock = null; _originalOutputs?.Dispose(); _originalOutputs = null; }
+        try { RetireSourceBgmScalar(abandonScope: true); _musicClock?.Dispose(); _musicClock = null; _originalOutputs?.Dispose(); _originalOutputs = null; }
         finally { AudioServer.Unlock(); }
         RetireResidentAudio();
         lock (_postGate) while (_engineActions.TryDequeue(out _)) { }

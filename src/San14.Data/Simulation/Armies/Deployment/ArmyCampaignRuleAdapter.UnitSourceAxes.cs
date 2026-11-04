@@ -170,8 +170,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 float region = 1f, neighbor = 1f;
                 if (applyCommonModifiers)
                 {
-                    var factor = new BattleRemakeCurrentRegionFactor(_regionSeed, rules!, C(), Revision,
-                        new DeploymentPreviewContextFactors.RegionPolicies(C()));
+                    var factor = new BattleRemakeCurrentRegionFactor(_regionSeed, rules!, C(), Revision);
                     region = K(factor.ResolveReceipt(state, army)?.Factor, "saved_region_factor");
                     var adjacent = ArmyNeighborCurrentFactor.Read(state, C(), army);
                     neighbor = adjacent.Factor ?? throw new InvalidDataException(adjacent.UnresolvedOwner!);

@@ -122,9 +122,10 @@ public partial class Main
                 () => owner, next => { owner = next; _personnelPresentationWorld = next; });
             try
             {
+                var resources = TryBorrowApplicationUiResources(narration);
                 if (payload.Operation == TalentCommandPresentationOperation.Announcement)
                     narration.ConfigureAnnouncement(_repository!, _ui, payload.TextAtSource!, Completed,
-                        () => _preferences.AutomaticMessageAdvance, Admitted);
+                        () => _preferences.AutomaticMessageAdvance, Admitted, resources: resources);
                 else
                 {
                     var person = payload.Speaker ?? throw new InvalidDataException("proposal.source_speaker");
@@ -134,7 +135,7 @@ public partial class Main
                         face = new LocalizedUiSpriteSource(_repository!).LoadTexturePackSprite(portrait.ResourceName, portrait.SpriteName);
                     else throw new InvalidDataException(query.UnresolvedInput ?? "proposal.speaker_portrait");
                     narration.ConfigurePersonMessage(_repository!, _ui, person.NameAtSource, payload.TextAtSource!, face,
-                        Completed, () => _preferences.AutomaticMessageAdvance, Admitted);
+                        Completed, () => _preferences.AutomaticMessageAdvance, Admitted, resources: resources);
                 }
                 if (payload.Voice is { } voice && _preferences.Voice.Enabled)
                 {

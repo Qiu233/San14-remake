@@ -53,6 +53,11 @@ struct San14AnimationState {
     uint32_t armyPlayers,cityGroups,areaGroups,fpsMode;
     float firstBodyPhase,firstFlagPhase;
 };
+struct San14ArmyTargetReactionReceiptV1 {
+    uint64_t requestId;int32_t army,variant;uint32_t status;
+};
+struct San14ArmyViewRetirementReceiptV1 {uint64_t requestId;int32_t army;uint32_t status;};
+static_assert(sizeof(San14ArmyViewRetirementReceiptV1)==16);
 struct San14ArmyUnitPosition {
     int32_t unit;
     float position[4]; //Source CUnit10/14/18/1C, not a model root.
@@ -114,6 +119,8 @@ SAN14_RENDER_API void __cdecl san14_render_animation_state(void* owner,San14Anim
 // or -1 on failure; no animation, grounding or GPU readback occurs here.
 SAN14_RENDER_API int __cdecl san14_render_army_unit_positions(void* owner,
     San14ArmyUnitPosition* result,uint32_t capacity);
+SAN14_RENDER_API int __cdecl san14_render_target_reaction_receipt_v1(void* owner,San14ArmyTargetReactionReceiptV1* result,uint32_t capacity);
+SAN14_RENDER_API int __cdecl san14_render_army_view_retirement_receipt_v1(void* owner,San14ArmyViewRetirementReceiptV1* result,uint32_t capacity);
 SAN14_RENDER_API void __cdecl san14_render_destroy(void* owner);
 SAN14_RENDER_API const char* __cdecl san14_render_error();
 

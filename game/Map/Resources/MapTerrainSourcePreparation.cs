@@ -7,6 +7,10 @@ internal sealed record MapTerrainSourcePreparation(LoadedSceneResources Scene,
     ScenePlacements Placements, LoadedTerrainSceneResources Terrain, G2ShaderTextureBases TextureBases,
     MapStaticModelGroundHeightSource WorldGroundHeight)
 {
+    // Filled by the application startup closure before either locale borrows
+    // this source. Nonprojected developer previews keep their existing path.
+    internal PreparedTerrainGeometryCatalogue? CpuGeometry { get; init; }
+
     internal static MapTerrainSourcePreparation Prepare(string sourceDirectory, string? overrideDirectory,
         string archive, uint sceneId, CancellationToken token)
         => Prepare(new GameResourceRepository(sourceDirectory, overrideDirectory), archive, sceneId, token);

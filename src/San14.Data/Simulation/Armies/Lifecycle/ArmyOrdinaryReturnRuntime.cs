@@ -399,7 +399,9 @@ public static class ArmyOrdinaryReturnRuntime
         public void RefreshTransferService(int first, int second, int third)
         {
             if (first != 1 || second != 1 || third != 0) throw Failure("branch.unsupported_service_dispatch");
-            if (state.TransferService is null) throw Failure("current.ruler_tail_service_owner");
+            //Eligibility and the personnel count borrow this operation's current;
+            //they do not consume the independent profile bitmap. The reached
+            //writer below materializes that real profile only after the count.
             if (!TransferService.HasPersonnelMilestoneReached(new ServiceQueries(state))) return;
             var refresh = state.TransferServiceRefresher
                 ?? throw Failure("current.personnel_milestone_service_writer");

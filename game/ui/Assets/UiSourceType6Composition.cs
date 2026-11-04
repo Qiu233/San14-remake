@@ -18,9 +18,12 @@ internal sealed class UiSourceType6Composition : IDisposable
     private readonly List<UniqueTacticEffectSurface> effectCuts = [];
     private int attachedCuts;
     private readonly Dictionary<UiSourceType6, UiSourceType6Pass> animatedCuts = [];
-    private readonly Dictionary<CanvasItem, (uint Previous, int Segment)> assigned = [];
+    private readonly Dictionary<CanvasItem, (uint Previous, int Segment, uint Mask)> assigned = [];
     private readonly Dictionary<SubViewport, Rid> dependencies = [];
     private readonly Dictionary<SubViewport, Rid> renderParents = [];
+    private readonly List<CanvasItem> removedItems = [];
+    private readonly HashSet<SubViewport> currentProducers = [];
+    private readonly List<SubViewport> removedProducers = [];
     private UiSourceType6Quad? output;
     private readonly UiSourceType6Shaders shaders;
     private ShaderMaterial? outputMaterial;
@@ -118,22 +121,35 @@ internal sealed class UiSourceType6Composition : IDisposable
     {
         if ((uint)segment >= prefixes.Count) throw new ArgumentOutOfRangeException(nameof(segment));
         bool existing = assigned.TryGetValue(item, out var previous);
-        if (!existing || previous.Segment != segment)
-            assigned[item] = (existing ? previous.Previous : item.VisibilityLayer, segment);
-        if (item.VisibilityLayer != structuralMask) item.VisibilityLayer = structuralMask;
+        bool segmentChanged = !existing || previous.Segment != segment;
+        bool maskChanged = !existing || previous.Mask != structuralMask;
+        if (segmentChanged || maskChanged)
+        {
+            // The graph owns admitted structural layers until removal/retirement.
+            // Its helpers and effect-owned children are outside this assignment set.
+            uint original = existing ? previous.Previous : item.VisibilityLayer;
+            assigned[item] = (original, segment, structuralMask);
+            if (maskChanged && (existing || original != structuralMask)) item.VisibilityLayer = structuralMask;
+        }
         uint drawingLayer = 1u << segment;
-        if ((!existing || previous.Segment != segment) && item is IUiSourceDrawing drawing)
+        if (segmentChanged && item is IUiSourceDrawing drawing)
             drawing.SetDrawingVisibilityLayer(drawingLayer);
     }
 
     internal void RebindItems(IReadOnlyDictionary<CanvasItem, int> segments, IReadOnlyDictionary<CanvasItem, uint> masks)
     {
-        foreach (var item in assigned.Keys.Where(item => !segments.ContainsKey(item)).ToArray())
+        try
         {
-            RestoreItem(item, assigned[item].Previous);
-            assigned.Remove(item);
+            foreach (var item in assigned.Keys)
+                if (!segments.ContainsKey(item)) removedItems.Add(item);
+            foreach (var item in removedItems)
+            {
+                RestoreItem(item, assigned[item].Previous);
+                assigned.Remove(item);
+            }
+            foreach (var (item, segment) in segments) AssignItem(item, segment, masks[item]);
         }
-        foreach (var (item, segment) in segments) AssignItem(item, segment, masks[item]);
+        finally { removedItems.Clear(); }
     }
 
     private static void RestoreItem(CanvasItem item, uint previous)
@@ -179,15 +195,21 @@ internal sealed class UiSourceType6Composition : IDisposable
 
     internal void RebindDependencies(IReadOnlyCollection<SubViewport> producers)
     {
-        var current = producers.ToHashSet();
-        foreach (var producer in dependencies.Keys.Where(view => !current.Contains(view)).ToArray())
+        try
         {
-            if (GodotObject.IsInstanceValid(producer) && producer.IsInsideTree())
-                SetRenderParent(producer, producer.GetParent().GetViewport().GetViewportRid());
-            dependencies.Remove(producer);
-            renderParents.Remove(producer);
+            currentProducers.UnionWith(producers);
+            foreach (var producer in dependencies.Keys)
+                if (!currentProducers.Contains(producer)) removedProducers.Add(producer);
+            foreach (var producer in removedProducers)
+            {
+                if (GodotObject.IsInstanceValid(producer) && producer.IsInsideTree())
+                    SetRenderParent(producer, producer.GetParent().GetViewport().GetViewportRid());
+                dependencies.Remove(producer);
+                renderParents.Remove(producer);
+            }
+            foreach (var producer in producers) DependOn(producer);
         }
-        foreach (var producer in producers) DependOn(producer);
+        finally { currentProducers.Clear(); removedProducers.Clear(); }
     }
 
     internal void AddCut(UiSourceType6Parameters parameters, Vector2[] screenQuad,

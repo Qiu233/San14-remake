@@ -119,6 +119,21 @@ public partial class MapSceneView
 
     internal void RefreshAdministrationMapInput() => _administrationMapLayer?.RefreshInput();
 
+    // A held-area label owns the GUI hit pane above the map surface. Forward
+    // only its actual admitted right press to the same camera input owner;
+    // Main keeps the existing paired Back gesture and WindowInput observes
+    // motion/releases without admitting any new press on its own.
+    internal void AdmitAdministrationMapOrbitPress(AreaAdministrationMapLayer owner,
+        InputEventMouseButton button, Vector2 viewportPosition)
+    {
+        if (_nativeMapClosing || !ReferenceEquals(_administrationMapLayer, owner) || !SourcePointerInputActive ||
+            button is not { ButtonIndex: MouseButton.Right, Pressed: true } ||
+            UseD3D11Map && !D3D11MapInteractive) return;
+        using var local = (InputEventMouseButton)button.Duplicate();
+        local.Position = _surface.GetGlobalTransformWithCanvas().AffineInverse() * viewportPosition;
+        Run(() => HandleSourceCameraInput(local));
+    }
+
     internal bool TryProjectAdministrationArea(int hex, MainMapCameraFrame frame, out Vector2 pixel)
     {
         pixel = default;

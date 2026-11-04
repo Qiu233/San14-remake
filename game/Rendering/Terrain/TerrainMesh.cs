@@ -23,7 +23,8 @@ public sealed record TerrainPatch
     {
         uploadedMesh = upload; SourceNode = source.Node;
         ColumnOrigin = source.ColumnOrigin; RowOrigin = source.RowOrigin; SampleStep = source.SampleStep;
-        PackedSamples = Array.AsReadOnly(packedSamples ?? source.PackedSamples.ToArray()); Geometry = source.Geometry;
+        PackedSamples = packedSamples is null ? source.PackedSampleValues : Array.AsReadOnly(packedSamples);
+        Geometry = source.Geometry;
         EdgeFlags = source.Input?.EdgeFlags ?? 0;
         if (upload is not null) return;
         // Use the actual vertex extrema for the same float origin/size as a
@@ -85,15 +86,35 @@ public static class TerrainMesh
 
     public static TerrainMeshResult PrepareCpu(LoadedTerrainResources loaded,
         LoadedTerrainInitialHeightResources initialHeight, int treeDepth = 2) =>
-        RetainCpu(TerrainMeshPreparation.Prepare(loaded,
+        RetainCpu(TerrainMeshPreparation.PrepareGeometry(loaded,
             initialHeight ?? throw new ArgumentNullException(nameof(initialHeight)), treeDepth));
 
     internal static TerrainMeshResult RetainCpu(PreparedTerrainMesh prepared) =>
         new(prepared.Source, Array.AsReadOnly(prepared.Patches.Select(patch => new TerrainPatch(patch)).ToArray()),
             prepared.TreeDepth, prepared.InitialHeight is not null);
 
+    // CPU wrappers borrow completed geometry; construction never rebuilds a
+    // BVH or copies packed samples. The catalogue belongs to the map generation.
+    internal static TerrainMeshResult RetainCpu(PreparedTerrainGeometryCatalogue catalogue,
+        TerrainMeshSelection selection)
+    {
+        if (!ReferenceEquals(selection.Tree, catalogue.Source.SpatialTree))
+            throw new InvalidDataException("CPU terrain selection belongs to another source generation.");
+        var patches = new TerrainPatch[selection.Rows.Count];
+        for (int i = 0; i < patches.Length; i++)
+        {
+            var row = selection.Rows[i];
+            if (!catalogue.TryGet(row.Node.Index, row.EdgeFlags, out var prepared))
+                throw new InvalidDataException("The initial CPU terrain selection is absent from its prepared generation.");
+            patches[i] = new(prepared);
+        }
+        return new(catalogue.Source, Array.AsReadOnly(patches), selection.TreeDepth, true);
+    }
+
     internal static TerrainMeshResult Upload(PreparedTerrainMesh prepared)
     {
+        if (!prepared.IncludesRenderAttributes)
+            throw new InvalidOperationException("Terrain upload requires a packet with render vertex attributes.");
         LoadedTerrainResources loaded = prepared.Source;
         LoadedTerrainInitialHeightResources? initialHeight = prepared.InitialHeight;
         MhkHeightField height = loaded.HeightField.HeightField;

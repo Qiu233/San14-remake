@@ -120,8 +120,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                 if (forceId is not (>= 46 and <= 51) &&
                     !(BattleRemakeCurrentRegionFactor.IsNativeBandPerson(id) && first is >= 1 and <= 61))
                 {
-                    var region = new BattleRemakeCurrentRegionFactor(_regionSeed, tacticContext, current, Revision,
-                        new DeploymentPreviewContextFactors.RegionPolicies(current));
+                    var region = new BattleRemakeCurrentRegionFactor(_regionSeed, tacticContext, current, Revision);
                     regionFactor = region.ResolveHexForceReceipt(state, forceId, (ushort)hexId)?.Factor
                         ?? throw FigureMissing("preview_current_region");
                 }

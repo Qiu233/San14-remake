@@ -16,6 +16,9 @@ public sealed partial class ArmyCampaignRuleAdapter
         var sampler = new TacticSourceSamplerWorld(epoch.Day450, epoch.Salt45C);
         var current = CaptureWritableTransportRouteCurrent(state);
         current.MaterializeFixedScenery(_landmarkDefinitions);
+        // This fresh-only producer has no saved bank yet. Borrow its actual
+        // resident scenario flags explicitly; restores keep missing flags null.
+        current.MaterializeStaticSceneryState(_scenario);
         var pool = current.ReadOwnedCurrentListPool() ?? throw OccupationMissing("landmark_fresh_indexes");
         current.SetRegistryDescriptor(RegistryKind.Scenery, new(pool.AllocateDescriptor().Identity));
         var values = new Dictionary<int, LandmarkInvestmentState>();

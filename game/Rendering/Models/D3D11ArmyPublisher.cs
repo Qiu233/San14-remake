@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.ObjectModel;
+using System.Collections.Frozen;
 using System.Numerics;
 using System.Text;
 using San14.Core;
@@ -11,6 +12,8 @@ public sealed record D3D11ArmyActor(D3D11ArmyActorKey Key,
     UnitWorldTransformState World,MapModelNativeOrientedBounds Bounds,
     int ActionIndex,float ReturnedPhase,D3D11ArmyFlagMaterialKey? FlagMaterial);
 public sealed record D3D11ArmyUnavailable(int UnitId,string Reason);
+public readonly record struct D3D11ArmyTargetReaction(ulong RequestId,int ArmyId,int Variant,bool SourceArmyAbsent=false);
+public readonly record struct D3D11ArmyViewRetirement(ulong RequestId,int ArmyId,bool AnimateRetirement);
 
 /// <summary>Explicit caller phases for the preview route. Normal native playback
 /// retains its source-player clocks in physical model slots.</summary>
@@ -34,6 +37,8 @@ public sealed class D3D11ArmyPublication
 {
     private readonly object _generationLock = new();
     private D3D11ArmyPublication? _generationPublication;
+    private D3D11ArmyPublication? _reactionPublication;
+    private D3D11ArmyPublication? _retirementPublication;
     internal byte[] NativeBytes {get;}
     public ReadOnlyMemory<byte> Packet=>NativeBytes;
     public ulong Revision {get;}
@@ -50,6 +55,10 @@ public sealed class D3D11ArmyPublication
     public IReadOnlyDictionary<int,uint> UnitModelModes {get;}
     public IReadOnlyDictionary<int,uint> UnitSelectedFormations {get;}
     public IReadOnlyDictionary<int,uint> UnitNavalFormations {get;}
+    public IReadOnlyDictionary<int,float> UnitHeadings {get;}
+    public IReadOnlyList<D3D11ArmyTargetReaction> TargetReactions {get;} = Array.Empty<D3D11ArmyTargetReaction>();
+    public IReadOnlyList<D3D11ArmyViewRetirement> ViewRetirements {get;} = Array.Empty<D3D11ArmyViewRetirement>();
+    public IReadOnlySet<int> RetainedPendingViews {get;}
     internal D3D11ArmyPublication(ulong revision,D3D11ArmyActor[] actors,
         D3D11ArmyUnavailable[] unavailable,string animationScope,IReadOnlyDictionary<int,Vector3> unitCenters,
         IReadOnlyDictionary<int,int>? unitGraphicsActions=null,
@@ -68,9 +77,11 @@ public sealed class D3D11ArmyPublication
         IReadOnlyDictionary<int,int>? unitGraphicsActions,IReadOnlyDictionary<int,float>? unitGroundHeights,
         IReadOnlyDictionary<int,uint>? unitMotionRevisions,IReadOnlyDictionary<int,uint>? unitModelModes,
         IReadOnlyDictionary<int,uint>? unitSelectedFormations,IReadOnlyDictionary<int,uint>? unitNavalFormations,
-        ReadOnlyCollection<ArmyFlagMaterialRequest>? flagMaterialRequests=null,ulong resourceContextGeneration=0)
+        ReadOnlyCollection<ArmyFlagMaterialRequest>? flagMaterialRequests=null,ulong resourceContextGeneration=0,
+        IReadOnlyDictionary<int,float>? unitHeadings=null,IReadOnlySet<int>? retainedPendingViews=null)
     {
         Revision=revision;ResourceContextGeneration=resourceContextGeneration;
+        RetainedPendingViews=retainedPendingViews?.ToFrozenSet()??FrozenSet<int>.Empty;
         Actors=Array.AsReadOnly(actors);Unavailable=Array.AsReadOnly(unavailable);AnimationScope=animationScope;
         FlagMaterialRequestOwner=flagMaterialRequests??Array.AsReadOnly(Array.Empty<ArmyFlagMaterialRequest>());
         UnitCenters=unitCenters;
@@ -80,10 +91,15 @@ public sealed class D3D11ArmyPublication
         UnitModelModes=unitModelModes??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
         UnitSelectedFormations=unitSelectedFormations??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
         UnitNavalFormations=unitNavalFormations??new ReadOnlyDictionary<int,uint>(unitCenters.Keys.ToDictionary(id=>id,_=>0u));
-        using var output=new MemoryStream(32+unitCenters.Count*40+actors.Length*164);using var writer=new BinaryWriter(output,Encoding.ASCII,true);
-        writer.Write(Encoding.ASCII.GetBytes("ARMYWLD7"));writer.Write(revision);writer.Write(resourceContextGeneration);
+        UnitHeadings=unitHeadings??new ReadOnlyDictionary<int,float>(unitCenters.Keys.ToDictionary(id=>id,_=>0f));
+        using var output=new MemoryStream(40+unitCenters.Count*60+actors.Length*164);using var writer=new BinaryWriter(output,Encoding.ASCII,true);
+        writer.Write(Encoding.ASCII.GetBytes("ARMYWD10"));writer.Write(revision);writer.Write(resourceContextGeneration);
         writer.Write(actors.Length);writer.Write(unitCenters.Count);
-        foreach(var (id,center) in unitCenters){writer.Write(id);writer.Write(center.X);writer.Write(center.Y);writer.Write(center.Z);writer.Write(UnitGraphicsActions[id]);writer.Write(UnitGroundHeights[id]);writer.Write(UnitMotionRevisions[id]);writer.Write(UnitModelModes[id]);writer.Write(UnitSelectedFormations[id]);writer.Write(UnitNavalFormations[id]);}
+        writer.Write(0); // no reaction requests in the base publication
+        writer.Write(0); // no retirement requests in the base publication
+        foreach(var (id,center) in unitCenters){writer.Write(id);writer.Write(center.X);writer.Write(center.Y);writer.Write(center.Z);writer.Write(UnitGraphicsActions[id]);writer.Write(UnitGroundHeights[id]);writer.Write(UnitMotionRevisions[id]);writer.Write(UnitModelModes[id]);writer.Write(UnitSelectedFormations[id]);writer.Write(UnitNavalFormations[id]);writer.Write(UnitHeadings[id]);
+            // Share the ordinary model's source yaw conversion at the actual retained744 heading.
+            V(ArmyInstancePose.YawArgument(UnitHeadings[id]));}
         foreach(var actor in actors){
             var key=actor.Key;writer.Write(key.UnitId);writer.Write(key.Category);writer.Write(key.DescriptorOffset);writer.Write(key.InstanceIndex);
             writer.Write(actor.ActionIndex);writer.Write(actor.ReturnedPhase);
@@ -104,10 +120,77 @@ public sealed class D3D11ArmyPublication
         UnitGraphicsActions=source.UnitGraphicsActions;UnitGroundHeights=source.UnitGroundHeights;
         UnitMotionRevisions=source.UnitMotionRevisions;UnitModelModes=source.UnitModelModes;
         UnitSelectedFormations=source.UnitSelectedFormations;UnitNavalFormations=source.UnitNavalFormations;
-        // The publication is immutable. Only the ARMYWLD7 generation field
+        UnitHeadings=source.UnitHeadings;TargetReactions=source.TargetReactions;
+        ViewRetirements=source.ViewRetirements;RetainedPendingViews=source.RetainedPendingViews;
+        // The publication is immutable. Only the ARMYWD10 generation field
         // changes; keep the already encoded unit/actor payload and its owners.
         NativeBytes=source.NativeBytes.ToArray();
         BinaryPrimitives.WriteUInt64LittleEndian(NativeBytes.AsSpan(16,8),generation);
+    }
+
+    private D3D11ArmyPublication(D3D11ArmyPublication source,IReadOnlyList<D3D11ArmyTargetReaction> reactions,
+        IReadOnlyList<D3D11ArmyViewRetirement> retirements)
+        :this(source,source.ResourceContextGeneration)
+    {
+        var requests=reactions.ToArray();ulong priorIdentity=0;
+        foreach(var request in requests){
+            if(request.RequestId<=priorIdentity||request.ArmyId<=0||request.Variant is not(1 or 2))
+                throw new ArgumentOutOfRangeException(nameof(reactions));
+            priorIdentity=request.RequestId;
+        }
+        var retiring=retirements.ToArray();priorIdentity=0;
+        foreach(var request in retiring){
+            if(request.RequestId<=priorIdentity||request.ArmyId<=0)
+                throw new ArgumentOutOfRangeException(nameof(retirements));
+            priorIdentity=request.RequestId;
+        }
+        TargetReactions=Array.AsReadOnly(requests);ViewRetirements=Array.AsReadOnly(retiring);
+        int priorBytes=source.TargetReactions.Count*20+source.ViewRetirements.Count*16;
+        var bytes=new byte[source.NativeBytes.Length-priorBytes+requests.Length*20+retiring.Length*16];
+        source.NativeBytes.AsSpan(0,32).CopyTo(bytes);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(32,4),requests.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(36,4),retiring.Length);
+        int at=40;
+        foreach(var request in requests){
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(at,8),request.RequestId);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at+8,4),request.ArmyId);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at+12,4),request.Variant);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at+16,4),request.SourceArmyAbsent?1u:0u);at+=20;
+        }
+        foreach(var request in retiring){
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(at,8),request.RequestId);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at+8,4),request.ArmyId);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at+12,4),request.AnimateRetirement?1u:0u);at+=16;
+        }
+        source.NativeBytes.AsSpan(40+priorBytes).CopyTo(bytes.AsSpan(at));NativeBytes=bytes;
+    }
+
+    /// <summary>Request IDs belong to one render session. Repeat the same source prefix
+    /// until matching native receipts; removing it never cancels accepted playback.
+    /// SourceArmyAbsent must be captured from the exact World used by this publication;
+    /// Native also checks its actual synchronized active model-view owner.</summary>
+    public D3D11ArmyPublication WithTargetReactions(IReadOnlyList<D3D11ArmyTargetReaction> reactions)
+    {
+        ArgumentNullException.ThrowIfNull(reactions);
+        if(TargetReactions.SequenceEqual(reactions))return this;
+        lock(_generationLock)
+        {
+            if(_reactionPublication is null||!_reactionPublication.TargetReactions.SequenceEqual(reactions))
+                _reactionPublication=new(this,reactions,ViewRetirements);
+            return _reactionPublication;
+        }
+    }
+
+    public D3D11ArmyPublication WithViewRetirements(IReadOnlyList<D3D11ArmyViewRetirement> retirements)
+    {
+        ArgumentNullException.ThrowIfNull(retirements);
+        if(ViewRetirements.SequenceEqual(retirements))return this;
+        lock(_generationLock)
+        {
+            if(_retirementPublication is null||!_retirementPublication.ViewRetirements.SequenceEqual(retirements))
+                _retirementPublication=new(this,TargetReactions,retirements);
+            return _retirementPublication;
+        }
     }
 
     internal D3D11ArmyPublication WithResourceContextGeneration(ulong generation)
@@ -268,7 +351,7 @@ public sealed class D3D11ArmyPublisher:IDisposable
                     visible=visible.Append(departing).ToHashSet();
                 var plan=_selection.Resolve(world,visibleUnitIds:visible);
                 if(_motionInputs is null)_ordinary.Prepare(world,plan);
-                else _ordinary.PrepareMotion(world,plan,_motionClock!.Resolve(_fpsMode),sourceMotionInputs??_motionInputs);
+                else _ordinary.PrepareMotion(world,plan,_motionClock!.Resolve(_fpsMode),sourceMotionInputs??_motionInputs,presence);
                 var missingPlan=new List<D3D11ArmyUnavailable>();
                 if(presence is not null)
                     missingPlan.AddRange(presence.Unavailable.Select(row=>new D3D11ArmyUnavailable(row.UnitId,row.Field)));
@@ -330,28 +413,38 @@ public sealed class D3D11ArmyPublisher:IDisposable
         IReadOnlyDictionary<int,int> actions;
         IReadOnlyDictionary<int,float> heights;
         IReadOnlyDictionary<int,uint> motions,modes,land,naval;
+        IReadOnlySet<int> retainedPending;
         if(reuseCapturedInputs&&!_motionChanged){
             // Explicit animation phases do not change any unit-level input.
             centers=_current!.UnitCenters;actions=_current.UnitGraphicsActions;heights=_current.UnitGroundHeights;
             motions=_current.UnitMotionRevisions;modes=_current.UnitModelModes;
             land=_current.UnitSelectedFormations;naval=_current.UnitNavalFormations;
+            retainedPending=_current.RetainedPendingViews;
         }
         else{
             int count=_ordinary.Frames.Count;
+            var retained=new HashSet<int>();
             var centerValues=new Dictionary<int,Vector3>(count);var actionValues=new Dictionary<int,int>(count);
             var heightValues=new Dictionary<int,float>(count);var motionValues=new Dictionary<int,uint>(count);
             var modeValues=new Dictionary<int,uint>(count);
             var landValues=reuseCapturedInputs?null:new Dictionary<int,uint>(count);
             var navalValues=reuseCapturedInputs?null:new Dictionary<int,uint>(count);
             foreach(var (id,frame) in _ordinary.Frames){
+                bool retainedView=_ordinary.IsRetainedPendingView(id);
+                if(retainedView)retained.Add(id);
                 centerValues.Add(id,frame.CurrentUnitPosition);actionValues.Add(id,frame.GraphicsAction60);
                 heightValues.Add(id,frame.CurrentGroundHeight);motionValues.Add(id,frame.MotionRevision);
                 modeValues.Add(id,(uint)frame.Mode);
                 if(!reuseCapturedInputs){
-                    landValues!.Add(id,(uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world!,world!.Units[id])!.Value);
-                    navalValues!.Add(id,(uint)(ArmyConfigurationSourceAdapter.ReadNaval(world!,world!.Units[id])??0));
+                    // The retained view already owns these exact selected
+                    // bytes; logical exclusion does not re-create its model.
+                    landValues!.Add(id,retainedView?(uint)frame.SelectedFormation1B:
+                        (uint)ArmyConfigurationSourceAdapter.ReadCurrentLand(world!,world!.Units[id])!.Value);
+                    navalValues!.Add(id,retainedView?(uint)frame.SelectedFormation1C:
+                        (uint)(ArmyConfigurationSourceAdapter.ReadNaval(world!,world!.Units[id])??0));
                 }
             }
+            retainedPending=retained.ToFrozenSet();
             centers=new ReadOnlyDictionary<int,Vector3>(centerValues);actions=new ReadOnlyDictionary<int,int>(actionValues);
             heights=new ReadOnlyDictionary<int,float>(heightValues);motions=new ReadOnlyDictionary<int,uint>(motionValues);
             modes=new ReadOnlyDictionary<int,uint>(modeValues);
@@ -360,7 +453,9 @@ public sealed class D3D11ArmyPublisher:IDisposable
         }
         var next=new D3D11ArmyPublication(++_revision,actors,unavailable,returnedPhases?.Source??
             "Source current-Hex targets, retained nineteen-record motion and graphics ActionID; paced native manager owns player phase.",
-            centers,actions,heights,motions,modes,land,naval,flagRequests);
+            centers,actions,heights,motions,modes,land,naval,flagRequests,
+            unitHeadings:new ReadOnlyDictionary<int,float>(_ordinary.Frames.ToDictionary(p=>p.Key,p=>p.Value.CurrentUnitHeading)),
+            retainedPendingViews:retainedPending);
         _lastWorld=world;_motionChanged=false;_lastAnimation=returnedPhases;return _current=next;
     }
     public D3D11ArmyPublication AdvanceMotion(GameState world,uint fpsMode)

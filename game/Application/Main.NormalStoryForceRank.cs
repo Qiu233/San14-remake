@@ -61,10 +61,12 @@ public partial class Main
                     var view = new DeploymentNarrationView { Name = "NormalStoryRankMessage", ZIndex = 100 };
                     view.KeyboardInput = input => HandleNarrationKeyboard(input, view);
                     owner.View = view; AddChild(view);
+                    var resources = TryBorrowApplicationUiResources(view);
                     void Complete() => RunUiAction(() => CompleteNormalStoryRankMessage(owner));
                     if (message.Speaker is null)
                         view.ConfigureAnnouncement(_repository!, _ui, message.Text, Complete,
-                            () => _preferences.AutomaticMessageAdvance, () => NormalStoryForceRankInputAdmitted(owner));
+                            () => _preferences.AutomaticMessageAdvance, () => NormalStoryForceRankInputAdmitted(owner),
+                            resources: resources);
                     else
                     {
                         var query = rules.QueryPersonnelPresentationSpeaker(owner.World, message.Speaker);
@@ -74,7 +76,8 @@ public partial class Main
                         var sprites = new LocalizedUiSpriteSource(_repository!);
                         view.Configure(_repository!, _ui, publication.Name, message.Text,
                             route.LoadSprites(sprites.LoadTexturePackSprite), Complete,
-                            () => _preferences.AutomaticMessageAdvance, () => NormalStoryForceRankInputAdmitted(owner));
+                            () => _preferences.AutomaticMessageAdvance, () => NormalStoryForceRankInputAdmitted(owner),
+                            resources: resources);
                     }
                     break;
                 }

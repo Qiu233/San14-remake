@@ -114,13 +114,31 @@ public partial class Main
             //the source state returns an empty output. No successor is guessed.
             var warning=new DeploymentNarrationView {KeyboardInput=HandleGameplayNarrationKeyboard};
             owner.Warning=warning;AddChild(warning);
-            warning.ConfigureAnnouncement(_repository!,_ui,request.EmptyChoiceWarningAtSource,()=>RunUiAction(()=>
+            try
             {
-                if(!IsRulerDecisionCurrent||owner.Warning!=warning)return;
-                owner.Warning=null;warning.Hide();RemoveChild(warning);warning.QueueFree();OpenModal();
-            }),()=>_preferences.AutomaticMessageAdvance,
-                ()=>CanAdvanceNarration&&IsRulerDecisionCurrent&&owner.Warning==warning);
-            warning.Name="RulerSuccessionAnnouncement";warning.ZIndex=97;
+                warning.ConfigureAnnouncement(_repository!,_ui,request.EmptyChoiceWarningAtSource,()=>RunUiAction(()=>
+                {
+                    if(!IsRulerDecisionCurrent||owner.Warning!=warning)return;
+                    owner.Warning=null;warning.Hide();RemoveChild(warning);warning.QueueFree();OpenModal();
+                }),()=>_preferences.AutomaticMessageAdvance,
+                    ()=>CanAdvanceNarration&&IsRulerDecisionCurrent&&owner.Warning==warning,
+                    resources:TryBorrowApplicationUiResources(warning));
+                warning.Name="RulerSuccessionAnnouncement";warning.ZIndex=97;
+            }
+            catch
+            {
+                if (ReferenceEquals(_rulerDecision, owner) && ReferenceEquals(owner.Warning, warning))
+                    CloseRulerDecision();
+                else
+                {
+                    if (ReferenceEquals(owner.Warning, warning)) owner.Warning = null;
+                    if (GodotObject.IsInstanceValid(warning) && !warning.IsQueuedForDeletion())
+                    {
+                        warning.Abandon(); warning.GetParent()?.RemoveChild(warning); warning.QueueFree();
+                    }
+                }
+                throw;
+            }
         }
 
         void OpenModal()

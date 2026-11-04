@@ -117,7 +117,7 @@ public partial class Main
             !request.View.IsInsideTree() || request.View.IsQueuedForDeletion())
         { CloseCampaignHelp(request); return false; }
         if (request.Attached) return true;
-        if (owner.MapMusicPresentationOpen) return true;
+        if (owner.MapMusicPresentationOpen || owner.TargetReactionPresentationOpen || owner.ArmyViewRetirementPresentationOpen || owner.BaseTierPresentationOpen) return true;
         owner.CancelMenuBorrow();
         owner.MenuPresentationOpen = true;
         OpenCommandDetails(request.View, _ =>

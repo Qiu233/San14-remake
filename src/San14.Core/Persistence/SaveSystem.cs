@@ -16,7 +16,7 @@ public sealed record SaveEnvelope(int SchemaVersion, string FormatId, GameState 
 /// <summary>Local save format. A future original-save adapter can implement ISaveCodec.</summary>
 public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
 {
-    public const int CurrentSchemaVersion = 228;
+    public const int CurrentSchemaVersion = 229;
     public string FormatId => "san14-remake-json-gzip";
     private readonly ILegacyOfficerAbilitySource? _legacyAbilitySource;
     private readonly ICampaignResourceStateCodec? _resourceStateCodec;
@@ -43,6 +43,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
         // Serialize the owned world directly. Whole-world correctness checks belong
         // to offline validation; decoding checks data entering the game.
         JsonObject document = JsonSerializer.SerializeToNode(new SaveEnvelope(CurrentSchemaVersion, FormatId, state))!.AsObject();
+        ArmyViewRetirementSaveFields.ValidateWorld((JsonObject)document["State"]!, CurrentSchemaVersion);
         PersonnelIntelligenceNarrationSaveFields.ValidateWorld((JsonObject)document["State"]!);
         CampaignStorySelectionSaveFields.ValidateWorld((JsonObject)document["State"]!);
         ArmyGroupObjectiveSaveFields.ValidateWorld((JsonObject)document["State"]!);
@@ -80,6 +81,7 @@ public sealed class JsonGzipSaveCodec : ICampaignOperationSaveCodec
             throw new InvalidDataException("Save format or schema version is unsupported.");
         if (document["State"] is not JsonObject)
             throw new InvalidDataException("Saved game state is missing or invalid.");
+        ArmyViewRetirementSaveFields.ValidateWorld((JsonObject)document["State"]!, version);
         ArmyDistrictSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         PersonnelStrategicSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);
         NativeNormalTurnSaveFields.RejectLegacyFields((JsonObject)document["State"]!, version);

@@ -15,6 +15,7 @@ public partial class AudioPlaybackService
         if (_originalOutputs is not null) throw new InvalidOperationException("Original output routes are already configured.");
         _originalOutputs = new(GetInstanceId(), music, effects, profile);
         _originalDeviceProfile = profile;
+        InitializeSourceBgmScalar();
     }
 
     // A newly selected cue reads the current resource through the existing
@@ -33,10 +34,12 @@ public partial class AudioPlaybackService
         AudioServer.Lock();
         try
         {
+            RetireSourceBgmScalar();
             _originalOutputs?.Dispose(); _originalOutputs = null;
         }
         finally { AudioServer.Unlock(); }
         _originalOutputs = new(GetInstanceId(), music, effects, profile);
+        InitializeSourceBgmScalar();
         return _originalOutputs;
     }
 }

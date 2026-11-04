@@ -141,7 +141,7 @@ public partial class Main
         {
             page.Configure(_repository,_ui,_playCommandDeck.Theme,model,CloseCommanderSelectionPage,ids => RunPlayAction(() =>
             {
-                if (_commanderSelectionPage != page || !ReferenceEquals(world,_world) || _session != session || _residentMap != map) return;
+                if (_commanderSelectionPage != page || !ReferenceEquals(_commanderSelectionPageWorld,_world) || _session != session || _residentMap != map) return;
                 if (!ApplyPlayableOrder(new SetCommanderSelectionOrder(player,ids),CloseCommanderSelectionPage))
                     page.ApplyNotice(_playMessage.Text);
             }), CurrentListScrollSpeed);
@@ -149,6 +149,24 @@ public partial class Main
             RefreshCommanderCardsVisibility();
         }
         catch { CloseCommanderSelectionPage(); throw; }
+    }
+
+    // Called only by the existing committed speech-only adoption boundary.
+    // Card, dispatch and selector values are unchanged; retain their actual views.
+    private void AdoptCommanderSpeechWorld(GameplaySession session, GameState previous, GameState replacement)
+    {
+        if (_commanderCardsSession == session && _commanderCardsMap == _residentMap &&
+            ReferenceEquals(_commanderCardsWorld, previous))
+        {
+            _commanderCardsWorld = replacement;
+            if (_commanderCardSource is { } cards && ReferenceEquals(cards.World, previous))
+                _commanderCardSource = cards with { World = replacement };
+            if (_dispatchSource is { } dispatch && ReferenceEquals(dispatch.Source, previous))
+                _dispatchSource = dispatch with { Source = replacement };
+        }
+        if (_commanderSelectionPage is not null && _commanderSelectionPageSession == session &&
+            _commanderSelectionPageMap == _residentMap && ReferenceEquals(_commanderSelectionPageWorld, previous))
+            _commanderSelectionPageWorld = replacement;
     }
 
     private void CloseCommanderSelectionPage()

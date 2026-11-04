@@ -29,6 +29,7 @@ internal partial class CollectionMoviePlaybackView : Control
     private double clock, drainClock;
     private float pictureAspect = 16f / 9;
     internal Task Retirement => retirement ?? Task.CompletedTask;
+    internal bool PlaybackActive => started && !abandoned && !completing && decoder is not null;
 
     internal void Configure(GameResourceRepository repository, PreviewText text,
         CollectionMoviePlayback publication, string nativeLibrary, Func<bool> admitted,

@@ -42,16 +42,6 @@ internal static class DeploymentPreviewContextFactors
         finally { current.ClearNearbyTemporary(ring, true); }
     }
 
-    internal sealed class RegionPolicies(SourceWorldContext current) : IBattleRemakeCurrentRegionRemaining
-    {
-        public int? ReadActiveForcePolicy(GameState state, int nativeForceSlot, int nativeEffectIndex)
-        {
-            var force = current.ReadForceTableReference(nativeForceSlot);
-            return force is null ? null : current.BaseForceModifierReader?.Invoke(force, nativeEffectIndex);
-        }
-        //High-difficulty or advanced player selection is a separate app-state
-        //query. Preserve unknown rather than inferring it from a UI selection.
-    }
     private static T Need<T>(T? value, string field) where T : struct => value ?? throw Missing(field);
     private static InvalidDataException Missing(string field) => new("deployment.figures.preview_neighbors." + field);
 }

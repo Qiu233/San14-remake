@@ -9,6 +9,8 @@ public sealed partial class RemakeArmySceneVisuals
     {
         public RemakeArmyVisualUnit Unit { get; init; }
         public uint Revision { get; set; }
+        public int? NativePhysicalSlot { get; init; }
+        public bool RetainedPending { get; init; }
         public int Mode { get; init; }
         public byte SelectedFormation1B { get; init; }
         public byte SelectedFormation1C { get; init; }
@@ -20,12 +22,15 @@ public sealed partial class RemakeArmySceneVisuals
     /// The nineteen records survive current-Hex and model-mode changes.</summary>
     public void PrepareMotion(GameState world, PlayableArmyVisualPlan plan,
         ArmyGraphicsMotionFrame clock,
-        Func<GameState, UnitState, ArmyGraphicsCurrentInputs?> captureInputs)
+        Func<GameState, UnitState, ArmyGraphicsCurrentInputs?> captureInputs, ArmyMapPresenceFrame? presence = null)
     {
         var frames = new Dictionary<int, RemakeArmyVisualFrame>();
         foreach (var (id, selection) in plan.Selections)
         {
             var unit = world.Units[id];
+            // A reused logical id must not inherit a different physical Army view.
+            if (_motions.TryGetValue(id, out var previous) && previous.NativePhysicalSlot != unit.NativeArmyOrigin?.NativeSlotIndex)
+            { _motions.Remove(id); _states.Remove(id); _randomCounters.Remove(id); }
             if (ArmyConfigurationSourceAdapter.ReadCurrentLand(world, unit) is not byte formation||
                 captureInputs(world, unit) is not { } inputs) continue;
             int mode;
@@ -71,20 +76,40 @@ public sealed partial class RemakeArmySceneVisuals
                     selection.Transport is null ? null : selection.ExplicitLandFormationSlot);
                 owned = new(initial, new ArmyGraphicsMotion(initial.CopyRecords(), position, heading,
                     inputs.CurrentHex2A, inputs.Commander12, clock.UpdateInterval32C510, 48400), inputs)
-                    {Unit=RemakeArmyVisualUnit.Capture(unit),Revision=1,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval};
+                    {Unit=RemakeArmyVisualUnit.Capture(unit),Revision=1,NativePhysicalSlot=unit.NativeArmyOrigin?.NativeSlotIndex,
+                        Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval};
             }
             else
             {
                 uint revision=owned.Revision+(owned.Mode!=mode?1u:0u);
-                owned = owned with { Unit=RemakeArmyVisualUnit.Capture(unit),Inputs = inputs,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval,Revision=revision };
+                owned = owned with { Unit=RemakeArmyVisualUnit.Capture(unit),Inputs = inputs,Mode=mode,SelectedFormation1B=formation,SelectedFormation1C=naval,Revision=revision,RetainedPending=false };
             }
             _motions[id] = owned;
             frames.Add(id, PublishMotionFrame(owned));
         }
+        //233560 removes logical selection but does not destroy Army+148. Keep
+        //only an already-created view of this exact actual receiver. This path
+        //never selects or creates a hidden Army's resources, motion or models.
+        if (presence is not null)
+            foreach (var (id, motion) in _motions.ToArray())
+            {
+                if (frames.ContainsKey(id) || !Frames.ContainsKey(id) || motion.NativePhysicalSlot is not int physical ||
+                    !world.Units.TryGetValue(id, out var unit) || unit.NativeArmyOrigin?.NativeSlotIndex != physical ||
+                    !presence.Armies.TryGetValue(id, out var row) || row.UnitId != id || row.ArmyPhysicalSlot != physical ||
+                    row.ArmyValid != true || row.IsExcluded != true || presence.VisibleUnitIds.Contains(id)) continue;
+                // Selection/model metadata belongs to this already-created
+                // view. Unknown current formation must not replace it.
+                var retained = motion with { RetainedPending = true,
+                    Inputs = captureInputs(world, unit) ?? motion.Inputs };
+                _motions[id] = retained;
+                frames.Add(id, PublishMotionFrame(retained));
+            }
         foreach (var id in _motions.Keys.Where(id => !frames.ContainsKey(id)).ToArray())
         { _motions.Remove(id); _states.Remove(id); _randomCounters.Remove(id); }
         Frames = frames;
     }
+
+    internal bool IsRetainedPendingView(int armyId) => _motions.TryGetValue(armyId, out var owned) && owned.RetainedPending;
 
     /// <summary>Actual paced manager event, before native camera admission.
     /// A camera-only draw never invokes this motion owner.</summary>
@@ -113,7 +138,7 @@ public sealed partial class RemakeArmySceneVisuals
         var frame=owned.Mode==1?PublishNavalMotionFrame(owned):owned.Mode==2?PublishSiegeMotionFrame(owned):
             _states[owned.Unit.UnitId].PublishMotion(owned.Unit,owned.Initialization,owned.Motion.CaptureRecords(),
                 owned.Motion.UnitPosition10,owned.Motion.GraphicsAction60,_constructors);
-        return frame with{CurrentGroundHeight=Ground(owned.Motion.UnitPosition10.X,owned.Motion.UnitPosition10.Z),
+        return frame with{CurrentUnitHeading=owned.Motion.UnitHeading744,CurrentGroundHeight=Ground(owned.Motion.UnitPosition10.X,owned.Motion.UnitPosition10.Z),
             MotionRevision=owned.Revision,Mode=owned.Mode,SelectedFormation1B=owned.SelectedFormation1B,
             SelectedFormation1C=owned.SelectedFormation1C};
     }

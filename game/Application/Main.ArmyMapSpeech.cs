@@ -46,10 +46,11 @@ public partial class Main
             HasCampaignSavePage || HasMapSystemMenu || HasCommandWorkspace || _detailsView is not null ||
             _diplomacyNegotiation is not null || !map.MapSpeechManagerVisible;
         playback.Advance(delta, paused);
-        if (_advancingPeriod || HasDuelPresentation)
+        if (_advancingPeriod || HasDuelPresentation || HasNormalCombatTargetReactions || HasArmyViewRetirement)
         {
-            //The worker or duel host owns its exact prepared candidate until
-            //completion. Only the independent display clock advances here.
+            //The worker, duel or native Army-view command owns its exact
+            //prepared publication until completion. Only the independent
+            //display clock advances; speech receipts must not replace it.
             map.PresentArmyMapSpeech(playback.Visible, snapshot);
             return;
         }
@@ -195,6 +196,7 @@ public partial class Main
                 _personnelPresentationWorld = replacement;
         }
         map.AdoptSpeechWorld(previous, replacement);
+        AdoptCommanderSpeechWorld(session, previous, replacement);
         AdoptUnitOrderSpeechWorld(session, previous, replacement);
         AdoptMapSystemSpeechWorld(session, previous, replacement);
         AdoptAreaAdministrationSpeechWorld(session, previous, replacement);

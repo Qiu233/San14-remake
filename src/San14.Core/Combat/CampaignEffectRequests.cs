@@ -5,7 +5,7 @@ namespace San14.Core;
 public enum CampaignEffectSource { NormalCombatRefresh, ArmyFalseReport, ArmyProgressNotifications, ArmyCommandMaintenance,
     ArmyDemolition, MapObjectRetirement, ForceAssociationRemoval, FacilityEffects, ArmyFacilityRepair, ArmyFacilityConstruction,
     ArmyTraitMaintenance, FacilityTraps, ArmyBattleDefeat, FireDamage, TerrainDamage, OfficerGrowthNotifications, PersonAppearance, PersonDeath,
-    LandmarkInvestment, PersonLifespanNotifications, ForceUnregister, GovernanceRoster, ArmyStructureAttack, ArmyMovement, NormalCombatApplication, CityMerchant, TalentCommands, DiplomacyCommands, ForcePolicyLevelUp, OfficerOfficeCommands, PersonnelAdministrationCommands, MonthlyMaintenance, DoctrineResearchCommands, StrategicCommands, ProposalCommands, ForeignTradeCommands, SceneryInvestmentCommands, IntelligenceCommands, ArmyFirePresentation }
+    LandmarkInvestment, PersonLifespanNotifications, ForceUnregister, GovernanceRoster, ArmyStructureAttack, ArmyMovement, NormalCombatApplication, CityMerchant, TalentCommands, DiplomacyCommands, ForcePolicyLevelUp, OfficerOfficeCommands, PersonnelAdministrationCommands, MonthlyMaintenance, DoctrineResearchCommands, StrategicCommands, ProposalCommands, ForeignTradeCommands, SceneryInvestmentCommands, IntelligenceCommands, ArmyFirePresentation, ArmyViewRetirement }
 public enum CampaignReportEvent { FirstContact, FalseReportSucceeded, FalseReportFailed, FalseReportBackfired,
     ArmyAutomaticTargetSelected, PlayerDemolitionVisible, PlayerDemolitionAcknowledged, OtherArmyDemolitionObserved,
     PlayerFacilityConstructionCompleted, PlayerFacilityRepairCompleted,
@@ -254,6 +254,8 @@ public sealed record GovernanceNarrationRequest(int ForceId, int SpeakerId, int 
 /// <summary>2ECE50 target reaction awaiting the real Army view. The view owns
 /// existence, presentation148 and playback; this request acknowledges none.</summary>
 public sealed record NormalCombatTargetReactionRequest(int ArmyId, int Variant);
+/// <summary>Actual source view retirement at the active receiver departure, not logical exclusion.</summary>
+public sealed record ArmyViewRetirementRequest(int ArmyId, bool AnimateRetirement);
 
 /// <summary>Unconsumed source-time wall-damage cutscene intent. Tier2/3 map
 /// to controller events0x12/0x13. Model66 is already committed by simulation;
@@ -320,8 +322,9 @@ public sealed record ForceCoalitionVisualRequest(ForceCoalitionVisualOperation O
 {
     public int? SceneKind { get; init; }
 }
-/// <summary>The actual independence cutscene queued before force creation.
-/// Keeping the request does not imply that its scene has played.</summary>
+/// <summary>Legacy pending independence prefix chronology write before Force
+/// creation. The saved name remains compatible; the token contains no tail
+/// success, retained record slot or historical map snapshot.</summary>
 public sealed record ForceIndependenceSceneRequest(int OriginalForceId, int RulerOfficerId,
     int HomeLocationId, int SourceDay);
 /// <summary>Legacy pending chronology write after the new force's followers
@@ -359,6 +362,7 @@ public sealed record CampaignEffectRequest(CombatSpeechRequest? Speech, Campaign
     public DuelCaptureAnnouncementRequest? DuelCaptureAnnouncement { get; init; }
     public GovernanceNarrationRequest? GovernanceNarration { get; init; }
     public NormalCombatTargetReactionRequest? NormalCombatTargetReaction { get; init; }
+    public ArmyViewRetirementRequest? ArmyViewRetirement { get; init; }
     public BaseDamageTierCutsceneRequest? BaseDamageTierCutscene { get; init; }
     public PersonLifespanNotificationRequest? PersonLifespanNotification { get; init; }
     public CampaignHistoryNotification? HistoryNotification { get; init; }
@@ -434,6 +438,8 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                 !Enum.IsDefined(batch.Source) || batch.SourceRevision < 0 || batch.Requests is null)
                 throw new InvalidDataException("Invalid campaign effect batch order.");
             previous = batch.Sequence;
+            if (batch.Source == CampaignEffectSource.ArmyViewRetirement && batch.Requests.Length == 0)
+                throw new InvalidDataException("Army view retirement has no semantic request.");
             foreach (var request in batch.Requests)
             {
                 if (request is null || (request.ArmyFalseReportVisual is null ? 0 : 1) + (request.Speech is null ? 0 : 1) + (request.Report is null ? 0 : 1) +
@@ -474,6 +480,7 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.PersonLifespanNotification is null ? 0 : 1) +
                     (request.GovernanceNarration is null ? 0 : 1) +
                     (request.NormalCombatTargetReaction is null ? 0 : 1) +
+                    (request.ArmyViewRetirement is null ? 0 : 1) +
                     (request.BaseDamageTierCutscene is null ? 0 : 1) +
                     (request.DuelCaptureAnnouncement is null ? 0 : 1) +
                     (request.MonthlyMaintenance is null ? 0 : 1) +
@@ -485,6 +492,9 @@ public sealed record CampaignEffectRequests(long LastBatchSequence, CampaignEffe
                     (request.NormalTurnForceResourceNotice is null ? 0 : 1) +
                     (request.TutorialForceDefeatPresentation is null ? 0 : 1) != 1)
                     throw new InvalidDataException("A campaign effect requires one semantic payload.");
+                if ((batch.Source == CampaignEffectSource.ArmyViewRetirement || request.ArmyViewRetirement is not null) &&
+                    (batch.Source != CampaignEffectSource.ArmyViewRetirement || request.ArmyViewRetirement is not { ArmyId: > 0 }))
+                    throw new InvalidDataException("Invalid Army view retirement request origin or identity.");
                 if (request.ArmyDeparture is { } departure)
                 {
                     if (batch.Source != CampaignEffectSource.ArmyMovement)

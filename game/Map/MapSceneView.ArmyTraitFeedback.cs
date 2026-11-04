@@ -38,7 +38,7 @@ public partial class MapSceneView
         if (!_d3d11Markers.HasRefreshedArmyTraitView(world, armyId, out missing)) return false;
         if(CaptureCurrentArmyPresence(world)?.Armies.GetValueOrDefault(armyId)?.IsOnMap==false)
         {
-            if(publication.UnitCenters.ContainsKey(armyId))
+            if(publication.UnitCenters.ContainsKey(armyId) && !publication.RetainedPendingViews.Contains(armyId))
             {missing="army-trait-view.hidden_Army_model";return false;}
             return true;
         }

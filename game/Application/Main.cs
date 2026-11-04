@@ -173,6 +173,11 @@ public partial class Main : Control
             { GetViewport().SetInputAsHandled(); CancelNewGamePreparation(); }
             return;
         }
+        if (HasBaseTierCutscene)
+        {
+            if (HandleBaseTierCutsceneInput(input)) GetViewport().SetInputAsHandled();
+            return;
+        }
         if (HasEndingPresentation)
         {
             if (HandleEndingInput(input)) GetViewport().SetInputAsHandled();

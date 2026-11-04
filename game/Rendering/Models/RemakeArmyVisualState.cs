@@ -92,6 +92,7 @@ public sealed record RemakeArmyVisualFrame(int UnitId, int HexId, int FormationS
 {
     public Vector3 CurrentUnitPosition { get; init; } = Initialization.Center;
     public int GraphicsAction60 { get; init; }
+    public float CurrentUnitHeading { get; init; } = Initialization.Heading;
     public float CurrentGroundHeight { get; init; }
     public uint MotionRevision { get; init; }
     public int Mode { get; init; }

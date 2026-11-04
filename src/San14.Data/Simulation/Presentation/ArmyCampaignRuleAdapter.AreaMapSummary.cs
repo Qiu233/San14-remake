@@ -67,13 +67,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         });
         int[] developmentMounts = [11, 21, 31];
         int[] incomeMounts = [51, 56, 61];
+        var incomeInputs = new AreaSummaryIncomeInputs();
         for (int kind = 1; kind <= 3; kind++)
         {
             int captured = kind;
             output.Child(developmentMounts[kind - 1], "development" + kind, () =>
                 BuildAreaMapSummaryDevelopmentCurrent(state, current, receiver, area, captured));
             output.Child(incomeMounts[kind - 1], "income" + kind, () =>
-                BuildAreaMapSummaryIncomeCurrent(state, current, receiver, area, captured));
+                BuildAreaMapSummaryIncomeCurrent(state, current, receiver, area, captured, incomeInputs));
         }
         output.Child(66, "coverage", () => BuildAreaMapSummaryCoverageCurrent(state, current, receiver, area));
         output.Child(140, "disaster", () => BuildAreaMapSummaryDisasterCurrent(state, current, receiver, area));
@@ -89,13 +90,14 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (nodes.Count != 11) throw AreaSummaryMissing("Base_Area_node_table");
         var output = new AreaSummaryPublication(receiver, layoutName) { Valid = true };
         int physical = AreaSummaryNeed(area.PhysicalSlot, "Base_Area_identity");
+        var incomeInputs = new AreaSummaryIncomeInputs();
         for (int kind = 1; kind <= 3; kind++)
         {
             int captured = kind;
             output.Child(nodes[kind - 1], "development" + kind, () =>
                 BuildAreaMapSummaryDevelopmentCurrent(state, current, receiver, area, captured));
             output.Child(nodes[kind + 7], "income" + kind, () =>
-                BuildAreaMapSummaryIncomeCurrent(state, current, receiver, area, captured));
+                BuildAreaMapSummaryIncomeCurrent(state, current, receiver, area, captured, incomeInputs));
         }
         output.Child(nodes[3], "officer", () => BuildAreaMapSummaryOfficerCurrent(state, current, receiver, area));
         output.Visible[securityGaugeNode] = false;
@@ -113,6 +115,18 @@ public sealed partial class ArmyCampaignRuleAdapter
 
     internal MapSummaryPage BuildAreaMapSummaryIncomeCurrent(GameState state, SourceWorldContext current,
         MapSummaryReceiver receiver, AreaReference area, int kind)
+        => BuildAreaMapSummaryIncomeCurrent(state, current, receiver, area, kind, new AreaSummaryIncomeInputs());
+
+    // The three scalar consumers belong to one synchronous parent publication.
+    // Bind lazily only after the original validity/special-city gates, then
+    // retain these exact state/current inputs until that publication returns.
+    private sealed class AreaSummaryIncomeInputs
+    {
+        internal AreaAdministrationPreviewSource? Preview;
+    }
+
+    private MapSummaryPage BuildAreaMapSummaryIncomeCurrent(GameState state, SourceWorldContext current,
+        MapSummaryReceiver receiver, AreaReference area, int kind, AreaSummaryIncomeInputs incomeInputs)
     {
         if (kind is < 1 or > 3) throw AreaSummaryMissing("income_kind");
         var output = new AreaSummaryPublication(receiver, "00_82_05_sum_city_offset_03") { Valid = true };
@@ -130,12 +144,16 @@ public sealed partial class ArmyCampaignRuleAdapter
             var city = AreaSummaryCity(current, area);
             if (!AreaSummaryNeed(current.ReadBaseNativeValidity(city), "income_City_validity"))
             { output.Text[4] = string.Empty; return; }
-            _personAssignmentPrecallInputs.BindCurrent(state, current);
-            bool bound = _baseCapacityInputs.BindCurrent(state, current);
-            var preview = new AreaAdministrationPreviewSource(state, current, _scenario, Seed.Language, _baseCapacityInputs, bound);
+            var preview = incomeInputs.Preview;
+            if (preview is null)
+            {
+                bool bound = _baseCapacityInputs.BindCurrent(state, current);
+                preview = new AreaAdministrationPreviewSource(state, current, _scenario, Seed.Language, _baseCapacityInputs, bound);
+                incomeInputs.Preview = preview;
+            }
             int physical = AreaSummaryNeed(area.PhysicalSlot, "income_Area_identity");
-            int Count(int person) => (current.ReadAssignmentPersonAreaVector(person)
-                ?? throw AreaSummaryMissing("income_Person_task_vector")).ActiveCount1E8;
+            int Count(int person) => PersonAssignmentPrecallInputs.ReadSavedPersonAreaActiveCount(state, person)
+                ?? throw AreaSummaryMissing("income_Person_task_vector");
             var query = kind switch { 1 => preview.Gold(physical, Count), 2 => preview.Food(physical, Count),
                 _ => preview.Soldiers(physical, mode: 2) };
             output.Text[4] = query.Available && query.Value is int value ? AreaSummaryNumber(value)
@@ -226,8 +244,8 @@ public sealed partial class ArmyCampaignRuleAdapter
             bool valid = AreaSummaryNeed(current.ReadForceNativeValidity(force), "coverage_Force_validity");
             output.Visible[6] = output.Visible[3] = valid;
             if (!valid) return;
-            int owned = AreaSummaryNeed(current.ReadAreaRawField68(area), "coverage_Area68");
-            int total = AreaSummaryNeed(current.ReadAreaRawField76(area), "coverage_Area76");
+            int owned = AreaSummarySavedOwnedCellCount(state, area, "coverage_Area68");
+            int total = AreaSummarySavedTerrainCellCount(state, area, "coverage_Area76");
             output.Text[6] = AreaSummaryFormat(ReadHistoryDataText(1, 0x325), owned, total);
             int style = total == 0 || owned * 100 / total == 100 ? 0 : owned * 100 / total < 50 ? 2 : 1;
             output.Presets[6] = new[] { 17, 18, 16 }[style];
@@ -253,13 +271,13 @@ public sealed partial class ArmyCampaignRuleAdapter
                 output.Visible[mount] = row < neighbors.Count;
                 if (row >= neighbors.Count) continue;
                 var next = neighbors[row];
-                output.Child(mount, "neighbor" + row, () => BuildAreaMapSummaryNeighborCurrent(current, receiver, next));
+                output.Child(mount, "neighbor" + row, () => BuildAreaMapSummaryNeighborCurrent(state, current, receiver, next));
             }
         });
         return output.Page();
     }
 
-    private MapSummaryPage BuildAreaMapSummaryNeighborCurrent(SourceWorldContext current,
+    private MapSummaryPage BuildAreaMapSummaryNeighborCurrent(GameState state, SourceWorldContext current,
         MapSummaryReceiver receiver, AreaReference area)
     {
         var output = new AreaSummaryPublication(receiver, "00_82_05_sum_city_offset_08") { Valid = true };
@@ -269,7 +287,7 @@ public sealed partial class ArmyCampaignRuleAdapter
         if (output.Missing.ContainsKey(3)) output.Visible[4] = false;
         output.Read(5, () =>
         {
-            int owned = AreaSummaryNeed(current.ReadAreaRawField68(area), "neighbor_Area68");
+            int owned = AreaSummarySavedOwnedCellCount(state, area, "neighbor_Area68");
             var force = AreaSummaryForce(current, area);
             if (!AreaSummaryNeed(current.ReadForceNativeValidity(force), "neighbor_Force_validity"))
             {
@@ -284,7 +302,7 @@ public sealed partial class ArmyCampaignRuleAdapter
                     if (AreaSummaryNeed(current.ReadHexForceSlot(hex), "neighbor_Hex14") == owner) owned++;
                 }
             }
-            int total = AreaSummaryNeed(current.ReadAreaRawField76(area), "neighbor_Area76");
+            int total = AreaSummarySavedTerrainCellCount(state, area, "neighbor_Area76");
             output.Text[5] = AreaSummaryFormat(ReadHistoryDataText(1, 0x560), owned, total);
             output.Visible[6] = true;
             output.Bars.Add(new(6, owned, total, 1) { InitialCurrent = 70, InitialMaximum = 100 });
@@ -342,6 +360,22 @@ public sealed partial class ArmyCampaignRuleAdapter
             ?? throw AreaSummaryMissing("assigned_Person_lookup");
         return AreaSummaryNeed(person.PhysicalSlot, "assigned_Person_pointer");
     }
+    //927E00's coverage/neighbor pages consume the saved raw68/76 words.
+    //The lightweight map current need not install regional-effects inputs;
+    //their separate qualification flag must not hide these latched UI values.
+    //Use the same published World as population/security, without recounting
+    //or promoting any shared-current regional-effects input.
+    private static AreaMapStatisticsEntry AreaSummarySavedStatistics(GameState state, AreaReference area, string field)
+    {
+        int physical = AreaSummaryNeed(area.PhysicalSlot, "statistics_Area_identity");
+        return state.RegionStatistics?.Entries.GetValueOrDefault(physical)
+            ?? throw AreaSummaryMissing(field);
+    }
+    private static int AreaSummarySavedOwnedCellCount(GameState state, AreaReference area, string field) =>
+        AreaMapStatisticsInitialization.CountToNativeWord(AreaSummarySavedStatistics(state, area, field).OwnedCellCount);
+    private static int AreaSummarySavedTerrainCellCount(GameState state, AreaReference area, string field) =>
+        AreaMapStatisticsInitialization.CountToNativeWord(AreaSummarySavedStatistics(state, area, field).TerrainCellCount);
+
     private static int AreaSummaryPopulation(GameState state, int physical) =>
         state.Areas.GetValueOrDefault(physical)?.NativeNormalAftermath?.Quantity52 ?? throw AreaSummaryMissing("Area52_population");
     private static int AreaSummarySecurity(GameState state, int physical) =>

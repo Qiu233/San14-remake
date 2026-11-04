@@ -24,23 +24,46 @@ struct ArmyWorldActor {
     ArmyWorldActorKey key{};int32_t action{};float returnedPhase{};
     NativeAccessoryPoseRoot world{};std::array<float,20> bounds{};ArmyWorldMaterialKey material{};
 };
+struct ArmyTargetReactionRequest {uint64_t requestId{};int32_t army{},variant{};uint32_t sourceFlags{};bool operator==(const ArmyTargetReactionRequest&)const=default;};
+struct ArmyTargetReactionReceipt {uint64_t requestId{};int32_t army{},variant{};uint32_t status{};};
+struct ArmyViewRetirementRequest {uint64_t requestId{};int32_t army{};uint32_t flags{};};
+struct ArmyViewRetirementReceipt {uint64_t requestId{};int32_t army{};uint32_t status{};};
 struct ArmyWorldPublication {uint64_t revision{},contextGeneration{};std::map<int32_t,std::array<float,3>> unitCenters;std::map<int32_t,int32_t> graphicsActions;
     std::map<int32_t,float> unitGroundHeights;std::map<int32_t,uint32_t> unitMotionRevisions;
-    std::map<int32_t,uint32_t> unitModelModes,unitSelectedFormations,unitNavalFormations;std::vector<ArmyWorldActor> actors;};
+    std::map<int32_t,uint32_t> unitModelModes,unitSelectedFormations,unitNavalFormations;
+    std::map<int32_t,float> unitHeadings;std::map<int32_t,NativeAccessoryPoseVector> unitRotations;std::vector<ArmyTargetReactionRequest> targetReactions;
+    std::vector<ArmyWorldActor> actors;std::vector<ArmyViewRetirementRequest> retirements;bool explicitViewRetirement{};};
 inline int armyWorldNavalCategory(uint32_t formation){
     switch(formation){case 11:case 20:return 8;case 12:case 17:return 7;case 13:case 18:return 9;default:return -1;}
 }
 inline ArmyWorldPublication copyArmyWorldPublication(const void* data,size_t byteCount){
-    constexpr size_t header=32,actorBytes=164;
-    if(!data||byteCount<header)throw std::runtime_error("Army actual World publication header is absent");
+    constexpr size_t legacyHeader=36,actorBytes=164;
+    if(!data||byteCount<legacyHeader)throw std::runtime_error("Army actual World publication header is absent");
     const auto* bytes=static_cast<const char*>(data);size_t at=0;
     auto read=[&](void* destination,size_t count){if(count>byteCount-at)throw std::runtime_error("Army World publication ends inside actor");
         std::memcpy(destination,bytes+at,count);at+=count;};
     std::array<char,8> magic{};read(magic.data(),8);
-    if(magic!=std::array<char,8>{'A','R','M','Y','W','L','D','7'})throw std::runtime_error("Army actual World publication schema");
-    ArmyWorldPublication r;read(&r.revision,8);read(&r.contextGeneration,8);int32_t count,units;read(&count,4);read(&units,4);
-    if(!r.revision||count<0||units<0||header+size_t(units)*40+size_t(count)*actorBytes!=byteCount)
+    const bool version10=magic==std::array<char,8>{'A','R','M','Y','W','D','1','0'};
+    if(!version10&&magic!=std::array<char,8>{'A','R','M','Y','W','L','D','9'})throw std::runtime_error("Army actual World publication schema");
+    const size_t header=version10?40:legacyHeader;
+    ArmyWorldPublication r;r.explicitViewRetirement=version10;read(&r.revision,8);read(&r.contextGeneration,8);int32_t count,units;read(&count,4);read(&units,4);
+    int32_t requests,retirements=0;read(&requests,4);if(version10)read(&retirements,4);
+    if(!r.revision||count<0||units<0||requests<0||retirements<0||header+size_t(retirements)*16+size_t(requests)*20+size_t(units)*60+size_t(count)*actorBytes!=byteCount)
         throw std::runtime_error("Army actual World publication length/revision");
+    uint64_t priorRequest{};r.targetReactions.resize(size_t(requests));
+    for(auto& reaction:r.targetReactions){
+        read(&reaction.requestId,8);read(&reaction.army,4);read(&reaction.variant,4);read(&reaction.sourceFlags,4);
+        if(!reaction.requestId||reaction.army<=0||(reaction.variant!=1&&reaction.variant!=2)||reaction.requestId<=priorRequest||reaction.sourceFlags>1)
+            throw std::runtime_error("Army target reaction request identity/range");
+        priorRequest=reaction.requestId;
+    }
+    r.retirements.resize(size_t(retirements));priorRequest=0;
+    for(auto& retirement:r.retirements){
+        read(&retirement.requestId,8);read(&retirement.army,4);read(&retirement.flags,4);
+        if(!retirement.requestId||retirement.requestId<=priorRequest||retirement.army<=0||retirement.flags>1)
+            throw std::runtime_error("Army view retirement identity/flags");
+        priorRequest=retirement.requestId;
+    }
     for(int i=0;i<units;++i){int32_t id;std::array<float,3> center;read(&id,4);read(center.data(),12);
         if(id<=0||!std::isfinite(center[0])||!std::isfinite(center[1])||!std::isfinite(center[2])||!r.unitCenters.emplace(id,center).second)
             throw std::runtime_error("Army actual Unit center range/duplicate");
@@ -52,7 +75,13 @@ inline ArmyWorldPublication copyArmyWorldPublication(const void* data,size_t byt
         uint32_t mode,formation,naval;read(&mode,4);read(&formation,4);read(&naval,4);
         if(mode>2||formation>255||naval>255||(mode==2&&(formation<8||formation>10)))
             throw std::runtime_error("Army current model mode needs its imported resource category");
-        r.unitModelModes.emplace(id,mode);r.unitSelectedFormations.emplace(id,formation);r.unitNavalFormations.emplace(id,naval);}
+        r.unitModelModes.emplace(id,mode);r.unitSelectedFormations.emplace(id,formation);r.unitNavalFormations.emplace(id,naval);
+        float heading;read(&heading,4);if(!std::isfinite(heading))throw std::runtime_error("Army current heading is nonfinite");
+        r.unitHeadings.emplace(id,heading);
+        NativeAccessoryPoseVector rotation;read(&rotation,16);
+        if(!std::isfinite(rotation.x)||!std::isfinite(rotation.y)||!std::isfinite(rotation.z)||!std::isfinite(rotation.w))
+            throw std::runtime_error("Army current source yaw is nonfinite");
+        r.unitRotations.emplace(id,rotation);}
     r.actors.resize(size_t(count));std::map<ArmyWorldActorKey,bool> unique;
     constexpr int32_t descriptors[]{0x778,0x750,0x7F0,0x7C8,0x7A0,0x7A0,0x7A0,0x818,0x818,0x818},capacities[]{15,4,1,3,3,3,3,1,1,1};
     for(auto& a:r.actors){

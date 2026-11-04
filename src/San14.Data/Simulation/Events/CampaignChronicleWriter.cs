@@ -112,6 +112,32 @@ internal sealed class CampaignChronicleWriter(CampaignHistoryWriter forceNames)
             : chronology with { ImportantEntries = entries } };
     }
 
+    // Refresh exactly this retained physical record, even if another writer
+    // reused its slot. EntryKind zero is the native-invalid receiver.
+    internal GameState RefreshEntrySnapshot(GameState state, SourceWorldContext current,
+        CampaignChronicleEntryReference entry)
+    {
+        var chronology = state.CampaignChronicle ?? throw Missing("saved_chronology");
+        var entries = entry.Primary ? chronology.PrimaryEntries : chronology.ImportantEntries;
+        if ((uint)entry.Slot >= (uint)entries.Length) throw Missing("entry_slot");
+        if (entries[entry.Slot].EntryKind == 0) return state;
+        entries = entries.SetItem(entry.Slot, Snapshot(state, current, entries[entry.Slot]));
+        return state with { CampaignChronicle = entry.Primary
+            ? chronology with { PrimaryEntries = entries }
+            : chronology with { ImportantEntries = entries } };
+    }
+
+    // The source latest-primary lookup is the physical predecessor of its
+    // next writable slot. It is not a maximum-sequence or event-code search.
+    internal GameState RefreshLatestPrimarySnapshotIfEvent(GameState state, SourceWorldContext current,
+        ushort eventCode)
+    {
+        var entries = (state.CampaignChronicle ?? throw Missing("saved_chronology")).PrimaryEntries;
+        int next = Select(entries), previous = next == 0 ? entries.Length - 1 : next - 1;
+        if (entries[previous].EntryKind == 0 || entries[previous].EventCode != eventCode) return state;
+        return RefreshEntrySnapshot(state, current, new(true, previous));
+    }
+
     private static int Select(ImmutableArray<CampaignChronicleRecord> records)
     {
         if (records.IsDefaultOrEmpty) throw Missing("writable_entries");

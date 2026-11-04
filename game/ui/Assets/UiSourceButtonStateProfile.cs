@@ -31,6 +31,7 @@ internal sealed class UiSourceButtonStateProfile
             foreach(var track in clip.Tracks)
             {
                 if(track.Channel!=10)throw new InvalidDataException("button.state_art.non_alpha_channel");
+                if(track.Curve.Keys.Count==0)continue;
                 own[track.NodeId]=Alpha((float)track.Curve.Sample(clip.EndFrame));
             }
             var effective=new byte[nodes.Count];

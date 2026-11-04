@@ -189,7 +189,7 @@ public partial class Main
                 if (!IsEventEditorsCurrent || _editedEventQuestion != view) return;
                 _editedEventQuestion = null; view.Abandon(); view.QueueFree();
                 if (yes) confirmed(); else declined?.Invoke();
-            }));
+            }), resources: TryBorrowApplicationUiResources(view));
             view.Name = "EditedEventConfirmation"; view.SetMeta("message_record", message);
         }
         catch { _editedEventQuestion = null; view.Abandon(); view.QueueFree(); throw; }
@@ -208,7 +208,8 @@ public partial class Main
                 if (!IsEventEditorsCurrent || _editedEventNotice != view) return;
                 _editedEventNotice = null; view.Abandon(); view.QueueFree(); closed?.Invoke();
                 ResumeEditedEventMenu();
-            }), admitted: () => IsEventEditorsCurrent && _editedEventNotice == view);
+            }), admitted: () => IsEventEditorsCurrent && _editedEventNotice == view,
+                resources: TryBorrowApplicationUiResources(view));
             view.Name = "EditedEventNotice";
             if (messageId is int id) view.SetMeta("message_record", id);
         }

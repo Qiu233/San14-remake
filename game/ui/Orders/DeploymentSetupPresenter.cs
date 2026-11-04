@@ -101,7 +101,7 @@ internal sealed partial class DeploymentSetupPresenter : IDisposable
         var query=rules.QueryDeploymentPersonBasicList(world,source,0);
         if(!query.Available){unavailable(query.UnresolvedInput??"deployment.person-list.unavailable");return;}
         var entries=DeploymentPersonListContent.Create(repository,text,world,scenario,query);
-        var selection=new DeploymentPersonSelectionView();modal=selection;view.AddChild(selection);
+        var selection=new DeploymentPersonSelectionView { TransitionFailure=view.TransitionFailure };modal=selection;view.AddChild(selection);
         try
         {
             view.BeginChildSelection(selection, keepBackdrop: true);

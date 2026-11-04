@@ -7,6 +7,7 @@ using San14.Data.Formats;
 internal sealed class MapTerrainResources : IDisposable
 {
     private TerrainMeshCache? _cache;
+    private readonly PreparedTerrainGeometryCatalogue? cpuGeometry;
     private readonly TerrainLodDrawPlanner lodPlanner;
     private TerrainLodDrawPlan? cachedLodPlan, committedLodPlan;
     private Vector3 cachedLodEye;
@@ -29,8 +30,9 @@ internal sealed class MapTerrainResources : IDisposable
 
     private MapTerrainResources(TerrainMeshResult meshes, LoadedTerrainSceneResources source,
         G2ShaderTextureBases textureBases, TerrainGbiMapMaterial? gbi,
-        MapStaticModelGroundHeightSource worldGroundHeight)
+        MapStaticModelGroundHeightSource worldGroundHeight, PreparedTerrainGeometryCatalogue? cpuGeometry)
     {
+        this.cpuGeometry = cpuGeometry;
         (Meshes, Source, TextureBases, Gbi) = (meshes, source, textureBases, gbi);
         WorldGroundHeight = worldGroundHeight;
         ProjectionSource = source.Height.ControlBinding.Resource.Source;
@@ -43,9 +45,13 @@ internal sealed class MapTerrainResources : IDisposable
     {
         LoadedTerrainSceneResources source = prepared.Terrain;
         G2ShaderTextureBases textureBases = prepared.TextureBases;
-        // Playable scenes start with a root prototype, then use the camera's mixed-node plan.
+        // Product views borrow their startup generation's CPU geometry. A
+        // nonprojected developer preview retains the existing local producer.
+        var cpuGeometry = nativeMap ? prepared.CpuGeometry : null;
         TerrainMeshResult meshes = nativeMap
-            ? TerrainMesh.PrepareCpu(source.Terrain, source.Height, depth)
+            ? cpuGeometry is not null
+                ? TerrainMesh.RetainCpu(cpuGeometry, TerrainMeshSelection.Uniform(source.Terrain.SpatialTree, depth))
+                : TerrainMesh.PrepareCpu(source.Terrain, source.Height, depth)
             : TerrainMesh.Build(source.Terrain, source.Height, depth);
         TerrainGbiMapMaterial? gbi = null;
         try
@@ -54,13 +60,13 @@ internal sealed class MapTerrainResources : IDisposable
                 gbi = await TerrainGbiMapMaterial.BuildAsync(meshes, source.Material);
         }
         catch { meshes.Dispose(); throw; }
-        return new(meshes, source, textureBases, gbi, prepared.WorldGroundHeight);
+        return new(meshes, source, textureBases, gbi, prepared.WorldGroundHeight, cpuGeometry);
     }
 
     public void InitializeAdaptiveGeometry()
     {
         LodDistanceScale = TerrainParameterResources.ReadLodDistanceScale(Source.Parameters);
-        _cache = new(Meshes!, InitialHeight);
+        _cache = new(Meshes!, InitialHeight, cpuGeometry: cpuGeometry);
     }
 
     public void BuildPicker() => Picker = TerrainPicker.Build(Meshes!);

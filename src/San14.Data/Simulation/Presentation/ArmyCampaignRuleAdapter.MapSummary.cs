@@ -12,8 +12,10 @@ public sealed partial class ArmyCampaignRuleAdapter
         _force164Inputs.BindCurrent(state, current);
         _personRelationInputs.BindCurrent(state, current);
         _baseCapacityInputs.BindCurrent(state, current);
+        _personAssignmentPrecallInputs.BindAreaAdministrationScalars(state, current);
         CaptureBaseThreatInputs.BindCurrent(state, current);
         BaseReturnCaptivesInputs.BindCurrent(state, current);
+        current.BindReadOnlyPersonLinkedEntityInputs(state.PersonnelCommands);
         current.EventConditions.ScenarioMode = state.CampaignEventWorld?.ScenarioMode;
     }
 

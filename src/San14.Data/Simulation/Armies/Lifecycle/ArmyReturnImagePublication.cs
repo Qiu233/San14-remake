@@ -14,6 +14,7 @@ internal static class ArmyReturnImagePublication
             ?? throw new InvalidDataException("Army image publication lacks its saved lifecycle.");
         var retiring = retired.ToHashSet();
         if (changes.Writes.Count == 0 && retiring.Count == 0) return state;
+        List<CampaignEffectRequest>? viewRetirements = null;
         Dictionary<int, UnitState>? units = null;
         Dictionary<int, OfficerState>? people = null;
         var receivers = new List<ArmyReceiverState>();
@@ -49,6 +50,15 @@ internal static class ArmyReturnImagePublication
                 if (image is null) throw new InvalidDataException("Army retirement has no captured image.");
                 if (receiver.ActiveUnitId is int active)
                 {
+                    //31F370/retirement leaves the actual header alive until
+                    //stage26 resets it. Read its reached150.bit1 before reset,
+                    //not233560, absence or the unrelated Flags26 bank.
+                    byte flags = context.ReadArmyUnitFlags150(new(physical))
+                        ?? throw new InvalidDataException("Army view retirement flags150 are unknown.");
+                    if (active <= 0 || image.Id != active)
+                        throw new InvalidDataException("Army view retirement has no actual captured Army identity.");
+                    (viewRetirements ??= []).Add(new(null, null)
+                        { ArmyViewRetirement = new(active, (flags & 2) != 0) });
                     (units ??= new(state.Units)).Remove(active);
                     receiver = receiver.Retire(image);
                 }
@@ -69,6 +79,15 @@ internal static class ArmyReturnImagePublication
             Source = sourceSlots is null ? lifecycle.Source : lifecycle.Source with { Slots = sourceSlots }
         };
         var result = (state with { Units = units ?? state.Units, Officers = people ?? state.Officers, ResourceState = resources }).WithArmyLifecycle(updated);
+        if (viewRetirements is { Count: > 0 })
+        {
+            var effects = result.CampaignEffectRequests
+                ?? throw new InvalidDataException("Army view retirement has no initialized campaign effect owner.");
+            long revision = result.NativeClock?.UpdateOrdinal
+                ?? throw new InvalidDataException("Army view retirement has no actual native clock.");
+            result = result with { CampaignEffectRequests = effects.Append(
+                CampaignEffectSource.ArmyViewRetirement, revision, viewRetirements) };
+        }
         //Only a successful publication consumes these writes. Later callbacks can
         //supply new domain knowledge without an old source observation replaying it.
         changes.Clear();

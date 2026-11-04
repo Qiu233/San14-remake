@@ -312,6 +312,12 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
     }
     auto publishCurrentModels=[&]() {
         armies.publishArmy(device.Get(),context.Get(),host.armyWorld);
+        if(armies.hasViewRetirementAdmission()){
+            const auto& camera=frameState.publishedEventCameraPrefix(host.input);
+            const auto zoom=source_camera::Zoom{host.input.band,host.input.fraction,
+                source_camera::A(float(host.input.band),source_camera::D(float(host.input.fraction),10000))};
+            armies.admitViewRetirements(host.input,camera,source_far_main::currentMode(zoom,host.input.mainModeOverride()));
+        }
         bases.publish(device.Get(),context.Get(),host.cityGateWorld,host.areaCapitalWorld,armies);
         if(bases.shadowPopulationPending()) {
             shadows.publishPrimaryPopulation(staticModels->catalog(),bases.primary(),
@@ -359,6 +365,8 @@ San14::Render::RenderSession San14::Render::createRenderSession(RenderHost& host
         territory.recordMapUpdate(fpsMode);
     };
     if(host.input.contains(FrameInputFlag::InitialAnimationUpdate))host.animationUpdate(0); // explicit initial normal Map callback
+    host.armyTargetReactionReceipts=[&]() {return armies.targetReactionReceipts();};
+    host.armyViewRetirementReceipts=[&]() {return armies.viewRetirementReceipts();};
     host.armyUnitPositions=[&]() {
         if(!armies.hasActiveArmyOwner())return std::vector<ArmyLabelUnitPosition>{};
         return armies.labelPositions(*host.armyWorld);

@@ -9,7 +9,7 @@ internal sealed record DeploymentPersonListEntry(int OfficerId, bool Disabled,
 /// Only ordinary column directions and the active header belong to each page.</summary>
 internal partial class DeploymentPersonSelectionView : Control
 {
-    internal bool IsSelectionActive => _close is not null && !IsQueuedForDeletion() &&
+    internal bool IsSelectionActive => !_foregroundTransitionBusy && _close is not null && !IsQueuedForDeletion() &&
         IsInsideTree() && IsVisibleInTree() && CanProcess();
     private sealed class RowDisplay(UiSourcePersonRow row)
     {
@@ -112,13 +112,13 @@ internal partial class DeploymentPersonSelectionView : Control
         _shader=resources?.SpriteShader??UiSourceSprite.CreateShader();
         _selectCaption=Message(0x003A); _clearCaption=Message(0x003B); _checkGlyph=Message(0x0628);
         _canvas=new Control {Name="SourceCanvas",Size=new(1920,1080),MouseFilter=MouseFilterEnum.Stop};
-        AddChild(_canvas);
+        AddChild(_canvas); CreateForegroundRoots();
         _sourceHeader=new UiSourceHeader {Name="PersonSelectionTitle"};
-        _canvas.AddChild(_sourceHeader);
+        _sourceHeaderMotion!.AddChild(_sourceHeader);
         _sourceHeader.Configure(repository,_assets,_shader,_font,Message(0x032E));
         var shell=_assets.SourceLayout(0xA3B4A82E);
-        shell.Blur(_canvas,2,shell.Rectangle(2,new(191,147)));
-        shell.Art(_canvas,3,shell.Rectangle(3,new(191,147)),_assets,_shader);
+        shell.Blur(SourceBodyRoot,2,shell.Rectangle(2,new(191,147)));
+        shell.Art(SourceBodyRoot,3,shell.Rectangle(3,new(191,147)),_assets,_shader);
         int[] tabs=[0x03CD,0x022B,0x0235,0x03DD,0x03DE,0x023D];
         float tabX=230;
         for(int i=0;i<tabs.Length;i++)
@@ -128,13 +128,13 @@ internal partial class DeploymentPersonSelectionView : Control
             var tab=new UiSourceTabButton {Name="PersonTab"+i,Position=new(tabX,147),Size=new(width,64),
                 Selected=i==0,Disabled=i switch {1=>formations is null,2=>linkage is null,
                     3 or 4=>tactics is null,5=>traits is null,_=>false}};
-            _canvas.AddChild(tab); _tabs.Add(tab);
+            SourceBodyRoot.AddChild(tab); _tabs.Add(tab);
             tab.Configure(repository,_assets,_shader,_font,caption,i==0?0x172EDC24u:i==tabs.Length-1?0xD45873AAu:0x9AFB27B7u);
             tab.Pressed+=()=>SwitchPage(pageIndex);
             tabX+=width-6;
         }
         _scroll=new UiSourceScrollbar {Name="PersonScrollbar",Position=new(1687,265),Size=new(16,597)};
-        _canvas.AddChild(_scroll);
+        SourceBodyRoot.AddChild(_scroll);
         _scroll.Configure(repository,_assets,_shader,Math.Max(0,entries.Count*48-596),scrollSpeedSetting,_=>PositionRows(),currentScrollSpeed:currentScrollSpeed);
         for(int i=0;i<_pages.Length;i++)
             foreach(var column in _pages[i].Columns)
@@ -142,15 +142,15 @@ internal partial class DeploymentPersonSelectionView : Control
         BuildPage(0,entries);
         var accept=new UiSourceRoundButton {Name="AcceptPersonSelection",Position=new(827,955)};_accept=accept;
         var cancel=new UiSourceRoundButton {Name="CancelPersonSelection",Position=new(965,955)};
-        _canvas.AddChild(accept); _canvas.AddChild(cancel);
+        SourceFooterRoot.AddChild(accept); SourceFooterRoot.AddChild(cancel);
         accept.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_kettei",()=>Close(_selected.ToArray()));
         cancel.Configure(repository,_assets,_shader,text.SourceLocale,"000_cmn_txt_decision_modoru",RequestCancel,cue:UiAudioCue.Cancel);
         _selectAll=new UiSourceBottomButton {Name="SelectAllPersons",Position=new(189,948)};
-        _canvas.AddChild(_selectAll);
+        SourceFooterRoot.AddChild(_selectAll);
         _selectAll.Configure(repository,_assets,_shader,_font,_selectCaption,SelectOrClearAll);
         // Ordinary creation consumes one shared selected-first sort.
         Sort(-1);
-        RefreshSelection(); Resized+=Fit; Fit();
+        RefreshSelection(); ConfigureForegroundMotion(); Resized+=Fit; Fit();
     }
 
     private string Message(int id) => _repository.LoadMessages(_text.SourceLocale,MessageKind.Data).Messages.Sections[1].Records[id].Text
@@ -162,7 +162,7 @@ internal partial class DeploymentPersonSelectionView : Control
         page.Entries=entries.ToDictionary(entry=>entry.OfficerId);
         var body=new Control {Name="PersonPage"+index,Size=_canvas.Size,MouseFilter=MouseFilterEnum.Ignore,
             Visible=index==_activePage};
-        _canvas.AddChild(body); page.Body=body;
+        SourceBodyRoot.AddChild(body); page.Body=body;
         int columnX=213;
         Header(-1,_checkGlyph,48);
         for(int i=0;i<page.Columns.Count;i++)
@@ -282,9 +282,9 @@ internal partial class DeploymentPersonSelectionView : Control
     }
     private void Close(IReadOnlyList<int>? result)
     {
-        if(_close is null)return;
+        if(_close is null||_foregroundTransitionBusy)return;
         if(result is not null&&_selectionAdmission?.Invoke(result)==false){RefreshAdmission();return;}
-        var callback=_close;_close=null;RefreshAdmission();callback(result);
+        _ = CloseAfterForegroundExit(result);
     }
     private void RefreshSelection(bool selectedChanged=false)
     {
@@ -354,7 +354,11 @@ internal partial class DeploymentPersonSelectionView : Control
     {
         foreach(var (id,header) in page.Headers)header.ApplySortDirection(page.ActiveColumn==id ? page.ActiveAscending : null);
     }
-    internal void RegisterHeader(UiSourceHeaderStack owner)=>_sourceHeader.Publish(owner);
+    internal void RegisterHeader(UiSourceHeaderStack owner)
+    {
+        _sourceHeader.Publish(owner);
+        _ = EnterForeground();
+    }
 
     private void PositionRows()
     {
@@ -397,5 +401,5 @@ internal partial class DeploymentPersonSelectionView : Control
         _canvas.Scale=Vector2.One*factor;
         _canvas.Position=(Size-new Vector2(1920,1080)*factor)/2;
     }
-    public override void _ExitTree(){_commonBackdrop=null;if(_ownsResources){_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}}
+    public override void _ExitTree(){_close=null;_selectionAdmission=null;_commonBackdrop=null;if(_ownsResources){_font?.Dispose();_assets?.Dispose();_shader?.Dispose();}}
 }

@@ -5,8 +5,8 @@ using San14.Client.Gameplay;
 public partial class Main
 {
     // Checkpoint owns the stopped worker's candidate for this synchronous
-    // initialization. No modal, extra GPU frame or later world override is
-    // needed before returning the canonical receipt to that same operation.
+    // initialization. Reaction commands keep that borrow until one real native
+    // batch admission; they never open a modal or wait for the model animation.
     private GameState PresentPeriodArmyViews(CampaignPeriodPlayback playback, MapSceneView? map, GameState candidate)
     {
         if (ArmyViewPresentationPlaybackRules.Next(candidate) is null) return candidate;
@@ -16,6 +16,16 @@ public partial class Main
         GameState? traitSource = null;
         while (playback.Candidate is { } owner && ArmyViewPresentationPlaybackRules.Next(owner) is { } head)
         {
+            if (head.Request.ArmyViewRetirement is not null)
+            {
+                BeginArmyViewRetirement(owner, map, head, playback);
+                break;
+            }
+            if (head.Request.NormalCombatTargetReaction is not null)
+            {
+                BeginNormalCombatTargetReactions(owner, map, playback);
+                break;
+            }
             bool accepted;
             string? missing;
             if (head.Request.ArmyDeparture is { } departure)

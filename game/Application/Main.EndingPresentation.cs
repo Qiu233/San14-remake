@@ -164,18 +164,18 @@ public partial class Main
         var view = new DeploymentNarrationView { Name = "EndingMessage", ZIndex = 100,
             KeyboardInput = input => HandleNarrationKeyboard(input, (_endingPresentation?.View as DeploymentNarrationView)) };
         owner.View = view; AddChild(view);
+        var resources = TryBorrowApplicationUiResources(view);
         if (speaker is null)
             view.ConfigureAnnouncement(_repository!, _ui, message, () => RunUiAction(completed),
-                () => _preferences.AutomaticMessageAdvance, () => EndingInputAdmitted(owner));
+                () => _preferences.AutomaticMessageAdvance, () => EndingInputAdmitted(owner), resources: resources);
         else
         {
             var query = owner.Rules.QueryPersonnelPresentationSpeaker(owner.World, speaker);
             var publication = query.Value ?? throw new InvalidDataException(query.UnresolvedInput);
             var route = publication.StandingPortrait ?? throw new InvalidDataException(
                 publication.PortraitUnresolvedInput ?? "ending.ruler_standing_portrait");
-            var sprites = new LocalizedUiSpriteSource(_repository!);
-            var layers = route.LoadSprites(sprites.LoadTexturePackSprite);
-            view.Configure(_repository!, _ui, publication.Name, message, layers, () => RunUiAction(completed),
+            var layers = route.LoadSources(resources.Assets.Portraits.RequireSource);
+            view.Configure(_repository!, _ui, publication.Name, message, layers, resources, () => RunUiAction(completed),
                 () => _preferences.AutomaticMessageAdvance, () => EndingInputAdmitted(owner));
         }
     }
@@ -334,7 +334,8 @@ public partial class Main
             var notice = new DeploymentNarrationView { Name = "EndingUnavailable", ZIndex = 100 };
             owner.View = notice; AddChild(notice);
             notice.ConfigureAnnouncement(_repository!, _ui, error.Message, () => CloseEndingFailure(owner),
-                () => _preferences.AutomaticMessageAdvance, () => IsEndingCurrent(owner) && CanAdvanceNarration);
+                () => _preferences.AutomaticMessageAdvance, () => IsEndingCurrent(owner) && CanAdvanceNarration,
+                resources: TryBorrowApplicationUiResources(notice));
         }
         catch (Exception notificationError)
         {

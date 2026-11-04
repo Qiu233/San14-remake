@@ -136,7 +136,7 @@ internal sealed class MapFont : IDisposable
     }
     internal void Draw(CanvasItem canvas, string value, Vector2 baseline,
         MapFontProfile profile, HorizontalAlignment alignment = HorizontalAlignment.Left,
-        float width = -1, Color? modulate = null,IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null, string? inlineColourSource=null)
+        float width = -1, Color? modulate = null,IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null, string? inlineColourSource=null, int? drawingSlot=null)
     {
         if (value.Length == 0) return;
         float x = baseline.X;
@@ -147,7 +147,7 @@ internal sealed class MapFont : IDisposable
                 HorizontalAlignment.Right => width - Measure(value, profile).Width,
                 _ => 0
             };
-        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White,glyphColours,glyphBodyPresets,inlineColourSource);
+        _owners[canvas.GetInstanceId()].Draw(Source, value, profile, new(x, baseline.Y), modulate ?? Colors.White,glyphColours,glyphBodyPresets,inlineColourSource,drawingSlot);
     }
 
     internal sealed class DrawOwner : IDisposable
@@ -157,32 +157,59 @@ internal sealed class MapFont : IDisposable
         private readonly Action _exiting;
         private readonly MapFont _font;
         private readonly List<TextSlot> _slots = [];
+        // A caller's actual source controls may be hidden independently.
+        // Their finite identities retain separate live slots instead of
+        // replacing another control merely because its draw ordinal changed.
+        private readonly Dictionary<int, TextSlot> _sourceSlots = [];
         private Vector2 _scale;
-        private int _used;
+        private int _used, _drawn;
         private bool _disposed;
         private uint _visibilityLayer;
-        internal int ActiveCount => _used;
+        internal int ActiveCount => _drawn;
         internal DrawOwner(CanvasItem canvas, Shader shader, Action exiting, MapFont font)
         { _canvas = canvas; _shader = shader; _exiting = exiting; _font = font; _visibilityLayer = canvas.VisibilityLayer; canvas.TreeExiting += exiting; }
         internal void SetVisibilityLayer(uint layer)
         {
             _visibilityLayer = layer;
             foreach (var slot in _slots) slot.SetVisibilityLayer(layer);
+            foreach (var slot in _sourceSlots.Values) slot.SetVisibilityLayer(layer);
         }
-        internal void Begin(Vector2 scale) { _used = 0; _scale = scale; }
-        internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint,
-            IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null, string? inlineColourSource=null)
+        internal void Begin(Vector2 scale)
         {
-            if (_used == _slots.Count) _slots.Add(new(_canvas, _shader, _used, _visibilityLayer, _font));
-            _slots[_used++].Draw(source, value, profile, baseline, tint, _scale, glyphColours, glyphBodyPresets,inlineColourSource);
+            _used = _drawn = 0; _scale = scale;
+            foreach (var slot in _sourceSlots.Values) slot.SourceDrawn = false;
+        }
+        internal void Draw(MapFontSource source, string value, MapFontProfile profile, Vector2 baseline, Color tint,
+            IReadOnlyList<uint?>? glyphColours=null, IReadOnlyList<MapTextPreset?>? glyphBodyPresets=null, string? inlineColourSource=null, int? drawingSlot=null)
+        {
+            TextSlot slot;
+            if (drawingSlot is int sourceSlot)
+            {
+                if (!_sourceSlots.TryGetValue(sourceSlot, out slot!))
+                {
+                    slot = new(_canvas, _shader, _drawn, _visibilityLayer, _font);
+                    _sourceSlots.Add(sourceSlot, slot);
+                }
+                slot.SourceDrawn = true;
+            }
+            else
+            {
+                if (_used == _slots.Count) _slots.Add(new(_canvas, _shader, _drawn, _visibilityLayer, _font));
+                slot = _slots[_used++];
+            }
+            // Cache ownership is stable; actual emitted drawing order is not.
+            slot.SetOrder(_drawn++);
+            slot.Draw(source, value, profile, baseline, tint, _scale, glyphColours, glyphBodyPresets,inlineColourSource);
         }
         internal void End()
         {
             for (int i = _used; i < _slots.Count; i++) _slots[i].Hide();
+            foreach (var slot in _sourceSlots.Values) if (!slot.SourceDrawn) slot.Hide();
         }
         internal void RefreshPlacement()
         {
             for(int i=0;i<_used;i++)_slots[i].RefreshPlacement();
+            foreach (var slot in _sourceSlots.Values) if (slot.SourceDrawn) slot.RefreshPlacement();
         }
         public void Dispose()
         {
@@ -192,6 +219,8 @@ internal sealed class MapFont : IDisposable
             if (GodotObject.IsInstanceValid(_canvas)) _canvas.TreeExiting -= _exiting;
             foreach (var slot in _slots) slot.Dispose();
             _slots.Clear();
+            foreach (var slot in _sourceSlots.Values) slot.Dispose();
+            _sourceSlots.Clear();
             _disposed = true;
         }
     }
@@ -212,6 +241,8 @@ internal sealed class MapFont : IDisposable
         private Rect2 _copyRectangle;
         private Transform2D _drawingTransform;
         private readonly MapFont _font;
+        private int _order = -1;
+        internal bool SourceDrawn;
         internal TextSlot(CanvasItem owner, Shader shader, int index, uint visibilityLayer, MapFont font)
         {
             _owner = owner; _font = font;
@@ -221,11 +252,17 @@ internal sealed class MapFont : IDisposable
             // Text belongs to the parent's drawing, before its existing child
             // layers (Army). Keep each copy/draw pair consecutive and distinct
             // from the nonnegative scene-tree child indexes.
-            RenderingServer.CanvasItemSetDrawIndex(_copy, int.MinValue + index * 2);
-            RenderingServer.CanvasItemSetDrawIndex(_draw, int.MinValue + index * 2 + 1);
+            SetOrder(index);
             SetVisibilityLayer(visibilityLayer);
             _material = new() { Shader = shader };
             RenderingServer.CanvasItemSetMaterial(_draw, _material.GetRid());
+        }
+        internal void SetOrder(int index)
+        {
+            if (_order == index) return;
+            RenderingServer.CanvasItemSetDrawIndex(_copy, int.MinValue + index * 2);
+            RenderingServer.CanvasItemSetDrawIndex(_draw, int.MinValue + index * 2 + 1);
+            _order = index;
         }
         internal void SetVisibilityLayer(uint layer)
         {

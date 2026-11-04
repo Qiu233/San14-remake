@@ -72,6 +72,7 @@ public sealed class PreparedTerrainMeshPatch
             ShaderPatchInputs, Tangents, PackedSamples) = (node, columnOrigin, rowOrigin, sampleStep, input,
             normals, uvs, phases, shaderPatchInputs, tangents, packedSamples);
         Geometry = new(positions, indices);
+        PackedSampleValues = Array.AsReadOnly(packedSamples);
     }
 
     public SpatialTreeNode Node { get; }
@@ -87,6 +88,9 @@ public sealed class PreparedTerrainMeshPatch
     public ReadOnlyMemory<float> ShaderPatchInputs { get; }
     public ReadOnlyMemory<float> Tangents { get; }
     public ReadOnlyMemory<uint> PackedSamples { get; }
+    /// <summary>A retained immutable view of the producer-owned samples. It keeps the array
+    /// alive for CPU consumers without copying or depending on the preparation packet's lifetime.</summary>
+    public IReadOnlyList<uint> PackedSampleValues { get; }
 }
 
 /// <summary>CPU mesh preparation and the imported sources needed by its upload consumer.</summary>
@@ -94,9 +98,9 @@ public sealed class PreparedTerrainMesh
 {
     internal PreparedTerrainMesh(LoadedTerrainResources source, LoadedTerrainInitialHeightResources? initialHeight,
         int treeDepth, int gridSize, DokProperty rootPosition, DokProperty fieldPosition,
-        int[] indices, PreparedTerrainMeshPatch[] patches)
-        => (Source, InitialHeight, TreeDepth, GridSize, RootPosition, FieldPosition, Indices, Patches) =
-            (source, initialHeight, treeDepth, gridSize, rootPosition, fieldPosition, indices, Array.AsReadOnly(patches));
+        int[] indices, PreparedTerrainMeshPatch[] patches, bool includesRenderAttributes)
+        => (Source, InitialHeight, TreeDepth, GridSize, RootPosition, FieldPosition, Indices, Patches, IncludesRenderAttributes) =
+            (source, initialHeight, treeDepth, gridSize, rootPosition, fieldPosition, indices, Array.AsReadOnly(patches), includesRenderAttributes);
 
     public LoadedTerrainResources Source { get; }
     public LoadedTerrainInitialHeightResources? InitialHeight { get; }
@@ -106,11 +110,32 @@ public sealed class PreparedTerrainMesh
     public DokProperty FieldPosition { get; }
     public ReadOnlyMemory<int> Indices { get; }
     public IReadOnlyList<PreparedTerrainMeshPatch> Patches { get; }
+    /// <summary>False for CPU geometry and picking packets, which cannot be uploaded as a rendered mesh.</summary>
+    public bool IncludesRenderAttributes { get; }
 }
 
 /// <summary>Prepare source topology using either legacy MHK samples or the initial zero-brush height adapter.</summary>
 public static class TerrainMeshPreparation
 {
+    // TriangleIndices validates a ushort-addressable square grid (2..sqrt(65536)).
+    // This finite format catalogue owns immutable topology; it is independent of terrain,
+    // node, stitch flags and camera. Public TriangleIndices still returns a fresh array.
+    private static readonly Lazy<int[]>?[] SharedIndexStreams = CreateIndexStreams();
+    private static Lazy<int[]>?[] CreateIndexStreams()
+    {
+        var streams = new Lazy<int[]>?[(int)Math.Sqrt(ushort.MaxValue + 1d) + 1];
+        for (int grid = 2; grid < streams.Length; grid++)
+        {
+            int size = grid;
+            streams[size] = new(() => Array.ConvertAll(TerrainPatchInputMath.TriangleIndices(size), static index => (int)index));
+        }
+        return streams;
+    }
+    private static int[] SharedIndices(int gridSize)
+    {
+        TerrainPatchInputMath.ValidateGrid(gridSize);
+        return SharedIndexStreams[gridSize]!.Value;
+    }
     public static PreparedTerrainMesh Prepare(LoadedTerrainResources loaded,
         LoadedTerrainInitialHeightResources? initialHeight, int treeDepth = 2)
     {
@@ -120,6 +145,23 @@ public static class TerrainMeshPreparation
 
     public static PreparedTerrainMesh Prepare(LoadedTerrainResources loaded,
         LoadedTerrainInitialHeightResources? initialHeight, TerrainMeshSelection selection)
+        => Prepare(loaded, initialHeight, selection, includesRenderAttributes: true);
+
+    /// <summary>Prepare the identical source triangles and packed samples for CPU consumers,
+    /// without allocating shader-only vertex streams that those consumers do not retain.</summary>
+    public static PreparedTerrainMesh PrepareGeometry(LoadedTerrainResources loaded,
+        LoadedTerrainInitialHeightResources? initialHeight, int treeDepth = 2)
+    {
+        ArgumentNullException.ThrowIfNull(loaded);
+        return PrepareGeometry(loaded, initialHeight, TerrainMeshSelection.Uniform(loaded.SpatialTree, treeDepth));
+    }
+
+    public static PreparedTerrainMesh PrepareGeometry(LoadedTerrainResources loaded,
+        LoadedTerrainInitialHeightResources? initialHeight, TerrainMeshSelection selection)
+        => Prepare(loaded, initialHeight, selection, includesRenderAttributes: false);
+
+    private static PreparedTerrainMesh Prepare(LoadedTerrainResources loaded,
+        LoadedTerrainInitialHeightResources? initialHeight, TerrainMeshSelection selection, bool includesRenderAttributes)
     {
         ArgumentNullException.ThrowIfNull(loaded);
         ArgumentNullException.ThrowIfNull(selection);
@@ -140,7 +182,7 @@ public static class TerrainMeshPreparation
         int n = firstInput is null ? 65 : checked((int)firstInput.GridSize), cells = n - 1;
         if (height.CellWidth != height.CellHeight || (double)height.CellWidth * height.SampleSpacing != tree.RootSize)
             throw new InvalidDataException("Height grid cannot use this tree's source sampled patch layout.");
-        int[] indices = TerrainPatchInputMath.TriangleIndices(n).Select(value => (int)value).ToArray();
+        int[] indices = SharedIndices(n);
         var patches = new PreparedTerrainMeshPatch[selection.Rows.Count];
         for (int patchIndex = 0; patchIndex < patches.Length; patchIndex++)
         {
@@ -154,11 +196,11 @@ public static class TerrainMeshPreparation
             TerrainPatchInput? input = initialHeight is null ? null : TerrainPatchInputMath.Ordinary(tree, node,
                 initialHeight.HeightBinding.Image.Width, initialHeight.ControlBinding.Image.Width, selected.EdgeFlags);
             var positions = new Vector3[n * n];
-            var normals = new Vector3[positions.Length];
-            Vector2[] uvs = input is null ? [] : new Vector2[positions.Length];
-            Vector2[] phases = input is null ? [] : new Vector2[positions.Length];
-            float[] shaderPatchInputs = input is null ? [] : new float[positions.Length * 3];
-            float[] tangents = input is null ? [] : new float[positions.Length * 4];
+            Vector3[] normals = includesRenderAttributes ? new Vector3[positions.Length] : [];
+            Vector2[] uvs = includesRenderAttributes && input is not null ? new Vector2[positions.Length] : [];
+            Vector2[] phases = includesRenderAttributes && input is not null ? new Vector2[positions.Length] : [];
+            float[] shaderPatchInputs = includesRenderAttributes && input is not null ? new float[positions.Length * 3] : [];
+            float[] tangents = includesRenderAttributes && input is not null ? new float[positions.Length * 4] : [];
             var packed = new uint[positions.Length];
             for (int row = 0; row < n; row++)
                 for (int column = 0; column < n; column++)
@@ -172,44 +214,50 @@ public static class TerrainMeshPreparation
                         Vector2 uv = TerrainPatchInputMath.HeightUv(input, local);
                         float h = TerrainInitialHeightResources.SamplePointClamp(initialHeight.Height, uv);
                         positions[index] = input.Origin + input.Extent * new Vector3(local.X, h, local.Y);
-                        Vector3 normal = TerrainInitialHeightResources.Normal(initialHeight.Height, uv, initialHeight.HeightNormalInfo);
-                        Vector3 tangent = Vector3.Normalize(new(0, normal.Z, -normal.Y));
-                        normals[index] = normal;
-                        uvs[index] = uv;
-                        phases[index] = local;
-                        shaderPatchInputs[index * 3] = input.ControlFrequency;
-                        shaderPatchInputs[index * 3 + 1] = input.ControlCount;
-                        // Non-leaf levels use the coarse material; leaf groups share the ordinary surface path.
-                        shaderPatchInputs[index * 3 + 2] = node.Level == 0 ? 0 : 2;
-                        tangents[index * 4] = tangent.X;
-                        tangents[index * 4 + 1] = tangent.Y;
-                        tangents[index * 4 + 2] = tangent.Z;
-                        tangents[index * 4 + 3] = 1;
+                        if (includesRenderAttributes)
+                        {
+                            Vector3 normal = TerrainInitialHeightResources.Normal(initialHeight.Height, uv, initialHeight.HeightNormalInfo);
+                            Vector3 tangent = Vector3.Normalize(new(0, normal.Z, -normal.Y));
+                            normals[index] = normal;
+                            uvs[index] = uv;
+                            phases[index] = local;
+                            shaderPatchInputs[index * 3] = input.ControlFrequency;
+                            shaderPatchInputs[index * 3 + 1] = input.ControlCount;
+                            // Non-leaf levels use the coarse material; leaf groups share the ordinary surface path.
+                            shaderPatchInputs[index * 3 + 2] = node.Level == 0 ? 0 : 2;
+                            tangents[index * 4] = tangent.X;
+                            tangents[index * 4 + 1] = tangent.Y;
+                            tangents[index * 4 + 2] = tangent.Z;
+                            tangents[index * 4 + 3] = 1;
+                        }
                     }
                     else
                     {
                         positions[index] = new(sourceColumn * height.SampleSpacing,
                             (float)height.GetHeight(sourceColumn, sourceRow), sourceRow * height.SampleSpacing);
-                        int west = Math.Max(0, sourceColumn - step), east = Math.Min(height.CellWidth, sourceColumn + step);
-                        int north = Math.Max(0, sourceRow - step), south = Math.Min(height.CellHeight, sourceRow + step);
-                        float slopeX = (float)((height.GetHeight(west, sourceRow) - height.GetHeight(east, sourceRow)) /
-                            ((east - west) * height.SampleSpacing));
-                        float slopeZ = (float)((height.GetHeight(sourceColumn, north) - height.GetHeight(sourceColumn, south)) /
-                            ((south - north) * height.SampleSpacing));
-                        // Match the existing scalar normalization order rather than SIMD dot-product reassociation.
-                        float lengthSquared = slopeX * slopeX + 1f + slopeZ * slopeZ;
-                        float length = MathF.Sqrt(lengthSquared);
-                        normals[index] = new(slopeX / length, 1f / length, slopeZ / length);
+                        if (includesRenderAttributes)
+                        {
+                            int west = Math.Max(0, sourceColumn - step), east = Math.Min(height.CellWidth, sourceColumn + step);
+                            int north = Math.Max(0, sourceRow - step), south = Math.Min(height.CellHeight, sourceRow + step);
+                            float slopeX = (float)((height.GetHeight(west, sourceRow) - height.GetHeight(east, sourceRow)) /
+                                ((east - west) * height.SampleSpacing));
+                            float slopeZ = (float)((height.GetHeight(sourceColumn, north) - height.GetHeight(sourceColumn, south)) /
+                                ((south - north) * height.SampleSpacing));
+                            // Match the existing scalar normalization order rather than SIMD dot-product reassociation.
+                            float lengthSquared = slopeX * slopeX + 1f + slopeZ * slopeZ;
+                            float length = MathF.Sqrt(lengthSquared);
+                            normals[index] = new(slopeX / length, 1f / length, slopeZ / length);
+                        }
                     }
                     if (!IsFinite(positions[index]))
                         throw new InvalidDataException($"Node {node.Index} preview coordinates are not finite.");
-                    if (!IsFinite(normals[index]))
+                    if (includesRenderAttributes && !IsFinite(normals[index]))
                         throw new InvalidDataException($"Node {node.Index} preview normal is not finite.");
                 }
             patches[patchIndex] = new(node, originColumn, originRow, step, input, positions, normals,
                 uvs, phases, shaderPatchInputs, tangents, packed, indices);
         }
-        return new(loaded, initialHeight, selection.TreeDepth, n, rootPosition, fieldPosition, indices, patches);
+        return new(loaded, initialHeight, selection.TreeDepth, n, rootPosition, fieldPosition, indices, patches, includesRenderAttributes);
     }
 
     private static bool IsFinite(Vector3 vector) =>

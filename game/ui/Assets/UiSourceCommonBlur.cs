@@ -41,6 +41,14 @@ internal partial class UiSourceCommonBlur : Control
         ApplyFrame(playing); return completion.Task;
     }
 
+    internal void RestoreShownState()
+    {
+        playing = null; completion?.TrySetResult(false); completion = null;
+        var shown = clips!["blur_medium_in"];
+        frame = shown.EndFrame;
+        ApplyFrame(shown);
+    }
+
     internal void AdvanceTransition(double delta)
     {
         if (playing is not { } clip) return;
@@ -55,6 +63,7 @@ internal partial class UiSourceCommonBlur : Control
         {
             if (track.Channel != 57 || !panes.TryGetValue(track.NodeId, out var pane))
                 throw new InvalidDataException("Unsupported common modal blur track.");
+            if (track.Curve.Keys.Count == 0) continue;
             pane.SetWeightInput((float)track.Curve.Sample(frame));
         }
     }

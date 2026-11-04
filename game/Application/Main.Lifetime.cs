@@ -77,6 +77,7 @@ public partial class Main
         try
         {
             await Task.WhenAll(_mapRetirements.Select(row => row.Completion));
+            await DrainBaseTierMovieRetirementsAsync();
             FreeRetiredInterface();
         }
         catch (Exception error)
@@ -143,6 +144,8 @@ public partial class Main
                 try { await advance; }
                 catch (Exception error) { GD.PushWarning($"Period advancement ended with an error during shutdown: {error}"); }
             }
+            RetireBaseTierCutscene();
+            await DrainBaseTierMovieRetirementsAsync();
             // Follow the existing return-to-title owner order. Report pages
             // and standalone browser details also hold application UI leases.
             RetireTutorialLessonForReturn();

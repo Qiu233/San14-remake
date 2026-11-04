@@ -94,7 +94,7 @@ internal partial class UiSourceAnimationView : Control
             byte alpha = authoredAlphas[index];
             foreach (var track in clip.Tracks)
             {
-                if (track.NodeId != index) continue;
+                if (track.NodeId != index || track.Curve.Keys.Count == 0) continue;
                 float value = (float)track.Curve.Sample(frame);
                 switch (track.Channel)
                 {

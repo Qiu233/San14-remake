@@ -14,7 +14,7 @@ public partial class Main
     private bool _personnelPresentationIntelligenceWait;
     private bool _personnelPresentationBaseCaptureWait;
     private bool _personnelPresentationHiredCaptureWait;
-    private bool HasPersonnelPresentation=>HasDuelCaptureAnnouncement||HasDuelPresentation||_personnelPresentation is not null||HasEncirclementPresentation||HasFirePresentation||HasDamagePresentation||HasFacilityEffectsPresentation||HasFacilityConstructionPresentation||HasFacilityRepairPresentation||HasMonthlyFeedback||_resourceNotice is not null||_personnelSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
+    private bool HasPersonnelPresentation=>HasArmyViewRetirement||HasNormalCombatTargetReactions||HasBaseTierCutscene||HasDuelCaptureAnnouncement||HasDuelPresentation||_personnelPresentation is not null||HasEncirclementPresentation||HasFirePresentation||HasDamagePresentation||HasFacilityEffectsPresentation||HasFacilityConstructionPresentation||HasFacilityRepairPresentation||HasMonthlyFeedback||_resourceNotice is not null||_personnelSound is not null||_terminalMusic is not null||_coalitionCameraCommand is not null;
     private static GameState PersonnelPresentationOwner(GameplaySession session)=>session.PendingNormalPeriod?.Candidate??session.PendingManualTacticCandidate??session.PendingArmyProgressCandidate??session.PendingProgressCandidate??session.World;
     //A presentation receipt changes only its real outbox owner. Keep the
     //same retained Story scene attached to that publication, including manual
@@ -28,7 +28,7 @@ public partial class Main
             scene.World = owner;
         return owner;
     }
-    private bool IsPersonnelPresentationCurrent=>HasDuelCaptureAnnouncement?IsDuelCaptureAnnouncementCurrent:HasDuelPresentation?IsDuelPresentationCurrent:HasEncirclementPresentation?IsEncirclementPresentationCurrent:HasFirePresentation?IsFirePresentationCurrent:HasDamagePresentation?IsDamagePresentationCurrent:HasFacilityEffectsPresentation?IsFacilityEffectsPresentationCurrent:HasFacilityRepairPresentation?IsFacilityRepairPresentationCurrent:HasFacilityConstructionPresentation?IsFacilityConstructionPresentationCurrent:_coalitionCameraCommand is not null?IsCoalitionCameraCurrent:_terminalMusic is not null?IsTerminalMusicCurrent:_personnelSound is not null?IsPersonnelSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
+    private bool IsPersonnelPresentationCurrent=>HasArmyViewRetirement?IsArmyViewRetirementCurrent:HasNormalCombatTargetReactions?IsNormalCombatTargetReactionsCurrent:HasBaseTierCutscene?IsBaseTierCutsceneCurrent:HasDuelCaptureAnnouncement?IsDuelCaptureAnnouncementCurrent:HasDuelPresentation?IsDuelPresentationCurrent:HasEncirclementPresentation?IsEncirclementPresentationCurrent:HasFirePresentation?IsFirePresentationCurrent:HasDamagePresentation?IsDamagePresentationCurrent:HasFacilityEffectsPresentation?IsFacilityEffectsPresentationCurrent:HasFacilityRepairPresentation?IsFacilityRepairPresentationCurrent:HasFacilityConstructionPresentation?IsFacilityConstructionPresentationCurrent:_coalitionCameraCommand is not null?IsCoalitionCameraCurrent:_terminalMusic is not null?IsTerminalMusicCurrent:_personnelSound is not null?IsPersonnelSoundCurrent:_resourceNotice is not null?IsResourceNoticeCurrent:HasMonthlyFeedback?IsMonthlyFeedbackCurrent:_personnelPresentation is not null&&
         ReferenceEquals(_session,_personnelPresentationSession)&&_session is {} session&&
         ReferenceEquals(PersonnelPresentationOwner(session),_personnelPresentationWorld)&&_residentMap==_personnelPresentationMap;
 
@@ -54,6 +54,11 @@ public partial class Main
                 session.PendingManualTacticCandidate is null && session.PendingArmyProgressCandidate is null && session.PendingProgressCandidate is null)||
             _residentMap is not {IsPlayableMapReady:true} map)return false;
         var owner=SynchronizePersonnelPresentationOwner(session);
+        if (ArmyViewPresentationPlaybackRules.Next(owner) is { Request.ArmyViewRetirement: not null } retirement)
+            return BeginArmyViewRetirement(owner, map, retirement);
+        if (ArmyViewPresentationPlaybackRules.TargetReactionPrefix(owner).Count != 0)
+            return BeginNormalCombatTargetReactions(owner, map);
+        if (TryBeginBaseTierCutscene(owner, map)) return true;
         if(CampaignDuelPresentationPlaybackRules.Pending(owner) is not null&&TryOpenDuelPresentation(session,owner,map,composition))return true;
         if (owner.PendingMapMusicIntent is { } pendingMusic)
             return TryPresentMapMusic(null, pendingMusic, session, owner, map);
@@ -68,6 +73,11 @@ public partial class Main
         GameState? armyViewRefreshSource = null;
         while(PersonnelPresentationQueue.Next(owner) is {} entry)
         {
+            if (ArmyViewPresentationPlaybackRules.Next(owner) is { Request.ArmyViewRetirement: not null } nextRetirement)
+                return BeginArmyViewRetirement(owner, map, nextRetirement);
+            if (ArmyViewPresentationPlaybackRules.TargetReactionPrefix(owner).Count != 0)
+                return BeginNormalCombatTargetReactions(owner, map);
+            if (TryBeginBaseTierCutscene(owner, map)) return true;
             if (session.PendingEditedEventPlayback is { Phase: EditedEventPlaybackPhase.Results or EditedEventPlaybackPhase.PostResult or EditedEventPlaybackPhase.Summary } &&
                 _createdEventWorkspace is { } editedOwner && !EnsureCreatedEventMedia(editedOwner)) return true;
             //A preceding FIFO request can complete synchronously. Check the
@@ -80,6 +90,16 @@ public partial class Main
             if(entry.Request.ArmyTraitViewRefresh is null)armyViewRefreshSource=null;
             if (entry.Source == CampaignEffectSource.ProposalCommands)
                 return TryPresentProposalEffects(session, composition, map);
+            // The old independence token represents the prefix record only;
+            // its missing historical success/refresh facts cannot be invented.
+            if (entry.Request.ForceIndependenceScene is not null)
+            {
+                if (!session.TryCompleteForceIndependenceChronicle(owner, entry.Source, entry.BatchSequence,
+                        entry.RequestIndex, composition.PrepareArmyQueries(owner)))
+                    throw new InvalidOperationException($"force-independence.chronicle.source_head source={entry.Source} batch={entry.BatchSequence} index={entry.RequestIndex}");
+                owner = SynchronizePersonnelPresentationOwner(session);
+                continue;
+            }
             // This legacy request name represents a permanent chronicle
             // write. Complete that real write before the later camera restore.
             if (entry.Request.ForceEmergenceScene is not null)
@@ -478,12 +498,20 @@ public partial class Main
         }
         if(owner.RegionOccupationFollowups?.EncirclementPresentations.Count>0)
             return TryPresentEncirclement(session,owner,map,composition);
+        if (ArmyViewPresentationPlaybackRules.Next(owner) is { Request.ArmyViewRetirement: not null } remainingRetirement)
+            return BeginArmyViewRetirement(owner, map, remainingRetirement);
+        if (ArmyViewPresentationPlaybackRules.TargetReactionPrefix(owner).Count != 0)
+            return BeginNormalCombatTargetReactions(owner, map);
+        if (TryBeginBaseTierCutscene(owner, map)) return true;
         _personnelPresentationInspectedOwner=owner;
         return TryOpenForceExperiencePresentation() || TryResumePersonnelDevelopment() || TryResumeDistrictAdministration() || TryResumeStrategicOrders() || TryOpenEndingPresentation(session, composition, map);
     }
 
     private void ClosePersonnelPresentation()
     {
+        RetireArmyViewRetirement();
+        RetireNormalCombatTargetReactions();
+        RetireBaseTierCutscene();
         CloseDuelCaptureAnnouncement();
         CloseDuelPresentation();
         CloseFirePresentation();

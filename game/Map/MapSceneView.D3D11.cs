@@ -252,6 +252,8 @@ public partial class MapSceneView
             surface.FramePrepared += (input, receipt) =>
             {
                 if (_d3d11Map != surface || generation != _sceneLoadGeneration) return;
+                AcceptArmyViewRetirement(surface, input, receipt);
+                AcceptNormalCombatTargetReactions(surface, input, receipt);
                 if (pendingResourceSeasonBatch is { } acceptedBatch)
                 {
                     resourceSeasonBatch.Dispose(); resourceSeasonBatch = acceptedBatch;
@@ -562,6 +564,8 @@ public partial class MapSceneView
     private void RecordD3D11MapFailure(Exception error)
     {
         StopPeriodProgressFrames(error);
+        FailArmyViewRetirement(error);
+        FailNormalCombatTargetReactions(error);
         FailMapObjectRetirementPresentation(error.Message);
         if (uniqueDirectionOwner is not null) uniqueDirectionFailure?.Invoke(error);
         _d3d11PresentedInput = null;
@@ -606,7 +610,7 @@ public partial class MapSceneView
             CommandMapFpsMode = _d3d11AnimationPacer?.FpsMode ?? 0,
             ArmyPublicationRole = IsNewGameScenarioPreview ? D3D11ArmyPublicationRole.StartupAbsent :
                 D3D11ArmyPublicationRole.Campaign,
-            ArmyWorld = _periodMapFrame is {} periodArmy ? periodArmy.Army : _d3d11Army?.Capture(_logicalWorld!),
+            ArmyWorld = CaptureArmyViewCommandPublication(),
             ArmyGroupingWorld = _periodMapFrame is {} periodGroups ? periodGroups.Groups : _d3d11ArmyGroupingQueries?.Invoke(_logicalWorld!),
             CityGateWorld = cityGateWorld,
             FacilityInfo = _periodMapFrame is {} periodFacilities ? periodFacilities.FacilityInfo :
@@ -677,6 +681,8 @@ public partial class MapSceneView
         sourcePreparation?.Cancel();
         var opening = _d3d11Opening; _d3d11Opening = null;
         opening?.Cancel();
+        RetireArmyViewRetirement();
+        RetireNormalCombatTargetReactions();
         RetireFirePresentation();
         RetireDamagePresentation();
         RetireHexFirePresentation();

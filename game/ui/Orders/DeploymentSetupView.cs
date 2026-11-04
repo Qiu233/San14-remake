@@ -35,11 +35,12 @@ internal partial class DeploymentSetupView : Control
     private readonly List<UiSourceBottomButton> batchButtons=[];
     private Action<DeploymentSetupBatchAction>? batchRequested;
     private bool abandoned;
+    internal Action<Exception>? TransitionFailure { get; set; }
     private Control? selectionChild;
     private bool selectionCanvasVisible,selectionBackdropVisible;
     internal DeploymentUnitInformationView UnitInformation {get;private set;}=null!;
     internal DeploymentOfficerInformationView OfficerInformation {get;private set;}=null!;
-    internal void RequestClose() {if(!abandoned&&selectionChild is null)close?.Invoke();}
+    internal void RequestClose() {if(!abandoned&&selectionChild is null&&!sourceTransitionBusy&&close is { } callback)_=ExitSourceForeground(callback);}
     internal void Abandon()
     {
         abandoned=true;selectionChild=null;close=null;decide=null;batchRequested=null;OfficerInformation?.Abandon();
@@ -64,31 +65,31 @@ internal partial class DeploymentSetupView : Control
 
         CommonBackdrop = new UiSourceCommonBlur(); AddChild(CommonBackdrop); CommonBackdrop.Configure(repository,assets.SourceLayout(0xAEF1609E));
         canvas = new Control { Name = "SourceCanvas", Size = new(1920,1080), MouseFilter = MouseFilterEnum.Stop };
-        AddChild(canvas);
+        AddChild(canvas); CreateSourceForegroundRoots();
         var messages = repository.LoadMessages(text.SourceLocale, MessageKind.Data).Messages.Sections[1];
         string Message(int id) => messages.Records[id].Text ?? throw new InvalidDataException($"Missing deployment message {id}.");
         var page = assets.SourceLayout(0xFC796D9B);
         sourceHeader = new UiSourceHeader { Name = "DeploymentTitle" };
-        canvas.AddChild(sourceHeader);
+        sourceHeaderMotion!.AddChild(sourceHeader);
         sourceHeader.Configure(repository,assets,shader,font,Message(0x059F));
         resourceHeader=new DeploymentResourceHeader {Name="DeploymentResourceHeader",Position=page.Rectangle(1).Position};
-        canvas.AddChild(resourceHeader);
+        sourceResourceMotion!.AddChild(resourceHeader);
         resourceHeader.Configure(repository,assets,shader,font,text,city,availableTroops,books);
-        page.Blur(canvas, 39, page.Rectangle(39));
+        page.Blur(SourceBodyRoot, 39, page.Rectangle(39));
         Art(page, 40);
         summaries=new DeploymentSummaryList {Name="DeploymentSummaries"};
-        canvas.AddChild(summaries);
+        SourceBodyRoot.AddChild(summaries);
         summaries.Configure(repository,assets,shader,font,[],null,0,_=>{},_=>{},edit);
         Vector2 unitMount = page.Rectangle(51).Position;
         var unitPanel=new DeploymentUnitInformationView {Name="UnitInformation",Position=unitMount};
-        UnitInformation=unitPanel;canvas.AddChild(unitPanel);unitPanel.Configure(repository,assets,shader,font,text,this);
+        UnitInformation=unitPanel;SourceBodyRoot.AddChild(unitPanel);unitPanel.Configure(repository,assets,shader,font,text,this);
         var officerPanel=new DeploymentOfficerInformationView {Name="OfficerInformation",Position=unitMount,Visible=false};
-        OfficerInformation=officerPanel;canvas.AddChild(officerPanel);
+        OfficerInformation=officerPanel;SourceBodyRoot.AddChild(officerPanel);
         officerPanel.Configure(repository,assets,shader,font,text,this);
         var tabs=new List<Action>();
         Tab(0x172EDC24, page.Rectangle(41), Message(0x035D), true);
         Tab(0xD45873AA, page.Rectangle(43), Message(0x035E), false);
-        confirm=Round(new(827,955), "000_cmn_txt_decision_kettei", disabled:true, ()=>decide?.Invoke());
+        confirm=Round(new(827,955), "000_cmn_txt_decision_kettei", disabled:true, RequestDecision);
         returnButton=Round(new(965,955), "000_cmn_txt_decision_modoru", disabled:false, RequestClose, cue:UiAudioCue.Cancel);
         returnButton.MouseEntered+=RefreshReturnHint;
         returnButton.MouseExited+=ClearReturnHint;
@@ -98,7 +99,7 @@ internal partial class DeploymentSetupView : Control
         {
             var action=(DeploymentSetupBatchAction)i;
             var button=new UiSourceBottomButton {Name=batchNames[i],Position=new(189+160*i,948),Disabled=true};
-            canvas.AddChild(button);batchButtons.Add(button);
+            SourceFooterRoot.AddChild(button);batchButtons.Add(button);
             button.Configure(repository,assets,shader,font,Message(bottomMessages[i]),()=>batchRequested?.Invoke(action));
             if(i>0)
             {
@@ -108,7 +109,8 @@ internal partial class DeploymentSetupView : Control
         }
         var hint = assets.SourceLayout(0xAB6ADAA7);
         // The common footer's narration is a separate child at y912.
-        foreach(var n in hint.Nodes.Where(n=>n.Type is 1 or 3)) Art(hint,n.Index,new(0,912));
+        foreach(var n in hint.Nodes.Where(n=>n.Type is 1 or 3))
+            hint.Art(SourceFooterRoot,n.Index,hint.Rectangle(n.Index,new(0,912)),assets,shader);
         // This source narration has one literal and no dynamic substitution.
         // Game messages retain bytecode; Text is reserved for data tables.
         var narration=repository.LoadMessages(text.SourceLocale,MessageKind.Game).Messages.Sections[2].Records[0x085F];
@@ -121,20 +123,20 @@ internal partial class DeploymentSetupView : Control
         noRowsHint=disabledTroopsHint=gameMessages.Records[0x0866].Literals.Single().Text;
         insufficientTroopsHint=gameMessages.Records[0x0867].Literals.Single().Text;
         var hintNode=hint.Nodes.Single(n=>n.Type==2);
-        hintText=hint.Text(canvas,hintNode.Index,new(0,912),prompt,font);
-        balloon=new UiSourceOneLineBalloon();canvas.AddChild(balloon);balloon.Configure(repository,assets,shader,font);
+        hintText=hint.Text(SourceFooterRoot,hintNode.Index,new(0,912),prompt,font);
+        balloon=new UiSourceOneLineBalloon();SourceBodyRoot.AddChild(balloon);balloon.Configure(repository,assets,shader,font);
         SetMeta("source_layout",page.Source.Source.ResourceUri);
         SetMeta("source_city_id",city.Id);
         SetMeta("deployment_available_troops",availableTroops);
         SetMeta("deployment_empty",true);
         VisibilityChanged+=()=>{if(!IsVisibleInTree())ClearReturnHint();};
-        Resized += Fit; Fit();
+        Resized += Fit; Fit(); ConfigureSourceForeground();
 
-        void Art(UiSourceLayout layout,int index,Vector2 mount=default) => layout.Art(canvas,index,layout.Rectangle(index,mount),assets,shader);
+        void Art(UiSourceLayout layout,int index,Vector2 mount=default) => layout.Art(SourceBodyRoot,index,layout.Rectangle(index,mount),assets,shader);
         UiSourceRoundButton Round(Vector2 position,string caption,bool disabled,Action? action,UiAudioCue cue=UiAudioCue.ButtonSelect)
         {
             var button=new UiSourceRoundButton { Name=disabled?"ConfirmDeployment":"ReturnDeployment",Position=position,Disabled=disabled };
-            canvas.AddChild(button);
+            SourceFooterRoot.AddChild(button);
             button.Configure(repository,assets,shader,text.SourceLocale,caption,action,cue);
             return button;
         }
@@ -142,7 +144,7 @@ internal partial class DeploymentSetupView : Control
         {
             var button=new UiSourceTabButton {Name=selected?"UnitTab":"OfficerTab",Position=target.Position,Size=target.Size,
                 Selected=selected};
-            canvas.AddChild(button);
+            SourceBodyRoot.AddChild(button);
             button.Configure(repository,assets,shader,font,caption,file);
             bool isUnit=selected;
             tabs.Add(()=>button.Selected=isUnit?unitPanel.Visible:officerPanel.Visible);
@@ -154,13 +156,17 @@ internal partial class DeploymentSetupView : Control
         }
     }
 
-    internal void RegisterHeader(UiSourceHeaderStack owner) => sourceHeader.Publish(owner);
+    internal void RegisterHeader(UiSourceHeaderStack owner)
+    {
+        sourceHeader.Publish(owner);
+        _ = EnterSourceForeground();
+    }
 
     // Selection children are actual siblings of this canvas. Keep the page
     // itself alive and visible so their own admission/lifetime remains real.
     internal void BeginChildSelection(Control owner, bool keepBackdrop = false)
     {
-        if(abandoned||selectionChild is not null||!IsInsideTree()||IsQueuedForDeletion())
+        if(abandoned||sourceTransitionBusy||selectionChild is not null||!IsInsideTree()||IsQueuedForDeletion())
             throw new InvalidOperationException("The deployment setup cannot acquire another selection child.");
         if(!ReferenceEquals(owner.GetParent(),this))
             throw new InvalidOperationException("The deployment selection child must belong to this setup.");
@@ -186,7 +192,7 @@ internal partial class DeploymentSetupView : Control
     }
     internal void ApplyHint(string? value)
     {returnHintActive=false;hintText.Text=value??defaultHint;}
-    internal void AddAutomaticMenu(DeploymentAutomaticMenu menu)=>canvas.AddChild(menu);
+    internal void AddAutomaticMenu(DeploymentAutomaticMenu menu)=>SourceBodyRoot.AddChild(menu);
     internal void ApplyBalloon(Control owner,string? value)
     {
         if(abandoned)return;
@@ -246,7 +252,7 @@ internal partial class DeploymentSetupView : Control
     {
         int scroll=summaries.ScrollValue,index=summaries.GetIndex();
         summaries.Hide();summaries.Name="PreviousDeploymentSummaries";summaries.QueueFree();
-        summaries=new DeploymentSummaryList {Name="DeploymentSummaries"};canvas.AddChild(summaries);canvas.MoveChild(summaries,index);
+        summaries=new DeploymentSummaryList {Name="DeploymentSummaries"};SourceBodyRoot.AddChild(summaries);SourceBodyRoot.MoveChild(summaries,index);
         summaries.Configure(repository,assets!,shader!,font!,contents,selectedOfficer,scrollSpeedSetting,selected,removed,add,currentScrollSpeed);
         summaries.SetScrollValue(scroll);SetMeta("deployment_empty",contents.Count==0);
     }

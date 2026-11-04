@@ -118,13 +118,13 @@ public partial class Main
             owner.World, rows, _ui.SourceLocale, _presentationRandom.Next);
         if (!preparation.Available || preparation.PortraitRoute is not { } portrait)
         { GeneralUnitTargetUnavailable(preparation.UnresolvedInput ?? "general_unit_target.narration"); return; }
-        var sprites = new LocalizedUiSpriteSource(_repository);
-        var layers = portrait.LoadSprites(sprites.LoadTexturePackSprite);
         var narration = new DeploymentNarrationView { KeyboardInput = HandleGameplayNarrationKeyboard };
         owner.Narration = narration; AddChild(narration);
         try
         {
-            narration.Configure(_repository, _ui, preparation.SpeakerName!, preparation.Text!, layers, () => RunPlayAction(() =>
+            var resources = TryBorrowApplicationUiResources(narration);
+            var layers = portrait.LoadSources(resources.Assets.Portraits.RequireSource);
+            narration.Configure(_repository, _ui, preparation.SpeakerName!, preparation.Text!, layers, resources, () => RunPlayAction(() =>
             {
                 if (!IsGeneralUnitTargetOwnerCurrent(owner) || owner.Narration != narration) return;
                 var order = new DeployArmiesOrder(owner.Preparation.ForceId, owner.Preparation.PrimaryDistrictId,

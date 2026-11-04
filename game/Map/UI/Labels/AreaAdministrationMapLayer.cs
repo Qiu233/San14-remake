@@ -79,7 +79,14 @@ internal partial class AreaAdministrationMapLayer : Control
                         button.Configure(repository, resources, row, Allowed, Picked);
                         button.GuiInput += input =>
                         {
-                            if (input is not InputEventMouseMotion || !button.IsVisibleInTree() || !Allowed(button.HexId)) return;
+                            if (!button.IsVisibleInTree() || !Allowed(button.HexId)) return;
+                            if (input is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } right)
+                            {
+                                map.AdmitAdministrationMapOrbitPress(this, right,
+                                    button.GetGlobalTransformWithCanvas() * right.Position);
+                                return;
+                            }
+                            if (input is not InputEventMouseMotion) return;
                             var hovered = GetViewport().GuiGetHoveredControl();
                             if (ReferenceEquals(hovered, button) || hovered is not null && button.IsAncestorOf(hovered))
                                 map.HoverAdministrationMapTarget(button.HexId);

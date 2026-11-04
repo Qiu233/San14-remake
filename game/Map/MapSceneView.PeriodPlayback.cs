@@ -93,6 +93,8 @@ public partial class MapSceneView
         // No chronology inspector may retain the checkpoint after Main lends
         // it back to the simulation worker, including cancellation/retirement.
         RetirePeriodChronology(owner);
+        RetireArmyViewRetirement();
+        RetireNormalCombatTargetReactions();
         _periodBorrowedCandidate = null;
         ReleasePeriodArmyViewSources();
     }
@@ -102,6 +104,8 @@ public partial class MapSceneView
     {
         if (!ReferenceEquals(_periodMapOwner, owner)) return;
         RetirePeriodChronology(owner);
+        RetireArmyViewRetirement();
+        RetireNormalCombatTargetReactions();
         ReleasePeriodArmyViewSources();
         _periodMapOwner = null;
         _periodMapActive = false; _periodMapFrame = null; _periodBorrowedCandidate = null;

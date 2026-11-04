@@ -31,7 +31,7 @@ internal partial class MapCommandRailCursor : Control
         Color tint = Colors.White;
         foreach (var track in clip.Tracks)
         {
-            if (track.NodeId != 2) continue;
+            if (track.NodeId != 2 || track.Curve.Keys.Count == 0) continue;
             float value = (byte)(int)Math.Clamp(track.Curve.Sample(frame) * 255d, 0d, 255d) / 255f;
             switch (track.Channel)
             {

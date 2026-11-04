@@ -172,13 +172,13 @@ public partial class Main
             _campaignDeploymentView!.SetBusy(false);BindCampaignDeploymentMap();
             CampaignDeploymentUnavailable(preparation.UnresolvedInput??"campaign.narration.portrait");return;
         }
-        var sprites=new LocalizedUiSpriteSource(_repository!);
-        var layers=route.LoadSprites(sprites.LoadTexturePackSprite);
         var narration=new DeploymentNarrationView {KeyboardInput=HandleGameplayNarrationKeyboard};
         _campaignDeploymentNarration=narration;AddChild(narration);
         try
         {
-            narration.Configure(_repository!,_ui,preparation.SpeakerName!,preparation.Text!,layers,()=>RunPlayAction(()=>
+            var resources=TryBorrowApplicationUiResources(narration);
+            var layers=route.LoadSources(resources.Assets.Portraits.RequireSource);
+            narration.Configure(_repository!,_ui,preparation.SpeakerName!,preparation.Text!,layers,resources,()=>RunPlayAction(()=>
             {
                 if(_campaignDeploymentNarration!=narration)return;
                 if(!IsCampaignDeploymentCurrent){CloseCampaignDeployment();return;}

@@ -36,6 +36,9 @@ public sealed partial class ArmyCampaignRuleAdapter
     {
         OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
         PersonReturnCommands.BindCurrent(state, current);
+        //A resumed Turn owns the same full assignment publication contract.
+        //Missing-only binding preserves every receiver already staged here.
+        _personAssignmentPrecallInputs.BindMissingPersonAreaVectors(state, current);
         current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
         _baseCapacityInputs.BindCurrent(state, current);
         OwnedArmyReturnServiceInputs.BindCurrent(state, current);

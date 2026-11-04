@@ -61,6 +61,10 @@ public sealed partial class ArmyCampaignRuleAdapter
             var pool = current.ReadOwnedCurrentListPool() ?? throw AppearanceTurnMissing("shared_pool");
             OwnedArmyLifecycleDetachedInputs.BindCurrent(state, current);
             PersonReturnCommands.BindCurrent(state, current);
+            //The normal Turn can publish a reached District/Base operation before
+            //the final postprocess bind. Borrow saved vectors without replacing
+            //any current receiver, including staged values or explicit unknowns.
+            _personAssignmentPrecallInputs.BindMissingPersonAreaVectors(state, current);
             current.CurrentPlayerForce = OwnedCurrentPlayerForce.ReadCurrentReference(state, current);
             _baseCapacityInputs.BindCurrent(state, current);
             OwnedArmyReturnServiceInputs.BindCurrent(state, current);

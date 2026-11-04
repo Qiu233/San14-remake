@@ -97,6 +97,10 @@ internal sealed class MapStaticResources
         {
             token.ThrowIfCancellationRequested();
             var terrain = MapTerrainSourcePreparation.Prepare(repository, configuration.Archive, scene.FileId, token);
+            terrain = terrain with
+            {
+                CpuGeometry = PreparedTerrainGeometryCatalogue.Prepare(terrain.Terrain.Terrain, terrain.Terrain.Height, token)
+            };
             string sceneDirectory = Path.Combine(generationDirectory, configuration.Archive, scene.FileId.ToString("X8"));
             var primaryModels = D3D11CityGateStaticResources.Prepare(repository, terrain.Scene,
                 Path.Combine(sceneDirectory, "primary-model-media"), token);

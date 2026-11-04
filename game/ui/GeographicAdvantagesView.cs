@@ -56,7 +56,7 @@ internal partial class GeographicAdvantagesView : Control
         foreach(int index in new[]{4,8})
         {
             float x=nodes[index].HeaderValues[0],y=nodes[index].HeaderValues[1];
-            foreach(var track in enter.Tracks.Where(t=>t.NodeId==index))
+            foreach(var track in enter.Tracks.Where(t=>t.NodeId==index&&t.Curve.Keys.Count>0))
             {if(track.Channel==0)x=(float)track.Curve.Sample(enter.EndFrame);if(track.Channel==1)y=(float)track.Curve.Sample(enter.EndFrame);}
             geometry[index]=new(Offset:new(x,-y));
         }

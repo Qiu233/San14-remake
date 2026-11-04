@@ -32,57 +32,96 @@ public static partial class PersonReturnCommands
         foreach (var task in owner.Returns.Values)
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot ?? -1);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Identity));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Disappearances?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Identity));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Talents?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)(current.ReadPersonIdentity(
-                current.ResolveOfficerSource(id) ?? throw Missing("talent member source")) ?? throw Missing("talent member identity"))).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Talent));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Diplomacies?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Identity));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Strategies?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)Get(
-                current.ReadPersonIdentity(current.ResolveOfficerSource(id) ?? throw Missing("strategic member source")),
-                "strategic member identity")).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Strategic));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Independences?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)Get(
-                current.ReadPersonIdentity(current.ResolveOfficerSource(id) ?? throw Missing("independence member source")),
-                "independence member identity")).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Independence));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Caravans?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Identity));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         foreach (var task in owner.Intelligences?.Values.AsEnumerable() ?? [])
         {
             current.SetLinkedEntityRawState58(task.Id, task.DispatchSlot);
-            current.SetLinkedEntityMemberIds(task.Id, task.MemberIds.Select(id => (uint?)id).ToArray());
+            current.SetLinkedEntityMemberIds(task.Id, SavedLinkedEntityMembers(current, task.MemberIds, SavedLinkedMemberKind.Identity));
             current.SetAssociatedPayloadPostLoadCallback(task.Id, PostLoadCallback.NoOp);
         }
         current.BindOwnedPersonCommandTree(owner.DispatchOrder().ToDictionary(task => task.Slot, task => task.Id));
+    }
+
+    private enum SavedLinkedMemberKind { Identity, Talent, Strategic, Independence }
+    private readonly record struct SavedLinkedEntityInput(int State58, int[]? Members, SavedLinkedMemberKind MemberKind);
+
+    // Resolve only the encountered opaque identity. Reverse binder order keeps
+    // the existing last-writer precedence if command dictionaries alias a key.
+    private static SavedLinkedEntityInput? ReadSavedLinkedEntityInput(PersonnelCommandTasks? owner, int identity)
+    {
+        if (owner is null) return null;
+        if (owner.Intelligences?.TryGetValue(identity, out var intelligence) == true)
+            return new(intelligence.DispatchSlot, intelligence.MemberIds, SavedLinkedMemberKind.Identity);
+        if (owner.Caravans?.TryGetValue(identity, out var caravan) == true)
+            return new(caravan.DispatchSlot, caravan.MemberIds, SavedLinkedMemberKind.Identity);
+        if (owner.Independences?.TryGetValue(identity, out var independence) == true)
+            return new(independence.DispatchSlot, independence.MemberIds, SavedLinkedMemberKind.Independence);
+        if (owner.Strategies?.TryGetValue(identity, out var strategic) == true)
+            return new(strategic.DispatchSlot, strategic.MemberIds, SavedLinkedMemberKind.Strategic);
+        if (owner.Diplomacies?.TryGetValue(identity, out var diplomacy) == true)
+            return new(diplomacy.DispatchSlot, diplomacy.MemberIds, SavedLinkedMemberKind.Identity);
+        if (owner.Talents?.TryGetValue(identity, out var talent) == true)
+            return new(talent.DispatchSlot, talent.MemberIds, SavedLinkedMemberKind.Talent);
+        if (owner.Disappearances?.TryGetValue(identity, out var disappearance) == true)
+            return new(disappearance.DispatchSlot, disappearance.MemberIds, SavedLinkedMemberKind.Identity);
+        if (owner.Returns.TryGetValue(identity, out var returning))
+            return new(returning.DispatchSlot ?? -1, returning.MemberIds, SavedLinkedMemberKind.Identity);
+        return null;
+    }
+
+    internal static int? ReadSavedLinkedEntityState58(PersonnelCommandTasks? owner, int identity) =>
+        ReadSavedLinkedEntityInput(owner, identity)?.State58;
+
+    internal static IReadOnlyList<uint?>? ReadSavedLinkedEntityMembers(PersonnelCommandTasks? owner,
+        int identity, SourceWorldContext current) => ReadSavedLinkedEntityInput(owner, identity) is { } input
+            ? SavedLinkedEntityMembers(current, input.Members, input.MemberKind) : null;
+
+    private static uint?[]? SavedLinkedEntityMembers(SourceWorldContext current, int[]? members, SavedLinkedMemberKind kind)
+    {
+        if (members is null) return null;
+        if (kind == SavedLinkedMemberKind.Identity) return members.Select(id => (uint?)id).ToArray();
+        string name = kind == SavedLinkedMemberKind.Talent ? "talent" :
+            kind == SavedLinkedMemberKind.Strategic ? "strategic" : "independence";
+        return members.Select(id => (uint?)Get(current.ReadPersonIdentity(
+            current.ResolveOfficerSource(id) ?? throw Missing(name + " member source")), name + " member identity")).ToArray();
     }
 
     public static PersonReturnCommandPreparation Prepare(GameState state,
@@ -275,7 +314,13 @@ public static partial class PersonReturnCommands
 public sealed partial class SourceWorldContext
 {
     private PersonnelCommandTasks? _ownedPersonCommandManager;
-    public void SetOwnedPersonCommandManager(PersonnelCommandTasks? manager) => _ownedPersonCommandManager = manager;
+    public void SetOwnedPersonCommandManager(PersonnelCommandTasks? manager)
+    {
+        // Any explicit lifecycle binding retires the borrowed map inputs,
+        // including a bind to unknown. Clearing the owner cannot revive them.
+        _readOnlyPersonLinkedEntityInputs = null;
+        _ownedPersonCommandManager = manager;
+    }
     public PersonnelCommandTasks? ReadOwnedPersonCommandManager() => _ownedPersonCommandManager;
     internal bool AppendPersonReturnTemporary(HexListHandle descriptor, int physical)
     {

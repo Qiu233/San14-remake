@@ -96,7 +96,7 @@ internal partial class DeploymentTargetConfirmation : Control
     }
 
     internal void ConfigureGameMessage(GameResourceRepository repository, PreviewText text,
-        int messageId, Action<bool> closed)
+        int messageId, Action<bool> closed, AdministrationPageChrome.Resources? resources = null)
     {
         var record = repository.LoadMessages(text.SourceLocale, MessageKind.Game)
             .Messages.Sections[messageId / 10000].Records[messageId % 10000];
@@ -107,7 +107,7 @@ internal partial class DeploymentTargetConfirmation : Control
             !bytes.AsSpan(0, 3).SequenceEqual(new byte[] { 7, 7, 1 }) ||
             !bytes.AsSpan(bytes.Length - 6).SequenceEqual(new byte[] { 7, 7, 2, 5, 5, 5 }))
             throw new InvalidDataException("Confirmation requires a complete literal message.");
-        ConfigureMessage(repository, text, literal.Text, closed);
+        ConfigureMessage(repository, text, literal.Text, closed, resources);
         SetMeta("message_global_id", messageId);
     }
 

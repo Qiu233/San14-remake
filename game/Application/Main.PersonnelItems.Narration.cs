@@ -88,7 +88,8 @@ public partial class Main
                 AddChild(view);
                 view.Configure(_repository,_ui,executorSpeaking?conversation.ExecutorNameAtSource:conversation.TargetNameAtSource,
                     line.TextAtSource,layers,Completed,()=>_preferences.AutomaticMessageAdvance,
-                    ()=>IsPersonnelItemNarrationCurrent(owner)&&CanAdvanceNarration);
+                    ()=>IsPersonnelItemNarrationCurrent(owner)&&CanAdvanceNarration,
+                    resources:TryBorrowApplicationUiResources(view));
                 view.Name="PersonnelItemTransferNarration";view.ZIndex=95;
                 if(line.Voice is { } voice&&_preferences.Voice.Enabled)
                 { audio.PlayPersonnelNarrationVoice(voice);owner.OwnsVoice=true; }

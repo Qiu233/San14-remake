@@ -1,3 +1,5 @@
+using San14.Core;
+
 namespace San14.Data;
 
 public sealed record PersonRoleAndPositionResult(bool LostForceWritten,
@@ -15,6 +17,13 @@ public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPe
     private IReadOnlyList<PersonLinkedEntityReference?>? _personLinkedEntities;
     private readonly Dictionary<int, int?> _linkedEntityStates = [];
     private readonly Dictionary<int, IReadOnlyList<uint?>?> _linkedEntityMembers = [];
+    // A retained map current borrows its exact saved command inputs. This is
+    // not a lifecycle owner: no manager, tree, chain or callbacks are installed.
+    private PersonnelCommandTasks? _readOnlyPersonLinkedEntityInputs;
+    internal void BindReadOnlyPersonLinkedEntityInputs(PersonnelCommandTasks? owner) =>
+        _readOnlyPersonLinkedEntityInputs = owner;
+    internal PersonnelCommandTasks? ReadPersonLinkedEntityCommandInputs() =>
+        ReadOwnedPersonCommandManager() ?? _readOnlyPersonLinkedEntityInputs;
 
     /// <summary>Contiguous A/B/C-E position stages, after their original preceding person normalization.</summary>
     public PersonRoleAndPositionResult RepairPersonRoleAndLocations(int physicalSlot)
@@ -73,7 +82,11 @@ public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPe
     {
         ArgumentNullException.ThrowIfNull(reference);
         if (!reference.Identity.HasValue) return false;
-        int? state = _linkedEntityStates.GetValueOrDefault(LinkedIdentity(reference));
+        int identity = LinkedIdentity(reference);
+        // An explicit current entry, including an explicit unknown, wins.
+        int? state = _linkedEntityStates.TryGetValue(identity, out int? value) ? value :
+            ReadOwnedPersonCommandManager() is null
+                ? PersonReturnCommands.ReadSavedLinkedEntityState58(_readOnlyPersonLinkedEntityInputs, identity) : null;
         return state.HasValue ? state.Value != -1 : null;
     }
     public void SetLinkedEntityMemberIds(int identity, IReadOnlyList<uint?>? values)
@@ -83,11 +96,14 @@ public sealed partial class SourceWorldContext : IPersonPositionRepairState, IPe
     }
     public IReadOnlyList<uint?>? ReadLinkedEntityMemberIds(PersonLinkedEntityReference reference)
     {
-        IReadOnlyList<uint?>? values = _linkedEntityMembers.GetValueOrDefault(LinkedIdentity(reference));
+        int identity = LinkedIdentity(reference);
+        IReadOnlyList<uint?>? values = _linkedEntityMembers.TryGetValue(identity, out var value) ? value :
+            ReadOwnedPersonCommandManager() is null
+                ? PersonReturnCommands.ReadSavedLinkedEntityMembers(_readOnlyPersonLinkedEntityInputs, identity, this) : null;
         return values is null ? null : Array.AsReadOnly(values.ToArray());
     }
     public PersonLinkedEntityReference? ReadPersonLinkedEntity(int physicalSlot) =>
-        ReadOwnedPersonCommandManager() is { Disappearances: null } ? null : PersonLinkedEntityLookup.Find(physicalSlot, this);
+        ReadPersonLinkedEntityCommandInputs() is { Disappearances: null } ? null : PersonLinkedEntityLookup.Find(physicalSlot, this);
     private static int LinkedIdentity(PersonLinkedEntityReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);

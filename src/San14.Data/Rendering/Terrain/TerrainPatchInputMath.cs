@@ -80,8 +80,16 @@ public static class TerrainPatchInputMath
             for (int col = 0; col < gridSize - 1; col++)
             {
                 int a = row * gridSize + col, b = a + 1, c = a + gridSize, d = c + 1;
-                int[] six = ((row + col) & 1) == 0 ? [a, d, b, a, c, d] : [a, c, b, c, d, b];
-                foreach (int index in six) indices[next++] = (ushort)index;
+                if (((row + col) & 1) == 0)
+                {
+                    indices[next++] = (ushort)a; indices[next++] = (ushort)d; indices[next++] = (ushort)b;
+                    indices[next++] = (ushort)a; indices[next++] = (ushort)c; indices[next++] = (ushort)d;
+                }
+                else
+                {
+                    indices[next++] = (ushort)a; indices[next++] = (ushort)c; indices[next++] = (ushort)b;
+                    indices[next++] = (ushort)c; indices[next++] = (ushort)d; indices[next++] = (ushort)b;
+                }
             }
         return indices;
     }
@@ -102,7 +110,7 @@ public static class TerrainPatchInputMath
         return bytes;
     }
 
-    private static void ValidateGrid(int n)
+    internal static void ValidateGrid(int n)
     {
         if (n < 2 || (long)n * n > ushort.MaxValue + 1L)
             throw new InvalidDataException("Original patch grid cannot be encoded by the u16 index stream.");

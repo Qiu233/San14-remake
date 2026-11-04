@@ -120,6 +120,8 @@ struct RenderHost {
     std::function<void(const std::uint8_t*,std::uint32_t)> configureEffectLighting;
     AnimationState animationState;
     std::function<std::vector<ArmyLabelUnitPosition>()> armyUnitPositions;
+    std::function<std::vector<ArmyTargetReactionReceipt>()> armyTargetReactionReceipts;
+    std::function<std::vector<ArmyViewRetirementReceipt>()> armyViewRetirementReceipts;
 };
 // Callbacks capture retained session owners. Detach them before a closed or
 // failed session leaves a host with references into its destroyed frame.
@@ -129,7 +131,7 @@ public:
     ~RenderCallbackScope() {
         host.animationUpdate={};
         host.submitScenePrefix={};
-        host.armyUnitPositions={};
+        host.armyUnitPositions={};host.armyTargetReactionReceipts={};host.armyViewRetirementReceipts={};
         host.replaceSeasonResources={};
         host.replaceRoutes={};
         host.replaceCurrentEffects={};host.retireEffectOwner={};

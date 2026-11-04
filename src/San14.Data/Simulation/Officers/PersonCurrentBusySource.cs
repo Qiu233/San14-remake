@@ -14,7 +14,7 @@ internal static class PersonCurrentBusySource
         // Preserve the existing legacy Disappearances:null knowledge gate.
         var linked = current.ReadPersonLinkedEntity(physical) ?? throw missing("associated22AC00");
         if (!K(current.ReadLinkedEntityNativeValidity(linked), "associated_validity")) return false;
-        var commands = current.ReadOwnedPersonCommandManager();
+        var commands = current.ReadPersonLinkedEntityCommandInputs();
         if (linked.Identity is int id)
         {
             if (commands?.Returns.ContainsKey(id) == true) return false; // v98=1 or15.

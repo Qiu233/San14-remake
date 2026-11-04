@@ -213,7 +213,7 @@ public partial class Main
             {
                 if (!IsPersonalityEditorsCurrent || _personalityEditorQuestion != view) return;
                 _personalityEditorQuestion = null; view.Abandon(); view.QueueFree(); if (confirmed) yes();
-            }));
+            }), resources: TryBorrowApplicationUiResources(view));
             view.SetMeta("message_record", id);
         }
         catch { _personalityEditorQuestion = null; view.Abandon(); view.QueueFree(); throw; }
@@ -229,7 +229,8 @@ public partial class Main
                 if (!IsPersonalityEditorsCurrent || _personalityEditorNotice != view) return;
                 _personalityEditorNotice = null; view.Abandon(); view.QueueFree();
                 _personalityEditorMenu!.SetBusy(false); _personalityEditorMenu.Refresh(); closed?.Invoke();
-            }), admitted: () => IsPersonalityEditorsCurrent && _personalityEditorNotice == view);
+            }), admitted: () => IsPersonalityEditorsCurrent && _personalityEditorNotice == view,
+                resources: TryBorrowApplicationUiResources(view));
             view.SetMeta("message_record", id);
         }
         catch { _personalityEditorNotice = null; view.Abandon(); view.QueueFree(); _personalityEditorMenu!.SetBusy(false); throw; }

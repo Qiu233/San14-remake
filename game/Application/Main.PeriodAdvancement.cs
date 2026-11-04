@@ -61,6 +61,7 @@ public partial class Main
     {
         if (!ReferenceEquals(_periodPlayback, owner) || _shuttingDown || _failed || !IsInsideTree()) return;
         if (GodotObject.IsInstanceValid(map)) map!.PublishPeriodPlayback(owner, candidate);
+        if (owner.TargetReactionPresentationOpen || owner.ArmyViewRetirementPresentationOpen || owner.BaseTierPresentationOpen) return;
         if (TryBeginPeriodMenuBorrow(owner, candidate)) return;
         if (TryBeginCampaignHelpBorrow(owner, candidate)) return;
         if (BeginPeriodMapMusic(owner, map, candidate)) return;
@@ -70,6 +71,8 @@ public partial class Main
             candidate = refreshed;
             if (GodotObject.IsInstanceValid(map)) map!.PublishPeriodPlayback(owner, candidate);
         }
+        if (owner.TargetReactionPresentationOpen || owner.ArmyViewRetirementPresentationOpen) return;
+        if (map is not null && TryBeginBaseTierCutscene(candidate, map, owner)) return;
         BeginPeriodOccupationPresentation(owner,map,candidate);
         BeginPeriodDuelPresentation(owner,map,candidate);
         BeginPeriodDuelCaptureAnnouncement(owner,map,candidate);
@@ -134,6 +137,9 @@ public partial class Main
                 candidate => PublishPeriodPlayback(playback!, playbackMap, candidate),
                 () =>
                 {
+                    RetireArmyViewRetirement(playback!);
+                    RetireNormalCombatTargetReactions(playback!);
+                    RetireBaseTierCutscene(playback!);
                     RetirePeriodMapMusic(playback!);
                     RetirePeriodDuelCaptureAnnouncement(playback!);
                     RetirePeriodDuelPresentation(playback!);

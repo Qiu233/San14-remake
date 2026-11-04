@@ -28,6 +28,15 @@ internal sealed partial class MapSystemMenuPreparedResources
         // sources prepare the three bonus icons. Do not load the panel's stub.
         var discovery=assets.SourceLayout(0x04C84E57);
         assets.PrepareLayoutArt(discovery.Source,[1,4,5,6],commonImports:true);
+        // Actual caravan item/book and foreign-weapon bodies share the
+        // report's startup chrome. Node2 is a current image override.
+        foreach(uint file in new uint[]{0xCC79B335,0x5F9F176F})
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var reward=assets.SourceLayout(file);
+            assets.PrepareLayoutArt(reward.Source,reward.Nodes.Where(node=>
+                (node.Type is 1 or 3)&&node.Index!=2).Select(node=>node.Index),commonImports:true);
+        }
         cancellationToken.ThrowIfCancellationRequested();
     }
 }

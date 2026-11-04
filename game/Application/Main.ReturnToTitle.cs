@@ -42,6 +42,10 @@ public partial class Main
             if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _failed || _shuttingDown ||
                 !ReferenceEquals(_session, session) || !ReferenceEquals(_campaignApplication, application)) return;
 
+            RetireBaseTierCutscene();
+            await DrainBaseTierMovieRetirementsAsync();
+            if (!GodotObject.IsInstanceValid(this) || !IsInsideTree() || _failed || _shuttingDown ||
+                !ReferenceEquals(_session, session) || !ReferenceEquals(_campaignApplication, application)) return;
             RetireTutorialLessonForReturn();
             ResetMilitaryDeploymentComposition();
             LeaveSceneAudioContext();

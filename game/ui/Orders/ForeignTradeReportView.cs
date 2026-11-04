@@ -7,6 +7,7 @@ internal partial class ForeignTradeReportView : Control
 {
     private GameResourceRepository repository=null!;
     private PreviewText text=null!;
+    private AdministrationPageChrome.Resources? resources;
     private ForeignTradeReturnReportPublication publication=null!;
     private LocalizedUiSpriteSource sprites=null!;
     private Func<bool>? admitted;
@@ -25,9 +26,11 @@ internal partial class ForeignTradeReportView : Control
 
     internal void Configure(GameResourceRepository repository,PreviewText text,
         ForeignTradeReturnReportPublication publication,Func<bool> admitted,
-        Func<AutomaticMessageAdvanceMode> automatic,Func<ForeignTradeReportStep,Control> rewardPanel,Action completed)
+        Func<AutomaticMessageAdvanceMode> automatic,Func<ForeignTradeReportStep,Control> rewardPanel,Action completed,
+        AdministrationPageChrome.Resources? resources=null)
     {
         this.repository=repository;this.text=text;this.publication=publication;this.admitted=admitted;
+        this.resources=resources;
         this.automatic=automatic;this.completed=completed;this.rewardPanel=rewardPanel;
         sprites=new(repository);Name="ForeignTradeReturnReport";ZIndex=20;MouseFilter=MouseFilterEnum.Stop;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);PresentStep();
@@ -64,8 +67,8 @@ internal partial class ForeignTradeReportView : Control
         if(step.Kind==ForeignTradeReportStepKind.Speech)
             page.ConfigureRecruitConversation(repository,text,step.SpeakerName,step.Text,
                 actors.GetValueOrDefault(3)??[],actors.GetValueOrDefault(4)??[],step.SpeakerChannel==3,
-                Consumed,automatic,ReadAdmission);
-        else page.ConfigureAnnouncement(repository,text,step.Text,Consumed,automatic,ReadAdmission);
+                Consumed,automatic,ReadAdmission,resources:resources);
+        else page.ConfigureAnnouncement(repository,text,step.Text,Consumed,automatic,ReadAdmission,resources:resources);
         SetMeta("source_message",step.MessageId);
         SetMeta("source_report_task",publication.TaskId);
 

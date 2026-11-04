@@ -130,13 +130,27 @@ public partial class Main
     private void ShowItemEditorNoticeText(int id,string message,Action? completed=null)
     {
         if(_repository is null||!IsItemEditorsCurrent||_itemEditorNotice is not null)return;
-        var view=new DeploymentNarrationView();_itemEditorNotice=view;AddChild(view);_itemEditorMenu!.SetBusy(true);
-        view.ConfigureAnnouncement(_repository,_ui,message,()=>RunUiAction(()=>
+        var menu=_itemEditorMenu!;
+        var view=new DeploymentNarrationView();_itemEditorNotice=view;AddChild(view);menu.SetBusy(true);
+        try
         {
-            if(!IsItemEditorsCurrent||_itemEditorNotice!=view)return;
-            _itemEditorNotice=null;view.Abandon();view.QueueFree();_itemEditorMenu!.SetBusy(false);_itemEditorMenu.Refresh();
-            completed?.Invoke();
-        }),admitted:()=>IsItemEditorsCurrent&&_itemEditorNotice==view);
-        view.SetMeta("message_record",id);
+            view.ConfigureAnnouncement(_repository,_ui,message,()=>RunUiAction(()=>
+            {
+                if(!IsItemEditorsCurrent||_itemEditorNotice!=view)return;
+                _itemEditorNotice=null;view.Abandon();view.QueueFree();_itemEditorMenu!.SetBusy(false);_itemEditorMenu.Refresh();
+                completed?.Invoke();
+            }),admitted:()=>IsItemEditorsCurrent&&_itemEditorNotice==view,
+                resources:TryBorrowApplicationUiResources(view));
+            view.SetMeta("message_record",id);
+        }
+        catch
+        {
+            if(_itemEditorNotice==view)
+            {
+                _itemEditorNotice=null;
+                if(_itemEditorMenu==menu&&GodotObject.IsInstanceValid(menu))menu.SetBusy(false);
+            }
+            view.Abandon();view.QueueFree();throw;
+        }
     }
 }
